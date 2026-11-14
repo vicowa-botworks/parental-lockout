@@ -3516,6 +3516,284 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ------------------------------------- the run directory holds a stream, not a verdict (#351)
+
+# `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name. Until
+# #351 that file was `worktree-error.<pid>` and only the FAILURE arm deleted it, so every tick that
+# GOT its tree left a zero-byte file whose name asserts a failure. Measured at 00:54Z on 14 Nov:
+# four of them in `factory/run/` (`worktree-error.{3101739,3420682,4010611,747393}`, all 0 bytes,
+# stamped 22:03, 22:59, 23:31 and 00:22Z -- the last four ticks), while
+# `grep -c 'no worktree' factory/log/supervisor.log` answers 0: the failure the name reports has
+# never once been journaled on this machine. Two separate reads of that directory, days apart,
+# concluded the supervisor cannot build trees at all and the queue is stalled.
+
+# So the stream is `worktree-stderr.<pid>`, both paths delete it, and the sweep keeps matching the
+# retired name so files written before this change do not become permanent for lack of anything that
+# looks for them. Both halves of the fix are in the supervisor, so the pin runs the supervisor as a
+# process over the fixture rather than reading the arm.
+
+# Every count here is over the glob `worktree-*`, not one name. What a reader does at 3 a.m. is count
+# that glob and call the number `failed ticks`; a leg that grepped the new name alone would go green
+# on a rename that put the alarm right back.
+
+# Markers in the run directory of the scenario built last -- one name per line, sorted.
+proc_markers() {
+	find "$proc_rundir" -maxdepth 1 -name 'worktree-*' -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+}
+
+# One per line, indented, for a failure message. Through sed rather than an unquoted printf
+# argument, which is the same split without asking shellcheck to forgive it.
+proc_markers_indented() {
+	proc_markers | sed 's/^/                /'
+}
+
+proc_no_markers() { # <which pass> -- a pass that should have left nothing behind
+	local got count
+	got=$(proc_markers)
+	count=$(printf '%s\n' "$got" | grep -c . || true)
+	[ -z "$got" ] || {
+		printf '            %s left %s file(s) in the run directory, each named after a verdict\n' "$1" "$count" >&2
+		printf '            it did not earn. A reader counts these and calls the count "failed\n' >&2
+		printf '            ticks"; the directory holds:\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	return 0
+}
+
+proc_marker_present() { # <which pass> <name> -- the sweep has to SPARE a file as well as take one
+	proc_markers | grep -qxF -- "$2" || {
+		printf '            %s: %s is gone. The sweep took a file it was told to spare -- anything\n' "$1" "$2" >&2
+		printf '            younger than the bound could belong to a supervisor running right now.\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	return 0
+}
+
+proc_marker_absent() { # <which pass> <name> <why it had to go>
+	if proc_markers | grep -qxF -- "$2"; then
+		printf '            %s: %s survived, and %s. The directory holds:\n' "$1" "$2" "$3" >&2
+		proc_markers_indented >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_took_tree() { # <journal> <rc> -- the success path ran, so a marker count means what it claims
+	local line
+	[ "$2" = 0 ] || {
+		printf '            the pass exited %s rather than 0, so its run directory says nothing about\n' "$2" >&2
+		printf '            a tick that got its tree. Its journal:\n' >&2
+		sed 's/^/              /' "$1" | cut -c1-150 >&2
+		return 1
+	}
+	line=$(proc_journal_line "$1" 'TICK-START unclaimed:900')
+	[ -n "$line" ] || {
+		printf '            unit A was never ticked, so no tree was asked for and no stream file was\n' >&2
+		printf '            opened: a marker count over an untouched run directory would pass for the\n' >&2
+		printf '            wrong reason. The journal:\n' >&2
+		sed 's/^/              /' "$1" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*' tree='*) return 0 ;;
+	*) printf '            TICK-START carries no tree= field, so this pass did not take a tree:\n' >&2
+	printf '              %s\n' "$line" >&2
+	return 1 ;;
+esac
+}
+
+# proc_mutate_last <needle> -> the fixture's factory.sh with the LAST line carrying needle replaced
+# by $PROC_MUT_LINE (empty deletes it). The neighbour below, proc_mutate_factory, refuses any anchor
+# that does not occur exactly once -- the right rule, and unusable here, because both arms of the same
+# `if` carry the same `rm -f -- "$werr"` sentence. A helper that took the FIRST match would control the
+# failure path while claiming to blind the success path, so this one takes the last and says so.
+# PROC_MUT_LINE arrives from the caller as a command prefix and awk reads it out of ENVIRON, because
+# awk's -v would eat the backslashes in a replacement line. Every refusal below is the same rule: a
+# dead mutant is not a guilty one, so a control that cannot be planted has to be loud.
+proc_mutate_last() { # <needle>
+	local needle=$1 hits
+	hits=$(grep -cF -- "$needle" "$HERE/factory.sh" || true)
+	[ "$hits" -ge 1 ] || {
+		printf '            nothing in factory/factory.sh carries %s, so this control ran shipped\n' "$needle" >&2
+		printf '            code while reporting a mutation.\n' >&2
+		return 1
+	}
+	if ! awk -v n="$hits" -v needle="$needle" '
+		{
+			if (index($0, needle) && ++seen == n) {
+				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
+				next
+			}
+			print
+		}' "$HERE/factory.sh" >"$proc_dir/factory.sh"; then
+		printf '            the mutant could not be written at all: the pass would have run shipped code\n' >&2
+		printf '            or none. A dead mutant is not a guilty one.\n' >&2
+		return 1
+	fi
+	[ -s "$proc_dir/factory.sh" ] || {
+		printf '            the mutant is empty: a dead mutant, not a guilty one.\n' >&2
+		return 1
+	}
+	if [ -n "${PROC_MUT_LINE:-}" ]; then
+		grep -qF -- "$PROC_MUT_LINE" "$proc_dir/factory.sh" || {
+			printf '            the mutant line is not in the copy, so the control ran shipped code:\n' >&2
+			printf '              %s\n' "$PROC_MUT_LINE" >&2
+			return 1
+		}
+	fi
+	bash -n "$proc_dir/factory.sh" || {
+		printf '            the mutant does not parse: the pass would die before it journalled a row,\n' >&2
+		printf '            and the control would read as the effect it claims to test.\n' >&2
+		return 1
+	}
+	cmp -s "$HERE/factory.sh" "$proc_dir/factory.sh" && {
+		printf '            the mutant is byte-identical to the shipped file, so this control\n' >&2
+		printf '            measured nothing.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+# Scenario one: the tick that gets its tree -- the path that used to leave the alarm behind.
+proc_new marker-success
+proc_plant
+proc_run marker-success-1
+proc_ms_j=$proc_journal
+proc_ms_rc=$proc_rc
+
+proc_leg 'a tick that got a tree' 'TICK-START names the tree, so the success path is what ran' \
+	proc_took_tree "$proc_ms_j" "$proc_ms_rc"
+proc_leg 'leaves no marker behind' 'a pass that got its tree holds no worktree-* file when it finishes' \
+	proc_no_markers 'a pass that got its tree'
+
+# Scenario two: the tick that does not. `factory_worktree` refuses a branch it finds checked out in a
+# tree it does not own, with a sentence of its own -- and it can only read that sentence before
+# deleting the file, which is what the reason in the journal proves.
+proc_new marker-refused
+git -C "$proc_repo" worktree add -q -b issue-900 "$proc_work/elsewhere" origin/main || true
+proc_run marker-refused-1
+proc_mf_j=$proc_journal
+
+proc_mf_refused_by_name() {
+	local line
+	line=$(proc_journal_line "$proc_mf_j" 'no worktree for issue-900 ::')
+	[ -n "$line" ] || {
+		printf '            the pass never journaled a refusal for issue-900, so nothing below is a\n' >&2
+		printf '            verdict on the path that reads the stream. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_mf_j" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'checked out in'*) return 0 ;;
+	*) printf '            the refusal did not carry the sentence the stream held, so the file was\n' >&2
+	printf '            deleted before it was read, or never read:\n              %s\n' "$line" >&2
+	return 1 ;;
+esac
+}
+
+proc_mf_no_placeholder() {
+	if [ -n "$(proc_journal_line "$proc_mf_j" 'common.sh gave no reason')" ]; then
+		printf '            the refusal printed the fallback, which is what an empty or unreadable\n' >&2
+		printf '            stream produces: the read is the thing this leg is for.\n' >&2
+		sed 's/^/              /' "$proc_mf_j" | cut -c1-150 >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_leg 'a refusal journals why' 'the reason came out of the stderr file and into the journal line' \
+	proc_mf_refused_by_name
+proc_leg 'not from the fallback' 'the placeholder is absent, so the stream was read and was not empty' \
+	proc_mf_no_placeholder
+proc_leg 'and the refusal cleans up' 'the failure arm still deletes the stream, after reading it' \
+	proc_no_markers 'a tick that was refused its tree'
+
+# Scenario three: the sweep. It exists for a tick killed between the write and the delete, and it has
+# to tell three planted files apart: the retired name past the bound (goes), the new name past the
+# bound (goes), and anything inside the bound (stays, because a live supervisor may be writing it).
+proc_new marker-sweep
+proc_plant
+: >"$proc_rundir/worktree-error.400001"
+: >"$proc_rundir/worktree-stderr.400002"
+: >"$proc_rundir/worktree-error.400003"
+touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001" "$proc_rundir/worktree-stderr.400002"
+proc_run marker-sweep-1
+
+proc_leg 'the sweep takes old names' 'a worktree-error. file past the bound goes, though nothing writes that name now' \
+	proc_marker_absent 'the sweep pass' 'worktree-error.400001' \
+	'a file nothing writes any more must not outlive the sweep that was its only cleaner'
+proc_leg 'and it takes the stream' 'a worktree-stderr. file past the bound goes too: the killed tick is what this sweep is for' \
+	proc_marker_absent 'the sweep pass' 'worktree-stderr.400002' \
+	'a tick killed between the write and the delete leaves exactly this file'
+proc_leg 'and spares what is fresh' 'a marker under the bound survives, because a supervisor may be writing it right now' \
+	proc_marker_present 'the sweep pass' 'worktree-error.400003'
+
+# ---------------------------------------------------------------------- the two controls
+#
+# Control one deletes the success-path delete. If the leg above still passes with that line gone it
+# was never watching the line. A control that cannot be planted is reported by the leg, not swallowed:
+# `|| true` would silence a dead mutant, which is the false pass this file keeps chasing.
+proc_new marker-ctl-delete
+PROC_MUT_LINE='	: # MUTANT-351 the success-path delete is gone' \
+	proc_mutate_last 'rm -f -- "$werr"' || proc_ctl_delete_planted=0
+proc_plant
+proc_run marker-ctl-delete-1
+proc_cd_j=$proc_journal
+proc_cd_rc=$proc_rc
+
+proc_ctl_one_marker() {
+	local got count
+	[ "${proc_ctl_delete_planted:-1}" != 0 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code and its\n' >&2
+		printf '            silence proves nothing about the delete it was meant to remove.\n' >&2
+		return 1
+	}
+	got=$(proc_markers)
+	count=$(printf '%s\n' "$got" | grep -c . || true)
+	[ "$count" = 1 ] || {
+		printf '            with the success-path delete removed the pass left %s file(s), not the one\n' "$count" >&2
+		printf '            that line accounts for, so the shipped leg above was not counting this\n' >&2
+		printf '            file. The directory holds:\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	case "$got" in
+	worktree-stderr.*) return 0 ;;
+	*) printf '            the surviving marker is %s, not worktree-stderr.<pid>, so what the\n' "$got" >&2
+	printf '            control left behind is not the file the shipped path writes.\n' >&2
+	return 1 ;;
+esac
+}
+
+proc_leg 'the control still ticks' 'the mutant pass took its tree, so the marker below has an owner' \
+	proc_took_tree "$proc_cd_j" "$proc_cd_rc"
+proc_leg 'the delete is what cleaned it' 'blinding the success-path rm leaves exactly one worktree-stderr file standing' \
+	proc_ctl_one_marker
+
+# Control two takes the retired name out of the sweep's pattern. Same shape: the leg that reads the
+# shipped file is only worth anything if removing the term it depends on brings the file back.
+proc_new marker-ctl-legacy
+PROC_MUT_LINE='	find "$FACTORY_RUN" -maxdepth 1 \( -name "worktree-stderr.*" \) -mmin +180 -delete 2>/dev/null || true # MUTANT-351' \
+	proc_mutate_last "-o -name 'worktree-error.*'" || proc_ctl_legacy_planted=0
+proc_plant
+: >"$proc_rundir/worktree-error.400001"
+touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001"
+proc_run marker-ctl-legacy-1
+
+proc_ctl_legacy_blinded() {
+	[ "${proc_ctl_legacy_planted:-1}" != 0 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code: the file\n' >&2
+		printf '            it reports as spared was spared by the sweep it was meant to blind.\n' >&2
+		return 1
+	}
+	proc_marker_present 'the blinded sweep' 'worktree-error.400001'
+}
+
+proc_leg 'the retired name is the sweep' 'blinding the -o term leaves the old worktree-error file standing' \
+	proc_ctl_legacy_blinded
+
 # ---------------------------------------------------- queue order ranks the OLDER unit first (#307)
 #
 # Every leg above reads the shipped fixture, where both units are stamped in the same pass and the
@@ -8180,6 +8458,16 @@ branch_err_has() { # branch_err_has <needle> -- the tally sentences, which are n
 		return 1
 	fi
 }
+# shellcheck disable=SC2317  # reached only as the predicate argument of claim_leg, which is how every
+#                             # leg in this file runs; the disable is on the new helper alone because the
+#                             # others are each also called directly from a control body
+branch_err_lacks() { # branch_err_lacks <needle> -- a sentence that prints its own format is the bug
+	if grep -qF -- "$1" "$branch_err"; then
+		printf '            stderr says %s, which no sentence here is meant to print; it said:\n' "$1" >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
 branch_rows_are() { # branch_rows_are <n> -- the whole branch half, so a stray row cannot hide
 	local n
 	n=$(awk -F'\t' '$1 == "branch"' "$branch_rows_file" | wc -l | tr -d '[:space:]')
@@ -8200,9 +8488,18 @@ claim_leg '…nor the one that merged the trunk in' branch_no_row br-merge-empty
 claim_leg '…and only what has content prints' branch_rows_are 3
 claim_leg 'the skip is said out loud, not silently' branch_err_has 'hold no content the trunk lacks'
 claim_leg '…naming both branches it dropped' branch_err_has 'br-empty br-merge-empty'
+# The two fragments above survive the bug #329 measures, which is why they were green while stderr read
+# `triage: offered: %s\n branch(es) …`. Each sentence is asserted whole, so a format split across a
+# continuation line -- where the next line's indentation is a field separator, not a join -- reddens.
+claim_leg '…as one sentence, not its own format string' branch_err_has \
+	'triage: 2 branch(es) ahead of main hold no content the trunk lacks, so none is offered: br-empty br-merge-empty'
+claim_leg '…and no format slot reaches an operator' branch_err_lacks '%s'
+claim_leg '…nor an escaped n standing where a newline was meant' branch_err_lacks '\n'
 claim_leg 'an unrelated history is still offered' branch_class_is br-nobase branch_without_pr
 claim_leg '…marked as content not compared' branch_detail_has br-nobase 'content not comparable to main'
 claim_leg '…and the failed read is reported' branch_err_has 'no merge base with main'
+claim_leg '…whole, not re-applied from a split format' branch_err_has \
+	'triage: 1 branch(es) ahead of main have no merge base with main, so their content could not be compared; they are still offered, unverified: br-nobase'
 
 # One `sed` on the shipped file, run through the same runner. A mutation that changes no byte is
 # refused: it would report the bug as reproduced without having reproduced anything.
@@ -8278,6 +8575,24 @@ branch_control_tip_not_base() {
 	branch_class_is br-empty branch_without_pr && branch_detail_has br-empty '1 file(s)'
 }
 claim_leg 'control: asked of the tip, the empty branch is back' branch_control_tip_not_base
+# Control 5: the bug #329 measured on `origin/main`, applied back to the shipped file as the bytes that
+# shipped. A literal closed immediately before `\<newline>` with the rest of the sentence on an indented
+# line is TWO words: the shell deletes the continuation and what is left between the literals is the
+# indentation, a field separator. So printf gets a format that ends mid-sentence with no `\n` and its
+# first argument is the literal `offered: %s\n`, which POSIX printf re-applies once per remaining
+# argument -- three lines, the first of them its own format string. `bash -n` and shellcheck both pass
+# it, and the fragment needles above survive it, which is exactly why this control is the leg that works.
+branch_control_split_format() {
+	branch_mutate "s@so none is offered: %s\\\\n' \\\\@so none is '\\\\\\n\\t\\t\\t'offered: %s\\\\n' \\\\@" ||
+		return 1
+	if branch_err_has 'triage: 2 branch(es) ahead of main hold no content the trunk lacks, so none is offered: br-empty br-merge-empty'; then
+		printf '            the sentence came out whole, so the split never took effect and this\n' >&2
+		printf '            control cannot see the bug it is named for\n' >&2
+		return 1
+	fi
+	branch_err_has '%s'
+}
+claim_leg 'control: a format continued onto an indent prints itself' branch_control_split_format
 
 # ------------------ a merged pull request's leftover ref is reported, not dropped (#291, ask 2)
 #
@@ -8371,6 +8686,19 @@ git -C "$branch_repo" checkout -q main
 git -C "$branch_repo" merge -q --no-edit br-many
 git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
 git -C "$branch_repo" checkout -q main
+
+branch_rows_count() { awk -F'\t' '$1 == "branch"' "$branch_rows_file" | wc -l | tr -d '[:space:]'; }
+branch_rows_delta_is() { # branch_rows_delta_is <n> -- this block's rows, against its own baseline
+	local got want
+	got=$(branch_rows_count)
+	want=$((branch_rows_before + $1))
+	[ "$got" = "$want" ] || {
+		printf '            %s branch rows, expected %s (%s at the baseline plus %s):\n' \
+			"$got" "$want" "$branch_rows_before" "$1" >&2
+		branch_rows_printed
+		return 1
+	}
+}
 
 branch_err_lacks() { # branch_err_lacks <needle> -- one pass may say one thing about one ref
 	if grep -qF -- "$1" "$branch_err"; then
@@ -8479,6 +8807,293 @@ proc_leg '…and starts no session for it' \
 proc_leg '…and closes nothing on the strength of a ref' \
 	'the fixture gh recorded no close, merge, edit, review or comment' proc_wrote_nothing
 printf '[]' >"$proc_fix/pr-merged.json"
+
+# --------------------------------------------------- the ref whose content is somebody else's open pull request (#284)
+#
+# The name arm in `factory/factory.sh` refuses a safety copy by how it is spelled, and #284 measured
+# the hole: `backup/*` needs a literal slash, so `backup-tip` was handed a worktree and a model and
+# spent a ceiling re-deriving a change that was already on an open pull request. `factory/triage.sh`
+# now asks the question of the content instead of the name, and these legs are the only place either
+# reading is exercised -- measured on this repository at the time of writing, NO content-bearing ref
+# duplicates an open pull request's head (the closest is two files clear of all five heads), so the
+# live queue cannot reddle a blind reading. Everything the legs conclude, they conclude in a fixture.
+#
+# Three plants, and the difference between them is the whole design:
+#
+#   br-anc   one file. `pr-anc` is this branch plus a commit, so br-anc's tip is an ANCESTOR of the
+#            pull request's head -- the containment reading, the one a plain `git log` would show.
+#   br-pick  the same file with the same bytes from its OWN commit off main. Neither tip contains the
+#            other, and `git cherry` has nothing to say about it; the bytes are what match. This is
+#            `backup-tip`'s shape exactly: pre-rebase originals of commits on another branch.
+#   br-div   the same file name, different bytes. Nothing is duplicated and the ref keeps a plain row.
+#
+# br-div is the leg that matters most: a reading that concluded on file NAMES would refuse it, and the
+# harm it would do is the harm this issue was written about, pointed the wrong way -- a person's real
+# work reported as a copy of someone else's, offered by nobody, in a journal line that sounds certain.
+branch_detail_lacks() { # branch_detail_lacks <branch> <needle>
+	local d
+	# The row has to exist before its absence-of-needle is a finding. Eleven legs in this block passed
+	# as `ok` while the classifier had died and printed no rows at all -- a helper that reads an empty
+	# detail as "does not contain" turns every negative assertion into a reward for a broken fixture.
+	[ -n "$(branch_row_for "$1")" ] || {
+		printf '            %s printed no row, so "its detail lacks %s" would be a verdict about nothing\n' \
+			"$1" "$2" >&2
+		return 1
+	}
+	d=$(branch_row_for "$1" | cut -f4)
+	case "$d" in
+	*"$2"*)
+		printf '            %s detail carries %s, which it must not: %s\n' "$1" "$2" "$d" >&2
+		return 1
+		;;
+	esac
+}
+
+# An open pull request whose head is a branch OF THIS FIXTURE REPOSITORY, so the content question has
+# two real commit graphs to compare. `headRefOid` is read off the ref rather than typed, because a
+# planted oid that does not match the ref would test the reader's tolerance for a stale sha and not
+# the reading itself -- and `install_gh_fields` would refuse the field if it were missing entirely.
+branch_plant_open() { # branch_plant_open <number> <head-ref> [draft]
+	local n=$1 ref=$2 draft=${3:-false} oid
+	oid=$(git -C "$branch_repo" rev-parse --verify -q "${ref}^{commit}") || {
+		printf '            fixture: no commit at %s\n' "$ref" >&2
+		return 1
+	}
+	# `-n` is load-bearing and the failure is invisible without it: `jq '<program>'` with no file
+	# reads STDIN, the suite has no stdin, so it evaluates the program ZERO times, exits 0, and writes
+	# an empty file. The redirect has already truncated the payload by then, so the classifier's next
+	# read gets `[]` from a fixture that was supposed to hold a pull request, `triage.sh` dies on
+	# "gh pr list failed", and every leg in the section reads the empty table as a verdict. Measured:
+	# the first cut of this helper omitted `-n` and eleven legs went red on a working classifier.
+	jq -c -n --argjson n "$n" --arg h "$ref" --arg o "$oid" --argjson d "$draft" \
+		'[{number:$n, title:"fixture: the open pull request", headRefName:$h, isDraft:$d,
+		   reviewDecision:"REVIEW_REQUIRED", mergeable:"MERGEABLE", mergeStateStatus:"BEHIND",
+		   updatedAt:"2026-11-13T00:00:00Z", headRefOid:$o, statusCheckRollup:[]}]' \
+		>"$branch_fix/pr-open.json" || return 1
+	jq -e 'type == "array" and length == 1 and (.[0].headRefOid | length) >= 7' \
+		"$branch_fix/pr-open.json" >/dev/null || {
+		printf '            fixture: the planted payload is not one row with a head commit\n' >&2
+		return 1
+	}
+}
+
+cp "$branch_fix/pr-open.json" "$branch_work/pr-open.none.json"
+# The merged payload is emptied for this block, and the row count below depends on it: the `delivered`
+# sub-section above leaves merged pull requests planted, and a count leg that straddles two sections'
+# payloads is counting whatever the previous section happened to leave. With no merged row in the
+# window, every row this block sees is a `branch_without_pr` row, which is also what makes
+# `branch_rows_are` a statement about this block's plants rather than about the file's history.
+printf '[]' >"$branch_fix/pr-merged.json"
+branch_rows >/dev/null
+branch_rows_before=$(branch_rows_count)
+git -C "$branch_repo" checkout -qb br-anc main
+printf 'content two branches will share\n' >"$branch_repo/anc.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: the content that gets copied'
+git -C "$branch_repo" checkout -qb pr-anc br-anc
+printf 'a second commit, touching nothing of br-anc\n' >"$branch_repo/later.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: the pull request moves on'
+git -C "$branch_repo" checkout -qb br-pick main
+printf 'content two branches will share\n' >"$branch_repo/anc.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: the same bytes, its own commit'
+git -C "$branch_repo" checkout -qb br-div main
+printf 'the same path, different bytes\n' >"$branch_repo/anc.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: a name collision, not a duplicate'
+git -C "$branch_repo" checkout -q main
+
+branch_plant_open 901 pr-anc || claim_leg 'fixture: an open pull request on pr-anc' false
+
+branch_rows >/dev/null
+claim_leg 'a ref inside an open pull request keeps its class' branch_class_is br-anc branch_without_pr
+claim_leg '…and its detail opens with the mark, naming the pull request' \
+	branch_detail_has br-anc "${FACTORY_DUP_MARK}901]"
+claim_leg '…and says which reading concluded it' \
+	branch_detail_has br-anc 'every commit on it is already on that head'
+claim_leg '…while the head of that pull request prints no orphan row' branch_no_row pr-anc
+claim_leg 'a re-cut copy with the same bytes reaches the same conclusion' \
+	branch_detail_has br-pick 'every file it touches holds the same bytes on that head'
+claim_leg '…and it is the BYTE reading that got there, not containment' \
+	branch_detail_lacks br-pick 'every commit on it is already on that head'
+claim_leg 'the same path with different bytes is not a duplicate' \
+	branch_detail_lacks br-div "$FACTORY_DUP_MARK"
+claim_leg '…and it keeps the row a real contribution earns' branch_class_is br-div branch_without_pr
+claim_leg 'a neighbour with its own file is not called a duplicate' \
+	branch_detail_lacks br-work "$FACTORY_DUP_MARK"
+# Not a literal count. This block runs after the `delivered` sub-section, whose plants persist as refs
+# in the same repository, so an absolute number here is a statement about the previous section's
+# leftovers as much as about these three branches -- and it was wrong on the first run for exactly that
+# reason. The baseline is taken with the payload empty and the assertion is about the DELTA: three refs
+# added, three rows appear, nothing else materialises.
+claim_leg 'the three new refs add three rows and nothing else appears' branch_rows_delta_is 3
+
+# A DRAFT head is not an input, and the reason is #285: a pull request titled "reference only, do not
+# merge" was for three days the only record the queue held of #284 and #222. Refusing a ref whose
+# content lives only on such a thing hides the work for as long as the tombstone stands; working it
+# costs one ceiling. Same bytes, same head, `isDraft` true -- the only difference in the fixture is the
+# flag, so the leg measures the flag and nothing else.
+branch_plant_open 901 pr-anc true || claim_leg 'fixture: the same head, as a draft' false
+branch_rows >/dev/null
+claim_leg 'a draft head buys no refusal' branch_detail_lacks br-anc "$FACTORY_DUP_MARK"
+claim_leg '…so the ref is still offered, workable and plain' branch_class_is br-anc branch_without_pr
+claim_leg '…and the draft flag moves the mark, never the row count' branch_rows_delta_is 3
+
+# The bound, on the side that costs something. One head is asked, the matching head is the second in
+# the payload, and the row must say the scan stopped rather than print a verdict that reads complete.
+cp "$branch_work/pr-open.none.json" "$branch_fix/pr-open.json"
+# Two open heads, in the order the bound sees them: the NON-matching one first, so a scan that stops
+# after one head has stopped before the head that would have matched. The order is the leg -- the same
+# payload with the matching head first would print the mark and no limit note, and the leg would be
+# measuring which row `gh` happened to answer first.
+branch_plant_open 902 br-div || claim_leg 'fixture: a head that does not match' false
+jq -c -n --slurpfile b "$branch_fix/pr-open.json" --argjson n 901 \
+	--arg h pr-anc --arg o "$(git -C "$branch_repo" rev-parse --verify -q 'pr-anc^{commit}')" \
+	'$b[0] + [{number:$n, title:"fixture: the matching head", headRefName:$h, isDraft:false,
+	   reviewDecision:"REVIEW_REQUIRED", mergeable:"MERGEABLE", mergeStateStatus:"BEHIND",
+	   updatedAt:"2026-11-13T00:00:00Z", headRefOid:$o, statusCheckRollup:[]}]' \
+	>"$branch_work/pr-open.two.json"
+jq -e 'type == "array" and length == 2' "$branch_work/pr-open.two.json" >/dev/null ||
+	claim_leg 'fixture: two open heads, the non-matching one first' false
+cp "$branch_work/pr-open.two.json" "$branch_fix/pr-open.json"
+FACTORY_DUP_SCAN=1 branch_rows >/dev/null
+claim_leg 'a scan that ran out says so in the row it left unmarked' \
+	branch_detail_has br-anc '[dup-scan-limited:1 open pull request(s) past FACTORY_DUP_SCAN=1 were not asked]'
+claim_leg '…and does not also claim the duplicate it never asked about' \
+	branch_detail_lacks br-anc "$FACTORY_DUP_MARK"
+FACTORY_DUP_SCAN=40 branch_rows >/dev/null
+claim_leg '…and the same pair, asked, concludes on the second head' \
+	branch_detail_has br-anc "${FACTORY_DUP_MARK}901]"
+
+cp "$branch_work/pr-open.none.json" "$branch_fix/pr-open.json"
+
+# Control: the content reading blinded at the one line both readings write through. The ref must keep
+# its row -- a mutant that deleted the row as well would pass a leg that only looked for the mark --
+# and the detail must go back to counting files with nothing said about the open pull request. Without
+# this, a refactor that drops the assignment reads as "no duplicates today", which is what the live
+# queue already says and therefore indistinguishable from the reading working.
+#
+# The scenario is planted first, on purpose. The first cut of this control ran after the payload was
+# restored to `[]`, where it passed without anything to refuse -- a control that is only ever run over
+# an empty queue cannot fail, which is the same defect the fixture's own header accuses a shim of.
+branch_control_dup_off() {
+	branch_plant_open 901 pr-anc || return 1
+	branch_rows >/dev/null
+	branch_detail_has br-anc "${FACTORY_DUP_MARK}901]" || {
+		printf '            the scenario is not planted, so this control has nothing to blind\n' >&2
+		return 1
+	}
+	branch_mutate 's/dup_pr=$onum/dup_pr='"''"'/g' || return 1
+	branch_class_is br-anc branch_without_pr && branch_detail_lacks br-anc "$FACTORY_DUP_MARK" &&
+		branch_class_is br-pick branch_without_pr &&
+		branch_detail_lacks br-pick "$FACTORY_DUP_MARK"
+}
+claim_leg 'control: blinding the content reading hides the duplicate, not the branch' \
+	branch_control_dup_off
+
+cp "$branch_work/pr-open.none.json" "$branch_fix/pr-open.json"
+branch_rows >/dev/null
+
+# The supervisor's half, run as a process rather than read as an arm. The ticket asks for both readings
+# to be pinned and for a control that reddens when the arms are blinded, and the arm is where the cost
+# actually lands: #284's `backup-tip` was refused by nothing, given a worktree and a model, and spent a
+# ceiling re-deriving a change that was already in review.
+#
+# Three branches, one payload. `br-copy` is contained in `pr-copy`, whose head the payload names as
+# open pull request #903, so the classifier marks it and the supervisor must refuse it *for that
+# reason*, in the journal, naming the number. `backup-hyphen` is the ticket's specimen spelled with the
+# separator that missed the glob. `work-real` is the polarity: ordinary work with no pull request, which
+# must still be dispatched by a pass that has just refused two branches -- a refusal arm too eager is
+# the same bug pointing the other way, and it is the one that silences a person's work.
+#
+# The pull request itself is planted with no checks and no reviewer, which classifies it
+# `needs_reviewer`: a wait. It has to be a wait, because a `merge_now` row would have the fixture try to
+# merge a pull request that exists only to hold a head commit, and `checks_failing` would buy a tick for
+# a PR nobody is going to fix.
+printf '[]\n' >"$proc_fix/pr-merged.json"
+proc_new dup-arm
+git -C "$proc_repo" checkout -qb br-copy origin/main
+printf 'the content that is already under review\n' >"$proc_repo/copied.txt"
+git -C "$proc_repo" add -A
+git -C "$proc_repo" commit -qm 'fixture: content on a ref with no pull request of its own'
+git -C "$proc_repo" checkout -qb pr-copy br-copy
+printf 'and a second file the pull request adds\n' >"$proc_repo/pr-only.txt"
+git -C "$proc_repo" add -A
+git -C "$proc_repo" commit -qm 'fixture: the pull request head'
+git -C "$proc_repo" checkout -qb backup-hyphen origin/main
+printf 'a safety copy named with the wrong separator\n' >"$proc_repo/safety.txt"
+git -C "$proc_repo" add -A
+git -C "$proc_repo" commit -qm 'fixture: a backup by every reading but the glob'
+git -C "$proc_repo" checkout -qb work-real origin/main
+printf 'work that owes a pull request\n' >"$proc_repo/real.txt"
+git -C "$proc_repo" add -A
+git -C "$proc_repo" commit -qm 'fixture: ordinary work, no name that means anything'
+git -C "$proc_repo" checkout -q main
+jq -c -n --arg o "$(git -C "$proc_repo" rev-parse --verify -q 'pr-copy^{commit}')" \
+	'[{number:903, title:"fixture: the open pull request", headRefName:"pr-copy", isDraft:false,
+	   reviewDecision:"REVIEW_REQUIRED", mergeable:"MERGEABLE", mergeStateStatus:"BEHIND",
+	   updatedAt:"2026-11-13T00:00:00Z", headRefOid:$o, statusCheckRollup:[]}]' \
+	>"$proc_fix/pr-open.json"
+proc_run dup-arm
+
+proc_journal_says() { # proc_journal_says <needle>
+	proc_journal_line "$proc_journal" "$1" | grep -qF -- "$1" || {
+		printf '            the journal never said: %s\n            it said:\n' "$1" >&2
+		sed 's/^/            /' "$proc_journal" >&2
+		return 1
+	}
+}
+proc_starts_no_session() { # proc_starts_no_session <branch>
+	grep -q -- "$1" "$proc_ticks" && {
+		printf '            a session ran for %s; the tick log:\n' "$1" >&2
+		sed 's/^/            /' "$proc_ticks" >&2
+		return 1
+	}
+	! grep -qE "NEXT [a-z_]+ $1( |\$)" "$proc_journal"
+}
+proc_offers() { # proc_offers <branch> -- refused neighbours must not swallow this one
+	grep -qE "NEXT [a-z_]+ $1( |\$)" "$proc_journal" || grep -q -- "$1" "$proc_ticks" || {
+		printf '            %s was neither offered nor worked; the journal:\n' "$1" >&2
+		sed 's/^/            /' "$proc_journal" >&2
+		return 1
+	}
+}
+claim_leg 'the pass ran at all' test -s "$proc_journal"
+claim_leg 'the marked ref is refused by content, naming the pull request' \
+	proc_journal_says 'REFUSED branch:br-copy its content is already on the head of open pull request #903'
+claim_leg '…and no session is started for it' proc_starts_no_session br-copy
+claim_leg 'the hyphenated backup is refused by name' \
+	proc_journal_says 'REFUSED branch:backup-hyphen the name says it is a backup, not a contribution'
+claim_leg '…and no session is started for it either' proc_starts_no_session backup-hyphen
+claim_leg '…while the ordinary branch is still worked' proc_offers work-real
+
+# Control: both arms blinded in the CLONE (a disposable copy, which is why this one can edit a file the
+# shipped legs read). `[-/]` back to `/`, and the mark matched against a token no detail can begin with.
+# The two refs that were just refused must then be offered -- if a leg here stays green, the refusal it
+# pins is coming from somewhere other than the arm it names, which is exactly how a "refused" journal
+# line once turned out to be a `MERGE-REFUSED` wearing another rule's clothes.
+proc_dup_blind_arms() {
+	local f=$proc_dir/factory.sh before after
+	before=$(md5sum "$f" | cut -d' ' -f1)
+	sed -i 's/backup\[-\/\]\*/backup\/*/' "$f"
+	sed -i 's/"\$FACTORY_DUP_MARK"\*/"NEVER-MATCHES-A-DETAIL-START"/' "$f"
+	after=$(md5sum "$f" | cut -d' ' -f1)
+	[ "$before" != "$after" ] || {
+		printf '            the mutation changed no byte of the cloned factory.sh\n' >&2
+		return 1
+	}
+	bash -n "$f" || {
+		printf '            the mutated factory.sh does not parse\n' >&2
+		return 1
+	}
+	proc_run dup-arm-blind
+	proc_offers br-copy && proc_offers backup-hyphen
+}
+claim_leg 'control: blind the arms and both refs are dispatched again' proc_dup_blind_arms
+
+printf '[]\n' >"$proc_fix/pr-open.json"
+printf '[]\n' >"$proc_fix/pr-merged.json"
 
 # --------------------------------------------------------------- who the review poke asks (#241)
 #

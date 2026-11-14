@@ -193,15 +193,26 @@ if factory_halted; then
 	exit "$FACTORY_EXIT_HALT"
 fi
 
-# `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and the
-# reader deletes it. A tick killed by the wall-clock ceiling dies between the write and the delete, so
-# the run directory collected eight zero-byte `worktree-error.<pid>` files in a day. Sweep the old ones:
-# anything younger than three hours could belong to a supervisor running right now.
+# `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and both
+# paths delete it now (#351). This sweep is the backstop for the one pass that cannot delete anything: a
+# tick killed by the wall-clock ceiling dies between the write and the delete.
+#
+# The reason written here until #351 was wrong, and it is worth keeping the correction rather than
+# silently replacing it, because the wrong reason is what made the sweep the repair. It claimed eight
+# files in a day meant eight killed ticks; the run directory held four at once on 13 Nov and the
+# failure sentence has NEVER been journaled on this machine, so what accumulated was successful tree
+# builds -- which bounding by age treats, at the cost of leaving three hours of alarms standing in the
+# directory at all times. Renaming the stream and deleting it on both paths is the fix; the sweep stays
+# for kills, and keeps matching the retired `worktree-error.` name so files written before this change
+# do not become permanent for lack of anything that looks for them. Anything younger than three hours
+# could belong to a supervisor running right now. The command is one line on purpose: a control that
+# has to replace a wrapped command whole has to retype its indentation and its backslashes, and a
+# mutant that mistypes them is a dead mutant, not a guilty one.
 # `[ ... ]` and not `"$DRY_RUN"`: a variable in command position runs the value `0` or `1` as a
 # program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
-	find "$FACTORY_RUN" -maxdepth 1 -name 'worktree-error.*' -mmin +180 -delete 2>/dev/null || true
+	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' \) -mmin +180 -delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -231,9 +242,31 @@ factory_class_rank() {
 # request for the first three would be a machine deciding that a safety copy somebody kept is a
 # contribution, and the fourth is where the real work is. So a backup-shaped name is reported and
 # not worked, and the decision to turn one into a branch is left where it belongs.
+#
+# The patterns take `[-/]`, not `/`, because the intent is about the KIND of ref and a person typing a
+# safety copy reaches for whichever separator fits the shell they are in. `backup/*` missed
+# `backup-tip` by one character and the supervisor dispatched a model at it: #284 measured the cost as
+# a ceiling spent re-deriving a change that was already on open pull request #282, plus a candidate
+# pull request that would have competed with it, and the branch is still on the box (`backup-tip`,
+# 5 ahead, 7 files the trunk lacks) printing a workable row on every pass since. The same miss is live
+# twice over today in `preserve/`, which no pattern named at all.
+#
+# `preserve[-/]*` is decided here rather than inherited. A preservation branch says "keep this" out loud,
+# which is the same sentence a backup says, and the arm only ever refuses to open a pull request -- the
+# ref keeps its row and is named in the journal line every pass, so a person who did mean it as a
+# contribution loses nothing they could not see. What loses is the case the name cannot distinguish: a
+# `preserve/` branch that is somebody's ONLY copy of live work they want turned into a pull request
+# will now never be offered one by the machine, and has to say so in a branch rename or a push of their
+# own. That is the trade this arm has always made for `wip/`; `preserve/` is the more literal spelling
+# of the same intention, so it takes the same treatment.
+#
+# This is one reading of two, and it is deliberately the weak one: a name is a proxy. The other reading
+# asks the content question in `factory/triage.sh` (#284) and arrives as `$FACTORY_DUP_MARK` on the
+# row's detail, matched at the dispatch loop. A backup that renames itself `sprint-final` survives the
+# globs; it cannot survive the content question.
 factory_refuseto_work() {
 	case "$1" in
-	backup/* | local/* | integration/* | wip/* | tmp/*) return 0 ;;
+	backup[-/]* | local[-/]* | integration[-/]* | wip[-/]* | tmp[-/]* | preserve[-/]*) return 0 ;;
 	*) return 1 ;;
 	esac
 }
@@ -633,8 +666,11 @@ factory_maybe_notice() {
 
 factory_tick() {
 	local class=$1 key=$2 detail=$3 branch=$4 issue=$5 ask=${6:-}
-	local unit tree log id_line
+	local unit tree log id_line werr
 	unit="$class:$(factory_slug "$key")"
+	# `factory_worktree`'s stderr, in a file named for what it is while it is still only a stream. It
+	# earns a verdict word only once something has read it and journaled one (#351).
+	werr="$FACTORY_RUN/worktree-stderr.$$"
 
 	case "$class" in
 	unclaimed)
@@ -749,7 +785,7 @@ Inventing the ask is the failure this repository has written up more often than 
 		log_event "TICK-SKIPPED $unit no branch to work on"
 		return 5
 	fi
-	if ! tree=$(factory_worktree "$branch" 2>"$FACTORY_RUN/worktree-error.$$"); then
+	if ! tree=$(factory_worktree "$branch" 2>"$werr"); then
 		# The reason belongs in the journal line, not only in common.sh's stderr. `die` writes to
 		# stderr, and stderr here goes to the terminal when a person runs the script and to the unit's
 		# journal when systemd does -- so the two readers see different amounts, and the automated one
@@ -762,12 +798,19 @@ Inventing the ask is the failure this repository has written up more often than 
 		# function prints the tree path on stdout, and folding the two together would splice an error
 		# sentence into the value assigned to `tree` and hand a later `git -C` a path with a period in
 		# it. The `$$` keeps two supervisors from writing the same file; the run directory is ours.
-		why=$(tr -d '\r' <"$FACTORY_RUN/worktree-error.$$" 2>/dev/null |
+		why=$(tr -d '\r' <"$werr" 2>/dev/null |
 			grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-200)
-		rm -f -- "$FACTORY_RUN/worktree-error.$$"
+		rm -f -- "$werr"
 		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
+	# And the pass that GOT its tree deletes it too. This file is a stream, and until this line ran it
+	# had no verdict in it; leaving it behind named every successful tick after a failed one. Measured
+	# 13 Nov: four `worktree-error.<pid>` files in `factory/run/`, all zero bytes, stamped 14:15, 15:11,
+	# 16:07 and 17:03 -- and `grep -c 'no worktree' factory/log/supervisor.log` answers that the failure
+	# sentence has never once been journaled on this machine. The four files were four successes, and
+	# two separate reads of that directory, days apart, reported the queue as stalled because of them.
+	rm -f -- "$werr"
 	# The content verdict and the response to it, both in common.sh (#228, H-0044): a halt stops the
 	# whole pass -- every other unit, every review answer, every merge -- so it must not rest on a
 	# filesystem timestamp, it must say what it found, and the one place that decides must be the place
@@ -1241,9 +1284,26 @@ factory_body() {
 	now=$(date -u +%s)
 	while IFS=$'\037' read -r _rank _age bkey bclass bdetail bbranch bissue bask; do
 		[ -n "${bclass:-}" ] || continue
-		if [ "$bclass" = "branch_without_pr" ] && factory_refuseto_work "$bkey"; then
-			log_event "REFUSED branch:$bkey the name says it is a backup, not a contribution -- reported, not worked"
-			continue
+		if [ "$bclass" = "branch_without_pr" ]; then
+			# Two independent readings, both refusing, and the journal says which one fired -- because a
+			# queue that reports "refused" without saying why cannot be audited against the rule that
+			# refused it, and these two rules disagree about what a branch is.
+			if factory_refuseto_work "$bkey"; then
+				log_event "REFUSED branch:$bkey the name says it is a backup, not a contribution -- reported, not worked"
+				continue
+			fi
+			case "$bdetail" in
+			"$FACTORY_DUP_MARK"*)
+				# Anchored, the way the `unclaimed` arm matches `$FACTORY_MERGED_MARK`: the detail is
+				# prose, and only its first characters are machine-claimed. The number is cut off the
+				# front rather than re-derived from git, so the sentence names the pull request the
+				# classifier actually looked at.
+				dup_pr=${bdetail#"$FACTORY_DUP_MARK"}
+				dup_pr=${dup_pr%%]*}
+				log_event "REFUSED branch:$bkey its content is already on the head of open pull request #${dup_pr} -- reported, not worked"
+				continue
+				;;
+			esac
 		fi
 		if [ "$started" -ge "$FACTORY_MAX_TICKS" ]; then
 			log_event "DEFERRED $bclass:$bkey tick cap: started=$started of max=$FACTORY_MAX_TICKS"
