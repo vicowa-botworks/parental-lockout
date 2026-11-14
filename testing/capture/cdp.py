@@ -21,6 +21,7 @@ photographs that page, next to the sentence it is checking.
 import argparse
 import base64
 import datetime
+import hashlib
 import json
 import os
 import os.path as op
@@ -84,6 +85,103 @@ def refused_dir(mode):
     as well and declines the keep when they overlap.
     """
     return op.join(RUNS, f"{mode}-refused")
+
+
+# What a publish leaves beside the fixture's own conditions file: the frames THIS run photographed,
+# with the bytes it wrote for each of them.
+RECEIPT = "capture.json"
+
+
+def receipt_path(fixture):
+    """`testing/capture/runs/<fixture>/capture.json` -- one run's word about its own frames.
+
+    Named from the fixture and from `RUNS`, exactly as `refused_dir` is, and for the same reason:
+    the file belongs to the fixture that ran, and `--out` says only where the bytes ended up. It
+    lives in `runs/`, which is gitignored, because it is a transcript of one run on one machine,
+    and what it is for is being read by `manifest.py record` in the minutes after that run -- the
+    committed half of the claim is the `photographed` block `record` writes from it (#302).
+    """
+    return op.join(RUNS, fixture, RECEIPT)
+
+
+def git_head():
+    """Where this checkout stands, as the capture itself sees it. Empty when git will not answer.
+
+    Asked at capture time and not at record time, which is the whole point (#302): the commit a
+    frame is dated at has to be the commit the photograph was rendered FROM, and by the time
+    anyone runs `record` the tree may have moved. An empty answer is kept empty rather than
+    invented -- a receipt naming no commit cannot vouch for a frame, and `record` says so.
+    """
+    try:
+        out = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True,
+                             text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def write_receipt(fixture, frames, head=None, at=None):
+    """Write what this run photographed, over whatever an earlier run claimed. Returns the path.
+
+    #302 is the reason this exists. `manifest.py record` dates a frame at `newest_commit(sources)`
+    -- the page's newest commit -- and for a frame the run *claims* (`--shot`) that is the driver's
+    word, not a measurement: `D-0055` conceded it in the sentence "the ordering obligation now
+    lives in the notes instead of in a check", and `7e65d3b` is what that costs (nine `--shot` names
+    typed eighteen seconds after a page commit, no PNG in the commit, seven rows moved onto a date
+    their pixels predate). A second reading of history cannot repair it, measured twice on #302 and
+    on #301: a re-take whose pixels do not change never produces a commit touching the PNG, so
+    `newest_commit(png)` can never catch a page commit that moved no pixels. So the answer has to
+    come from the run, and this is the one thing only the run can say.
+
+    Three properties, each load-bearing:
+
+      * **Digest-bound.** The frame is named with the sha256 of the bytes this run wrote, so the
+        claim attaches to *these* pixels and not to the filename.
+      * **Rewritten whole, never merged.** Yesterday's receipt for a frame today's run did not
+        photograph is a claim about a frame nobody photographed, which is the exact thing being
+        bought here. One run, one list.
+      * **Written only where a fixture ran.** `fixture_envs` returns a path only when the setup
+        script wrote its env, and the same rule applies: no `runs/<fixture>/fixture.env`, no
+        receipt, no conditions, no claim -- a weaker statement rather than a false one (#211).
+
+    A frame named and not on disk is refused here, at the source, rather than reaching the
+    recorder as a claim about a file that is not there -- the shape `record` already refuses
+    ("a driver that reports photographing a frame it did not write").
+    """
+    if not op.exists(op.join(RUNS, fixture, "fixture.env")):
+        return None
+    missing = [f for f in frames if not op.exists(f)]
+    if missing:
+        raise SystemExit(
+            f"{fixture}: this run reports photographing {op.basename(missing[0])}, and the file is "
+            f"not there, so no receipt is written. A run's word about a frame it did not publish is "
+            f"worth nothing, which is why `record` refuses one too (#302).")
+    entry = {"fixture": fixture,
+             "head": head if head is not None else git_head(),
+             "at": at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "frames": {}}
+    for path in frames:
+        stem = op.basename(path)
+        if not stem.endswith(".png"):
+            raise SystemExit(f"{fixture}: {path} is not a PNG, so it is not a frame this run "
+                             f"photographed.")
+        entry["frames"][stem[:-len(".png")]] = {"sha256": sha256_file(path),
+                                                "at": entry["at"], "head": entry["head"]}
+    path = receipt_path(fixture)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(entry, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def keep_refused(keep, note=None, out=None):
@@ -745,9 +843,20 @@ class Session:
             fh.write(self.screenshot())
         _PENDING.append((stage, dest))
 
-    def publish(self):
+    def publish(self, fixture=None):
         """Copy every staged capture to its final path. Only ever called once the last check on
-        the last page has passed."""
+        the last page has passed.
+
+        `fixture` is named by the caller -- `pages.py` passes the mode it selected, the two
+        single-frame drivers pass their own `FIXTURE` -- and it is what lets this one moment write
+        the run's own receipt beside that fixture's conditions file (#302). Named here and not by
+        the caller because this is the only place that holds both halves of the claim: the bytes
+        this run photographed, and the paths they were published to. A driver that publishes and
+        names no fixture publishes frames nobody can later date honestly: `manifest.py record`
+        refuses to mint a rev for a claimed frame whose pixels are older than its page once there
+        is no receipt to stand behind it.
+        """
+        published = [dest for _, dest in _PENDING]
         for stage, dest in _PENDING:
             os.makedirs(op.dirname(dest), exist_ok=True)
             with open(stage, "rb") as src:
@@ -755,6 +864,8 @@ class Session:
             with open(dest, "wb") as out:
                 out.write(data)
             os.remove(stage)
+        if fixture:
+            write_receipt(fixture, published)
         _PENDING.clear()
         if op.isdir(_stage_dir()):
             os.rmdir(_stage_dir())

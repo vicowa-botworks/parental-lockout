@@ -4228,6 +4228,130 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `make verify` and the state read after the push are quoted with their exit statuses in the
   pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
 
+## D-0073 · `--shot` dates a claimed frame on the driver's word and no later reading of history can check it: re-derive the date from the blob, or have the run leave the evidence where the claim is made
+
+- Question: `record` writes `sources_rev = newest_commit(sources)` — the page's newest commit — for every
+  frame named in `--shot`, and `check`'s drift arm opens `if recorded == current: continue`, so the
+  equality the recorder mints is the equality the gate reads. #302 measures the consequence on the
+  published set: `7e65d3b` named all nine frames 18 seconds after `2088043cb` landed, committed no PNG,
+  and moved seven rows onto a date their own pixels predate; `check` answered `9 photographs current`.
+  `D-0055` retired the obligation into prose ("the ordering obligation now lives in the notes instead of
+  in a check") and the notes did not hold. Where does the evidence that a named frame was photographed
+  *after* the page last moved come from? Two options were on the table and both were measured here
+  before either was written. Option one is the ticket's own patch: `check` compares `sources_rev` with
+  `newest_commit([png])` and refuses a row whose rev is newer than its own bytes, naming both revs.
+  Option two: the run that photographs the frames leaves a receipt beside the `fixture.env` it was run
+  with — `runs/<fixture>/capture.json`, carrying the commit the capture stood in and the `sha256` of
+  every frame it wrote — `record` reads it at the one moment the claim is made (page ahead of the
+  frame's pixels, and this run claims the frame) and writes a `photographed` block into the row, and
+  `check` re-asks the ordering from that block on every later run. Measured for option one, in a clone
+  at `origin/main` with real git over a throwaway repository (`/tmp/opencode/302b/probe.py`, case 2):
+  the arm reddens the byte-identical re-take along with the mint — 9 problems — and every one of them
+  ends with #144's instruction to "re-take it … in a commit after the one that changed the page or in
+  that same commit", which for a frame whose pixels did not move is an instruction no one on earth can
+  follow, because a re-take that changes no pixel never produces a commit touching the PNG. That is
+  #338 filed against this file in general: a refusal with no reachable green is a lock, and
+  `manifest.py`'s own self-test already refuses one on those words ("an unsatisfiable refusal is the
+  defect #338 files, not a guard"). Option two was measured the same way: the mint is refused at
+  `record` and at `check` (case 3), the frame with no history yet still records bare (case 5), a receipt
+  naming another fixture's bytes is refused (case 6), and the repair the refusal names reaches green in
+  one round trip (cases 4 and 7).
+
+- Options: `check` re-derives the date from the blob's own history and refuses a row whose `sources_rev` is newer than it, the ticket's patch | the capture run leaves a receipt beside its `fixture.env` and `record` demands it at the moment the claim is made, `check` re-asking the ordering from the row thereafter | leave the obligation in the notes, as `D-0055` chose
+
+- Chose: the capture run leaves a receipt beside its `fixture.env` and `record` demands it at the moment the claim is made, `check` re-asking the ordering from the row thereafter
+
+- Why: the tie-break that separates these two is not the file count, it is that option one cannot be
+  satisfied. A guard whose every finding is unfixable does not enforce the ordering, it freezes the
+  manifest — and the seven rows it would freeze are the ones whose page moved without moving a pixel,
+  which is the ordinary case for a stylesheet edit. Option two asks the question at the one moment it
+  still has an answer: the run knows what it photographed and where it stood, and no later reading of
+  history can recover that (#302's whole finding), so the evidence has to be written then. It also
+  keeps #294's two refusals intact rather than relaxing them, and it keeps `--shot` meaning what it
+  always meant — whether a run took a frame — by adding a witness beside the claim instead of
+  substituting one. The receipt is keyed on the exact bytes it vouches for and on the fixture whose
+  driver photographs the artifact, because a receipt that does not name these bytes buys nothing
+  (`D-0066`'s "it must also refuse"), and it is demanded only where the frame is *contradicted*: keyed
+  on the missing file instead, the gate refuses the ordering this folder prescribes — capture, record,
+  commit — which is #144's trap in the fix's clothes, measured here as case 5.
+
+- What lost: five things, and the first is the reason #302 is not fully closed by this entry. `check`
+  loses the ability to date a frame from history at all, and the residue is real: a frame re-taken into
+  the same commit that moved its page, whose bytes did not change, cannot be distinguished from a frame
+  nobody photographed, because the only witnesses are a receipt one commit conservative and a blob
+  history that has nothing to say. `origin/main` is red on that row too (same probe, 9 problems, the
+  #144 arm there rather than this one here), so this branch inherits the finding rather than causing
+  it; what it changes is the sentence — the repair it names is reachable, measured green in cases 4 and
+  7, where main's advice could not be followed. Second, the receipt lives under `runs/`, which
+  `.gitignore` ignores: the manifest row is committed, the receipt that produced it is not, so a reader
+  cannot reproduce a `photographed` block from a clone, only re-take it. Third, the option that touched
+  fewer files lost: option one is one arm in one file, and this is `cdp.py` writing the receipt,
+  `pages.py` carrying it, `lock.py` and `testlock.py` gaining a write they never had, plus the recorder
+  and the gate. Fourth, `D-0055`'s prose note is retired — a gain for the gate and a loss for anyone
+  who read the ordering obligation there and honoured it; it now has a refusal behind it. Fifth, the
+  self-test still cannot express this ordering: `_fake_git` answers a single `png_rev` for every frame,
+  so the atomic case as it actually happens — a receipt naming the parent of the commit carrying the
+  photograph — has no cell in `self_test()`, and the ordering is pinned only by the throwaway-repository
+  probe above. `D-0074` is where that gap bites.
+
+- Checkpoint: 938d20c
+
+## D-0074 · The receipt is one commit conservative by construction, so the claim arm it feeds refused the atomic re-take `D-0056` exists to protect: move the receipt, narrow the arm, or give the frame's own pixels a vote
+
+- Question: `D-0073` makes a claimed frame's ordering provable only by the run that took it, and writes
+  the receipt inside `cdp.publish` — before the operator commits, which is the order this folder
+  prescribes ("capture, record, commit"). So the commit a receipt can name is the parent of the commit
+  that lands the photograph, on every honest capture. Fed into the claim arm alone, that made the flow
+  `README.md` tells the operator to run — one commit changing the template, re-taking its frame and
+  re-recording the manifest — refuse with "nobody has looked at this page since the frame was taken".
+  Measured 13 Nov with real git over a throwaway repository (`/tmp/opencode/302b/probe.py`, and
+  `claimpath.py` for the receipt-backed path at the self-test's own scale): the branch refuses the
+  ordering, `origin/main` accepts it via `D-0056`'s comparison over the blob, and the refusal therefore
+  is a regression this branch introduced, not a hole it uncovered. #302's own must-not-break list names
+  the case: "A frame re-taken and committed in the same commit the page moved in … `D-0056`'s atomic case
+  stays legal." The self-test could not see it — `_fake_git` answers one `png_rev` for every frame, so
+  the receipt and the pixels cannot disagree there — and `EXPECTED = 53` went green over it. Options:
+  have the driver write the receipt at the commit instead of before it, i.e. after the operator commits
+  | narrow the claim arm so it does not fire when the page's own commit touches the photograph | let the
+  frame's own newest commit clear the claim, exactly as the drift arm already does | keep the arm strict
+  and tell the operator to record in a commit after the one that moved the page.
+
+- Options: the driver writes its receipt after the commit that carries the frames | narrow the claim arm to frames the page's commit did not touch | the frame's own newest commit clears a claimed frame, the witness the drift arm already uses | keep the arm strict and move the recipe's `record` into a later commit
+
+- Chose: the frame's own newest commit clears a claimed frame, the witness the drift arm already uses
+
+- Why: the tie-break that separates these is precedent, and it is explicit. `D-0056` refused to let a
+  commit that changes a template *and* re-takes its photograph be condemned "by the very change that
+  made the photograph current", and its mechanism is `newest_commit([png])` consulted once and compared
+  with `is_ancestor` — the surrounding code's rule, applied one arm earlier rather than a new one
+  invented. The alternative shapes are worse on their own terms: writing the receipt after the commit
+  moves the evidence off the run that produced the bytes and into whatever the operator commits next, so
+  it would vouch for a tree the driver never saw — the exact property `D-0073` bought the receipt for;
+  narrowing the arm to frames the page's commit did not touch is the same test with the answer hardcoded,
+  and it stops holding the moment a commit moves `app.css` and two frames; and "record in a later
+  commit" is the option this file has already refused twice, because it turns a green flow into a red
+  one with no rule behind it — the same defect as #338's unsatisfiable sentence, measured as case 2. The
+  chosen arm computes the frame's own rev once, before the claim arm, and reads it in both arms. The
+  widening is gated on `shot`: a frame nobody claims has no claim to test, and stays with the #144 arm,
+  measured unchanged on both trees.
+
+- What lost: four things. A frame whose bytes travel into the page's own commit is now cleared by its
+  pixels with no receipt required, so a same-commit substitution — swap the PNG, change the template,
+  name it in `--shot`, all in one commit — no longer has to answer the claim arm. That is `D-0056`'s
+  pre-existing disclosure about the atomic case ("accepting it cannot smuggle in a swapped file; the
+  bytes are pinned by `png_sha256`") reaching the claim arm as well as the drift arm, and it is the cost
+  of not breaking the recipe; the receipt still cannot help here, because in that commit the run's word
+  is one commit stale by construction. Second, the byte-identical atomic re-take stays red, on this
+  branch and on `origin/main` (9 problems, same probe): pixels that did not move leave no commit
+  touching the PNG, so nothing but the claim is left and the claim cannot distinguish it from a frame
+  nobody photographed — #338's residue, and this entry narrows it rather than closing it. Third, the
+  strictness #302 asked for is weaker than its literal patch: the ticket's arm compares `sources_rev`
+  with the blob and refuses every row where the rev is newer, which would redden the byte-identical rows
+  too, and `D-0073` already records why that cannot be the shipped gate. Fourth, `EXPECTED` moved 53 →
+  54, so any branch that adds a rule to `self_test()` in parallel collides here on a number, not on
+  text — the collision is loud, which is the point, but it is a collision.
+
+- Checkpoint: 85c6a76
 
 ## D-0075 · #317: a refusal whose own report raises escaped as a traceback and took the rest of the sweep with it — make the report unable to raise, refuse to keep on a dead stream, or wrap the disposal where it stands
 

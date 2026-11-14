@@ -1513,6 +1513,27 @@ factory_body() {
 	# stamps now, because nothing pinned either one before: the direction was a comment, and the
 	# comment was not what the code did.
 	#
+	# What that repair did not close is the SECOND boundary, and it is the one that still bites. The
+	# paragraph above, and `docs/factory.md` until `H-0169`, both put the boundary between the two
+	# STAMPS -- "stamped 900, did the worktree lookup, stamped 901 in the next second". That cannot
+	# invert anything: the stamping loop above runs to completion before this loop reads a single age,
+	# so a stamp that lands a second later is a second YOUNGER at every read, which is the order the
+	# key wants. The boundary is between the two READS. `factory_age` called `date -u +%s` per row, so
+	# for two stamps inside one second the first row answers 0s and the second 1s whenever a boundary
+	# falls in the ~10 ms between the two calls, and the descending key then ranks the younger unit
+	# first. #335's journal is that arithmetic verbatim: `NEXT unclaimed 901 age=1s` over `NEXT
+	# unclaimed 900 age=0s`, both stamped in one pass, 900 first. Planting ages cannot help a leg that
+	# does not plant them -- `…then starts a tick for unit B` and #335's guard control both read the
+	# unstamped fixture, so both stayed coin flips, and run 43532152285 landed the second head on this
+	# branch's verify job on 14 Nov (`563 passed, 1 failed`, `quarantine at line 14, tick at line 10`).
+	#
+	# So the pass takes ONE reading, below, and every age in this ranking is measured against it. That
+	# makes the key a monotone function of `first-seen`: equal stamps tie and the number decides, as
+	# this comment has always promised, and no interval between two reads can turn a later stamp into
+	# an older one. `rank_is_one_clock_reading` pins the site and `rank_snapshot_no_straddle` provokes
+	# the boundary on demand with a clock that ticks per call -- the fixture cannot, which is the whole
+	# reason this leg took two CI runs to appear.
+	#
 	# The never-seen sentinel (999999999) sorts FIRST under a descending key, which is what `factory_age`
 	# has promised since it was written -- "huge when there is no timestamp, so \"never\" means
 	# \"ready\"" -- and it sorted last under the retired ascending one. That is the only behaviour that
@@ -1521,14 +1542,20 @@ factory_body() {
 	# (`factory_ledger_set` returns before writing) and a ledger that will not take a write -- skip it
 	# for EVERY row, so those rows all carry the sentinel and the tie-break decides, as it did before.
 	workable=$(printf '%s' "$workable" | sed -e '/^[[:space:]]*$/d')
-	local ranked class2 key2 detail2 branch2 issue2 ask2 unit2 age2 rank2 row2
+	local ranked class2 key2 detail2 branch2 issue2 ask2 unit2 age2 rank2 row2 rank_now
 	ranked=''
+	# One clock reading for the whole ranking pass -- see the paragraph above. It is taken HERE, after
+	# the stamping loop has written every `first-seen`, so a unit stamped in this very second reads 0s
+	# and one stamped a second earlier reads 1s; taken before it, both would clamp to 0 and a real
+	# age gap would be thrown away. It is a snapshot only of the ranking: the dispatch loop below keeps
+	# its own `now` for the pass budget, because that one is supposed to notice the clock moving.
+	rank_now=$(date -u +%s)
 	while IFS=$'\037' read -r class2 key2 detail2 branch2 issue2 ask2 unit2; do
 		[ -n "${class2:-}" ] || continue
 		# The id is the unit's, not the class's. Stamping `pr:215` and ranking on `conflict:215`
 		# makes every age come back as "never seen", which silently turns oldest-first into
 		# first-row-first.
-		age2=$(factory_age "$unit2:$(factory_slug "$key2")" first-seen)
+		age2=$(factory_age_at "$rank_now" "$unit2:$(factory_slug "$key2")" first-seen)
 		rank2=$(factory_class_rank "$class2")
 		# The ask travels with the row and is not a sort key: `sort -k1,1n -k2,2nr -k3,3n` reads the
 		# first three fields only, and the field is eighth so nothing a reviewer typed can move a unit

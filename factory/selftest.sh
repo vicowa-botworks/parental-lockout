@@ -3808,14 +3808,20 @@ proc_rank_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, plan
 	# dispatcher's ledger key is `issue:900`. Planting the class-shaped `unclaimed:900` instead writes a
 	# file nothing reads, which is the mistake factory.sh's own ranking comment names.
 	#
-	# Two ages planted here have to be further apart than the clock that reads them. `factory_age` counts
-	# whole seconds (`date -u +%s`, common.sh:923) and the ranking loop gives every row its OWN call
-	# (factory.sh:1197), so a pair planted one second apart comes back EQUAL whenever the two calls
-	# straddle a second boundary -- and `proc_older_first` reads equal as a failure at :3569. Measured on
-	# the shipped read path (the two calls, the shipped `factory_class_rank` and the re-serialise between
-	# them, 10.5ms a trial): 2 ties in 300 at 2s/1s. A pair planted two seconds apart cannot be tied by a
-	# straddle, because one boundary moves one age by exactly 1s -- it would take a 2s stall between two
-	# key reads to do it, against a measured gap under 10ms. 0 ties in 300 at 3s/1s, same harness.
+	# The pair planted here used to have to be further apart than the clock that reads them. `factory_age`
+	# counted whole seconds (`date -u +%s`) and the ranking loop gave every row its OWN call, so a pair
+	# planted one second apart came back EQUAL whenever the two calls straddled a second boundary -- and
+	# `proc_older_first` reads equal as a failure. Measured on that read path (the two calls, the shipped
+	# `factory_class_rank` and the re-serialise between them, 10.5ms a trial): 2 ties in 300 at 2s/1s,
+	# 0 ties in 300 at 3s/1s, which is why the plants below are 3s and 1s.
+	#
+	# `H-0169` closed that at the ranking site: the pass now reads the clock once and every age is
+	# measured against that one reading, so no interval between two key reads can equalise a pair. The
+	# 2s spacing stays anyway -- a fixture that does not depend on which instant its rows happen to be
+	# read at is a fixture that keeps its meaning if the key ever moves again -- and the straddle itself
+	# is no longer left to luck: `the ranking age is one clock reading` and its control provoke a
+	# boundary on demand with a clock that ticks per call, and `the ranking pass takes one clock reading`
+	# refuses a ranking site that goes back to reading it per row.
 	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_stash/$1.first-seen"
 }
 proc_rank_next_age() { # <journal> <key> -> the `age=` the pass printed for that unit; empty if it never ranked one
@@ -3878,6 +3884,11 @@ proc_older_first() { # <900|901> -> that unit was dispatched first AND the pass 
 # FIRST -- `old-first`, and the retired-key control, which plants the same pair -- a straddle equalises
 # it. Both pairs are now 2s apart so neither leg depends on which row the queue happens to lead with,
 # and so a fixture that later grows a row in front does not quietly move the exposure somewhere else.
+# `H-0169` then took the read order out of the key itself -- the ranking pass now reads the clock once,
+# so both reads of a pair see one instant -- and the three legs below this paragraph hold that: they
+# schedule the boundary a stub clock makes and refuse a ranking site that reads the clock per row. The
+# exposure this paragraph describes was real for every leg that did not plant stamps, and those are the
+# ones that went red twice on CI and once under load in #335.
 proc_rank_run old-first 3 1
 proc_leg 'the older unit is dispatched first' \
 	'A stamped 3s ago ticked before B stamped 1s ago, and the NEXT ages say so' proc_older_first 900
@@ -3940,6 +3951,250 @@ proc_retired_key_ranks_youngest() {
 }
 proc_leg 'control: the retired key ranks youngest' \
 	'`-k2,2n` puts B first; so the ok above really ranked the age' proc_retired_key_ranks_youngest
+
+# ------------------------------------------------------- the clock the age key is read from (H-0169)
+#
+# Both legs above plant ages. Nothing here can plant a boundary, and the boundary is the defect: the
+# ranking loop asked `factory_age` for one age per row and that primitive read `date -u +%s` inside
+# itself, so two units stamped in the same second are ranked by WHEN THE ROW WAS READ. The stamps are
+# 3.8-7.9 ms apart and the two reads about 10 ms apart, so the boundary falls in that window roughly
+# once in 200 passes -- which is why this took two CI runs and one loaded developer box (#335) to
+# appear, and why no amount of re-running the fixture provokes it on demand.
+#
+# A stub `date` does. It advances one second per `+%s` read and delegates everything else, so the
+# interval the fixture cannot schedule is scheduled: the pair the shipped reader ranks 901-then-900 is
+# the pair CI printed as `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900 age=0s` (#335's own
+# journal, both stamps written in one pass with 900 first). The repair hands the ranking pass one
+# reading of the same clock; the leg below measures both readers against the same ticking clock and
+# the same two stamps, so the difference it reports is the readers and nothing else.
+proc_clock=$proc_work/age-clock
+mkdir -p "$proc_clock/bin" "$proc_clock/ledger"
+printf '0\n' >"$proc_clock/tick"
+cat >"$proc_clock/bin/date" <<'PROCDATE'
+#!/bin/sh
+# One second per clock reading, counted from $PROC_CLOCK_NOW. Only `-u +%s` ticks: parsing a stamp
+# (`-u -d <stamp> +%s`) and formatting one (`+%Y-%m-%dT%H:%M:%SZ`) go to the real date, because the
+# hazard is in READING the clock and never in the arithmetic on a stamp it wrote.
+if [ "$#" = 2 ] && [ "$1" = -u ] && [ "$2" = +%s ]; then
+	tick=$(cat "$PROC_CLOCK_TICK")
+	printf '%s\n' "$((PROC_CLOCK_NOW + tick))"
+	printf '%s\n' "$((tick + 1))" >"$PROC_CLOCK_TICK"
+	exit 0
+fi
+exec /bin/date "$@"
+PROCDATE
+chmod +x "$proc_clock/bin/date"
+
+proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, on the REAL clock
+	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_clock/ledger/$1.first-seen"
+}
+
+# proc_clock_ages <snapshot|per-row> -> "<age900> <age901>", both rows read the way that reader reads
+# them. The stub travels as a command prefix, the shape every other fixture in this file uses for a
+# stubbed `gh` or `opencode`: nothing in this shell's environment is modified, so nothing can leak into
+# the next leg -- and every other pass here runs the supervisor against a real clock, so a PATH change
+# that leaked would move the whole suite onto a clock that races by a second a call. `hash -r` because
+# bash keeps the path it resolved for `date` earlier in this file, and a prefix PATH has to be the one
+# it consults. If the stub were ever skipped, the control below says so out loud: its premise is that
+# the two readings came back different, and they cannot if the real date answered both.
+proc_clock_ages() {
+	local mode=$1
+	printf '0\n' >"$proc_clock/tick"
+	hash -r
+	if [ "$mode" = snapshot ]; then
+		printf '%s %s\n' \
+			"$(PATH="$proc_clock/bin:$PATH" FACTORY_LEDGER="$proc_clock/ledger" \
+				factory_age_at "$proc_clock_now" 'issue:900' first-seen)" \
+			"$(PATH="$proc_clock/bin:$PATH" FACTORY_LEDGER="$proc_clock/ledger" \
+				factory_age_at "$proc_clock_now" 'issue:901' first-seen)"
+	else
+		printf '%s %s\n' \
+			"$(PATH="$proc_clock/bin:$PATH" FACTORY_LEDGER="$proc_clock/ledger" \
+				PROC_CLOCK_NOW="$proc_clock_now" PROC_CLOCK_TICK="$proc_clock/tick" \
+				factory_age 'issue:900' first-seen)" \
+			"$(PATH="$proc_clock/bin:$PATH" FACTORY_LEDGER="$proc_clock/ledger" \
+				PROC_CLOCK_NOW="$proc_clock_now" PROC_CLOCK_TICK="$proc_clock/tick" \
+				factory_age 'issue:901' first-seen)"
+	fi
+}
+
+# proc_clock_first <age-for-900> <age-for-901> -> whose row the shipped key ranks first. The row shape
+# is the one the ranking loop builds (rank, age, key, class, detail, branch, issue, ask) and the flags
+# the ones it sorts by; the flags are already pinned by `control: the retired key ranks youngest`,
+# which refuses a factory.sh that does not carry `-k2,2nr -k3,3n)` exactly once, so retyping them here
+# copies something a leg is holding honest rather than inventing a second spelling of the queue.
+proc_clock_first() {
+	printf '1\037%s\037900\037unclaimed\037a\037\037900\037\n1\037%s\037901\037unclaimed\037b\037\037901\037\n' \
+		"$1" "$2" |
+		sort -t$'\037' -k1,1n -k2,2nr -k3,3n |
+		awk -F$'\037' 'NR == 1 { print $3; exit }'
+}
+
+proc_clock_pair() { # <mode> -> the pair's two ages, split; sets $proc_a900 and $proc_a901
+	local ages
+	ages=$(proc_clock_ages "$1")
+	proc_a900=${ages%% *}
+	proc_a901=${ages##* }
+}
+
+proc_rank_snapshot_no_straddle() {
+	proc_clock_now=$(date -u +%s)
+	# Same second, the state the fixture is always in: the stamping loop writes both rows in one pass.
+	proc_clock_stamp 'issue:900' 0
+	proc_clock_stamp 'issue:901' 0
+	proc_clock_pair snapshot
+	if [ "$proc_a900" != "$proc_a901" ]; then
+		printf '            one clock reading answered %ss for 900 and %ss for 901 two stamps written\n' \
+			"$proc_a900" "$proc_a901" >&2
+		printf '            in the same second, so the reading is not one reading -- it is being taken\n' >&2
+		printf '            per row again, which is the defect this leg exists to refuse:\n' >&2
+		printf '              ledger: %s | %s\n' \
+			"$(cat "$proc_clock/ledger/issue:900.first-seen")" \
+			"$(cat "$proc_clock/ledger/issue:901.first-seen")" >&2
+		return 1
+	fi
+	if [ "$(proc_clock_first "$proc_a900" "$proc_a901")" != 900 ]; then
+		printf '            the two ages tied and unit B still went first, so the tie-break is not the\n' >&2
+		printf '            number here (%ss and %ss) and H-0007 is decided by row order again.\n' \
+			"$proc_a900" "$proc_a901" >&2
+		return 1
+	fi
+	# The other half: a snapshot must not be "nothing has an age". Two seconds apart stay two apart,
+	# or the repair would pass by flattening every age to 0 -- which is exactly how this key would stop
+	# being oldest-first while every leg above still printed an ok.
+	proc_clock_stamp 'issue:900' 2
+	proc_clock_pair snapshot
+	if [ "$((proc_a900 - proc_a901))" != 2 ]; then
+		printf '            stamps 2s apart came back %ss and %ss, so the pair was not measured at one\n' \
+			"$proc_a900" "$proc_a901" >&2
+		printf '            instant. Either the snapshot is stale or taken before the stamping loop --\n' >&2
+		printf '            which flattens real waiting to 0 and re-mints H-0007 as tie-breaking -- or\n' >&2
+		printf '            the reader is consulting the clock itself, which moves one row only.\n' >&2
+		return 1
+	fi
+	[ "$(proc_clock_first "$proc_a900" "$proc_a901")" = 900 ] || {
+		printf '            900 was 2s older (%ss against %ss) and still lost the key.\n' \
+			"$proc_a900" "$proc_a901" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the ranking age is one clock reading' \
+	'a boundary between two reads cannot split two same-second stamps, and 2s apart stays 2s' \
+	proc_rank_snapshot_no_straddle
+
+# The control, and the only place in this file that reproduces the red run on purpose. Same stamps,
+# same clock, same key; only the reader is the per-row one the ranking loop used until H-0169.
+proc_rank_per_row_inverts() {
+	proc_clock_now=$(date -u +%s)
+	proc_clock_stamp 'issue:900' 0
+	proc_clock_stamp 'issue:901' 0
+	proc_clock_pair per-row
+	# `>`, not `+ 1`. The hazard is that two equal stamps stop being equal because the reader looked at
+	# the clock twice, and how many times it looks is not the defect -- measured under a probe build
+	# that read the clock twice per row, the pair came back 1s and 3s, and a control that demanded
+	# exactly one second reddened for an arithmetic detail while pointing at the one file that was
+	# already correct. What has to be true is that the reader separated them, and that the key then
+	# ranks the later stamp first.
+	if [ "$proc_a901" -le "$proc_a900" ]; then
+		printf '            the ticking clock answered %ss and %ss, so no boundary fell between the\n' \
+			"$proc_a900" "$proc_a901" >&2
+		printf '            two readings and this control never provoked the state. The ok above then\n' >&2
+		printf '            says nothing about a boundary it was never shown.\n' >&2
+		return 1
+	fi
+	if [ "$(proc_clock_first "$proc_a900" "$proc_a901")" != 901 ]; then
+		printf '            the per-row reader called the later stamp the older one (%ss against %ss)\n' \
+			"$proc_a901" "$proc_a900" >&2
+		printf '            and unit A still won the key, so the flags here are not the flags the\n' >&2
+		printf '            dispatcher ranks by -- this control is witnessing a different queue.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'control: a per-row reading inverts that pair' \
+	'equal stamps read across a boundary print 0s then 1s and send B first -- both red runs' \
+	proc_rank_per_row_inverts
+
+# The primitive existing is half of it; the one site that ranks has to use it. Text, because the
+# behaviour only misbehaves on a machine that happens to cross a second, and a leg that has to wait for
+# luck is a leg that reports ok for weeks while the key is broken. Same shape as `proc_mutate_sort`
+# above: read the shipped text, then plant the retired call and refuse it, so the ok is the check
+# working rather than the check being blind.
+proc_rank_one_clock() { # <factory.sh> -> 0 when every age in the ranking comes from one reading
+	local f=$1 snap clock row
+	snap=$(grep -cF -- 'factory_age_at "$rank_now"' "$f")
+	clock=$(grep -cF -- 'rank_now=$(date -u +%s)' "$f")
+	row=$(grep -cF -- 'factory_age "$unit2:' "$f")
+	[ "$snap" = 1 ] || {
+		printf '            the ranking pass calls the snapshot reader %s time(s), not once, in %s.\n' \
+			"$snap" "$f" >&2
+		return 1
+	}
+	[ "$clock" = 1 ] || {
+		printf '            %s clock readings named `rank_now` in %s: zero re-mints the per-row hazard\n' \
+			"$clock" "$f" >&2
+		printf '            through the primitive, and two makes the snapshot depend on which loop\n' >&2
+		printf '            re-read it last -- the same bug one level up.\n' >&2
+		return 1
+	}
+	[ "$row" = 0 ] || {
+		printf '            %s per-row age read(s) still rank rows in %s, so the ages on this key are\n' \
+			"$row" "$f" >&2
+		printf '            not comparable with each other: each was measured at its own instant.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the ranking pass takes one clock reading' \
+	'the one age call at the ranking site is the snapshot reader, on one reading, and none is per-row' \
+	proc_rank_one_clock "$HERE/factory.sh"
+
+proc_rank_one_clock_control() { # -> each plant lands, and each is refused by the leg above
+	local dir=$work/rank-clock base=$HERE/factory.sh plants=0
+	mkdir -p "$dir" || return 1
+	# plant 1: the retired per-row reader back at the ranking site, one call, same arguments.
+	awk '{ gsub(/factory_age_at "\$rank_now"/, "factory_age \"$unit2:x\""); print }' \
+		"$base" >"$dir/per-row.sh" || return 1
+	grep -qF -- 'factory_age "$unit2:x"' "$dir/per-row.sh" || {
+		printf '            plant 1 never landed, so the refusal below would be a reading of shipped\n' >&2
+		printf '            code with nothing retired in it.\n' >&2
+		return 1
+	}
+	plants=$((plants + 1))
+	if proc_rank_one_clock "$dir/per-row.sh" 2>/dev/null; then
+		printf '            the predicate took a ranking site that reads the clock per row, so the ok\n' >&2
+		printf '            above refuses nothing.\n' >&2
+		return 1
+	fi
+	# plant 2: a second reading, taken inside the loop -- the shape a repair would take that fixed the
+	# primitive and left the instant per-row.
+	awk '{ print; if (index($0, "rank_now=$(date -u +%s)")) print "\trank_now=$(date -u +%s)" }' \
+		"$base" >"$dir/twice.sh" || return 1
+	[ "$(grep -cF -- 'rank_now=$(date -u +%s)' "$dir/twice.sh")" = 2 ] || {
+		printf '            plant 2 never landed (the copy holds %s readings), so this arm was never\n' \
+			"$(grep -cF -- 'rank_now=$(date -u +%s)' "$dir/twice.sh")" >&2
+		printf '            asked the question it claims to answer.\n' >&2
+		return 1
+	}
+	plants=$((plants + 1))
+	if proc_rank_one_clock "$dir/twice.sh" 2>/dev/null; then
+		printf '            the predicate took a pass that re-reads the clock after the snapshot, so a\n' >&2
+		printf '            second reading inside the ranking would stay green.\n' >&2
+		return 1
+	fi
+	[ "$plants" = 2 ] || {
+		printf '            only %s plant(s) were attempted, so one arm of this control was skipped.\n' \
+			"$plants" >&2
+		return 1
+	}
+	printf '        control: a per-row call, and a second reading, are each planted in a copy outside\n' >&2
+	printf '        the repository and refused, so the ok above is the predicate discriminating.\n' >&2
+	return 0
+}
+proc_leg 'control: a per-row ranking site is refused' \
+	'the retired call, and a re-read inside the loop, each planted and each refused' \
+	proc_rank_one_clock_control
 
 # The healthy unit's own sentence, asserted (#267). A note used to sit here: it printed what the journal
 # said of unit B and pinned nothing, on the stated grounds that a leg on the wording would be a leg that

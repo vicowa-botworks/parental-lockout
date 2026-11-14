@@ -99,6 +99,11 @@ SCHEMA = "capture-manifest/2"
 SCHEMA_PLAIN = "capture-manifest/1"
 SCHEMAS_READABLE = (SCHEMA, SCHEMA_PLAIN)
 ARTIFACT_WIDTH = 360
+# The file a capture run leaves beside its own `fixture.env`, naming the frames it photographed and
+# the bytes it wrote for each (`cdp.write_receipt`). `record` reads it from the directory the
+# `--fixture-env` it was handed sits in, which is why there is no flag for it: the same file that
+# says which fixture took a frame is the one that says that fixture ran at all (#302).
+RECEIPT = "capture.json"
 
 # The fixture.env keys that state a CONDITION on the frame, and the field each one takes in a manifest
 # entry. Deliberately not the whole env: PLOCK_CAPTURE_USER, _PASS, _TARGET, _PORT and _CDP say how to
@@ -272,6 +277,56 @@ def read_fixture_env(path):
     return parent, conditions
 
 
+def read_receipt(path, fixture):
+    """One capture run's own list of the frames it photographed, or None when there is none.
+
+    The file is `cdp.write_receipt`'s: `{fixture, head, at, frames: {artifact: {sha256, at, head}}}`.
+    It is what lets `record` ask a frame's date of the run that took the frame instead of of the
+    commit it happens to stand in (#302), and it is read here rather than through `cdp` for the same
+    reason `read_fixture_env` parses the env itself: this runs inside `make verify` against a tree
+    that may hold no run directory at all, and a recorder that imported the browser machinery to
+    read one JSON file could not be imported by `check`.
+
+    A missing file is None, and that is a different answer from a hollow one. Missing is the
+    ordinary state of a tree where nothing has been captured, and `record` reaches for the file only
+    when it is about to write a date history contradicts; a file that names no frames, or names a
+    fixture other than the directory it sits in, is a run that cannot say what it took, and that is
+    refused where it is read rather than minted around. The second arm is also the dodge #302's M1
+    measurement runs: copy a `fixture.env` somewhere and the receipt beside it is not there, and
+    copying the receipt too gets it refused by the name inside it.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"{path} cannot be read: {exc}. That file is the capture receipt: re-run the driver that "
+            f"writes it, or record only the frames whose bytes history already agrees with (#302).")
+    named = doc.get("fixture")
+    if named and named != fixture:
+        raise SystemExit(
+            f"{path} says it was written by fixture {named!r} and it sits in a directory named "
+            f"{fixture!r}. A receipt moved next to another fixture's env vouches for frames its own "
+            f"run never photographed (#302). Re-run {fixture}'s driver, which writes both files in "
+            f"one directory.")
+    frames = doc.get("frames")
+    if not isinstance(frames, dict):
+        raise SystemExit(
+            f"{path} carries no `frames` object, so it says nothing about what that run photographed "
+            f"-- and the recorder will not guess on its behalf (#302). Re-run the driver that wrote "
+            f"it.")
+    for artifact, claim in frames.items():
+        if not isinstance(claim, dict) or not claim.get("sha256"):
+            raise SystemExit(
+                f"{path} names {artifact} without the bytes it wrote for it, so the claim cannot be "
+                f"attached to a file -- which is the whole point of a receipt (#302). Re-run the "
+                f"driver that wrote it.")
+    return {"fixture": fixture, "head": doc.get("head") or "", "at": doc.get("at") or "",
+            "frames": {str(k): dict(v) for k, v in frames.items()}}
+
+
 def repo_relative(path):
     """A path the manifest is allowed to carry: the repository's, not the capturing machine's.
 
@@ -438,6 +493,24 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
     invented date #222 was filed to stop -- and `check` cannot catch it afterwards, because the value
     it compares is the one this function just wrote.
 
+    `shot` is also what makes a frame's date ASKABLE rather than merely written (#302, retiring the
+    residue `D-0055` disclosed in its own words: "a *named* frame is still taken on the driver's
+    word … the ordering obligation now lives in the notes instead of in a check"). Naming a frame
+    used to be the whole of it, and `7e65d3b` is what that costs: nine names typed eighteen seconds
+    after a page commit, no PNG in the commit, seven rows dated at a commit their own pixels predate.
+    A second reading of history cannot repair that either -- measured twice, on #301's delivered set
+    and on the arm this issue first sketched -- because a re-take whose pixels do not change never
+    produces a commit touching the PNG, so `newest_commit(png)` can never catch up with a page commit
+    that moved no pixels, and the rows it would refuse are the ones whose stylesheet edit happened not
+    to move any. So the answer comes from the run instead: each driver's publish writes
+    `runs/<fixture>/capture.json`, naming the frames it photographed with the bytes it wrote and the
+    commit it stood in, and a frame that is both claimed and contradicted by its own history is
+    refused unless that receipt vouches for its exact bytes from a commit at or after the page's
+    newest one. The claim then travels in the entry as `photographed`, and `check` re-asks the
+    ordering from it instead of asking the blob history a question it cannot answer. A frame nothing
+    contradicts still needs no receipt: `newest_commit` answering empty is a capture not committed
+    yet, which is the ordering this folder tells people to use.
+
     With no `envs` at all this writes what it used to, under `capture-manifest/1`. Recording
     conditions is a choice the caller makes by handing over the files that state them. What no `envs`
     does NOT buy is silence about the frames: both #294 refusals below fire from `shot` and the
@@ -446,6 +519,11 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
     """
     shot = set(shot)
     fixtures = {}
+    # Each fixture's own account of what its run photographed (#302), read from beside the env that
+    # names the fixture. Held even when there is no receipt -- `{}` -- because "this fixture left no
+    # receipt" is the answer a refusal has to be able to print, and it has to name the directory it
+    # looked in.
+    claims, claim_dirs = {}, {}
     for path in envs:
         name, conditions = read_fixture_env(path)
         if name in fixtures:
@@ -454,6 +532,10 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 f"already stated. One env per fixture: two files claiming one fixture is either a "
                 f"copy left in the wrong run directory or a fixture that was renamed halfway.")
         fixtures[name] = conditions
+        directory_of_env = os.path.dirname(os.path.normpath(path))
+        claim_dirs[name] = directory_of_env
+        receipt = read_receipt(os.path.join(directory_of_env, RECEIPT), name)
+        claims[name] = (receipt or {}).get("frames", {})
 
     present = {name[:-len(".png")] for name in pngs_in(directory)}
     unknown = sorted(shot - present)
@@ -473,6 +555,7 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
     notes = []
     replaced = []
     unclaimed = []
+    uncertified = []
     for name in pngs_in(directory):
         artifact = name[:-len(".png")]
         page = declared.get(artifact)
@@ -489,6 +572,18 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # from timestamps: the only thing that makes re-attribution safe is knowing these exact pixels
         # were certified before.
         unchanged = bool(before) and before.get("png_sha256") == digest
+        # The photograph's own history, asked once per frame and read by three arms below.
+        #
+        # An EMPTY answer is not "these bytes are old". It means no commit this checkout can see
+        # touches the PNG, which is the ordinary state of frames a run has photographed and not
+        # committed yet -- the ordering every note in this folder tells people to use (`pages.py`
+        # records before anything of its run is committed, `fixture.sh` says commit last). So the
+        # date a run is about to write is CONTRADICTED only when there is a pixel history and it
+        # sits strictly behind the page's. Keying on the absence instead is #144's trap, and the
+        # rule that keeps that open is the one naming `lock.png`'s two shapes of "this run's own
+        # frames" below.
+        pixels = newest_commit([os.path.relpath(os.path.join(directory, name), ROOT)], run=run)
+        contradicted = strictly_behind(pixels, current, run=run)
         # #294, the substitution half. A frame whose bytes are NOT the ones this manifest certified,
         # and that this run did not name in `shot`, has no honest `sources_rev` to write at all: the
         # pixels came from somewhere no declaration covers. The mint below would write the commit it
@@ -535,12 +630,12 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # #301 re-took all nine on 11 Nov and recorded them named (D-0066), so nothing carries now. What
         # it did NOT change is the value this clause feeds: the entry below takes `sources_rev` from
         # `current` = `newest_commit(sources)`, the PAGE's rev -- so a `--shot` frame is still dated on
-        # the driver's word. #302 owns that half.
-        if before is None and artifact not in shot and current:
-            pixels = newest_commit([os.path.relpath(os.path.join(directory, name), ROOT)], run=run)
-            if pixels and not is_ancestor(current, pixels, run=run):
-                unclaimed.append(f"{name} (its pixels were last committed at {pixels[:9]}..., "
-                                 f"its page at {current[:9]}...)")
+        # the driver's word. #302 owns that half, and the clause below is where it starts: the same
+        # comparison, computed once per frame as `contradicted` above, now also stands behind the two
+        # claims this function is about to write (#302).
+        if before is None and artifact not in shot and contradicted:
+            unclaimed.append(f"{name} (its pixels were last committed at {pixels[:9]}..., "
+                             f"its page at {current[:9]}...)")
         # `sources_rev` names the commit these pixels were rendered from, so it belongs to the frame
         # and not to whoever ran `record` last (#222) -- the same rule `shot` already applies to the
         # conditions block, extended to the field the gate reads. Without it a run that photographs
@@ -567,8 +662,82 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 # such a placeholder in this file's own self-test (`_fake_git` used to answer
                 # `rev-parse HEAD` with the shallow verdict).
                 entry["carried_from"] = prior_doc["head"]
+            if strictly_behind(pixels, before["sources_rev"], run=run):
+                # #302's third ask, and a sentence rather than a refusal: the rev being carried was
+                # not written by this run, and refusing now would make the honest repair (#301's
+                # re-take) impossible for a frame this run has no business re-taking. What it does
+                # say out loud is that `carried_from` cannot do the job its name claims for these
+                # rows -- asking the commit they point at what the frame was rendered from answers
+                # with a manifest whose own `head` is the mint.
+                from_manifest = (str(prior_doc.get("head") or "")[:9] or "this manifest")
+                notes.append(f"{name} carries {str(before['sources_rev'])[:9]}..., which is newer "
+                             f"than its own pixels ({pixels[:9]}...): that rev was minted by whoever "
+                             f"last recorded this frame, not measured against it, and the manifest "
+                             f"it was carried from ({from_manifest}) names that same commit as its "
+                             f"own head -- so `carried_from` leads to the invention, not to the "
+                             f"photograph (#302). Re-take it: a receipt is the only thing that can "
+                             f"date it honestly from here.")
         else:
             entry = {"sources_rev": current}
+            # `current` is the newest commit over the PAGE. Writing it for a frame whose own pixels
+            # were last committed behind that commit is a claim that somebody looked at this page
+            # after the page last moved -- and #302 measured, twice and on the delivered set, that
+            # no later reading of history can confirm or refute the claim, because a re-take whose
+            # pixels do not change never produces a commit touching the PNG. `7e65d3b` is the shape:
+            # nine `--shot` names typed eighteen seconds after `2088043cb` landed, no PNG in the
+            # commit, seven rows moved onto a date their pixels predate. So the claim is asked for
+            # where it is made, from the one source that is not the typing: the run's own receipt
+            # (`cdp.write_receipt`), read from beside the `--fixture-env` that names its fixture.
+            if artifact in shot:
+                wanted = binding.get(artifact)
+                holders = sorted(f for f, frames in claims.items() if artifact in frames)
+                complaint, held = None, None
+                if not holders:
+                    complaint = (f"{name} (pixels {pixels[:9]}..., page {current[:9]}..., "
+                                 f"no receipt naming it"
+                                 + (f" -- looked in {claim_dirs[wanted]}" if wanted in claim_dirs
+                                    else f" -- {wanted!r}'s env was not handed over, so its "
+                                         f"runs/{wanted}/capture.json was not read") + ")")
+                elif wanted and holders != [wanted]:
+                    complaint = (f"{name} (pixels {pixels[:9]}..., page {current[:9]}..., the only "
+                                 f"receipt naming it is {holders[0]!r}'s, and the driver photographs "
+                                 f"this artifact from {wanted!r})")
+                else:
+                    held = claims[holders[0]][artifact]
+                    if held.get("sha256") != digest:
+                        complaint = (f"{name} (the bytes on disk are {digest[:9]}... and "
+                                     f"{holders[0]}'s receipt says this run photographed "
+                                     f"{str(held.get('sha256'))[:9]}... -- the file has changed since "
+                                     f"the photograph)")
+                    elif not is_ancestor(current, held.get("head") or "", run=run):
+                        complaint = (f"{name} (its own capture stood at "
+                                     f"{str(held.get('head') or 'no commit')[:9]}..., which is behind "
+                                     f"this page's newest commit {current[:9]}... -- the frame was "
+                                     f"photographed before the page moved, and the run typed --shot "
+                                     f"after)")
+                if complaint:
+                    # The receipt is demanded only by a contradiction, never by the absence of a
+                    # receipt: keyed on the missing file the gate refuses the ordering this folder
+                    # prescribes -- capture, record, commit -- which is #302's own M1 measurement and
+                    # the over-refusal #144 already named for the same field.
+                    if contradicted:
+                        uncertified.append(complaint)
+                else:
+                    # The date stays `current`, because that is what the page's newest commit IS;
+                    # what the block adds is the evidence for it, and `check` re-asks the ordering
+                    # from it on every later run. Written whenever a receipt covers the frame, not
+                    # only when one was needed to clear it: the claim is what turns "re-take within
+                    # one round trip", the note D-0055 could only promise in prose, into something a
+                    # gate can say out loud the next time the page moves.
+                    entry["photographed"] = {"fixture": holders[0],
+                                             "at": held.get("at") or "",
+                                             "head": held.get("head") or "",
+                                             "sha256": held["sha256"]}
+            elif contradicted and before is not None and unchanged:
+                uncertified.append(
+                    f"{name} (pixels {pixels[:9]}..., page {current[:9]}..., and the entry this "
+                    f"manifest carries for it names no `sources_rev`, so there is nothing to carry "
+                    f"and this run did not claim it either)")
         entry = {
             "page": page if page is not None
             else ("/" if artifact == "dashboard" else "/" + artifact),
@@ -642,13 +811,13 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 f"nothing (#207).")
         entries.append(entry)
 
-    # One message, both halves. The set is the finding: a run that left three frames unclaimed has
+    # One message, three halves. The set is the finding: a run that left three frames unclaimed has
     # three frames to re-take, and a refusal that reports one of them sends the operator through the
     # loop three times. Raised before the notes are printed and before anything is written -- the
     # manifest on disk stays the one from before this run, which is what keeps `check`'s findings
-    # about these frames alive over a refused record. Both refusals fire whatever the caller was
-    # given: they are about a frame nobody claims, and no `--fixture-env` describes one.
-    if replaced or unclaimed:
+    # about these frames alive over a refused record. All three fire whatever the caller was given:
+    # they are about a frame nobody can evidence, and no `--fixture-env` describes one.
+    if replaced or unclaimed or uncertified:
         parts = []
         if replaced:
             parts.append(
@@ -676,6 +845,24 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 f"--fixture-env runs/lock/fixture.env`, and the same for `testlock`), or record them "
                 f"in the commit that photographs them -- a frame with no history yet is honestly dated "
                 f"at this commit, and a frame whose pixels are this old is not.")
+        if uncertified:
+            parts.append(
+                f"{len(uncertified)} frame(s) in {directory} are claimed by this run and about to be "
+                f"dated at their page's newest commit while their own pixels were last committed "
+                f"behind it: {'; '.join(uncertified)}. That date is the driver's word, and #302 "
+                f"measured on the delivered set that nothing can check it afterwards: a re-take whose "
+                f"pixels do not change never produces a commit touching the PNG, so "
+                f"`newest_commit(png)` can never catch a page commit that moved no pixels, and "
+                f"`check`'s `if recorded == current: continue` accepts the value this function just "
+                f"wrote. `7e65d3b` is the shape this refuses -- nine `--shot` names typed eighteen "
+                f"seconds after `2088043cb` landed, no PNG in that commit, seven rows moved onto a "
+                f"date their pixels predate. What stands behind the claim now is the receipt the "
+                f"driver's own publish writes at `runs/<fixture>/capture.json`, beside the "
+                f"`--fixture-env` you handed over. So: run "
+                f"the driver that photographs these frames and record again in that same sitting, or "
+                f"drop `--shot` and let each frame keep the rev its own bytes were certified at -- "
+                f"which is nothing to carry for a frame the manifest has never seen, and that one has "
+                f"to be photographed rather than named.")
         parts.append("Nothing was written.")
         raise SystemExit("\n".join(parts))
 
@@ -869,6 +1056,50 @@ def check(directory, run=git, pages=None):
                                     f"page that the fixture no longer builds -- re-take the frame "
                                     f"rather than editing this entry to match")
 
+        # #302: a frame's own account of the run that photographed it, verified before it is used.
+        #
+        # `photographed` is the one field in an entry that says something about a RUN rather than
+        # about bytes or a page, and it is what `check` now dates a claimed frame from -- so none of
+        # it is trusted because `record` wrote it. Four shapes are refused: a block that is not a
+        # block, one that names no commit (nothing to date the frame from), bytes that are not the
+        # file on disk (the claim belongs to a photograph somebody has since replaced), and a fixture
+        # that does not photograph this artifact -- the moved-receipt dodge, which is the
+        # conditions-half failure #211 already names, one field over. Each leaves the frame to the
+        # history arms below: an unusable claim is not a pass, it is the absence of a claim.
+        claim = e.get("photographed")
+        claim_rev = ""
+        if claim is not None:
+            spec = specs.get(name[:-len(".png")])
+            want_fixture = getattr(spec, "fixture", None) if spec is not None else None
+            if not isinstance(claim, dict):
+                problems.append(f"{name} carries `photographed` as {claim!r}, and only the block a "
+                                f"capture run's receipt turns into is a date this file may use "
+                                f"(#302). Re-run the driver and re-record it.")
+            else:
+                claim_fixture = claim.get("fixture")
+                claim_sha = claim.get("sha256")
+                claim_head = claim.get("head") or ""
+                if claim_fixture and want_fixture and claim_fixture != want_fixture:
+                    problems.append(f"{name} claims it was photographed by {claim_fixture!r}, and "
+                                    f"the driver photographs {page} from {want_fixture!r}. A receipt "
+                                    f"that belongs to another fixture's run says nothing about these "
+                                    f"bytes (#302).")
+                elif not claim_sha:
+                    problems.append(f"{name}'s `photographed` block names no `sha256`, so its claim "
+                                    f"is about a filename rather than about these pixels (#302).")
+                elif claim_sha != got:
+                    problems.append(f"{name} claims it was photographed as {str(claim_sha)[:12]}... "
+                                    f"and the file on disk is {got[:12]}...: the bytes the receipt "
+                                    f"vouches for are not the bytes committed, which is #294's "
+                                    f"substitution wearing #302's provenance block")
+                elif len(claim_head) < 7:
+                    problems.append(f"{name}'s `photographed` block names commit {claim_head!r}, "
+                                    f"which is not enough of a commit to date a frame against "
+                                    f"(#302). A capture writes the receipt with `git rev-parse "
+                                    f"HEAD` in the checkout it ran in; re-run the driver here.")
+                else:
+                    claim_rev = claim_head
+
         sources = e.get("sources") or sources_for(name[:-len(".png")], e.get("page"))
         missing = [s for s in sources if not os.path.exists(os.path.join(ROOT, s))]
         if missing:
@@ -891,6 +1122,89 @@ def check(directory, run=git, pages=None):
                             f"same thing about every page in the repository. Nothing here is a "
                             f"finding about {name}.")
             continue
+        # The frame's OWN newest commit, asked once and read by two arms: the claim arm right below,
+        # where it is the witness a capture cannot supply out of its own transcript (#302's atomic
+        # case), and the drift arm, where it is D-0056's comparison.
+        shot = newest_commit([os.path.relpath(path, ROOT)], run=run)
+        if claim_rev:
+            # #302, the other half: a frame whose entry carries the run's own word is dated by that
+            # word, not by its blob history -- and it is dated AHEAD of the `recorded == current`
+            # short-circuit below, which is the arm that made the mint invisible: it compares the
+            # manifest against the value `record` just wrote, so a frame dated at its own page's
+            # commit never reaches the history that could contradict it. A claim consulted after
+            # that arm would inherit the blindness, and a row whose `sources_rev` says `current`
+            # while its own receipt says the capture stood behind -- the `7e65d3b` state with a
+            # receipt bolted on, and the shape a hand-edited entry takes -- would be skipped by it.
+            # Ordering the claim first costs nothing where it agrees: a covered claim says exactly
+            # what the short-circuit says, so no row that passed before is refused now.
+            #
+            # The history cannot answer the question for a frame like this, and the arm this issue
+            # first sketched was measured against the delivered set before it was dropped: the
+            # pixels' newest commit stays at whatever commit last MOVED the bytes, because a re-take
+            # whose pixels do not change never produces a commit touching the PNG -- so every page
+            # commit after the last byte-change reads as drift, forever. That check refused 7 of the
+            # 9 committed rows and named the two whose bytes had genuinely moved in `7e65d3b`, which
+            # is #338's unsatisfiable advice seen from the other side.
+            #
+            # The claim answers the same question in one direction, and answers it honestly: the
+            # capture stood at C, so these bytes cannot have seen a page commit after C. A frame is
+            # therefore current against a page at or before C and stale against any commit after it.
+            # That is the re-take deadline `record`'s note used to promise in prose and could not
+            # enforce -- D-0055's "the ordering obligation now lives in the notes instead of in a
+            # check", retired -- and it is enforced only on rows that carry the run's word, which is
+            # why #338's nine unclaimed rows keep the answer they have.
+            try:
+                covered = is_ancestor(current, claim_rev, run=run)
+            except SystemExit:
+                # `git()` refuses a rev it cannot resolve, and a claim whose commit a rebase retired
+                # is not a finding about the photograph -- it is this checkout failing to reach the
+                # clone the capture ran in. Say which, and do not let one row abort the gate.
+                covered = None
+            if covered:
+                continue
+            # And the frame's own bytes get the same vote the drift arm gives them, because the claim
+            # is one commit CONSERVATIVE by construction and the recipe in README.md is what makes it
+            # so: the driver photographs and records BEFORE the commit that carries its output, so the
+            # commit a receipt can name is the PARENT of the commit that lands the photograph -- for
+            # every honest capture, every time. Measured 13 Nov with real git over a throwaway
+            # repository (/tmp/opencode/302b/probe.py): the one commit carrying `profiles.tmpl`, the
+            # re-taken `profiles.png` and the re-recorded manifest is refused here on this branch by
+            # the sentence below, and accepted on `origin/main` by D-0056's comparison -- the
+            # regression D-0056 exists to prevent ("...or in that same commit; what it may not be is
+            # older than the page"), which is also #302's own list of orderings that must stay legal:
+            # "A frame re-taken and committed in the same commit the page moved in."
+            #
+            # What it does NOT buy is the frame that did not travel. Bytes that did not change
+            # produce no commit touching the PNG, so `shot` stays behind, the claim is the only
+            # witness left, and a claim one commit conservative cannot tell a byte-identical re-take
+            # in its page's own commit from a frame nobody photographed at all. That residue is
+            # #338's, it is red on `origin/main` as well (same probe: 9 problems on both trees, the
+            # #144 arm there and this arm here), and what this branch changes about it is the
+            # SENTENCE -- the repair named below is reachable, re-run the driver and re-record
+            # (measured green, same probe), where main's advice to re-take "in that same commit"
+            # could not be satisfied by anyone.
+            if shot and is_ancestor(current, shot, run=run):
+                continue
+            if covered is None:
+                problems.append(f"{name}'s capture claim names commit {claim_rev[:12]}, which this "
+                                f"checkout cannot order against {page}'s newest commit "
+                                f"{current[:12]}: the claim was written where this history does not "
+                                f"reach -- a rebase, or a capture run in another clone -- so it "
+                                f"neither dates nor clears the frame (#302). Fetch, or re-run "
+                                f"testing/capture in this checkout and re-record.")
+                continue
+            witness = ("no commit in this checkout touches the photograph, so " if not shot else
+                       f"the newest commit touching the photograph is {shot[:12]}..., "
+                       + ("behind it too, " if strictly_behind(shot, current, run=run)
+                          else "and this checkout cannot place it at or after the page, ")
+                       + "so ")
+            problems.append(f"{name} was last photographed at commit {claim_rev[:12]} and {page}'s "
+                            f"sources have moved to {current[:12]} since: the run that took these "
+                            f"bytes stood behind the page, and {witness}neither the run's word nor "
+                            f"its pixels say anybody has looked at this page since the frame was "
+                            f"taken (#302). Re-run testing/capture and re-record -- the receipt the "
+                            f"new run leaves beside its fixture.env is what re-dates this row.")
+            continue
         if recorded == current:
             continue
         # The page has moved since the manifest was recorded. That is only drift if the photograph
@@ -906,7 +1220,8 @@ def check(directory, run=git, pages=None):
         # regardless, so accepting the atomic case cannot smuggle in a swapped file; and the
         # failure #144 is about -- the page moved and nobody re-took -- still refuses, because then
         # the PNG's newest commit is genuinely older than the source's.
-        shot = newest_commit([os.path.relpath(path, ROOT)], run=run)
+        # `shot` was asked once above, before the claim arm, and read here for the comparison D-0056
+        # introduced.
         if not shot:
             problems.append(f"{MANIFEST} was not checked against {name}: no commit this checkout "
                             f"can see touches the photograph, so there is nothing to date it "
@@ -958,16 +1273,44 @@ def build_parser():
                     help="a fixture's runs/<fixture>/fixture.env, repeatable: one per fixture "
                          "photographed into --dir. Each file names its own fixture by its directory, "
                          "so conditions are never applied to a page they were not declared for "
-                         "(#211). Omit it and the manifest is recorded at " + SCHEMA_PLAIN + ".")
+                         "(#211). The run's receipt (capture.json) is read from the same directory, "
+                         "because the same run writes both (#302). Omit it and the manifest is "
+                         "recorded at " + SCHEMA_PLAIN + ".")
     ap.add_argument("--shot", action="append", default=[], metavar="ARTIFACT", dest="shot",
                     help="an artifact THIS run photographed, named without .png, repeatable. Its "
                          "conditions are taken from --fixture-env rather than carried over from the "
                          "manifest, because a frame re-taken under moved conditions is a frame "
                          "taken under those conditions even when its bytes did not move. Drivers "
                          "pass it themselves; use it when recording a frame a driver did not record "
-                         "(lock.py and testlock.py write no manifest).")
+                         "(lock.py and testlock.py write no manifest). A name is not the whole "
+                         "claim: a frame whose own pixels were last committed behind its page is "
+                         "refused unless that run's receipt vouches for its exact bytes from a "
+                         "commit at or after the page's newest one (#302).")
     ap.add_argument("--self-test", action="store_true")
     return ap
+
+
+def strictly_behind(older, newer, run=git):
+    """Is `older` an ANCESTOR of `newer` and not the same commit -- can this checkout PROVE it?
+
+    `is_ancestor` alone cannot answer that. It is true of two equal revs, and it is false of two
+    revs this checkout cannot order -- a git that answers `?`, a manifest carrying a rev a rebase
+    retired, a depth-1 fetch. Both call sites below ask for the forward direction and take "no
+    verdict" as "no finding", for the two failures #302 measured on the way: keyed on the absence
+    of a pixel history the check refuses the ordering every note in this folder tells people to use
+    (M1), and keyed on an ordering it cannot establish it refuses a set whose history merely happens
+    to be short (the same shape #144 draws for an empty scan).
+
+    A rev git cannot resolve makes `git()` refuse the whole command, so the question is asked
+    inside a guard: "this checkout cannot see the commit the manifest names" is a sentence about one
+    frame, never a stack trace over nine.
+    """
+    if not older or not newer or older == newer or len(older) < 7 or len(newer) < 7:
+        return False
+    try:
+        return is_ancestor(older, newer, run=run)
+    except SystemExit:
+        return False
 
 
 def summary(doc):
@@ -994,6 +1337,15 @@ def summary(doc):
         line += (f"; {len(carried)} of them are carried -- their `sources_rev` is the one certified in "
                  f"{from_rev}, not this run's, because this run did not re-take them -- so this line "
                  f"says nothing about those frames beyond their own history")
+    # #302's share of the same honesty. A date `record` minted is arithmetic on the page's history;
+    # a date a receipt backs is a measurement a run made. The reader of a green `make verify` cannot
+    # tell those apart from a count, so the count says which is which -- and while no page commit
+    # contradicts an unbacked row, `check` has nothing to refuse it with, which is exactly the state
+    # `7e65d3b` left the committed set in.
+    unbacked = [e for e in entries if not e.get("photographed")]
+    if unbacked and entries:
+        line += (f"; {len(unbacked)} of them are dated at a commit no capture run vouched for, so "
+                 f"their date stands on this file's arithmetic rather than on a receipt (#302)")
     return line
 
 
@@ -1494,6 +1846,35 @@ def self_test():
             for key, value in values.items():
                 fh.write(f"{key}={value}\n")
         return path
+
+    def receipt(box, fixture, frames, head=RECORDED, at="2026-01-01T00:00:00Z", write=True):
+        """The file a capture run leaves beside its own `fixture.env`, planted by hand (#302).
+
+        Planted and not produced: this box has no browser and no run directory, and the claim under
+        test is what `record` and `check` make of a receipt, not how `cdp` came to write one. The
+        shape is `cdp.write_receipt`'s and `a_receipt_is_the_shape_the_driver_writes` below is what
+        keeps the two files from drifting apart -- the same reasoning that makes the state strings
+        and the script values in this suite be read from the driver instead of typed.
+
+        The digest is of the PNG as it stands when the receipt is planted, because that is what a
+        publish does: the run hashes the bytes it wrote and nothing that happens afterwards. Re-plant
+        after re-writing a frame, which is what an operator with a replaced file has to do too.
+
+        `write=False` returns the document without saving it, for the rules that hand a recorder a
+        file it cannot read.
+        """
+        doc = {"fixture": fixture, "head": head, "at": at, "frames": {}}
+        for stem in frames:
+            doc["frames"][stem] = {
+                "sha256": sha256(os.path.join(box, "docs", "screenshots", "360", stem + ".png")),
+                "at": at, "head": head}
+        if write:
+            d = os.path.join(box, "runs", fixture)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, RECEIPT), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+        return doc
 
     def recorded(box, envs=(), pngs=("dashboard", "users", "profiles", "audit", "settings")):
         d = os.path.join(box, "docs", "screenshots", "360")
@@ -2035,6 +2416,12 @@ def self_test():
         d = os.path.join(box, "docs", "screenshots", "360")
         _png(box, "profiles.png", body=b"re-taken under the moved page")
         moved = _fake_git(rev="b" * 40)
+        # The re-take's own word, planted before the record (#302). This is the shape `7e65d3b` was
+        # NOT: a frame named with `--shot` while its committed pixels sit at the older commit. The
+        # rule's own claim -- that the four frames this run left alone keep their rev -- is only
+        # testable if the one frame it did take is allowed to be recorded, and the only thing that
+        # now lets it be recorded is the receipt its driver would have left.
+        receipt(box, "pages", ["profiles"], head="b" * 40, at="2026-01-02T00:00:00Z")
         with contextlib.redirect_stderr(io.StringIO()):
             record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
         after = {e["png"]: e for e in read_manifest(d)["pages"]}
@@ -2246,7 +2633,479 @@ def self_test():
     rule("a run cannot report photographing a frame that is not there",
          in_box(a_shot_with_no_png_is_refused))
 
-    EXPECTED = 44
+    # ---- #302: the driver's word, made checkable --------------------------------------
+    #
+    # `--shot` dates a frame at its PAGE's newest commit and never at its own pixels, and
+    # `check`'s `recorded == current` arm compares the value `record` just wrote -- so the mint is
+    # invisible from the other end. `7e65d3b` is the specimen, measured on the delivered set: nine
+    # names typed eighteen seconds after `2088043cb`, no PNG in the commit, seven rows on a date
+    # their pixels predate, `check` answering `9 photographs current` with rc 0. The repair is the
+    # run's own receipt (`cdp.write_receipt`, at `runs/<fixture>/capture.json`, read from beside the
+    # `--fixture-env` that names the fixture). Seven rules, because the repair has three parts and
+    # two boundaries: a contradicted mint is refused without a receipt and cleared by one; a receipt
+    # that cannot be attached to these exact bytes is worth nothing; the writer and the reader are
+    # one shape; the pre-commit ordering stays open (#302's own M1 measurement, which is the
+    # over-refusal this file's #144 lesson forbids); and a claim that goes stale goes red without
+    # becoming the unsatisfiable advice #338 is filed against.
+
+    def a_claimed_frame_behind_its_page_is_refused_without_a_receipt(box):
+        env = env_file(box, "pages")
+        first = recorded(box, envs=[env])
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png", body=b"re-taken, and not committed with the page")
+        moved = _fake_git(rev="b" * 40)
+        message = refused(lambda: record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env],
+                                        shot=["profiles"]))
+        if message in (None, "REFUSED-NOTHING"):
+            return ("`--shot profiles` re-dated a frame whose committed pixels sit at the older "
+                    "commit and nothing was refused. That mint is the value `check`'s "
+                    "`recorded == current` arm accepts, and #302 measured the whole delivered set "
+                    "green over it")
+        if RECEIPT not in message:
+            return (f"the refusal does not name the file that answers it: {message[:160]!r}. An "
+                    "operator told only that a date is wrong has no door to knock on")
+        if read_manifest(d)["head"] != first["head"]:
+            return "the refused record wrote the manifest anyway"
+
+        # The same run, holding the word its driver would have left.
+        receipt(box, "pages", ["profiles"], head="b" * 40, at="2026-01-02T00:00:00Z")
+        record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
+        after = {e["png"]: e for e in read_manifest(d)["pages"]}
+        claim = after["profiles.png"].get("photographed")
+        if not claim or claim.get("head") != "b" * 40:
+            return (f"a receipt covering the page did not clear the frame: {claim!r}. Refusing the "
+                    "honest re-take with the dishonest one is the mistake #338 is filed against")
+        if claim.get("sha256") != sha256(os.path.join(d, "profiles.png")):
+            return "the block does not name the bytes it just cleared"
+        if after["profiles.png"].get("sources_rev") != "b" * 40:
+            return "the cleared frame did not get the date the receipt proves"
+        # And the boundary the whole design rests on: a frame nobody claims is untouched by this.
+        # `newest_commit(png)` answering empty -- or answering behind the page, for a set recorded
+        # before its run is committed -- is the ordering every note in this folder tells people to
+        # use, and a gate that refuses it is #338's dead end with a stricter lock on it.
+        bare = refused(lambda: record(d, run=_fake_git(rev="c" * 40), now="2026-01-03T00:00:00Z",
+                                      envs=[env]))
+        if bare != "REFUSED-NOTHING":
+            return (f"a bare record over a set whose page had moved was refused: {bare[:160]!r}. "
+                    "Nothing claimed a new date there, so the frames carry and the ordering the "
+                    "README prescribes has to stay open (#302 M1)")
+        return None
+
+    rule("a frame named with `--shot` while its own pixels are behind its page is refused without a "
+         "capture receipt, and cleared by one",
+         in_box(a_claimed_frame_behind_its_page_is_refused_without_a_receipt))
+
+    def a_receipt_from_behind_the_page_dates_nothing(box):
+        env = env_file(box, "pages")
+        recorded(box, envs=[env])
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png", body=b"photographed while the page was still at the old commit")
+        # The shape `7e65d3b` actually is: a run whose capture stood at `A`, a page whose newest
+        # commit is `B`, and a name typed afterwards. The receipt is real, and it says the opposite
+        # of what the date claims -- so it must refuse rather than satisfy.
+        receipt(box, "pages", ["profiles"], head=RECORDED, at="2026-01-02T00:00:00Z")
+        message = refused(lambda: record(d, run=_fake_git(rev="b" * 40), now="2026-01-02T00:00:00Z",
+                                         envs=[env], shot=["profiles"]))
+        if message in (None, "REFUSED-NOTHING"):
+            return ("a receipt naming a commit BEHIND the page cleared the frame: the check is "
+                    "only worth what it refuses, and this is the exact ordering of the commit this "
+                    "issue is filed against")
+        if "stood at" not in message:
+            return f"the refusal does not say which way the two commits fall: {message[:160]!r}"
+        return None
+
+    rule("a receipt whose capture stood behind the page refuses the frame instead of clearing it",
+         in_box(a_receipt_from_behind_the_page_dates_nothing))
+
+    def a_receipt_that_is_not_about_these_bytes_is_refused(box):
+        env = env_file(box, "pages")
+        other = env_file(box, "lock")
+        recorded(box, envs=[env])
+        d = os.path.join(box, "docs", "screenshots", "360")
+        # (a) The receipt from another fixture's run, sitting in that fixture's own directory -- so
+        # this is not the copy-a-file dodge, it is a real receipt about different frames.
+        _png(box, "profiles.png", body=b"someone else's frame")
+        receipt(box, "lock", ["profiles"], head="b" * 40)
+        message = refused(lambda: record(d, run=_fake_git(rev="b" * 40), now="2026-01-02T00:00:00Z",
+                                         envs=[env, other], shot=["profiles"]))
+        if message in (None, "REFUSED-NOTHING") or "lock" not in message:
+            return (f"a receipt belonging to another fixture's run cleared the frame: "
+                    f"{message[:160]!r}")
+        # (b) These frames' own receipt, and bytes that are not the ones it names: the file moved
+        # after the run that photographed it, which is #294's substitution inside #302's provenance.
+        os.remove(os.path.join(box, "runs", "lock", RECEIPT))
+        _png(box, "profiles.png", body=b"re-taken under the moved page")
+        receipt(box, "pages", ["profiles"], head="b" * 40)
+        _png(box, "profiles.png", body=b"and then replaced, after the run that claimed it")
+        message = refused(lambda: record(d, run=_fake_git(rev="b" * 40), now="2026-01-02T00:00:00Z",
+                                         envs=[env], shot=["profiles"]))
+        if message in (None, "REFUSED-NOTHING") or "receipt says" not in message:
+            return (f"bytes that are not the ones the receipt vouches for cleared the frame: "
+                    f"{message[:160]!r}")
+        return None
+
+    rule("a receipt is worth only the bytes and the fixture it was written for",
+         in_box(a_receipt_that_is_not_about_these_bytes_is_refused))
+
+    def the_receipt_the_driver_writes_is_the_one_record_reads(box):
+        sys.path.insert(0, HERE)
+        import cdp
+        env = env_file(box, "pages")            # box/runs/pages/fixture.env, the env `record` reads
+        d = os.path.join(box, "docs", "screenshots", "360")
+        stage_root = os.path.join(box, "runs")
+        stage = os.path.join(stage_root, "_stage-selftest")
+        os.makedirs(stage, exist_ok=True)
+        # `publish` removes the stage directory when it drains it, so each cell puts its own frame
+        # in just before it runs -- the way two real runs would.
+        with open(os.path.join(stage, "users.png"), "wb") as fh:
+            fh.write(b"a second frame, from a run whose fixture declared nothing")
+        saved = (cdp.RUNS, cdp._STAGE, list(cdp._PENDING), cdp.git_head)
+        try:
+            cdp.RUNS = stage_root
+            cdp._STAGE = stage
+            cdp._PENDING.clear()
+            # The commit the capture stood in is the one thing this box cannot get from git: the
+            # fake history below knows two revs and no real sha. Stubbed at the probe only, so the
+            # bytes of the receipt are `cdp.write_receipt`'s, unchanged.
+            cdp.git_head = lambda: "b" * 40
+            # Cell one, first because it consumes the conditions file: a run where no fixture
+            # declared anything. #211's rule for `fixture.env`, applied to the file whose whole
+            # purpose is to be trusted -- a receipt written here would be a claim about a run nobody
+            # set up, and the recorder reads it as that fixture's word. The capture must still have
+            # RUN: a gate that stops a photograph because a bookkeeping file is missing is how a
+            # check becomes an outage, and the frames are owed to `--out` either way.
+            os.remove(env)
+            # Published somewhere other than the artifact directory: this cell is about the driver's
+            # moment, and a frame left in `d` would be a second unclaimed frame for cell two's
+            # `record` to refuse -- correctly, but for the wrong reason.
+            other = os.path.join(box, "shots-nofixture")
+            os.makedirs(other, exist_ok=True)
+            cdp._PENDING.append((os.path.join(stage, "users.png"), os.path.join(other, "users.png")))
+            cdp.Session.publish(None, "pages")
+            where = cdp.receipt_path("pages")
+            silent = os.path.exists(where)
+            landed, strays = os.path.exists(os.path.join(other, "users.png")), \
+                [f for f in os.listdir(other) if f == RECEIPT]
+            # The recorder needs that file back: the cell below is the reader's half, and `record`
+            # refuses a conditions file it cannot open.
+            env_file(box, "pages")
+            # Cell two, the round trip: the driver's own publish, then the recorder's own read.
+            #
+            # `publish` reads the module's own `_PENDING` and `_stage_dir()` and nothing on the
+            # instance, and it is the only moment that knows both the bytes and the fixture -- so
+            # driving it is the difference between pinning a helper and pinning the run.
+            os.makedirs(stage, exist_ok=True)
+            with open(os.path.join(stage, "profiles.png"), "wb") as fh:
+                fh.write(b"the bytes this run photographed")
+            cdp._PENDING.append((os.path.join(stage, "profiles.png"),
+                                 os.path.join(d, "profiles.png")))
+            cdp.Session.publish(None, "pages")
+            if not os.path.exists(where):
+                return ("the publish put the frame on disk and wrote no receipt beside it, so the "
+                        "run's account of what it photographed exists nowhere and `record` has "
+                        "nothing to read (#302)")
+            try:
+                produced = json.load(open(where, encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                return f"the receipt the publish wrote cannot be read: {exc}"
+            record(d, run=_fake_git(rev="b" * 40), now="2026-01-02T00:00:00Z", envs=[env],
+                   shot=["profiles"])
+            entry = {e["png"]: e for e in read_manifest(d)["pages"]}["profiles.png"]
+        finally:
+            cdp.RUNS, cdp._STAGE, cdp.git_head = saved[0], saved[1], saved[3]
+            cdp._PENDING[:] = saved[2]
+        if silent:
+            return ("a receipt was written where no `fixture.env` exists. The recorder reads that "
+                    "file as the fixture's word about its frames, and no fixture ran here (#211's "
+                    "lock, one field over)")
+        if not landed:
+            return ("a run with no conditions file refused to publish the frame it photographed: the "
+                    "receipt is the weaker statement, never the capture")
+        if strays:
+            return (f"{RECEIPT} landed in the artifact directory the driver publishes to. That "
+                    "directory is committed, and a transcript of one run on one machine is not "
+                    "evidence about the frames beside it")
+        if cdp.RECEIPT != RECEIPT:
+            return (f"the driver writes {cdp.RECEIPT!r} and the recorder reads {RECEIPT!r}: two "
+                    "names for one file is a claim nobody can find")
+        if produced.get("fixture") != "pages":
+            return f"the receipt does not name its own fixture: {produced!r}"
+        frame = produced.get("frames", {}).get("profiles")
+        if not frame or frame.get("sha256") != sha256(os.path.join(d, "profiles.png")):
+            return (f"the receipt does not name the bytes the publish wrote: {frame!r} vs "
+                    f"{sha256(os.path.join(d, 'profiles.png'))[:12]}...")
+        if not entry.get("photographed"):
+            return ("`record` cannot read what the driver wrote -- the file is on disk and the "
+                    f"entry carries only {entry.get('sources_rev')!r}")
+        if entry["photographed"].get("head") != "b" * 40:
+            return f"the claim survived the round trip wrong: {entry['photographed']!r}"
+        return None
+
+    rule("the receipt a driver's publish writes is the one `record` reads, key for key",
+         in_box(the_receipt_the_driver_writes_is_the_one_record_reads))
+
+    def an_unusable_claim_is_checked_before_check_uses_it(box):
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        doc = recorded(box, envs=[env])
+        # `_Page` carries the fixture `check` compares a claim's fixture against. `DRIVER` does not:
+        # its rows are built with url and artifact only, so a rule that used it here could not tell
+        # a claim naming the right fixture from one naming another -- the wrong-fixture claim would
+        # pass on a None, which is #211's "absent is not a verdict" in the reader's seat.
+        one = [_Page("/profiles", "profiles", fixture="pages")]
+
+        def with_claim(artifact, **overrides):
+            pages = [dict(e) for e in doc["pages"]]
+            for e in pages:
+                if e["png"] == artifact + ".png":
+                    claim = dict(e.get("photographed") or
+                                 {"fixture": "pages", "at": "2026-01-01T00:00:00Z",
+                                  "head": RECORDED,
+                                  "sha256": sha256(os.path.join(d, artifact + ".png"))})
+                    claim.update(overrides)
+                    e["photographed"] = claim
+            with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
+                json.dump(dict(doc, pages=pages), fh, indent=2, sort_keys=True)
+            return check(d, run=_fake_git(), pages=one)
+
+        wrong_bytes = [p for p in with_claim("profiles", sha256="0" * 64)
+                       if p.startswith("profiles.png")]
+        if not any("the file on disk" in p for p in wrong_bytes):
+            return (f"a claim naming bytes that are not the file on disk passed: {wrong_bytes[:1]!r} "
+                    "-- that is #294's substitution wearing a provenance block")
+        wrong_fixture = [p for p in with_claim("profiles", fixture="lock")
+                         if p.startswith("profiles.png")]
+        if not any("lock" in p for p in wrong_fixture):
+            return f"a claim from another fixture's run passed: {wrong_fixture[:1]!r}"
+        no_head = [p for p in with_claim("profiles", head="") if p.startswith("profiles.png")]
+        if not any("not enough of a commit" in p for p in no_head):
+            return f"a claim naming no commit passed as a date: {no_head[:1]!r}"
+        good = [p for p in with_claim("profiles") if p.startswith("profiles.png")]
+        if good:
+            return f"a well-formed claim about a current frame was refused: {good[:1]!r}"
+        return None
+
+    rule("a `photographed` block is verified before `check` is willing to date a frame by it",
+         in_box(an_unusable_claim_is_checked_before_check_uses_it))
+
+    def a_claim_the_page_has_moved_past_goes_red_and_a_new_run_clears_it(box):
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png")
+        receipt(box, "pages", ["profiles"], head=RECORDED)
+        record(d, run=_fake_git(), now="2026-01-01T00:00:00Z", envs=[env], shot=["profiles"])
+        one = [_Page("/profiles", "profiles")]
+        # The deadline the mint used to escape: the frame is current for the commit it was written
+        # at, the page moves to `b`, and nothing about the file changes. Before #302 this is where
+        # the note said "re-take within one round trip" and no check could tell.
+        moved = _fake_git(rev="b" * 40)
+        stale = [p for p in check(d, run=moved, pages=one) if p.startswith("profiles.png")]
+        if not any("was last photographed at commit" in p for p in stale):
+            return (f"a page that moved past the commit its own capture named produced {stale[:1]!r}; "
+                    "the claim is a date, and a date that stops being true has to go red (#302)")
+        # The repair the sentence promises, run through the real path rather than asserted: a new
+        # capture, a new receipt, a re-record. #338 is the lesson that a refusal with no reachable
+        # green is a lock, so this cell is the rule's other half.
+        _png(box, "profiles.png", body=b"re-taken after the page moved")
+        receipt(box, "pages", ["profiles"], head="b" * 40, at="2026-01-02T00:00:00Z")
+        record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
+        clean = [p for p in check(d, run=moved, pages=one) if p.startswith("profiles.png")]
+        if clean:
+            return (f"the repair the refusal names left the frame still refusing: {clean[:1]!r} -- "
+                    "an unsatisfiable refusal is the defect #338 files, not a guard")
+        return None
+
+    rule("a claimed frame goes red when its page moves past the commit its capture named, and a "
+         "re-take through the receipt clears it",
+         in_box(a_claim_the_page_has_moved_past_goes_red_and_a_new_run_clears_it))
+
+    def a_frame_carried_into_its_page_s_own_commit_is_not_refused_by_its_own_receipt(box):
+        """The receipt is one commit CONSERVATIVE, and the recipe in README.md is what makes it so.
+
+        That recipe runs the driver and the recorder BEFORE the commit that carries their output --
+        `./pages.py --out docs/screenshots/360 --overwrite`, then `manifest.py record`, then
+        `git commit`. So the commit a receipt can honestly name is the PARENT of the commit that
+        lands the photograph: every fixture, every capture, no exceptions. A `check` that dates a
+        claimed frame from the claim alone therefore refuses the one ordering D-0056 was written to
+        protect -- "Re-take it and re-run `manifest.py record`, in a commit after the one that
+        changed the page **or in that same commit**" -- and #338 files that exact over-refusal
+        against this file in general. #302's own list of orderings that must stay legal names it:
+        "A frame re-taken and committed in the same commit the page moved in."
+
+        Measured 13 Nov against real git rather than this fake, because the fake cannot say what a
+        capture standing in a commit's parent looks like: `/tmp/opencode/302b/probe.py`, case 1, run
+        against `origin/main` (`9d15457`) and against this branch. Both trees accept the `record`;
+        `main` accepts the commit, and this branch's first cut refused it -- `profiles.png was last
+        photographed at commit c9baf3cbe6b5 and /profiles's sources have moved to 473bc5cd0805
+        since` -- a sentence false about the frame it printed, invisible to D-0056's rule above
+        because that box never held a receipt.
+
+        Two cells, and the second is what keeps the first from being a bypass: a frame whose bytes
+        did NOT travel into the page's commit has nothing left to vouch for it, because a claim one
+        commit conservative cannot tell a byte-identical re-take in the page's own commit from a
+        frame nobody photographed at all. That one stays red -- the residue #338 names, red on
+        `origin/main` as well (9 problems on both trees under the same probe), with the reachable
+        repair in the rule above.
+        """
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        one = [_Page("/profiles", "profiles")]
+        _png(box, "profiles.png")
+        receipt(box, "pages", ["profiles"], head=RECORDED)
+        record(d, run=_fake_git(), now="2026-01-01T00:00:00Z", envs=[env], shot=["profiles"])
+        if not read_manifest(d)["pages"][0].get("photographed"):
+            return "the setup wrote no claim, so this rule would prove nothing"
+        # The page moved into `b`, and so did the photograph: one commit, both of them.
+        atomic = _fake_git(rev="b" * 40, png_rev="b" * 40)
+        travelled = [p for p in check(d, run=atomic, pages=one) if p.startswith("profiles.png")]
+        if travelled:
+            return (f"a frame re-taken in the commit that moved its page was refused: {travelled[:1]!r}. "
+                    "The receipt names the parent because the driver ran before the commit -- that is "
+                    "the recipe -- and the frame's own bytes are in the commit that moved the page "
+                    "(#302 refuses an ordering D-0056 protects)")
+        stayed = [p for p in check(d, run=_fake_git(rev="b" * 40), pages=one)
+                  if p.startswith("profiles.png")]
+        if not any("was last photographed at commit" in p for p in stayed):
+            return (f"a claim whose frame did not move with the page passed: {stayed[:1]!r} -- "
+                    "accepting the atomic case on the claim alone would accept the mint too")
+        if not any("the newest commit touching the photograph is " + RECORDED[:12] in p
+                   for p in stayed):
+            return (f"the refusal prints the claim but not the pixels that contradict it, so the "
+                    f"reader cannot tell the two witnesses apart: {stayed[:1]!r}")
+        return None
+
+    rule("a frame re-taken in the commit that moved its page stays current, and one whose bytes did "
+         "not travel still goes red",
+         in_box(a_frame_carried_into_its_page_s_own_commit_is_not_refused_by_its_own_receipt))
+
+    def the_carried_note_says_what_carried_from_cannot_reach(box):
+        import contextlib
+        import io
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        # Recorded once where the page and its photograph share a commit -- the atomic case #144
+        # exists to allow, and the honest counterpart of `7e65d3b` -- then seen again from a history
+        # in which the photograph's newest commit is the OLDER of the two: a rebase, or the retired
+        # rev `carried_from` itself points at.
+        for a in ("dashboard", "users", "profiles", "audit", "settings"):
+            _png(box, a + ".png")
+        record(d, run=_fake_git(rev="b" * 40, png_rev="b" * 40), now="2026-01-01T00:00:00Z",
+               envs=[env])
+        first = read_manifest(d)
+        if first["pages"][0].get("sources_rev") != "b" * 40:
+            return f"the setup did not mint what it claims: {first['pages'][0]!r}"
+        rewrite = _fake_git(rev="b" * 40, png_rev=RECORDED)
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            record(d, run=rewrite, now="2026-01-03T00:00:00Z", envs=[env])
+        said = stream.getvalue()
+        if "carries" not in said or "own pixels" not in said:
+            return (f"a rev newer than its own frame's pixels was carried in silence: {said[:160]!r}. "
+                    "`carried_from` is the field a reader audits the carry through, and here it "
+                    "names the commit the rev was invented at (#302)")
+        if first["head"][:9] not in said:
+            return ("the note does not name the manifest it was carried from, so the reader cannot "
+                    f"follow it to the mint: {said[:160]!r}")
+        if not read_manifest(d)["pages"]:
+            return "the note turned into a refusal: a frame nobody claims must still be recordable"
+        return None
+
+    rule("a carried rev newer than its own frame's pixels is said out loud, with the mint it came "
+         "from", in_box(the_carried_note_says_what_carried_from_cannot_reach))
+
+    def a_mint_is_invisible_to_the_history_and_visible_to_its_own_claim(box):
+        """The blind spot, pinned as a decision -- and the one field that reaches past it.
+
+        Three cells, because the ticket's claim is about what `check` CANNOT see and the repair is
+        about what it now can. Deleting `if recorded == current: continue` from `check` goes red on
+        the second cell, which is the only way to keep an accepted limit from silently becoming an
+        untested arm: this file has already shipped one green check that compared nothing.
+        """
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png")
+        receipt(box, "pages", ["profiles"], head="b" * 40, at="2026-01-01T00:00:00Z")
+        # The mint's own shape: the row's `sources_rev` IS the page's newest commit, and the frame's
+        # pixels were last committed behind it. `7e65d3b`, one frame at a time.
+        moved = _fake_git(rev="b" * 40, png_rev=RECORDED)
+        record(d, run=moved, now="2026-01-01T00:00:00Z", envs=[env], shot=["profiles"])
+        one = [_Page("/profiles", "profiles", fixture="pages")]
+        doc = read_manifest(d)
+        entry = doc["pages"][0]
+        if entry.get("sources_rev") != "b" * 40 or not entry.get("photographed"):
+            return f"the setup is not the mint: {entry!r}"
+        covered = check(d, run=moved, pages=one)
+        if covered:
+            return (f"a frame the run's receipt covers was refused: {covered[:1]!r}. The whole point "
+                    "of the claim is that a byte-identical re-take stays current")
+
+        def with_claim(**overrides):
+            pages = [dict(e) for e in doc["pages"]]
+            claim = dict(pages[0].get("photographed"))
+            claim.update(overrides)
+            pages[0]["photographed"] = claim
+            with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
+                json.dump(dict(doc, pages=pages), fh, indent=2, sort_keys=True)
+            return [p for p in check(d, run=moved, pages=one) if p.startswith("profiles.png")]
+
+        # The residue, stated rather than hidden: with no receipt in the manifest -- which is every
+        # row #338 lists -- the mint is a row `check` reads as current, because the only thing that
+        # could say otherwise is the blob history that cannot see a re-take whose bytes did not
+        # move. Refusing it is #338's dead end; not saying it is a green that means less than it
+        # reads. So the suite pins that the answer here is silence, and `summary()` says the count.
+        # Deleting `if recorded == current: continue` lands here as a refusal and goes red.
+        pages = [dict(e) for e in doc["pages"]]
+        pages[0].pop("photographed", None)
+        with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
+            json.dump(dict(doc, pages=pages), fh, indent=2, sort_keys=True)
+        blind = [p for p in check(d, run=moved, pages=one) if p.startswith("profiles.png")]
+        if blind:
+            return (f"an unclaimed row dated at its page's own commit was refused: {blind[:1]!r}. "
+                    "That is the check #302 measured as unsatisfiable -- its pixels cannot move "
+                    "without a page change -- and `check`'s `recorded == current` arm is what holds "
+                    "it open on purpose; the limit belongs in the summary, not in a refusal")
+        # And the row that carries a claim contradicting its own date: the short-circuit used to
+        # skip it before anything read the claim.
+        lying = with_claim(head=RECORDED)
+        if not any("was last photographed at commit" in p for p in lying):
+            return (f"a row whose date says its page's commit while its receipt says the capture "
+                    f"stood behind it passed: {lying[:1]!r}")
+        return None
+
+    rule("a row dated at its own page's commit is invisible to the blob history by decision, and a "
+         "claim contradicting it is read before that arm can skip it",
+         in_box(a_mint_is_invisible_to_the_history_and_visible_to_its_own_claim))
+
+    def a_claimed_frame_whose_bytes_did_not_move_is_still_dated_at_the_page(box):
+        """D-0028's case, with the date it always needed: a re-take that changed nothing.
+
+        `settings.png` comes back byte-identical after its page moves, so `unchanged` is true and the
+        carry rule is the one that decides its date. Without `--shot` that is right -- nobody looked
+        at it. With `--shot` and a receipt, the frame WAS photographed and the carry would write a rev
+        from before the run that took it, which is the mint's mirror image.
+        """
+        env = env_file(box, "pages")
+        recorded(box, envs=[env])
+        d = os.path.join(box, "docs", "screenshots", "360")
+        moved = _fake_git(rev="b" * 40)
+        receipt(box, "pages", ["profiles"], head="b" * 40, at="2026-01-02T00:00:00Z")
+        record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
+        after = {e["png"]: e for e in read_manifest(d)["pages"]}
+        if after["profiles.png"].get("sources_rev") != "b" * 40:
+            return ("a byte-identical re-take its own receipt vouches for kept the rev from before "
+                    "it was photographed, so `--shot` decides nothing for the frames whose pixels did "
+                    "not move -- the ones D-0028 is about")
+        if not after["profiles.png"].get("photographed"):
+            return "the re-dated frame carries no evidence for the date it was given"
+        for other in ("audit.png", "dashboard.png", "settings.png", "users.png"):
+            if after[other].get("sources_rev") != RECORDED:
+                return f"{other} was re-dated by a run that did not photograph it (#222)"
+        return None
+
+    rule("a claimed frame whose bytes came back identical is dated at the page it was re-taken from",
+         in_box(a_claimed_frame_whose_bytes_did_not_move_is_still_dated_at_the_page))
+
+    EXPECTED = 54
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")
