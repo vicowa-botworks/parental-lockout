@@ -9395,3 +9395,56 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+## H-0187 · Two of #334's three fixes delete the operator's audit trail and one only measures it, so the unit ships the measurement and escalates the deletion
+
+- Question: nothing bounds `factory/log/` -- no code in the tree rotates, truncates or prunes
+  (re-grepped at this head: nothing). #334 measured **20 MB across 100 files** at filing
+  (2026-11-12T22:05Z, `du -sh`); re-measured from this branch on 15 Nov: 36,073,727 bytes across
+  171 files (`du -sb`; `du -sh` reads 35M), journal `supervisor.log` 995,814 B, oldest file still
+  the harness's first day (`20261110T134828Z.unclaimed:213.log`, mtime 2026-11-10) -- +16 MB and
+  +71 files since filing, and the ticket prices asking the question at "150 lines of grep". Its
+  own sentence: "Any of the three is a retention decision about the operator's audit trail, so it
+  is filed rather than decided by a unit." Deleting data is one of the four classes AGENTS.md
+  reserves to a human. What does this unit deliver without choosing a number?
+- Options: escalate all three and ship no code | ship fix 3 -- the footprint read in `--status` --
+  and escalate fixes 1 and 2 as one escalation naming the numbers owed | ship an inert rotator
+  whose numbers default to unset and let the operator fill the env | choose the numbers here and
+  ship a rotator
+- Chose: ship fix 3 -- the footprint read in `--status` -- and escalate fixes 1 and 2 as one
+  escalation naming the numbers owed
+- Why: the three fixes are not one kind of action. 1 and 2 delete the operator's records and cannot
+  be written without choosing keep-N, keep-D-days or a byte bound -- the choosing is the withheld
+  class. Fix 3 deletes nothing: it stats the directory the ticket measured and prints it where the
+  person already stands, in `--status` -- the ticket's own sentence for it, "#260 made for LOG-AT:
+  a record whose location and size are invisible is found by archaeology". Escalating all three
+  fails that sentence: an operator willing to answer owes a reading they cannot currently get,
+  and the answer H-0188 asks for is cheap to give once the size is legible. The inert rotator is
+  not neutral as it looks: keep-N and keep-D-days are different code paths, and shipping a
+  mechanism before the policy exists pre-picks the mechanism, its idle default becoming the
+  answer by mere existence -- a second decision to unmake. Choosing the numbers here is refused
+  twice over, by the ticket's sentence and by AGENTS.md. Tie-break 3: the numbers are missing
+  input, and inventing them is proceeding without it; the report needs no numbers and works while
+  waiting. Tie-break 5: reporting keeps every retention option open and is one `git revert` from
+  unmade. What lost: the growth stays unbounded until a human answers H-0188 -- that is the
+  disclosed loss, now visible on a line the operator reads, and #334 itself grows the journal 37
+  lines a pass on top.
+- Checkpoint: 80a5ad4b47c5026992e3c4496618459e799d7fa8
+- Effect: `factory_log_footprint` appended at the EOF of `factory/common.sh` (function-append at
+  EOF is shift-zero by construction); `factory/factory.sh`'s `--status` arm swaps the `journal:`
+  printf for a call one-for-one, 1683 lines before and after, so no `path:line` pointer in either
+  log moves; `factory/selftest.sh` gains three legs (controls uncounted by convention) inserted
+  above the tally block at line 16302, below every citation aimed at that file -- the highest line
+  the tool itself reports cited is 15569 -- and `python3 scripts/check-decisions.py` re-run after
+  the edits: 641 citations, 0 pointing where a reader cannot open, rc 0. Suite read-back:
+  `bash factory/selftest.sh` -> 685 passed, 0 failed, exit 0, against the 682 baseline the branch
+  carried; the planted leg reads back its plant (`journal 250 B; 3 files, 750 B`, the oldest
+  named with a days-shaped age, and flipping that transcript's mtime changes which file is named
+  -- the minimum is measured, not asserted; a single-file directory reads "1 file"), and the
+  wired leg plants the deletion and measures the scan going red on it (H-0043's rule). Live
+  read-back against the real log directory: `--status` printed
+  `log:     journal 995814 B; 171 files, 36074649 B under .../factory/log; oldest 20261110T134828Z.unclaimed:213.log 4d16h`.
+  This decision deletes and rotates nothing; the deletion is H-0188 and it awaits a human.
+- Refers: #334 (this ticket), H-0043 (a presence check must prove it could see the absence),
+  H-0141 and H-0179 (escalate-with-record, and the disclosed stand-in when the marker itself is
+  refused), AGENTS.md "Four classes of decision are not an agent's to make"

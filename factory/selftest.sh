@@ -16301,6 +16301,114 @@ cv_leg_cmsg_empty() {
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
 
+# #334 -- the footprint line. Nothing bounds `factory/log/` (20 MB across 100 files at filing, 35 MB
+# across 171 three days later, oldest file still the harness's first day), and `--status` printed the
+# journal's path and nothing about its size. The retention decision is escalated (`H-0188`) -- deleting
+# the operator's audit trail is not a tick's move -- but the line that makes the growth visible is, and
+# these legs drive the shipped function against planted directories of known bytes and known ages.
+# Nothing here deletes anything; that is the escalated half's problem, not the suite's.
+fp_leg_planted() {
+	local dir=$work/footprint/planted out
+	mkdir -p "$dir"
+	head -c 250 /dev/zero >"$dir/supervisor.log"
+	head -c 400 /dev/zero >"$dir/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$dir/refresh.log"
+	local t_old t_mid t_new
+	t_old=$(date -u -d '3 days ago' +%s)
+	t_mid=$(date -u -d '2 days ago' +%s)
+	t_new=$(date -u -d '1 day ago' +%s)
+	touch -d "@$t_old" "$dir/20261110T134828Z.unclaimed:213.log"
+	touch -d "@$t_mid" "$dir/supervisor.log"
+	touch -d "@$t_new" "$dir/refresh.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed on a planted directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | head -n 1 | grep -qxF "journal: $dir/supervisor.log" || {
+		printf '\tthe first line is not the journal path line: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\tthe planted bytes were not summed as planted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest 20261110T134828Z\.unclaimed:213\.log (2d23h|3d0h)' || {
+		printf '\tthe oldest file is not named with a days-shaped age: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# One file must read "1 file", not "1 files" -- the plural is cheap here and the journal line is
+	# read by a person deciding whether the growth is a problem.
+	local one=$work/footprint/one
+	mkdir -p "$one"
+	head -c 250 /dev/zero >"$one/supervisor.log"
+	out=$(factory_log_footprint "$one") || {
+		printf '\tfactory_log_footprint failed on the single-file directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 1 file,' || {
+		printf '\tthe single-file directory did not read singular: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# The control for `oldest`: touch that transcript and the same scan must change its answer. A
+	# report that names the same file no matter what is planted reports an order, not a minimum.
+	touch -d "@$t_new" "$dir/20261110T134828Z.unclaimed:213.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed after the flip\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest supervisor\.log (1d23h|2d0h)' || {
+		printf '\tafter the flip the scan still names the same file: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	return 0
+}
+
+fp_leg_arms() { # what an empty directory and a missing one each answer, in words that name the case
+	local empty=$work/footprint/empty out
+	mkdir -p "$empty"
+	out=$(factory_log_footprint "$empty") || {
+		printf '\tfactory_log_footprint failed on an empty directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'nothing under' || {
+		printf '\tthe empty directory did not say so: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	out=$(factory_log_footprint "$work/footprint/nosuch") || {
+		printf '\tfactory_log_footprint failed on an absent directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'does not exist' || {
+		printf '\tthe absent directory did not name its condition: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal:' || {
+		printf '\tthe absent arm dropped the journal path line\n'
+		return 1
+	}
+	return 0
+}
+
+fp_leg_wired() { # `--status` prints the line, and the scan proves it could see the absence
+	local dir=$work/footprint/wired/factory
+	mkdir -p "$dir"
+	status_arm "$HERE/factory.sh" | grep -qF 'factory_log_footprint' || {
+		printf '\tthe --status arm does not call factory_log_footprint\n'
+		return 1
+	}
+	# The control, planted outside the repository: the same scan over a copy whose call is deleted.
+	# If it still says yes, the ok above was the check being blind (H-0043's rule).
+	sed '/factory_log_footprint/d' "$HERE/factory.sh" >"$dir/factory.sh"
+	status_arm "$dir/factory.sh" | grep -qF 'factory_log_footprint' && {
+		printf '\tcontrol failed: the scan still found the deleted call\n'
+		return 1
+	}
+	return 0
+}
+claim_leg 'footprint: planted bytes, count, oldest' fp_leg_planted
+claim_leg 'footprint: the empty and absent arms' fp_leg_arms
+claim_leg 'footprint wired into --status' fp_leg_wired
+
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
