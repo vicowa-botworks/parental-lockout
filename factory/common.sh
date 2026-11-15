@@ -1955,7 +1955,9 @@ factory_tree_halt() {
 #
 # Missing a shape costs the old behaviour and nothing worse: an operation this list does not cover
 # answers `none`, the caller tries the stash, git refuses, the tree halts with that refusal in front of
-# it -- exactly what happens to every shape today.
+# it -- exactly what happens to every shape today. `git merge --squash` and a sequencer emptied by
+# `--quit` are two such shapes, and the reader at the halt should know the sentence lies a little: no
+# stash was ever the problem there, yet the line reads `git stash failed :: … needs merge` all the same.
 factory_tree_unmerged() { # tree -> the operation word (see the codes above)
 	local tree=$1 gd="" op=""
 	gd=$(git -C "$tree" rev-parse --absolute-git-dir 2>/dev/null) || {
@@ -2090,10 +2092,14 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf 'journal line comes to name a directory that is not the copy it just took\n' >&2
 		return 2
 	fi
-	tmp="$dir.tmp.$$"
-
-	if ! mkdir -p -- "$tmp" 2>/dev/null; then
-		printf 'mirror refused: %s cannot be created\n' "$tmp" >&2
+	# `mktemp -d`, not `$dir.tmp.$$`: a run killed mid-write leaves its temporary directory standing
+	# (measured: a `.tmp.<pid>` survived `kill -9`), `mkdir -p` accepts it on the next run, and every
+	# append below -- the path lists, the stage bytes, the worktree copies -- then lands inside the
+	# dead run's leftovers. Truncating the lists fixes the lists; this fixes the files under
+	# `unmerged/` and `worktree/` that no list governs. Random suffix, because two units' PIDs can
+	# collide across a minute the way a same-second directory name cannot.
+	if ! tmp=$(mktemp -d -- "$dir.tmp.XXXXXX" 2>/dev/null); then
+		printf 'mirror refused: %s cannot hold a temporary directory, so nothing was written\n' "$FACTORY_AT_RISK" >&2
 		return 2
 	fi
 	head=$(git -C "$tree" rev-parse -q --verify HEAD 2>/dev/null || true)
@@ -2114,7 +2120,11 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 	# 16 in all)` -- resolutions `git add`ed and never committed, the exact state of a tick killed between
 	# those two commands. Conflicted paths appear in THIS diff as git's `* Unmerged path <p>` notice rather
 	# than a hunk -- measured, 27 bytes for one conflicted path and no hunk -- and `git apply` skips a
-	# notice line, so what is left in this file is the staged state and nothing else.
+	# notice SITTING BESIDE hunks. A notice-ONLY file is a different verdict, and this tree has it: with
+	# nothing staged but the conflict the whole file is the notice (measured, git 2.53.0: 22 bytes for one
+	# `k.txt`), and `git apply --cached` refuses the whole input -- `error: No valid patches in input
+	# (allow with "--allow-empty")`, rc 128. So a size test is not a patch test, and the guard the
+	# MANIFEST prints asks for a `diff --git` header instead of for bytes.
 	if ! err=$(git -C "$tree" diff --cached --binary HEAD 2>&1 >"$tmp/diff-cached.patch"); then
 		printf 'mirror refused: git diff --cached HEAD would not render the staged work :: %s\n' \
 			"$(printf '%s' "${err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-140)" >&2
@@ -2130,6 +2140,18 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 	# sort -u`: the newline form splits a path containing a newline, and every consumer is a recipe a
 	# tired person runs, so the list has to be the one shape that cannot lie about a filename.
 	# An associative array rather than a seen-string because a path may contain anything but a NUL.
+	#
+	# Both lists are CREATED here, ahead of the loops that may append nothing: a tree can be mid-merge
+	# with zero conflicted paths -- every conflict resolved and `git add`ed, `MERGE_HEAD` still standing,
+	# `ls-files -u` empty (measured: that tree is quarantined rc 0 and mirrored) -- and the recipe the
+	# MANIFEST prints reads `unmerged.paths` on every mirror. Created, not first-appended, because a
+	# first-append file is a file the recipes die on for the shape #328's cousin is in: the reviewer
+	# watched recipe 2 fail twice at `done <"$M/unmerged.paths"`, `No such file or directory`.
+	if ! : >"$tmp/unmerged.paths" || ! : >"$tmp/absent.list"; then
+		printf 'mirror refused: %s cannot hold the path lists, so nothing was written\n' "$tmp" >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
 
 	while IFS= read -r -d '' meta; do
 		[ -n "$meta" ] || continue
@@ -2206,30 +2228,41 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf '                        (empty: %s)\n' \
 			"$([ -s "$tmp/diff-HEAD.patch" ] && printf 'no, it has bytes' || printf 'yes -- the tree held nothing but the conflict')"
 		printf 'diff-cached.patch       the STAGED half: paths that were `git add`ed and not committed.\n'
-		printf '                        Conflicted paths are a `* Unmerged path` notice here, not a hunk,\n'
-		printf '                        and `git apply` skips a notice, so this file is only the staged work.\n'
+		printf '                        Conflicted paths are a `* Unmerged path` notice here, not a hunk.\n'
+		printf '                        `git apply` skips a notice sitting BESIDE hunks; a notice-ONLY\n'
+		printf '                        file (nothing staged but the conflict) it refuses whole -- so the\n'
+		printf '                        guards below ask for a patch header, not for bytes.\n'
 		printf 'ls-files-u              the unmerged stage table exactly as `git ls-files -u -z` printed it:\n'
 		printf '                        raw path bytes, NUL-terminated, one record per stage\n'
 		printf 'unmerged.paths          every conflicted path, once each, NUL-terminated -- what the\n'
-		printf '                        recipes below walk, so no path is ever re-derived by cutting a table\n'
+		printf '                        recipes below walk, so no path is ever re-derived by cutting a\n'
+		printf '                        table. ALWAYS written; empty when the mirror holds no conflict.\n'
 		printf 'absent.list             the conflicted paths that were GONE from the worktree, NUL-\n'
-		printf '                        terminated; written only when there is one\n'
+		printf '                        terminated. ALWAYS written; empty when nothing was gone.\n'
 		printf 'unmerged/<stage>/<path> stage bytes: 1 base, 2 ours, 3 theirs\n'
 		printf 'worktree/<path>         the conflicted file as it stood -- markers, a typed-in\n'
 		printf '                        resolution, or a .ABSENT note if it was deleted\n'
 		printf 'untracked/<path>        every untracked file; untracked.list names them\n'
-		printf '\nThe two blocks below are A SCRIPT, not prose, and `factory/selftest.sh` runs each of them\n'
+		if [ -s "$tmp/unmerged.paths" ]; then
+			printf '\nThe two blocks below are A SCRIPT, not prose, and `factory/selftest.sh` runs each\n'
+		else
+			printf '\nThe one block below is A SCRIPT, not prose, and `factory/selftest.sh` runs it\n'
+		fi
 		printf 'verbatim -- that is why the path reads are `read -r -d ""` over unmerged.paths and not\n'
 		printf '$(cut … | tr "\n" " "): the substitution splits `my report.txt` into two arguments, and\n'
 		printf 'the unquoted `ls-files -u` would have handed this file the quoted `"we\\"ird.txt"` for a\n'
 		printf 'path that holds a double quote. Run a block as a script (bash); the `if` arms span lines.\n'
 		printf '\nWant the bytes back. Run these in the tree named above, at that HEAD, tree clean:\n'
-		printf '  M=%s\n' "$dir"
+		printf '  M=%q\n' "$dir"
 		printf '  git apply "$M/diff-HEAD.patch"\n'
-		printf '  if [ -s "$M/diff-cached.patch" ]; then git apply --cached "$M/diff-cached.patch"; fi\n'
-		printf '        # the second line puts the `git add`ed-and-never-committed paths back in the index;\n'
-		printf '        # `--allow-empty` is not needed because of the -s test (measured: an empty input is\n'
-		printf '        # refused, `No valid patches in input`, rc 128).\n'
+		printf '  if grep -q "^diff --git" "$M/diff-cached.patch" 2>/dev/null; then git apply --cached "$M/diff-cached.patch"; fi\n'
+		printf '        # the second line puts the `git add`ed-and-never-committed paths back in the index.\n'
+		printf '        # The guard asks for a patch HEADER, not for bytes: a tree with nothing staged but\n'
+		printf '        # the conflict renders this file as ONE 22-BYTE `* Unmerged path` notice (measured),\n'
+		printf '        # an -s test calls that non-empty, and git apply --cached then refuses the whole\n'
+		printf '        # input -- `error: No valid patches in input (allow with "--allow-empty")`, rc 128,\n'
+		printf '        # measured on exactly that file. An empty file fails the grep too, so the question\n'
+		printf '        # of --allow-empty never comes up either.\n'
 		printf '  if [ -f "$M/untracked.list" ]; then cp -a "$M/untracked/." .; fi\n'
 		printf '        # guarded: `cp -a $M/untracked/. .` exits 1 when the mirror has no untracked/ at\n'
 		printf '        # all, and a recipe whose LAST line is non-zero reads as a failed restore.\n'
@@ -2238,30 +2271,55 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf '  fi\n'
 		printf '        # the paths recorded as GONE stay gone. diff-HEAD.patch carries the deletion as a\n'
 		printf '        # `deleted file mode` hunk (measured), and this says it independently of that.\n'
-		printf '\nWant the conflict back too, to finish it by hand. Same tree, clean, then:\n'
-		printf '  M=%s\n' "$dir"
-		printf '  git merge %s\n' "${side:-<MERGE_HEAD above>}"
-		printf '  args=(); while IFS= read -r -d "" p; do args+=(--exclude="$p"); done <"$M/unmerged.paths"\n'
-		printf '  git apply ${args[@]+"${args[@]}"} "$M/diff-HEAD.patch"\n'
-		printf '        # every tracked edit EXCEPT the conflicted paths: their hunks refuse against the\n'
-		printf '        # marker bytes they are about to be overwritten with -- measured, `patch does not\n'
-		printf '        # apply`. This line is also what puts a new `git add`ed path back in the WORKTREE.\n'
-		printf '  while IFS= read -r -d "" p; do\n'
-		printf '    [ -f "$M/worktree/$p" ] && cp "$M/worktree/$p" "$p"\n'
-		printf '  done <"$M/unmerged.paths"\n'
-		printf '  if [ -f "$M/absent.list" ]; then\n'
-		printf '    while IFS= read -r -d "" p; do rm -f -- "$p"; done <"$M/absent.list"\n'
-		printf '  fi\n'
-		printf '        # a path the person deleted is NOT put back by this recipe: the re-merge writes a\n'
-		printf '        # version over the absence, and absent.list is the only record that it was an\n'
-		printf '        # answer rather than an accident.\n'
-		printf '  if [ -s "$M/diff-cached.patch" ]; then git apply --cached "$M/diff-cached.patch"; fi\n'
-		printf '  if [ -f "$M/untracked.list" ]; then cp -a "$M/untracked/." .; fi\n'
-		printf '\nWhat this mirror cannot hold: the unmerged INDEX ENTRIES themselves -- three stages per\n'
-		printf 'path, which no patch format carries. That is the one thing a merge is needed for, and\n'
-		printf 'recipe 2 above reproduces it: re-merge, then put the worktree bytes back over the markers.\n'
-		printf 'A staged resolution that was already `git add`ed is stage 0 and comes back from\n'
-		printf 'diff-cached.patch without any merge.\n'
+		if [ -s "$tmp/unmerged.paths" ]; then
+			printf '\nWant the conflict back too, to finish it by hand. Same tree, clean, then:\n'
+			printf '  M=%q\n' "$dir"
+			printf '  git merge %s\n' "${side:-<MERGE_HEAD above>}"
+			printf '  args=(); if [ -s "$M/unmerged.paths" ]; then while IFS= read -r -d "" p; do args+=(--exclude="$p"); done <"$M/unmerged.paths"; fi\n'
+			printf '  git apply ${args[@]+"${args[@]}"} "$M/diff-HEAD.patch"\n'
+			printf '        # every tracked edit EXCEPT the conflicted paths: their hunks refuse against the\n'
+			printf '        # marker bytes they are about to be overwritten with -- measured, `patch does not\n'
+			printf '        # apply`. This line is also what puts a new `git add`ed path back in the WORKTREE.\n'
+			printf '  if [ -s "$M/unmerged.paths" ]; then\n'
+			printf '    while IFS= read -r -d "" p; do\n'
+			printf '      [ -f "$M/worktree/$p" ] && cp "$M/worktree/$p" "$p"\n'
+			printf '    done <"$M/unmerged.paths"\n'
+			printf '  fi\n'
+			printf '        # the -s guards answer for a hand-edited or older directory: this MANIFEST writes\n'
+			printf '        # both lists itself, so on a mirror printed beside this text the unmerged list is\n'
+			printf '        # non-empty by construction and the absent list exists; the guards keep the\n'
+			printf '        # recipe whole for every file it did NOT write.\n'
+			printf '  if [ -f "$M/absent.list" ]; then\n'
+			printf '    while IFS= read -r -d "" p; do rm -f -- "$p"; done <"$M/absent.list"\n'
+			printf '  fi\n'
+			printf '        # a path the person deleted is NOT put back by this recipe: the re-merge writes a\n'
+			printf '        # version over the absence, and absent.list is the only record that it was an\n'
+			printf '        # answer rather than an accident.\n'
+			printf '  if grep -q "^diff --git" "$M/diff-cached.patch" 2>/dev/null; then git apply --cached "$M/diff-cached.patch"; fi\n'
+			printf '  if [ -f "$M/untracked.list" ]; then cp -a "$M/untracked/." .; fi\n'
+		else
+			printf '\nThis mirror has no conflict block, and that is a fact about the tree, not a gap in\n'
+			printf 'the mirror: `git ls-files -u` was empty when it was taken, so there is nothing\n'
+			printf 'unmerged to put back -- every conflict was already resolved and `git add`ed, or the\n'
+			printf 'merge never conflicted at all (a clean `merge --no-commit` reads exactly this way);\n'
+			printf 'both are measured shapes. `git merge %s` would REOPEN\n' "${side:-the side commit named above}"
+			printf 'a conflict somebody had closed. The first block is the whole restore: the staged\n'
+			printf 'half comes back STAGED from diff-cached.patch, the state the tree was taken in. To\n'
+			printf 'continue the merge itself, `git merge` the side commit above in a clean tree at the\n'
+			printf 'recorded HEAD -- a person deciding to redo the merge, not this mirror losing work.\n'
+		fi
+		if [ -s "$tmp/unmerged.paths" ]; then
+			printf '\nWhat this mirror cannot hold: the unmerged INDEX ENTRIES themselves -- three stages per\n'
+			printf 'path, which no patch format carries. That is the one thing a merge is needed for, and\n'
+			printf 'recipe 2 above reproduces it: re-merge, then put the worktree bytes back over the markers.\n'
+			printf 'A staged resolution that was already `git add`ed is stage 0 and comes back from\n'
+			printf 'diff-cached.patch without any merge.\n'
+		else
+			printf '\nWhat this mirror cannot hold: that a MERGE_HEAD was standing -- no patch format\n'
+			printf 'carries a merge in progress. It recorded no unmerged index entries, so there are no\n'
+			printf 'stages missing; the first block restores every byte and every `git add`. The side\n'
+			printf 'commit named above re-offers the merge itself in a clean tree at the recorded HEAD.\n'
+		fi
 	} >"$tmp/MANIFEST"
 
 

@@ -4418,6 +4418,299 @@ mm_wq_recipe_one_runs() {
 }
 mm_leg 'recipe 1 runs on those paths' 'quoted, spaced, deleted, untracked' mm_wq_recipe_one_runs
 
+# The two shapes the review of #398 measured the recipes dying on, pinned as fixtures. Every fixture
+# above stages `staged.txt` beside the conflict -- which is why the recipe legs read green while the
+# rescue errored on the tree #328 was reported in: the stage gives diff-cached.patch a real hunk and
+# it makes unmerged.paths exist. Two measurements at 3355763, before the guard fix (git 2.53.0): the
+# pure-conflict mirror's diff-cached.patch is the 22-byte notice `* Unmerged path k.txt` and the
+# printed `-s` guard let `git apply --cached` through to `error: No valid patches in input (allow
+# with "--allow-empty")`, rc 128; the zero-conflict mirror (resolution `git add`ed, `ls-files -u`
+# empty, `MERGE_HEAD` standing) has NO unmerged.paths at all, and recipe 2 died twice at
+# `done <"$M/unmerged.paths"` with `No such file or directory`.
+mm_repo_min() { # mm_repo_min <dir> -> a repo whose merge conflicts on ONE path and stages nothing else
+	local r=$1
+	mkdir -p "$r"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/k.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/k.txt"
+	git -C "$r" commit -qam side
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/k.txt"
+	git -C "$r" commit -qam main
+}
+mm_repo_min_dir=$mm/repo-min
+mm_repo_min "$mm_repo_min_dir"
+
+mm_plant_min() { # mm_plant_min <name> -> mid-merge worktree of the one-path repo, NOTHING staged
+	local t
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	t=$mm/$1
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	printf '%s' "$t"
+}
+
+mm_plant_resolved() { # mm_plant_resolved <name> -> the zero-conflict mid-merge: MERGE_HEAD standing,
+	                 # the resolution `git add`ed, `git ls-files -u` empty
+	local t
+	t=$(mm_plant_min "$1")
+	printf 'resolved, staged, not committed\n' >"$t/k.txt"
+	git -C "$t" add -- k.txt
+	printf '%s' "$t"
+}
+
+mm_min_back() { # mm_min_back <name> -> a clean detached worktree at main, for a restore target
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_min_rescue() { # mm_min_rescue <min|resolved> <tree-name> <unit> -> quarantine a fresh one-path
+	              # tree, print the mirror directory
+	local t out rc=0
+	case $1 in
+	min) t=$(mm_plant_min "$2") ;;
+	resolved) t=$(mm_plant_resolved "$2") ;;
+	*)
+		printf '            mm_min_rescue was asked to plant "%s".\n' "$1" >&2
+		return 1
+		;;
+	esac
+	out=$(factory_tree_quarantine "$3" "$t" 2>"$mm/$2.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantining the %s tree as %s exited %s: %s\n' "$2" "$3" "$rc" \
+			"$(tr '\n' ' ' <"$mm/$2.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	printf '%s' "$out" >"$mm/$2.line"
+	printf '%s' "${out##*mirror=}"
+}
+
+mm_recipe() { # mm_recipe <1|2> <MANIFEST> <out> -> the block the MANIFEST tells a person to run,
+	          # extracted the way the legs above extract it
+	case $1 in
+	1) sed -n '/^Want the bytes back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	2) sed -n '/^Want the conflict back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	*)
+		printf '            mm_recipe was asked for block %s.\n' "$1" >&2
+		return 1
+		;;
+	esac
+}
+
+mm_recipe1_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minA 'unclaimed:920') || return 1
+	t=$(mm_min_back minAback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the bytes back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r1min.sh")" -ge 3 ] || {
+		printf '            the extracted recipe is:\n' >&2
+		sed 's/^/              /' "$mm/r1min.sh" >&2
+		return 1
+	}
+	# The review's measurement was an error line INSIDE an rc-0 script; rc alone would pass that, so
+	# the output has to be clean too -- an operator reads `error:` as a failed rescue at 3 a.m.
+	if ! (cd "$t" && bash "$mm/r1min.sh" >"$mm/r1min.out" 2>&1); then
+		printf '            recipe 1 exits non-zero on the mirror of a tree with nothing staged\n' >&2
+		printf '            but the conflict:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r1min.out" && {
+		printf '            the notice-only diff-cached.patch was handed to `git apply --cached`\n' >&2
+		printf '            again; the printed output was:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	}
+	grep -q '<<<<<<<' "$t/k.txt" || {
+		printf '            k.txt came back without the marker bytes it held (%s): diff-HEAD.patch\n' \
+			"$(tr '\n' '|' <"$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            carries a conflicted path as a hunk of the worktree state.\n' >&2
+		return 1
+	}
+	[ -z "$(git -C "$t" diff --cached --name-only)" ] || {
+		printf '            the guard staged something (%s) from a file whose whole content is\n' \
+			"$(git -C "$t" diff --cached --name-only | tr '\n' ' ')" >&2
+		printf '            `* Unmerged path` notices: there is no staged work in a notice.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs conflict-only' 'rc 0, no error line, markers back, index kept' mm_recipe1_conflict_only
+
+mm_recipe2_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minB 'unclaimed:921') || return 1
+	t=$(mm_min_back minBback)
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the conflict back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r2min.sh")" -ge 5 ] || {
+		printf '            the extracted recipe 2 is:\n' >&2
+		sed 's/^/              /' "$mm/r2min.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r2min.sh" >"$mm/r2min.out" 2>&1); then
+		printf '            recipe 2 exits non-zero on the conflict-only mirror:\n' >&2
+		sed 's/^/              /' "$mm/r2min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r2min.out" && {
+		printf '            recipe 2 hit the notice-only diff-cached.patch too.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            recipe 2 says it gives the conflict back and there is no MERGE_HEAD.\n' >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "UU k.txt" ] || {
+		printf '            k.txt reads [%s] after the conflict-back recipe, not [UU k.txt].\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 2 runs conflict-only' 'rc 0, error-free, MERGE_HEAD and UU restored' mm_recipe2_conflict_only
+
+mm_recipe1_resolved_mirror() {
+	local d t
+	d=$(mm_min_rescue resolved minC 'unclaimed:922') || return 1
+	# The list files first: the mirror now PROMISES both, and recipe 2's death on a missing one was
+	# half of what the review filed. Empty is the point -- this tree held no conflict at capture.
+	[ -e "$d/unmerged.paths" ] || {
+		printf '            the zero-conflict mirror wrote no unmerged.paths, so a person running\n' >&2
+		printf '            the printed reads dies at `No such file or directory` again.\n' >&2
+		return 1
+	}
+	[ -e "$d/absent.list" ] || {
+		printf '            the zero-conflict mirror wrote no absent.list.\n' >&2
+		return 1
+	}
+	[ "$(wc -c <"$d/unmerged.paths")" -eq 0 ] || {
+		printf '            unmerged.paths holds %s bytes on a tree that had no conflict -- the\n' \
+			"$(wc -c <"$d/unmerged.paths")" >&2
+		printf '            empty file would be read as conflicts that were never there.\n' >&2
+		return 1
+	}
+	# And the MANIFEST must not print a block that would REOPEN the closed conflict.
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2res.sh" || true
+	if [ -s "$mm/r2res.sh" ]; then
+		printf '            the zero-conflict MANIFEST still prints a "Want the conflict back"\n' >&2
+		printf '            block; re-merging here invents a conflict the person had resolved:\n' >&2
+		sed 's/^/              /' "$mm/r2res.sh" >&2
+		return 1
+	fi
+	t=$(mm_min_back minCback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1res.sh" || {
+		printf '            the resolved mirror has no "Want the bytes back" block at all.\n' >&2
+		return 1
+	}
+	(cd "$t" && bash "$mm/r1res.sh" >"$mm/r1res.out" 2>&1) || {
+		printf '            recipe 1 exits non-zero on the resolved mirror:\n' >&2
+		sed 's/^/              /' "$mm/r1res.out" >&2
+		return 1
+	}
+	[ "$(cat "$t/k.txt" 2>/dev/null)" = 'resolved, staged, not committed' ] || {
+		printf '            k.txt holds [%s], not the staged resolution.\n' \
+			"$(cat "$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "M  k.txt" ] || {
+		printf '            k.txt reads [%s], not [M  k.txt]: the resolution came back unstaged,\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		printf '            which is the `git add` the tree lost on #328.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null && {
+		printf '            recipe 1 started a merge on its own; the note above the block says it\n' >&2
+		printf '            does not, and a surprise MERGE_HEAD reads as a half-done restore.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs alone, resolved mirror' 'both lists written, no re-merge block, staged back' mm_recipe1_resolved_mirror
+
+# The control for the grep guard, in the H-0184 shape: the guard is rewritten away in a copy, the
+# copy's own premise is counted (two shipped lines, zero in the copy -- there is one per recipe),
+# and the copy's MANIFEST then prints the `-s` form that the review measured at rc 128. A `sed` that
+# matched nothing would report a green control that retired nothing, so the counts are the leg.
+mm_recipe1_guard_control() {
+	local src=$HERE/common.sh dst=$mm/common-noguard.sh d t rc
+	cp -- "$src" "$dst" || {
+		printf '            the shipped common.sh could not be copied.\n' >&2
+		return 1
+	}
+	sed -i 's|if grep -q "\^diff --git" "\$M/diff-cached.patch" 2>/dev/null; then|if [ -s "$M/diff-cached.patch" ]; then|g' "$dst" || return 1
+	local n_have n_left
+	n_have=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$src")
+	n_left=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$dst")
+	[ "$n_have" = 2 ] || {
+		printf '            the shipped file holds %s copies of the grep guard, not 2 (one per\n' "$n_have" >&2
+		printf '            recipe), so this control retires a line that has moved.\n' >&2
+		return 1
+	}
+	[ "$n_left" = 0 ] || {
+		printf '            the rewrite did not land: the copy still holds %s copies of the guard,\n' "$n_left" >&2
+		printf '            so this control tested nothing.\n' >&2
+		return 1
+	}
+	[ "$(bash -c '. "$1" >/dev/null 2>&1; type -t factory_tree_mirror_merge' _ "$dst")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_mirror_merge, so whatever\n' >&2
+		printf '            rc comes next is from sourcing it, not from the guard.\n' >&2
+		return 1
+	}
+	t=$(mm_plant_min minD)
+	d=$(FACTORY_AT_RISK=$FACTORY_AT_RISK bash -c '
+		. "$1" >/dev/null
+		factory_tree_quarantine "$2" "$3"
+	' _ "$dst" 'unclaimed:923' "$t" 2>"$mm/minD.err") || {
+		printf '            quarantining through the guard-less copy exited non-zero: %s\n' \
+			"$(tr '\n' ' ' <"$mm/minD.err" | cut -c1-200)" >&2
+		return 1
+	}
+	d=${d##*mirror=}
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1ctl.sh" || {
+		printf '            the guard-less MANIFEST has no recipe 1 block.\n' >&2
+		return 1
+	}
+	grep -q '\[ -s "\$M/diff-cached.patch" \]' "$mm/r1ctl.sh" || {
+		printf '            the printed MANIFEST does not carry the -s form, so the rewrite never\n' >&2
+		printf '            reached the recipe a person would run.\n' >&2
+		return 1
+	}
+	t=$(mm_min_back minDback)
+	(cd "$t" && bash "$mm/r1ctl.sh" >"$mm/r1ctl.out" 2>&1) || true
+	grep -q 'No valid patches' "$mm/r1ctl.out" || {
+		printf '            with the guard retired, the notice-only diff-cached.patch produced NO\n' >&2
+		printf '            error -- the control premise says that refusal is the guard'"'"'s whole\n' >&2
+		printf '            job; the output was:\n' >&2
+		sed 's/^/              /' "$mm/r1ctl.out" >&2
+		return 1
+	}
+	(
+		cd "$t" || exit 1
+		git apply --cached "$d/diff-cached.patch" 2>/dev/null
+		echo "rc=$?"
+	) >"$mm/r1ctl.rc" || true
+	grep -q '^rc=128$' "$mm/r1ctl.rc" || {
+		printf '            the review measured `git apply --cached` rc 128 on this exact file; the\n' >&2
+		printf '            read here says %s: git changed, and the entry'"'"'s guard rationale does.\n' \
+			"$(cat "$mm/r1ctl.rc")" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the guard, the notice errors' 'rc 128 on the notice-only file, premise counted' mm_recipe1_guard_control
+
 # A clock this function cannot drift on: the mirror name is `date -u +…%SZ`, so a leg that wants the name
 # twice has to be given it. A shell function beats the binary, so the child below decides both names.
 # The refusal sentence is on stderr, where `factory_tree_quarantine`'s caller reads it, so a leg that
