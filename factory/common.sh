@@ -2238,6 +2238,94 @@ factory_quarantine_after_tick() {
 	return 0
 }
 
+# The second end-of-tick read: did every decision id this branch newly carries come from the
+# allocator? (#345)
+#
+# The failure is invisible from the branch. An id taken off `grep '^## D-' | tail` and an id handed
+# out by `factory/next-decision-id.sh` are the same bytes in the same heading, and the first time
+# anyone finds out which it was is the merge that puts two entries under one id. #345 measured the
+# rate: of 52 checkpoint-creating ticks, 4 executed the allocator 0 times (a fifth committed through
+# a heredoc and is invisible even to that count), and the `D-0058` collision both sides got wrong
+# cost the conflict-resolution ticks `H-0143` through `H-0152` had to splice apart. The allocator now
+# journals what it handed out (`next-decision-id.sh`, `DECISION-ID`); this is the other half of the
+# pair -- a heading with no journalled allocation reports `DECISION-ID-UNEARNED`.
+#
+# Reported, not fatal, and attributed per BRANCH, not per tick:
+#   * a unit legitimately copies an id a sibling published -- resolving a conflict against `main`
+#     does it with every merged entry that landed since the branch was cut -- and no journal grep
+#     can tell that copy from an eyeballed id. Only a human reading `UNEARNED` lines can.
+#   * a branch outlives its class rows: `unclaimed:297`, `address_review:297`, `conflict:297` are
+#     one branch, and the tick that journalled the id is not the tick compared later. The unit names
+#     the row that owns the report; the branch is what the journalled lines were stamped with.
+# Reports dedup through the ledger (`unearned-reported`), so one legacy heading costs one journal
+# line per unit, not one per pass -- the `REFRESH-BLIND` posture: counted against the unit, nothing
+# blocked.
+#
+# A read that failed is not a provenance that failed (the `TICK-UNCHECKED` doctrine): an unreadable
+# journal or a missing `origin/main` reports `DECISION-ID-UNCHECKED` naming which read, and no
+# verdict about any id is claimed either way.
+#
+# usage: factory_decision_provenance UNIT BRANCH TREE
+# exit:  0 always. What the tick delivered remains the tick's own answer; this is the journal's.
+factory_decision_provenance() {
+	local unit=$1 branch=$2 tree=$3
+	local rel id journal earned reported added new held base bad=''
+	journal="$FACTORY_LOG/supervisor.log"
+
+	if [ -z "$branch" ]; then
+		log_event "DECISION-ID-UNCHECKED $unit no branch to attribute allocations to; no id is claimed either way"
+		return 0
+	fi
+	git -C "$tree" rev-parse --verify HEAD >/dev/null 2>&1 || {
+		log_event "DECISION-ID-UNCHECKED $unit $tree gives no HEAD to read the logs from; no id is claimed either way"
+		return 0
+	}
+	if [ -e "$journal" ] && [ ! -r "$journal" ]; then
+		log_event "DECISION-ID-UNCHECKED $unit the journal $journal is not readable; an unreadable earned-set is not an empty one"
+		return 0
+	fi
+
+	# Every id the journalled answers for this branch carry, folded to one space-separated set.
+	# The field match is exact on `$2` so a `DECISION-ID-UNEARNED` line can never certify itself.
+	earned=$(awk -v b="$branch" '$2 == "DECISION-ID" && $5 == "branch=" b {print $3}' \
+		"$journal" 2>/dev/null | sort -u | tr '\n' ' ') || earned=''
+	reported=$(factory_ledger_get "$unit" unearned-reported) || reported=''
+	added=''
+
+	for rel in DECISIONS.md factory/DECISIONS.md; do
+		# The branch as the tick leaves it is committed plus uncommitted: a tick killed between
+		# writing an entry and committing it left a heading the next allocator must not hand out,
+		# and it is exactly the shape whose provenance nobody asked about.
+		held=$({
+			git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
+			[ -f "$tree/$rel" ] && cat -- "$tree/$rel" 2>/dev/null || true
+		} | sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' | sort -u) || held=''
+		[ -n "$held" ] || continue
+		if ! base=$(git -C "$tree" show "origin/main:$rel" 2>/dev/null); then
+			bad="${bad:+$bad; }origin/main holds no readable $rel"
+			continue
+		fi
+		base=$(printf '%s\n' "$base" |
+			sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' | sort -u)
+		# New to the branch means new against the trunk it will merge into; an id `main` already
+		# carries is not this unit's claim to make and not this unit's to have journalled.
+		new=$(comm -23 <(printf '%s\n' "$held") <(printf '%s\n' "$base")) || new=''
+		for id in $new; do
+			case " $earned " in *" $id "*) continue ;; esac
+			case " $reported " in *" $id "*) continue ;; esac
+			log_event "DECISION-ID-UNEARNED $id (no allocation journalled for this unit) unit=$unit branch=$branch log=$rel"
+			added="${added:+$added }$id"
+		done
+	done
+
+	if [ -n "$bad" ]; then
+		log_event "DECISION-ID-UNCHECKED $unit $bad; ids read from it are neither claimed nor refused"
+	fi
+	[ -n "$added" ] && factory_ledger_set "$unit" unearned-reported \
+		"${reported:+$reported }$added"
+	return 0
+}
+
 factory_tree_stop() {
 	local verb=$1 unit=$2 tree=$3
 	local q="" qrc=0 n="" dirt="" dirt_rc=0 qfinding="" qerr="" qerr_file=""
