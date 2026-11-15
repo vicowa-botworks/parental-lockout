@@ -65,7 +65,7 @@ fmt:
 # clause below makes the self-test refuse, because a gate whose invocation can be deleted silently
 # is a suggestion, and the cheapest way to pass a check is to stop calling it.
 #
-# The empty-filter loop below runs both attack suites through the same shape, and keeps the child's
+# The empty-filter loop below runs all three attack suites through the same shape, and keeps the child's
 # output and requires the sentence, rather than discarding the output and asserting only "non-zero"
 # (#159). "Non-zero" is what a crash returns too, so the old shape passed the moment the script died
 # on the empty-argument path: the step is a claim about WHY the run failed -- that it refused
@@ -128,8 +128,9 @@ verify:
 	echo "==> capture refusal attack suite"; python3 scripts/attack-capture-self-test.py; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
 	echo "==> screenshot manifest"; python3 testing/capture/manifest.py check; \
-	echo "==> empty selection refuses, both attack suites"; \
-	for runner in scripts/attack-self-test.py scripts/attack-capture-self-test.py; do \
+	echo "==> capture manifest attack suite"; python3 scripts/attack-manifest-self-test.py; \
+	echo "==> empty selection refuses, all three attack suites"; \
+	for runner in scripts/attack-self-test.py scripts/attack-capture-self-test.py scripts/attack-manifest-self-test.py; do \
 		for filter in zzzznomatch ''; do \
 			if selection_out=$$(python3 "$$runner" "$$filter" 2>&1); then \
 				echo "$$runner (filter '$$filter'): a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
