@@ -412,9 +412,11 @@ type unenforced struct {
 // nevertheless at the desktop.
 //
 // An account is reported when its schedule says it is inside a window, it has a session this
-// build would lock, and that session is not locked.
-func checkUnenforced(now time.Time, census sessionCensus) check {
-	c := checkCensus(now, census.People)
+// build would lock, and that session is not locked. The window verdict travels in the census:
+// this check reads no clock, so the instant the report answers to is chosen once, by the caller
+// that built the census (#355).
+func checkUnenforced(census sessionCensus) check {
+	c := checkCensus(census.People)
 	if census.Missing == nil {
 		return c
 	}
@@ -438,7 +440,12 @@ func checkUnenforced(now time.Time, census sessionCensus) check {
 // checkCensus is the verdict on the accounts a session census could place. It is separate
 // from checkUnenforced because a census can be incomplete, and the same verdict computed
 // over a partial census needs saying differently (#168).
-func checkCensus(now time.Time, accounts []unenforcedCandidate) check {
+//
+// It takes no clock on purpose. Its `now` was never read anywhere in this file — a decorative
+// argument that read as "this verdict answers to that instant" while the instant that decided
+// InWindow was being read inside the join instead (#355). The clock belongs to the join, which
+// is where a schedule is evaluated; the verdict consumes the facts that join stated.
+func checkCensus(accounts []unenforcedCandidate) check {
 	const name = "unenforced"
 	var bad []unenforced
 	var dangling []string
@@ -526,19 +533,28 @@ type unenforcedCandidate struct {
 }
 
 // unenforcedCandidates joins three separate facts about each managed account: what its
-// schedule says now, and what the machine says about its sessions.
+// schedule says at `now`, and what the machine says about its sessions.
 //
 // The join is here rather than inside checkUnenforced because each fact comes from a
 // different place -- the evaluator, the config, and the session listing -- and a check that
 // reached for all three could only be tested by arranging all three. As a pure function of
 // this slice, the check's logic is testable on its own and the join is testable on its own.
 //
+// `now` is a parameter, not a read inside. The old code called time.Now() partway through
+// this function while the caller passed a second, later reading to the verdict on the same
+// line, so the two clock readings a single doctor report contained could disagree, and the
+// one that decided InWindow was the one no test could pin. Measured consequence (#355): an
+// acceptance fixture whose rule ends at 23:59 -- an exclusive end -- released its account
+// from 23:59:00Z to 00:00:00Z, and `make verify` was red for that minute every day with no
+// way to reproduce it outside the minute. One stated instant now decides every account's
+// window and travels with the census, and the gap minute is an ordinary test cell.
+//
 // A session-listing failure is reported as "no session", not as a failure. The listing can
 // be empty because the child is not logged in, and doctor cannot tell that apart from a
 // backend that cannot see sessions; the `backends` check is where a broken backend shows up,
 // and inventing an "unlocked" verdict from an error would be the tool manufacturing the
 // alarm it was asked to investigate.
-func unenforcedCandidates(cfg *config.Config, sessions sessionSource) sessionCensus {
+func unenforcedCandidates(now time.Time, cfg *config.Config, sessions sessionSource) sessionCensus {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -564,7 +580,6 @@ func unenforcedCandidates(cfg *config.Config, sessions sessionSource) sessionCen
 		profiles[cfg.Profiles[i].ID] = &cfg.Profiles[i]
 	}
 
-	now := time.Now()
 	out := make([]unenforcedCandidate, 0, len(cfg.Users))
 	for _, u := range cfg.Users {
 		c := unenforcedCandidate{Username: u.Username, Managed: u.Enabled}

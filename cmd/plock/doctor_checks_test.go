@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 )
 
@@ -85,7 +87,7 @@ func TestCheckUnenforced(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{tc.in}))
+			got := checkUnenforced(fullCensus([]unenforcedCandidate{tc.in}))
 			if tc.wantFail {
 				if got.Status != verdictFail {
 					t.Fatalf("status = %s, want fail: %s", got.Status, got.Detail)
@@ -112,7 +114,7 @@ func TestCheckUnenforcedNamesEveryAffectedAccount(t *testing.T) {
 		return unenforcedCandidate{Username: u, Managed: true, InWindow: true,
 			HasSession: true, Lockable: true}
 	}
-	got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{mk("zoe"), mk("casey"), mk("alex")}))
+	got := checkUnenforced(fullCensus([]unenforcedCandidate{mk("zoe"), mk("casey"), mk("alex")}))
 	if got.Status != verdictFail {
 		t.Fatalf("status = %s", got.Status)
 	}
@@ -131,7 +133,7 @@ func TestCheckUnenforcedReportsADanglingProfileAsNeverLocked(t *testing.T) {
 	// An enabled account whose profileID does not resolve is locked out by nothing, forever.
 	// That is the same outcome as disabling the account, reached by accident, and it has to be
 	// louder than a momentary unlocked screen because no later tick will fix it.
-	got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{
+	got := checkUnenforced(fullCensus([]unenforcedCandidate{
 		{Username: "casey", Managed: true, DanglingProfile: "school"},
 	}))
 	if got.Status != verdictFail {
@@ -182,6 +184,61 @@ func TestDoctorExitsNonZeroWhenAnAccountIsUnlockedInAWindow(t *testing.T) {
 	}
 	if !strings.Contains(out, "unenforced") {
 		t.Errorf("the report does not name the failing check:\n%s", out)
+	}
+}
+
+func TestUnenforcedJoinAnswersToTheClockItIsGiven(t *testing.T) {
+	// #355: the join used to read the wall clock itself, so the verdict depended on the minute
+	// `make verify` happened to reach it, and the minute was not reproducible outside itself.
+	// With the clock a parameter, both halves of that minute are ordinary data. The gap instant
+	// below is 23:59:30 UTC: the acceptance fixture's old spelling ends at 23:59, `end` is
+	// exclusive (schedule states it in its own comment), so that rule releases every account
+	// for the last minute of every day -- the cell that made the gate red, pinned as a fact
+	// rather than left as an excuse. The allDay spelling is what "always on" is spelled as, and
+	// it holds at the same instant.
+	gap := time.Date(2026, 11, 13, 23, 59, 30, 0, time.UTC)
+	src := &fixtureSessions{out: []platform.Session{{
+		ID: "2", Username: "casey", UID: 1001, Class: "user", Seat: "seat0",
+		Type: "wayland", State: "active", Locked: false,
+	}}}
+	cells := []struct {
+		name       string
+		rule       string
+		wantWindow bool
+	}{
+		// plock-window: intentional -- the object below is the trap itself, pinned as data (#355).
+		{"clock ends at 23:59, end exclusive: the gap minute releases the account",
+			`{"id": "all", "days": ["mon","tue","wed","thu","fri","sat","sun"], "start": "00:00", "end": "23:59", "enabled": true}`, false},
+		{"allDay widens past the clock ends: the same instant stays inside the window",
+			`{"id": "all", "allDay": true, "days": ["mon","tue","wed","thu","fri","sat","sun"], "start": "00:00", "end": "23:59", "enabled": true}`, true},
+	}
+	for _, tc := range cells {
+		t.Run(tc.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{
+  "version": 1,
+  "settings": {"enforcement": true, "pollSeconds": 30, "lockBackends": ["logind"]},
+  "profiles": [{"id": "school", "name": "School nights", "timezone": "UTC", "rules": [%s]}],
+  "users": [{"username": "casey", "profileID": "school", "enabled": true}]
+}`, tc.rule)
+			cfg := &config.Config{}
+			if err := json.Unmarshal([]byte(body), cfg); err != nil {
+				t.Fatal(err)
+			}
+			census := unenforcedCandidates(gap, cfg, src)
+			if len(census.People) != 1 {
+				t.Fatalf("the census lost the account: %+v", census.People)
+			}
+			if census.People[0].InWindow != tc.wantWindow {
+				t.Errorf("InWindow = %v, want %v at %s", census.People[0].InWindow, tc.wantWindow, gap.Format("15:04:05"))
+			}
+			got := checkUnenforced(census)
+			if tc.wantWindow && got.Status != verdictFail {
+				t.Errorf("an unlocked session inside a window read %s, want fail: %s", got.Status, got.Detail)
+			}
+			if !tc.wantWindow && got.Status != verdictOK {
+				t.Errorf("the gap minute read %s, want ok (the account is released): %s", got.Status, got.Detail)
+			}
+		})
 	}
 }
 

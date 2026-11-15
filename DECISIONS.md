@@ -5021,3 +5021,52 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   captured on the merged tree before the commit. `make verify` and the state read after the push are
   quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
   before a gate runs is a prophecy (#1180).
+
+## D-0085 · #355: the census reached for the wall clock mid-join, so the one minute a day the gate went red was not reproducible outside itself — repair only the fixture's spelling, thread one clock through the seam, or make the whole report one clock
+
+- Question: the doctor acceptance fixture's window `00:00`–`23:59` excludes its own end —
+  `schedule.go` states it in its own comment: "End is exclusive". `unenforcedCandidates` read
+  `time.Now()` for itself inside the join while `checkCensus` was handed a *different*
+  `time.Now()` one statement away at the call site — the check has read two clocks per report
+  since #168 split the verdict from the join. Measured consequence: between 23:59:00Z and
+  00:00:00Z the fixture's account leaves the window, the check says ok, the test's expectation
+  says fail, and `make verify` is red for exactly one minute every day with no repro outside
+  the minute. The seam is the package's existing one — `cmd/plock/status.go:55` "a var rather than a time.Now call so"
+  the clock "can be" pinned — and #53 states why a production type must not
+  own its own clock: a test that computes its expectation from the same reading as the code
+  under test asserts that a value equals itself.
+- Options: repair the fixture's spelling to `allDay` only and leave the join reading its own
+  wall clock | thread one clock through the seam — the join takes `now`, the verdict's
+  decorative `now` argument is deleted, and the gap minute becomes an ordinary test cell |
+  additionally thread the whole report onto one pinned `nowFunc` read, `checkKey`'s age
+  calculation included
+- Chose: thread one clock through the seam — the join takes `now`, the verdict's decorative
+  `now` argument is deleted, and the gap minute becomes an ordinary test cell
+- Why: the fixture-only repair fixes this gate but not the class the ticket names — "reached
+  for the wall clock instead of the fixture's clock" survives in the join's signature, and the
+  next fixture that pins a window rediscovers it. The whole-report threading is refused by
+  measurement, not taste: `checkKey` answers how old the sealing key is and reads the clock
+  once per run beside a census that reads it once per run; the two readings never decide the
+  same verdict, so no test can be written that a second reading breaks today — threading it
+  now renames five signatures for zero pinned behavior. What was actually wrong was two
+  readings deciding ONE verdict, and the fix is the change that makes that unrepresentable.
+  The seam already existed and already had this rationale; the census was the last clock in
+  `cmd/plock` not threaded through it.
+- What lost: the one-cell fixture repair lost — it is cheaper, and it re-allocates this
+  ticket's own repair ("teach the census the fixture's clock, or pin a fixed time") to a
+  follow-up issue. Whole-report single-clock lost as above, and loses a real property if
+  someone later wants report-wide "the instant this report answers to": that change is then
+  five signatures, not two. The decorative `now` on `checkCensus` lost outright — it was read
+  nowhere in the file, an argument that advertised a dependency it did not have. And the
+  guard #355 proposed — refusing fixture windows that end at `23:59` — lost to being made
+  unnecessary: with the clock threaded, the gap minute is pinned as two test cells run on
+  every `make verify`, which polices the behavior a shape-guard could only guess at. No
+  guard script was written.
+- Checkpoint: ac936ae
+- Effect: the commit carrying this entry — `unenforcedCandidates` takes `now`;
+  `checkUnenforced`/`checkCensus` take no clock; the call site reads `nowFunc()` once; the
+  acceptance test gains the 23:59:30Z pair (the `ends at 23:59` cell says ok — the account is
+  released; the `allDay` cell says fail); mutant CD1's anchor and replacement re-pointed at
+  the new call site with the battery re-validated whole. `make verify` and the reads after
+  the push are quoted with their exit statuses in the pull-request body, not here, because an
+  `Effect:` written before a gate runs is a prophecy (#1180).
