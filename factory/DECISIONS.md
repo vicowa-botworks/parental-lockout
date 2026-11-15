@@ -9395,3 +9395,47 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+## H-0202 · The first review of PR #411 read the tree and found the log contradicting it — the #355 shape-guard was written and wired while D-0085's What lost still swore no guard script was written — so the guard owes its own entry and D-0085 owes an amendment
+
+- Question: PR #411 (#355) ships `scripts/check-fixture-window.sh` — refusing the
+  `"start": "00:00"` + `"end": "23:59"` fixture pair that is not 24/7 because `end` is
+  exclusive — wired into `verify` as the `fixture window guard` step, while the same
+  branch's D-0085 "What lost" states the proposed guard "lost to being made unnecessary …
+  No guard script was written." Both sentences cannot survive the merge in a repository
+  whose gate is the decision log's integrity: the log would assert something false about
+  the tree it lives on, and the guard — fail-closed shape, `plock-window: intentional`
+  exemption, three-line marker window, one-awk-per-file — would carry no decision record
+  at all, since D-0085's checkpoint ac936ae predates it. Where does the guard's record
+  go, and what happens to the false sentence?
+- Options: a new H- entry in `factory/DECISIONS.md` plus an amendment to D-0085's What
+  lost, both in this one commit | extend D-0085 in place to cover the guard (the review
+  allowed this alternative) | delete the guard so the tree matches D-0085's sentence |
+  answer the review in a pull-request comment without touching either log
+- Chose: a new H- entry in `factory/DECISIONS.md` plus an amendment to D-0085's What lost,
+  both in this one commit
+- Why: the log split is mechanical, not taste — the skill files `scripts/check-*` work
+  under `factory/DECISIONS.md` with H- ids, and this guard is exactly that path, while
+  D-0085 decided product code (`cmd/plock`) and stays a D. Extending D-0085 was offered
+  and refused on structure: the entry carries one question, one checkpoint (ac936ae) and
+  one Effect naming one commit, and folding a second question with a later checkpoint into
+  it leaves `Checkpoint:` naming one rollback target for two decisions. Deleting the guard
+  to honour a sentence that was overtaken is the wrong direction of repair — the review
+  itself calls the guard's controls carefully built. A comment alone merges a log that
+  reads false. The tie-breaks agree: two markdown files and zero code is the fewest files
+  touched; one `git revert` undoes the whole effect; nothing is deleted, nothing proceeds
+  on missing input.
+- What lost: extending D-0085 lost — one story per hazard is worth something, but not an
+  entry whose `Checkpoint:` answers to two decisions. Deleting the guard lost — its
+  controls (bare-pair refusal, the marker exemption measured load-bearing, the empty-list
+  refusal) are what the review wants kept, and D-0085's pinned cells guard the join's
+  verdict, not the next fixture written in the trap spelling. D-0085's prediction that a
+  guard had been made unnecessary lost outright — this branch's own next commit overtook
+  it, which is exactly what the amendment records.
+- Checkpoint: 2c31793
+- Effect: this commit amends the `What lost` bullet of D-0085 in `DECISIONS.md` — the
+  rewrite is line-count-neutral, so the two anchored pointers into that file stay
+  openable — and appends this entry; no code, script or Makefile change. The gate's own
+  words — entry count, citation counts and `verify: OK` — are quoted in the pull-request
+  thread with their exit statuses, not here, because an `Effect:` written before a gate
+  runs is a prophecy (#1180).
