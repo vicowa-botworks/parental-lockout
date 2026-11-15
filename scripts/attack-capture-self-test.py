@@ -45,10 +45,10 @@ this rule yet" -- and it is the expensive row: one dead ``print`` at the sweep's
 took every page after it, and both fixture arms, which have a single handler, printed nothing at all
 and exited 1. Four rows below attack the four guards that fix installs, and two more empty the rules
 that grade the arms #304 could not reach. ``manifest.py --self-test`` (54 rules, the number its own
-verdict line prints) has the same hole #297 describes and has NO row set here or in
-``attack-self-test.py`` -- corrected 13 Nov, because the sentence this paragraph carried until then
-claimed otherwise and the reader who trusted it would have looked for a guard that does not exist.
-What that costs is worth naming now that #302 put something load-bearing behind it: the receipt writer
+verdict line prints) had the hole #297 describes until #326 wrote ``scripts/attack-manifest-self-test.py``
+-- 31 attacks, every expectation measured against the head it shipped on, 7 hole classes listed with
+their closes. It polices that suite from outside, the way this file polices ``pages.py`` and #297 paid for.
+What that suite does not buy is worth naming now that #302 put something load-bearing behind it: the receipt writer
 (``cdp.write_receipt``, and ``Session.publish``'s call to it) is attacked by nothing in this file, and
 its only pin is ``manifest.py --self-test``'s
 ``the_receipt_the_driver_writes_is_the_one_record_reads``, which drives the real
