@@ -13544,6 +13544,243 @@ alloc_verdict_control() { # <label> <dir> <sed> <repo> <path> <prefix> <id> <sil
 	return 0
 }
 
+# ---- both notes, one read (#327) --------------------------------------------------
+#
+# Since the second `main`-into-`issue-320` merge on PR #321 the allocator prints two independent
+# stderr notes: the reach note `REFRESH`/`REFRESH-BLIND` (#303, "how far can this union see?") and
+# the attribution note `PENDING` (#320, "which half of the union raised the ceiling?"). The two
+# conditions are independent, and the suite even runs a tree where both fire today -- measured at
+# `80dd8bf`, a no-origin clone holding an open heading answers `PENDING=1 REFRESH-BLIND=1` -- yet
+# every leg greps exactly ONE marker, so the co-occurrence is unasserted: `grep -nE 'PENDING'
+# factory/selftest.sh | grep -c REFRESH` answers 0, not one assertion asks for both in one run.
+# An edit that lets one note swallow the other (the ticket's example: gating the reach printf
+# behind an `&&` on the attribution comparison) therefore leaves every leg above green, and the
+# consumer loses one of the two verdicts in exactly the shape where both are load-bearing: a read
+# that cannot see a sibling AND sits on the caller's own uncommitted heading is the one tree where
+# a moved ceiling is ambiguous, and the two sentences together are what disambiguate it. The
+# fixture below is the union of the two existing conditions -- a clone whose refspec can never
+# learn a branch, carrying the caller's own heading uncommitted -- and it is a NEW clone rather
+# than one of the fixtures above widened: twelve call sites read `$blind_root/unit` and assert the
+# id its worktree alone answers at, and an open heading there moves that number; `$alloc_open`
+# could carry both markers already, but its legs read PENDING only, which is the hole, not a
+# place to close it. The direction matters too, and it was measured: attribution cannot quietly
+# swallow reach from its source position -- the PENDING printf runs before the reach arms compute
+# anything, so gating it on reach either dies on `set -u` with `blind_why: unbound variable` (the
+# measured first plant) or has to reorder the script, and the non-crashing digit-level version reds
+# the attribution legs on their own fixture. The silent direction is exactly the one this leg
+# plants: the reach printf, which runs last, gated on the attribution comparison.
+
+# The union fixture. The clock is seconds-old (the push reflogs `refs/remotes` now), so the clock
+# arm stays quiet and the leg knows the coverage arm alone wrote the reach note.
+# shellcheck disable=SC2317  # reached from the leg below
+alloc_coexist_fixture() { # <dir> -> 0 when $dir/clone fetches one branch and holds an open heading
+	local d=$1
+	mkdir -p -- "$d" || return 1
+	git init -q --bare "$d/origin.git" 2>/dev/null || return 1
+	git --git-dir="$d/origin.git" config user.email fixture@invalid || return 1
+	git --git-dir="$d/origin.git" config user.name fixture || return 1
+	git clone -q "$d/origin.git" "$d/clone" >/dev/null 2>&1 || return 1
+	git -C "$d/clone" config user.email fixture@invalid || return 1
+	git -C "$d/clone" config user.name fixture || return 1
+	git -C "$d/clone" checkout -qb trunk || return 1
+	printf '## D-0001 · fixture trunk\n' >"$d/clone/DECISIONS.md" || return 1
+	git -C "$d/clone" add -A >/dev/null || return 1
+	git -C "$d/clone" commit -qm 'fixture: the trunk, before the refspec narrows' || return 1
+	git -C "$d/clone" push -q -u origin trunk || return 1
+	# the reach half, spelled the way #309 spelled it: a refspec that fetches one branch and can
+	# never learn another, so refs/remotes here cannot see a sibling no matter how it pushes.
+	git -C "$d/clone" config remote.origin.fetch \
+		'+refs/heads/trunk:refs/remotes/origin/trunk' || return 1
+	# the attribution half: the heading the caller is writing, committed on no ref.
+	printf '\n## D-0002 · the entry being written now\n' >>"$d/clone/DECISIONS.md" || return 1
+}
+
+# One run, both verdicts, the id alone. Unlike the single-marker helpers this one asserts stdout
+# has exactly one id LINE: coexisting notes must leave the capture channel as clean as one note
+# does, because stdout is the only thing a caller reads back as a number.
+# shellcheck disable=SC2317  # reached from the leg below
+alloc_coexist_leg() { # <label> <repo> <path> <prefix> <id> <pending id> <refs ceiling id> <says> <not-says> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 pend=$6 top=$7 says=$8 nosay=$9 fact=${10}
+	local got='' rc=0 lines=0 miss='' id=''
+	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" '-'); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	lines=$(printf '%s\n' "$got" | grep -c '^[DH]-[0-9][0-9][0-9][0-9]$' || true)
+	if [ "$got" != "$want" ] || [ "$lines" -ne 1 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s stdout is not the id alone: [%s] in %s id line(s),\n' \
+			"$label" "$got" "$lines"
+		printf '          expected exactly one line %s. Two notes coexisting on stderr must\n' "$want"
+		printf '          still leave the capture channel exactly as one note does. %s\n' "$fact"
+		return 0
+	fi
+	if ! grep -q '^next-decision-id: PENDING ' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reach note suppressed the attribution note:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          On this fixture the ceiling sits above a ceiling the refs already carry,\n'
+		printf '          on a read that cannot see a sibling -- which half moved the number is\n'
+		printf '          the whole verdict here, and one sentence of it is gone. %s\n' "$fact"
+		return 0
+	fi
+	if ! grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the attribution note suppressed the reach note:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A pending entry is not a refresh: a clone that can never learn a branch\n'
+		printf '          stays that way while you write your entry, and the fetch the clean line\n'
+		printf '          names cannot widen a refspec (#309). %s\n' "$fact"
+		return 0
+	fi
+	if ! grep -qF -- "$says" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reach note never names "%s", so the fixture\n' "$label" "$says"
+		printf '          is not tripping the coverage arm this leg is built on:\n'
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ -n "$nosay" ] && grep -qF -- "$nosay" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the clock arm co-signs: this fixture was built\n' "$label"
+		printf '          seconds ago, so "%s" means it went stale between its build and this\n' "$nosay"
+		printf '          read, and the verdict is no longer the coverage shape:\n'
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	for id in "$pend" "$top"; do
+		grep -qF -- "$id" "$alloc_err" || miss="$miss $id"
+	done
+	if [ -n "$miss" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the two notes together never name%s, so between\n' "$label" "$miss"
+		printf '          them the caller is left guessing which ceiling is whose:\n'
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# The control is the plant the ticket names -- one `&&` on the reach verdict's printf, gated on the
+# attribution comparison, which replaces the blind line with the CLEAN `REFRESH` sentence: not
+# silence but an active promise that a fetch fixes it, on the one clone where the fetch cannot
+# widen the refspec (#309). The control measures that this plant is invisible everywhere except
+# the leg above, four runs: the shipped script emits both notes on the union tree (so the leg's
+# ok is not certifying a one-note fixture); the planted script keeps the id and the pending note
+# and drops the blind line on that same tree; the planted script changes nothing on the clock-only
+# fixture, which is the witness for the reach family -- those fixtures carry no open heading, so
+# the `&&` is true and every blind/clear verdict arrives as it did; and the planted script leaves
+# PENDING standing on a no-origin open fixture, which is the witness for the attribution family --
+# that shape fires both notes with the plant removed, and its legs grep PENDING only, so a plant
+# that keeps PENDING and drops the reach line there is read as no change at all. A suppression no
+# other leg can see, pinned from the other side.
+# shellcheck disable=SC2317  # reached from the leg below
+alloc_coexist_control() { # <union repo> <clock-only repo> <path> <prefix> <id on the clock fixture>
+	local repo=$1 clock=$2 path=$3 prefix=$4 clockid=$5
+	local label='control: one note can suppress the other'
+	local bad ship='' ship_pend=no ship_blind=no got='' got_pend=no got_blind=no
+	local pend=$alloc_work/coexist-pending
+	bad=$(alloc_plant "$alloc_work/ctrl-reach-suppressed-by-pending" \
+		's|^if \[ -n "$blind_why" \]; then|if [ -n "$blind_why" ] \&\& [ "$work_max" -le "$refs_max" ]; then|' \
+		|| true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "$label"
+		printf '          nothing change; the leg has stopped pinning the coexistence it names.\n'
+		return 0
+	fi
+	# The shipped verdict on the union tree, read here rather than remembered from the leg above:
+	# the control's claim is a difference between two scripts on one fixture, so both halves run.
+	ship=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" '-') || true
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then ship_pend=yes; fi
+	if grep -q 'REFRESH-BLIND' "$alloc_err"; then ship_blind=yes; fi
+	if [ "$ship" != D-0003 ] || [ "$ship_pend" != yes ] || [ "$ship_blind" != yes ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the shipped script answers %s pend=%s blind=%s on\n' \
+			"$label" "$ship" "$ship_pend" "$ship_blind"
+		printf '          the union tree -- so the leg above was never run on a fixture printing\n'
+		printf '          both notes, which is the very thing #327 says to guard against.\n'
+		return 0
+	fi
+	if ! got=$(alloc_run_one "$bad" "$repo" "$path" "$prefix" '-'); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then got_pend=yes; fi
+	if grep -q 'REFRESH-BLIND' "$alloc_err"; then got_blind=yes; fi
+	if [ "$got" != "$ship" ] || [ "$got_pend" != yes ] || [ "$got_blind" = yes ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator answers %s pend=%s blind=%s;\n' \
+			"$label" "$got" "$got_pend" "$got_blind"
+		printf '          the plant moves exactly one thing -- the blind line goes, the id and\n'
+		printf '          the pending note ride on -- or it controls the wrong thing.\n'
+		return 0
+	fi
+	if ! got=$(alloc_run_one "$bad" "$clock" "$path" "$prefix" '-'); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused on the clock-only\n' "$label"
+		printf '          fixture:\n'
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$clockid" ] || ! grep -q 'REFRESH-BLIND' "$alloc_err" ||
+		grep -q '^next-decision-id: PENDING ' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant bites the clock-only fixture too (got %s),\n' \
+			"$label" "$got"
+		printf '          so some reach leg above would go red with it and the suppression would\n'
+		printf '          be loud -- not the silent hole this leg pins.\n'
+		return 0
+	fi
+	# The attribution family's witness, built here because the plant must meet the shape that
+	# already coexists today: no origin (so the reach note says `no origin remote`), open heading
+	# (so PENDING fires), both read by legs that grep only PENDING.
+	if ! mkdir -p -- "$pend/factory" ||
+		! git init -q "$pend" 2>/dev/null ||
+		! git -C "$pend" config user.email fixture@invalid ||
+		! git -C "$pend" config user.name fixture ||
+		! git -C "$pend" checkout -qb trunk ||
+		! printf '## H-0040 · the trunk ceiling\n' >"$pend/factory/DECISIONS.md" ||
+		! git -C "$pend" add -A >/dev/null ||
+		! git -C "$pend" commit -qm 'fixture: the ceiling before the pending entry' ||
+		! printf '\n## H-0041 · the entry being written now\n' >>"$pend/factory/DECISIONS.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the no-origin open fixture could not be\n' "$label"
+		printf '          written, so the control cannot show the plant is silent where the\n'
+		printf '          attribution legs read.\n'
+		return 0
+	fi
+	if ! got=$(alloc_run_one "$bad" "$pend" factory/DECISIONS.md H '-'); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused on the no-origin\n' "$label"
+		printf '          open fixture:\n'
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != H-0042 ] || ! grep -q '^next-decision-id: PENDING ' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator answers %s with PENDING %s on\n' \
+			"$label" "$got" "$(grep -q '^next-decision-id: PENDING ' "$alloc_err" && echo fired || echo gone)"
+		printf '          the no-origin open tree -- if the attribution note died there too, the\n'
+		printf '          attribution legs would go red and the hole would be loud, so the plant\n'
+		printf '          above is not the silent suppression #327 describes.\n'
+		return 0
+	fi
+	# No `pass` increment: a control's ok is uncounted in this suite, the way `alloc_control`
+	# and `alloc_marker_control` both leave it.
+	printf '  ok    %-40s one `&&` on the reach printf replaces the blind line\n' "$label"
+	printf '          with the clean promise on the union tree alone -- the id and the pending\n'
+	printf '          note ride on, the clock-only verdict is untouched, and PENDING still fires\n'
+	printf '          on the no-origin open shape its legs read. The leg above is the sole witness.\n'
+	return 0
+}
+
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
 	local alloc_notlog alloc_dirlog alloc_headonly alloc_open alloc_committed rs_lines
@@ -14109,6 +14346,23 @@ decision_ids() {
 	alloc_blind_leg 'a clone with no origin is refused as blind' "$alloc_bleed" DECISIONS.md D D-0004 \
 		'no origin remote' '' - \
 		'a checkout that has never had a sibling to learn from says so instead of answering quietly'
+
+	# Both notes at once (#327): the union of the two conditions, because a consumer that acts on
+	# both -- a blind read sitting on its own open heading -- is the tree where the two sentences
+	# are load-bearing together, and no leg until this one asked for both markers in any run. The
+	# control plants the ticket's own suppression and measures where it is invisible: the clock-only
+	# verdict is untouched, and PENDING survives on the no-origin open shape whose legs grep only
+	# PENDING. This leg is the sole witness.
+	coex=$alloc_work/coexist-notes
+	if ! alloc_coexist_fixture "$coex"; then
+		printf '  SKIP  %-40s the union fixture could not be\n' 'both notes coexist in one read'
+		printf '          written; the leg below is about a tree that does not exist.\n'
+	else
+		alloc_coexist_leg 'blind and pending in one read' "$coex/clone" DECISIONS.md D \
+			D-0003 D-0002 D-0001 'fetches only' 'last refreshed' \
+			'PENDING and REFRESH-BLIND print beside the one id D-0003, each naming its own half'
+		alloc_coexist_control "$coex/clone" "$blind_root/unit" DECISIONS.md D D-0002
+	fi
 
 	return 0
 }
