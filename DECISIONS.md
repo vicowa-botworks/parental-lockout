@@ -5144,7 +5144,8 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   counter, the two guarded restores, the reporting arm, the witness test and its four legs, and the exit
   read in `TestMain`. Every number here is one pair of runs, this tree against a worktree at `6db0b13` --
   this branch's own parent, which is `origin/main` -- so the two sides differ by these four files and
-  nothing else, and each ran the same command twice with the warm run quoted. The three drainers went
+  nothing else. `go test -count=1 ./...` ran twice a side with the warm run quoted; `make verify` and
+  `go test -race -count=1 -v ./cmd/plock` ran once a side, on a warm build cache. The three drainers went
   15.07/15.02/15.02 s → 0.02 s each and `cmd/plock` went 65.661 s → 20.572 s (`ok` lines) under
   `go test -race -count=1 -v ./cmd/plock`, with 0 `DATA RACE` lines on either side; `go test -count=1
   ./...` went 47.905 s → 17.742 s, rc 0 both sides; `make verify` went 152.548 s → 92.427 s, rc 0 and
