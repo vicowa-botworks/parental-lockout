@@ -4744,3 +4744,161 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Why: the tie-break that separates them is the fourth, fewest files, and it agrees with the substance -- the two changes witness different claims, so a side that wins is a side that loses a guard. Each whole-side option breaks the invariants in the other direction: `--theirs` deletes #324's rows and reopens a hole this tree no longer has, `--ours` deletes eighteen of #322's rows and leaves the branch at 54 beside a `main` at 72, so the next merge re-collides on the same four sentences. Deleting a row per side is refused by the thing the rows exist for: `EXPECTED_ROWS` is pinned because `A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected verdict`, so agreement bought with a deletion is bought with the exact rot the pin catches. Then both intents were measured on the merged tree rather than assumed to coexist, in a copy and never the gated tree (#1807), each mutation asserted to have matched exactly once before its result was believed. Emptying the kept frame's write returns rc 1 with `the kept frame audit@360.png is not the picture this run was handed: 0 byte(s)`; writing the same COUNT of different bytes returns rc 1 naming the 36 bytes it got instead; emptying one rule body returns rc 1 with `PROBE: each fixture keeps its refused frames apart stayed green with its own contract broken (hollow cdp.keep_refused)`. The fourth probe is the null variant and it is the one that shows the two are load-bearing and not merely present: downgrade this branch's clause from byte equality to `len(got) != len(_SELFTEST_FRAME)` and the same-count mutation prints `81 refusal rules hold` at rc 0 again, so what the second byte row pins is equality and not length -- the option #324's own body refused. `EXPECTED_ROWS` 73 is that arithmetic and nothing else: `main`'s 72 plus #324's one added row, the byte row counted once because only its expectation moved. `python3 scripts/check-decisions.py` on the resolved tree reads 235 entries, `0 pointing somewhere a reader cannot open`, and the debt unchanged at 539, so this merge added no citation of its own and moved no measured number.
 - What lost: `main`'s count sentence -- `The classes below are four … and one claim about what the 81 rules do not look at` -- is false on the merged tree and goes, and the comment above `DOCUMENTED_HOLES` now says three, all of them one floor at three sites. So does that class's own text: the sentence `nothing reads the file's contents` survives nowhere in the file, because a listed hole with no row is refused and a shut hole cannot be re-measured -- the record of what the hole was is `D-0076`, `D-0077` and this entry. This branch's wording of the verdict class (three arms: `if bad:`, the reach check, its `return 1`) goes too, and it goes because it is out of date rather than wrong at the time: #322's pass pinned two of those three arms. `Fifty-five attacks nobody invokes` loses to `main`'s `f"{EXPECTED_ROWS} attacks…"`, which cannot rot, and this branch's hand-typed count goes with it. In `DECISIONS.md` the two appended entries sit by id, `D-0076` above `D-0077`, which breaks append order on purpose: `D-0077` was written first (checkpoint `607966e`, 14 Nov 12:07 local) and `D-0076` reached `main` later (PR #379 merged 15:18 local), while the gate refuses an inverted log -- `is out of order (… came before it); the log is a history and a history that jumps around cannot be bisected` -- so append order loses to resolvability. What this entry does NOT repair: `--citations` lists fifteen pointers at `testing/capture/pages.py` and six at `scripts/attack-capture-self-test.py`, every one of them UNANCHORED before this merge and unchanged by it, and both files' line numbers moved underneath them -- repairing published entries is #374's, on `D-0077`'s own ruling, and the number this commit could move, 539, it did not. `testing/capture/pages.py` carries no resolution of mine at all, only the union git produced; the claim that union is sound is the four measurements above, not a sentence about a diff.
 - Checkpoint: 5765e45
+## D-0079 · #325: the three verdict statements in `pages.py --self-test` are said to police nothing that polices them — pin the contract's `make verify` clause from the runner, give every `verify:` step one owner, or record the floor where the measurement puts it
+
+- Question: #325 claims `if bad:`, `if len(ran) != EXPECTED_RULES:` and
+  `if counts != [1, 0] or len(probe_bad) != 1:` are guards with no witness, and points the closure at
+  `wiring_problems()`, which has pinned the *attack suite's* two `make verify` steps since #144.
+  Measured first, on a copy of the tree at `0a1aea8` (#1807 — never the gated tree), the premise is
+  half true and the actionable half sits one link outside it. Neutering each of the three leaves
+  `pages.py --self-test` printing `capture self-test: 81 refusal rules hold` at exit 0, as the ticket
+  says, and does NOT leave the gate green: `scripts/attack-capture-self-test.py` exits 1 with 36
+  problems for `if bad:` — 35 rows that were `CAUGHT` re-reported as `NEW HOLE … the self-test printed
+  "…81 refusal rules hold…" with this live` — and with 2 each for the reach check and the canary
+  comparison, whose genuine half of those 2 is `NEW HOLE one refusal rule is unregistered, and the
+  count is what notices` and `NEW HOLE the canary pair is deleted` (the other half is an anchor the
+  mutation itself destroys, plus a `DOCUMENTED HOLE NO LONGER SEEN` for the canary). A verdict that
+  stops reporting turns every caught row green, so the caught set is the witness and it already
+  exists. What DOES leave the gate green is deleting the contract's `verify:` clause: every surviving
+  step then reads `VERDICT: 54 attacks, 0 problem(s)` at exit 0 beside `capture manifest self-test:
+  54 rules hold`, because this suite attacks a COPY of `testing/capture/` and nothing anywhere asked
+  who runs the original. Then the whole recipe, one clause deleted at a time against 11 fast
+  witnesses plus `check-decisions.py`'s predicate called in-process: of the 22 single-line labelled
+  clauses in `verify:` — 24 labelled steps counting the two multi-line ones — exactly 2 refused their
+  own deletion from anything outside themselves (`screenshot manifest`, refused by
+  `manifest.py --self-test`; `decision-log contract`, refused by its own in-process control). Who owns
+  a witness for a clause, and what shape survives the deletion it is watching for?
+
+- Options: a `WIRED` table in `attack-capture-self-test.py` naming the contract's clause and the sibling suite's two beside this suite's own pair, every row fed its own deletion in-process and the table's size pinned by count | one new script whose only job is the wiring of all 24 `verify:` steps, called from a step of its own | leave every clause unpinned and close #325 by recording that the three statements are policed by the caught set and that the clause is the one exposure
+
+- Chose: a `WIRED` table in `attack-capture-self-test.py` naming the contract's clause and the sibling suite's two beside this suite's own pair, every row fed its own deletion in-process and the table's size pinned by count
+
+- Why: a clause's own program is the last thing that can see it deleted — deleting the step silences
+  the only witness inside it — so a witness has to be code in a step that survives the deletion it
+  watches. That shape already exists twice in this repository: `manifest.py --self-test` refuses when
+  `manifest.py check` goes, and this suite's two clauses have witnessed each other since #144 because
+  it is called from two steps. Extending it to the contract is the move #325 itself names ("wiring
+  `pages.py --self-test`'s own invocation can be pinned from `attack-capture-self-test.py`").
+  In-process controls are the other half and the precedent is `check-decisions.py`, which feeds its own
+  `invocation_problems()` four synthetic Makefiles: without them the table's five `re.search` calls
+  were themselves the un-witnessed layer — replacing `wiring_problems()` with `lambda: []` keeps
+  `make verify` green, which is #325's defect one level up, and a control is the only thing that can
+  see a predicate hollowed while the file still runs. The sibling's two clauses ride along because
+  they are one row each in a table that already exists, and filing them instead would leave a measured
+  hole standing for a tick to re-measure.
+
+- What lost: 18 of the 22 single-line clauses still have no witness and no owner — `go vet`,
+  `dependencies`, `shellcheck`, `agent deny list`, the bare `decision log` gate and the rest — because
+  the option that covers all of them is a file whose own clause is the only thing that runs it, which
+  is #325's floor aimed at the harness rather than a task; filed as its own issue with the sweep table,
+  including the caveat that the sweep ran only fast witnesses, so the Go and shell rows say "no python
+  guard refuses", not "nothing refuses". The cross-witnessing is one-sided: this file refuses when the
+  sibling's steps vanish and the sibling says nothing when this file's do, because the sibling has no
+  table. Two rows are one Makefile line, so deleting one fires the other's message too, and the control
+  therefore asks only that the row's OWN refusal appears. A pattern and its step can be renamed in
+  lockstep — one honest edit changing both reads green, and only a diff reader sees it.
+  `EXPECTED_CLAUSES` makes every addition a two-place edit, and the counts quoted in the hole text and
+  here are dated because the row set moves.
+
+- Checkpoint: 0a1aea8
+
+- Effect: one file. `scripts/attack-capture-self-test.py` gains `WIRED` (5 clauses: this suite's gate
+  step and empty-filter clause, the contract's step, the sibling's gate step and empty-filter clause),
+  `EXPECTED_CLAUSES`, `clause_message`, `table_problems`, `clause_problems`, `pin_controls`, and
+  `wiring_problems` reduced to read-the-Makefile-and-call-the-three; the `verify:` clause is no longer
+  the one link in the capture chain with no witness outside itself. The `DOCUMENTED_HOLES` class `the
+  verdict's final decision is unguarded` is corrected: it said "this is the floor, so it is listed
+  rather than fixed", which read as *nothing notices*, and the measurement is that the floor is one
+  statement wide — the contract's own exit code — while this suite refuses with 35 `NEW HOLE` rows for
+  `if bad:` and one each for the other two; the class now says that and names the clause as the
+  exposure `WIRED` closes. The module docstring gains the paragraph on why nothing here attacks this
+  file and what witnesses it instead. Read back: `make verify` → `verify: OK`, exit 0, with
+  `==> capture refusal contract` and `==> capture refusal attack suite` both present;
+  `python3 scripts/attack-capture-self-test.py` → `VERDICT: 54 attacks, 0 problem(s), 4 hole class(es),
+  12 hole row(s)`, exit 0, so all five controls pass against the live Makefile. Then the closure proof,
+  each deletion applied to a fresh copy and the surviving suite run BY HAND (a deleted clause is not
+  run by `make verify`, which is the whole point): before, deleting the contract's clause printed
+  `VERDICT: 54 attacks, 0 problem(s)` at exit 0; after, all five deletions exit 2 naming their own
+  clause — gate step, empty-filter clause, contract step, sibling gate step, sibling empty-filter
+  clause — and deleting both capture clauses at once exits 2 with both messages. The re-sweep of all 22
+  clauses now shows `capture refusal contract` and `self-test attack suite` refused by
+  `capture refusal attack suite`, where the pre-fix sweep showed `*** NOTHING ***` for both.
+
+## D-0080 · #325's canary comparisons report numbers they did not compare — a run that exited 1 because a probe tripped prints `0 of 81 rules failed`, and the trip's own sentence printed the literal `[1, 0]` while the operand said `[1, 1]`: name the canaries in the tally, fold them into the rule count, or file it
+
+- Question: `self_test_verdict` ends a failing run with `{failed} of {EXPECTED_RULES} rules failed`,
+  where `failed` counts entries of `ran` and `EXPECTED_RULES` counts *claims about a driver*. The two
+  canaries are deliberately not in `ran` — `pages.py` says so above the crash probe: "It is not a
+  claim about a driver, so it never enters `ran` and `EXPECTED_RULES` stays the count of claims" — so
+  their problems reach `bad`, decide the exit code, and appear in the tally as nothing. Measured 14 Nov
+  on a copy (#1807 — never the gated tree), tightening the pair's operand from `[1, 0]` to `[1, 1]`:
+  exit 1, the trip named on stderr, last line `capture self-test: 0 of 81 rules failed`. The same
+  mutant exposes the second half of the defect: the sentence printed `want [1, 0] and 1` — the literal
+  in the message — while the comparison it had just lost wanted `[1, 1]`. #325 says closing its three
+  comparisons "needs a decision about who owns the number, and that is a `pages.py` decision rather
+  than a runner decision"; this is that decision, taken at the reporting end, and it is not the
+  policing question `D-0079` answers.
+
+- Options: return the canary count as its own number from `self_test()`, append `, N canary trip(s)` to the tally only when it is non-zero, and spell the pair's expectation once so the sentence states the operand it compared | fold the probes into the rule tally and add them to `EXPECTED_RULES`, so one denominator covers every check | leave the line alone and file both reporting defects, since neither changes the exit code
+
+- Chose: return the canary count as its own number from `self_test()`, append `, N canary trip(s)` to the tally only when it is non-zero, and spell the pair's expectation once so the sentence states the operand it compared
+
+- Why: folding is a lie in the other direction. `EXPECTED_RULES` means *claims*, and #297's whole
+  design rests on the count pinning how many claims ran and saying nothing about what they checked;
+  putting two probes in the denominator makes `81` name something no rule is. And `len(bad) - failed`
+  is not a canary count either, because a rule may append more than one problem — the inference the
+  existing numbers invite is already wrong. A number returned from the two trip sites cannot drift,
+  which is what "who owns the number" asks: `EXPECTED_RULES` stays the count of claims, `canaries` is
+  derived and appears nowhere else. Spelling the operand once is the same rule aimed at the sentence —
+  `D-0072`'s crash probe already reads `crash_want` and `crash_counts` into its own message, and the
+  pair's was the only verdict sentence still quoting a literal its `if` did not read. The tail is
+  conditional so the shape every row and every transcript since #297 keeps working when the probes are
+  quiet: `FAILED_SUMMARY` gains an optional group, not a new requirement.
+
+- What lost: two attack rows moved with the comparison line (`the canary comparison is switched off`,
+  `the canary comparison's operands are swapped`), so a reader of an older transcript searching for
+  `counts != [1, 0]` finds it only in prose — in `DOCUMENTED_HOLES`, in #325's body and in
+  `docs/issues-from-d-0058.md`, all left as written because they are dated measurements of the tree
+  that had the literal. `want_counts` and `want_problems` are local to `self_test()`, so nothing
+  outside can assert them and the expectation is pinned by the trip alone. A run whose only problem is
+  a trip still ends on a line whose first number is `0`; the tail fixes the meaning, not the reading
+  order. And `self_test()` now returns three values to a call site the attack suite patches around — a
+  row that replaced `return ran, bad` would fail loudly rather than quietly, which is the right
+  direction but new surface, and `EXPECTED_RULES` stays at 81 while a run makes two further checks
+  that number does not contain.
+
+- Checkpoint: bcca475
+
+- Effect: two files. `testing/capture/pages.py`: `want_counts, want_problems = [1, 0], 1` above the
+  pair with the measurement that asked for it; both canary sites count into `canaries`;
+  `self_test()` returns `(ran, bad, canaries)`; `self_test_verdict` takes the third and appends
+  `, {canaries} canary trip(s)` when it is non-zero, with the reason in its docstring.
+  `scripts/attack-capture-self-test.py`: `FAILED_SUMMARY` gains the optional tail, the two canary
+  rows' anchors re-pointed at the new comparison line, and the hole class `the canary pair's own
+  comparison is unguarded` quotes the sentence as it now reads. Read back on the bytes this commit
+  ships: `python3 testing/capture/pages.py --self-test` → `capture self-test: 81 refusal rules hold`,
+  rc 0; `python3 scripts/attack-capture-self-test.py` → `VERDICT: 54 attacks, 0 problem(s), 4 hole
+  class(es), 12 hole row(s)`, rc 0 — both re-pointed rows still apply exactly once, one `HOLE` and one
+  `GREEN`, so neither moved by accident. Then each mutant on a copy, same operand edit both sides:
+  before, `... want [1, 0] and 1` and `capture self-test: 0 of 81 rules failed`; after, the same
+  mutant prints `... want [1, 1] and 1` and `capture self-test: 0 of 81 rules failed, 1 canary
+  trip(s)`; the crash probe's trip prints the same tail; a real rule made false prints `capture
+  self-test: 1 of 81 rules failed` with no tail, which is the common case's shape unchanged. In every
+  mutant the attack suite exits 2 with its baseline refusal — the correct answer to a copy whose guard
+  cannot pass, and the reason the contract's own line is the receipt for these three.
+
+## D-0081 · #325's third slice — the verdict's tail counts only the canaries, so a battery-only trip still prints `0 of 81 rules failed`: derive the number once from the PROBE prefix at the battery call, recompute it inside the verdict from all three sentence wordings, or record that the tail lies about the battery
+
+- Question: `D-0079` pinned the verdict's three statements and `D-0080` named the canaries in the tally. The open question was *what the verdict's third argument means*, because the two call sites disagree: `self_test()` returns `canaries`, incremented only at the two helper trip sites, while arm 2 of `_probe_harness` asks `self_test_verdict` with `trips = sum(1 for p in bad_shape if p.startswith(f"{PROBE}:"))` — every finding the harness raises. The same function is thus told two different things under the same name, and the number that reaches the tail on a real run never saw a battery finding. Measured 15 Nov on a copy (#1807 — never the gated tree), at the merged `73dbd91`: `if arms != 4:` → `if arms >= 0:` prints the battery's PROBE sentence, exits 1, and its last line reads `capture self-test: 0 of 81 rules failed` — no tail. Two arms fired double the sentences and still print no tail. Delete the canary pair instead and the last line reads `0 of 81 rules failed, 1 canary trip(s)`. That is D-0080's defect one path over, and it contradicts a sentence the attack suite's own `FAILED_SUMMARY` comment has carried since D-0080 — that the tail exists so "a run whose only problem is a tripped probe cannot read as '0 of 81 rules failed'": true for the two helper probes, false for every battery finding.
+
+- Options: rename `canaries` to `trips` and add `trips += sum(1 for p in bad if p.startswith(f"{PROBE}:"))` after the battery call — one formula, the one arm 2 already derives — the tail becoming `, N probe trip(s)` and `FAILED_SUMMARY` moving with it in lockstep | recompute the number inside `self_test_verdict` from the three sentence prefixes (battery, hollow pair, crash arm), making it unhidable from `self_test()` at the cost of coupling the tally to the canaries' sentence wording and rewriting arm 2's four-shape contract and the verdict's | record the disagreement in the class text and ship nothing, since the exit code has been right since D-0079
+
+- Chose: rename `canaries` to `trips` and add `trips += sum(1 for p in bad if p.startswith(f"{PROBE}:"))` after the battery call — one formula, the one arm 2 already derives — the tail becoming `, N probe trip(s)` and `FAILED_SUMMARY` moving with it in lockstep
+
+- Why: the exit code was never missing — a battery finding reaches `if bad:` the moment it is appended — what was missing was *witness at the last line*, and every option is equally silent there when deleted: the difference is between what cannot be hidden and what cannot *drift*, and a prefix-derived count cannot drift from what the battery reported, because the PROBE-prefixed sentence is the battery's only voice — the same test arm 4's coverage witness keys on — and there is no second counter to disagree with it. Recomputing inside the verdict hides nothing from anything, either: the floor this suite's `DOCUMENTED_HOLES` states, "a finding raised *because* `if bad:` stopped printing has nowhere to be printed but `if bad:`", is that recomputation's floor too — while paying for it in a wording-coupling the site counts structurally avoid: a reworded canary sentence still counted one trip (measured, on a copy: sentence renamed, pair deleted → exit 1, last line `0 of 81 rules failed, 1 probe trip(s)`), where a reworded sentence a recomputer cannot find is a silent undercount. And one derivation shared with arm 2 means the harness's four shapes and the real run cannot mean different things by the third argument — which was the only mechanism by which the two meanings could diverge in the first place. On #4 (smallest surface): both files already own this number; option 2 changes a signature, four shapes and two contracts, option 1 is six lines.
+
+- What lost: the derivation line is itself removable, and that is measured — delete it, fire an arm, and the last line reads `0 of 81 rules failed` again at exit 1, and no row of this suite can see it, because D-0080 made the tail optional for its own reasons and pinning it mandatory would put the passing summary inside a regex none of whose rows probe it: listed, not built. The wording `canary trip(s)` D-0080 shipped 14 Nov leaves the live code — DECISIONS.md keeps it, as a merge never rewrites a published entry — transcripts older than D-0081 find the phrase only in prose, and `FAILED_SUMMARY` is pinned at this head. The count counts *sentences*, not checks: an arm that appends twice is two trips, and arm 2's shapes inherit that semantics whole. The tally keys on a prefix, so a rule whose problem began with `PROBE:` would enter `trips` beside a real harness trip — the prefix is reserved to the battery, and nothing but this sentence says so. And the deleted-call hole stays exactly as silent as D-0076 left it: a count of what the battery FOUND reads zero where a clean run does, so the two class texts that promised "a probe tally handed to the verdict" now say the tally is of what the pass DID — probed, reported, arms, shapes — and name this count as not-it, so a later reader cannot mistake one for the other and believe a listed hole closed.
+
+- Checkpoint: 43816fd
+
+- Effect: `testing/capture/pages.py` renames the counter at its four sites, derives the battery's share at the battery call, and renames the verdict's parameter and its tail; `scripts/attack-capture-self-test.py` carries the new word in `FAILED_SUMMARY`, in that regex's comment, and in the two `DOCUMENTED_HOLES` texts that pointed at "a probe tally" and would otherwise read as shipped. Measured after the change: `if arms != 4:` → `if arms >= 0:` exits 1 with `capture self-test: 0 of 81 rules failed, 1 probe trip(s)`, two arms print `2 probe trip(s)`, the deleted canary pair prints `1 probe trip(s)`; `python3 testing/capture/pages.py --self-test` exits 0, `81 refusal rules hold`; `python3 scripts/attack-capture-self-test.py` exits 0 with `VERDICT: 73 attacks, 0 problem(s), 3 hole class(es), 11 hole row(s)` — the counts unchanged from before the change, because no row moved. `make verify` and the state read after the push are quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
