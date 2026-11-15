@@ -9440,8 +9440,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `bash factory/selftest.sh` -> 685 passed, 0 failed, exit 0, against the 682 baseline the branch
   carried; the planted leg reads back its plant (`journal 250 B; 3 files, 750 B`, the oldest
   named with a days-shaped age, and flipping that transcript's mtime changes which file is named
-  -- the minimum is measured, not asserted; a single-file directory reads "1 file"), and the
-  wired leg plants the deletion and measures the scan going red on it (H-0043's rule). Live
+  -- the minimum is measured, not asserted; a single-file directory reads "1 file"; and a planted
+  `sub/` holding a bigger file named `supervisor.log` must not move one printed number, which is
+  the plant that pins `-maxdepth 1`), and the wired leg anchors its predicate on the call shape
+  and carries two planted controls with a `cmp` guard that each plant planted -- deleting the call
+  line, and replacing it with a comment that only mentions the name, which the first version read
+  as wired (found by the pre-PR adversarial round; H-0043's rule). Live
   read-back against the real log directory: `--status` printed
   `log:     journal 995814 B; 171 files, 36074649 B under .../factory/log; oldest 20261110T134828Z.unclaimed:213.log 4d16h`.
   This decision deletes and rotates nothing; the deletion is H-0188 and it awaits a human.
@@ -9474,8 +9478,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   deleted and nothing irreversible is added by this entry. The marker is the same owed-by-#311
   debt every escalation inherits; the step runs as shipped, name read from its one home --
   `gh issue edit 334 --add-label "$(factory/escalation-label.sh)"` -- after this commit lands,
-  and the name it prints is not among the repository's labels (H-0141 measured this box: rc 1,
-  `'needs-human' not found`, nothing half-applied), so the expected end state is a reported
+  and the name it prints is not among the repository's labels -- `'needs-human' not found` for rc 1
+  is measured on this box by H-0139 and re-measured by H-0179, and H-0141 measured that a refusal
+  of that shape applies nothing half-way -- so the expected end state is a reported
   refusal, the read-back, and the disclosed `blocked` stand-in per the H-0139/H-0179 precedent --
   undo `gh issue edit 334 --remove-label blocked` -- because a ticket whose remaining half is a
   one-line human answer must not re-queue a full dispatch every cycle, the loop H-0179 priced at

@@ -16360,6 +16360,20 @@ fp_leg_planted() {
 		printf '\tafter the flip the scan still names the same file: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
 		return 1
 	}
+	# Directories under the log dir are not this footprint -- and the promise needs a plant or the
+	# `-maxdepth 1` can rot away green. A recursive scan printing `%f` would let a nested file
+	# named `supervisor.log` masquerade as the journal and silently overwrite the journal field.
+	mkdir -p "$dir/sub"
+	head -c 999 /dev/zero >"$dir/sub/supervisor.log"
+	head -c 4000 /dev/zero >"$dir/sub/big.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed over the nested-directory plant\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\ta planted subdirectory changed the footprint: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
 	return 0
 }
 
@@ -16389,18 +16403,36 @@ fp_leg_arms() { # what an empty directory and a missing one each answer, in word
 	return 0
 }
 
-fp_leg_wired() { # `--status` prints the line, and the scan proves it could see the absence
+fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALLS, not sentences
 	local dir=$work/footprint/wired/factory
 	mkdir -p "$dir"
-	status_arm "$HERE/factory.sh" | grep -qF 'factory_log_footprint' || {
+	status_arm "$HERE/factory.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' || {
 		printf '\tthe --status arm does not call factory_log_footprint\n'
 		return 1
 	}
-	# The control, planted outside the repository: the same scan over a copy whose call is deleted.
-	# If it still says yes, the ok above was the check being blind (H-0043's rule).
-	sed '/factory_log_footprint/d' "$HERE/factory.sh" >"$dir/factory.sh"
-	status_arm "$dir/factory.sh" | grep -qF 'factory_log_footprint' && {
+	# Control one, planted outside the repository: a copy with the call line deleted. The guard
+	# that the plant planted is `cmp` -- an edit that changed nothing would certify absence for
+	# free -- and then the same anchored scan must go red.
+	sed '/^[[:space:]]*factory_log_footprint[[:space:]]*$/d' "$HERE/factory.sh" >"$dir/deleted.sh"
+	cmp -s "$HERE/factory.sh" "$dir/deleted.sh" && {
+		printf '\tcontrol failed: deleting the call changed nothing, so the plant planted nothing\n'
+		return 1
+	}
+	status_arm "$dir/deleted.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' && {
 		printf '\tcontrol failed: the scan still found the deleted call\n'
+		return 1
+	}
+	# Control two, the comment plant: the call line replaced by a comment that only MENTIONS the
+	# name. A scan that reads a sentence as a call certifies wiring that is not there -- the exact
+	# defect the pos-call-sites section repaired with a shape predicate (H-0043's rule).
+	sed 's/^[[:space:]]*factory_log_footprint[[:space:]]*$/\t# prints its lines via factory_log_footprint from common.sh/' \
+		"$HERE/factory.sh" >"$dir/commented.sh"
+	grep -qF '# prints its lines via factory_log_footprint' "$dir/commented.sh" || {
+		printf '\tcontrol failed: the comment plant did not land\n'
+		return 1
+	}
+	status_arm "$dir/commented.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' && {
+		printf '\tcontrol failed: the scan reads a comment naming the function as a call\n'
 		return 1
 	}
 	return 0
