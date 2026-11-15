@@ -9448,3 +9448,47 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Refers: #334 (this ticket), H-0043 (a presence check must prove it could see the absence),
   H-0141 and H-0179 (escalate-with-record, and the disclosed stand-in when the marker itself is
   refused), AGENTS.md "Four classes of decision are not an agent's to make"
+
+## H-0188 · The only bound on `factory/log` is a deletion of the operator's audit trail, which is a reserved class, so H-0187 ships the reading and this entry asks for the numbers
+
+- Question: H-0187 shipped the footprint read. The two bounds -- #334's fixes 1 and 2, pruning
+  transcripts and rotating `supervisor.log` -- each require a policy and its numbers chosen
+  (keep-N vs keep-D-days vs a directory byte-cap; rotation size and generations), and the ticket's
+  own premise that no reader needs the oldest content is a fact about today's readers,
+  falsifiable only by the person who owns the records. What ends this ticket?
+- Options: transcripts keep the last D days, journal rotates at S bytes keeping 1 generation
+  (recommended there as D = 14 days, S = 16 MiB, from the measured ~29 transcripts/day at
+  ~375 KB/day) | transcripts keep N per unit, bounded per unit but not per day | a directory-wide
+  byte cap evicting oldest-first, which can silently evict the night of an incident | report only,
+  leave it unbounded with H-0187's line as the whole visible control
+- Chose: escalated
+- Why: deleting data is one of the four classes AGENTS.md reserves to a human, and this deletion
+  is exactly what the ticket itself calls a retention decision about the operator's audit trail:
+  "Any of the three is a retention decision about the operator's audit trail, so it is filed
+  rather than decided by a unit." Shipping the mechanism while waiting was refused in H-0187 --
+  keep-N and keep-D-days are different code paths, and an idle rotator pre-picks the mechanism and
+  makes its inert default the answer by existence. The menu, each option's cost and the exact
+  command to proceed are on the #334 comment, with the recommendation stated there; stating it
+  here as a choice would make the record a fait accompli. Tie-break 3: proceeding needs human
+  input that does not exist, so the unit stops with the ask named. Tie-break 5: nothing is
+  deleted and nothing irreversible is added by this entry. The marker is the same owed-by-#311
+  debt every escalation inherits; the step runs as shipped, name read from its one home --
+  `gh issue edit 334 --add-label "$(factory/escalation-label.sh)"` -- after this commit lands,
+  and the name it prints is not among the repository's labels (H-0141 measured this box: rc 1,
+  `'needs-human' not found`, nothing half-applied), so the expected end state is a reported
+  refusal, the read-back, and the disclosed `blocked` stand-in per the H-0139/H-0179 precedent --
+  undo `gh issue edit 334 --remove-label blocked` -- because a ticket whose remaining half is a
+  one-line human answer must not re-queue a full dispatch every cycle, the loop H-0179 priced at
+  2700 s a dispatch.
+- Checkpoint: n/a
+- Awaiting: the operator, in one comment on #334, naming the retention policy and its numbers (the
+  proceed command is in the escalation comment) or answering `retention: option 4`. The answer is
+  the deletion authorization; the next unit implements exactly what is answered and nothing more.
+  #311 still owns the marker name that would replace the stand-in.
+- Effect: this entry and nothing else in the tree. On the tracker: the escalation comment with the
+  menu and the proceed command, then -- after this commit -- the marker attempt, its read-back,
+  the stand-in and a follow-up comment carrying the raw transcripts, each read back in the same
+  breath as claimed (#1180).
+- Refers: #334 (the ticket), H-0187 (the split this entry escalates beyond), H-0141 (the step's
+  order and the refusal-as-result), H-0179 and H-0139 (the disclosed stand-in and the
+  re-dispatch loop), memory #1180 (read artifacts back; an effect line is not an effect)
