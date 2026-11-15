@@ -8760,7 +8760,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   shadow the other's -- and the pass total, not the census, is the verdict:
   `bash factory/selftest.sh` 649 passed, 0 failed. `main`'s disclosed duplicate definitions
   `branch_err_lacks()` and `emit()` are still exactly two each on the base, here, on `main` and
-  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'" in a
+  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3073` "if ! grep -q '[^[:space:]]'" in a
   file whose ONLY `main` hunk enters 22 lines at `:975` (file 3152 -> 3174).
   What is new since this branch was cut, and it changes the merge message rather than the splice:
   `H-0166` shipped `scripts/check-commit-verbs.sh`, and `make verify` now runs it over every message
@@ -8784,7 +8784,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0143`/`H-0144` settled and `H-0161` and `H-0167` repeated -- an in-place rewrite deletes lines
   the other side wrote and so poisons the zero-deletion census that is the only evidence a splice
   kept both intents, and a coordinate is a measurement at a head: `H-0167`'s
-  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
+  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3073` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
   call `H-0167` followed from `:876` to `:919` is at merged `factory/factory.sh:1189` "factory_stop_marker TICK-UNDELIVERED", because
   `main` moved `factory_tick` again; `H-0167`'s `54a7cf7:factory/selftest.sh:12887`, this branch's dense-log
   leg, is at merged `factory/selftest.sh:13855` "a dense log is read, not mulled over". `main`'s 15 fresh probes: 13 land, 2 name no file
@@ -9395,3 +9395,81 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+
+## H-0203 · Nothing guarded `git worktree remove` on a live tick's tree, so the removal now asks the journal who holds the path at the instant it is told to ask -- and the guard's first reading of its own fixture caught `awk` skipping a directory journal and answering free
+
+- Question: #361 measured a worktree removal destroying a live tick's tree while the session doing
+  it followed every rule it had. AGENTS.md says remove a merged branch's tree, and a cleanup
+  session ran `pgrep -af 'opencode run --auto --agent factory'`, correctly saw no worker, and
+  removed `wt/issue-315` while a tick was mid-budget: the journal reads
+  `2026-11-14T01:08:31Z TICK-START unclaimed:315 tree=/home/rodney/prj/wt/issue-315`, the removal
+  landed 01:14:40Z-01:15:43Z, and the tick only reached its own release line at 01:21:18Z over a
+  directory that no longer existed. `git worktree remove` refuses a dirty tree and `--force`
+  answers "are you sure", never "is anyone home". What verb lets a session -- or a person -- ask
+  whether a tree is held, when every liveness scan is worth only the instant it is taken and a
+  tick can start in the gap?
+- Options: a journal-keyed busy check where TICK-START naming the tree with no later
+  TREE-AFTER-TICK is a hold and the guard reads the journal at the instant of removal | a
+  pgrep-style live scan taken at the instant of removal | a release keyed on the outcome lines
+  TICK-DONE and TICK-FAILED | a lockfile or flock per tree written by the supervisor between
+  claim and release | sessions and people never remove, and removal moves to a supervisor verb
+- Chose: a journal-keyed busy check where TICK-START naming the tree with no later TREE-AFTER-TICK
+  is a hold and the guard reads the journal at the instant of removal
+- Why: the journal is the only ledger of "who is working in this tree" written by shipped code at
+  the instant the claim is taken -- `TICK-START <unit> tree=<path>` when the dispatch starts,
+  `TREE-AFTER-TICK <unit>` from `factory_quarantine_after_tick` above both of the tick's exits --
+  so the guard adds no state and cannot be forgotten by the holder. The pgrep scan is the incident
+  itself: the scan was true when run, and a tick starting in the gap is invisible to it by
+  construction; H-0158's dead-parent class makes "no worker process" a true statement about a
+  live tick. The outcome keying is refused by the live journal read 14 Nov -- 166 `TICK-START`
+  against 106 `TICK-DONE` and 31 `TICK-FAILED`, and an undelivered tick ends `TICK-UNDELIVERED`
+  with no DONE, so the 01:08Z tick above is one of roughly 29 holds such a check would still
+  consider running weeks after it finished; outcomes say what happened, only the release line
+  (164) says the tree was let go -- the same class as the marker #351 retired. A lockfile is a
+  second ledger that can disagree with the first: a supervisor killed between claim and release
+  leaves a lock with no reason line and no quarantine verdict, and every removal then needs two
+  opinions reconciled. Forbidding removal outright strands the queue on a verb the supervisor
+  does not have, and the cleanup rule that produced the incident exists because six abandoned
+  worktrees, two on the same commit, are what happens when nobody removes. Tiebreakers per the
+  skill: zero new third-party dependencies (awk is already load-bearing here); one verb in one
+  file, one AGENTS.md paragraph, one leg -- no new state to sweep; fail-closed by shape, exit 2
+  unknown is a refusal never a permission, and the path match widens toward busy (the `realpath`
+  shape is tried too) because the dangerous miss is free about a held tree; reversible by `git
+  revert`; and a refusal names the holding unit and its stamp, so a human can argue with it --
+  what `--force` never offered. The measurement that changed the guard: the first fail-closed
+  shape let the reader detect an unreadable journal, and the leg caught it red (682 passed, 1
+  failed) before this entry existed, because this box's `awk` treats a directory operand as a
+  skip, not an error -- `awk '{print}' somedir` prints "is a directory: skipped" and exits 0 --
+  so the unreadable journal fell through to the empty-output arm and the guard answered free, the
+  deletion incident reproduced inside its own guard; the shape judgement (regular file, readable)
+  moved into the guard ahead of the reader, and control C pins it by mutating that judgement and
+  measuring the same directory fixture flip to free.
+- Checkpoint: 6e96f3f
+- Effect: `factory/common.sh` gains `factory_worktree_busy PATH` -- exit 0 busy, printing the
+  holding unit and its TICK-START stamp; exit 1 free; exit 2 unknown, which refuses. `AGENTS.md`'s
+  Worktrees section gains the rule: ask the journal before removing a tree a tick may own,
+  covering `git worktree remove`, `prune` and `rm -rf`, and noting that the dirty refusal is the
+  fail-closed guard for live sessions -- the one class the journal cannot see, a session's own
+  tree is never journalled, arrives at the same refusal. `factory/selftest.sh` gains one counted
+  leg, 682 to 683, planting every line through `log_event` so the fixture speaks in the production
+  writer's own hand, and asserting nine polarities including the two a one-sided test would miss:
+  a different tree must read free from the same journal, without which the leg would pass while
+  the guard answered "any tick anywhere"; and an unreadable journal must read 2, not 1. The three
+  controls -- release keyed on TICK-DONE, tree matcher that never matches, shape judgement
+  removed -- are each measured flipping exactly its own assertion, and the leg's first run is
+  what found the awk skip. Two pointers moved by the insertion and re-pointed with their anchors
+  inside `H-0173`: each now reads `factory/common.sh:3073` "if ! grep -q '[^[:space:]]'" (was
+  3016; the anchor verified on the new line). Three bare pointers at 1607, 1649 and 2614 were
+  measured already unopenable on HEAD before this commit -- 1607 holds the three-red-rows
+  comment, not the streak=cleared line; 1649 is a bare `#`, not `|| dirt_rc=$?`; 2614 is
+  `return 4`, not a UNIT-AT line -- and are untouched, because this commit moved nothing under
+  them; naming them here is the re-measurement, not a new claim. The id story is a slip worth
+  recording: a bare allocator run answers D-0086 because the path argument selects the series and
+  a run with no path reads the root log, and `--prefix H` with `factory/DECISIONS.md` after a
+  fresh fetch answers H-0203, which this is; origin refs top out at H-0202. The tick's `bash`
+  could not write its next log line into a deleted directory and the supervisor recorded the
+  budget ceiling, not the cause -- recorded in #361, unrepaired here; what this decision repairs
+  is that no verb could ever have said "someone is home" at 01:14:40Z. No .go file, no label, no
+  GitHub write, no merge by this decision; the gate verdict is quoted in the commit message and
+  the pull-request body rather than predicted here.

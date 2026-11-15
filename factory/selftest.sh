@@ -16301,6 +16301,203 @@ cv_leg_cmsg_empty() {
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
 
+# ------------------------------------------------------- the removal guard: is that tree still busy?
+#
+# AGENTS.md tells a session to `git worktree remove` the tree of a merged branch, and #361 measured
+# the hole: the session checked for a live tick, correctly saw none, and removed the tree of a tick
+# that started in between -- seven minutes into a 2700 s budget, with no verb that asks at the
+# instant of the removal. The guard is `factory_worktree_busy` in common.sh. These legs plant the
+# journal shapes that incident turned on -- every line through `log_event`, so the fixture speaks in
+# the production writer's own hand rather than an approximation of it -- and the controls mutate the
+# guard's three load-bearing choices: WHICH line releases a hold, WHICH tree a hold is keyed on,
+# and what an unreadable journal answers. Each mutation is measured turning a specific assertion,
+# because a guard whose ok comes from a plant that never landed is the ok this suite exists to refuse.
+bw_journal() { # -> empty the fixture journal, keeping the directory log_event expects
+	mkdir -p -- "$FACTORY_LOG"
+	printf '' >"$FACTORY_LOG/supervisor.log"
+}
+bw_plant_start() { # unit tree -> a TICK-START line in factory.sh's own shape
+	log_event "TICK-START $1 tree=$2 log=selftest-busy.log" >/dev/null
+}
+bw_plant_release() { # unit -> the TREE-AFTER-TICK line the shipped writer writes for a clean tree
+	log_event "TREE-AFTER-TICK $1 streak=cleared the tree is clean, so this tick did not repeat the accident" >/dev/null
+}
+bw_plant_done() { # unit -> the outcome line the guard must NOT read as a release
+	log_event "TICK-DONE $1 see selftest-busy.log" >/dev/null
+}
+bw_plant_failed() { # unit -> the failed outcome line, same class: outcome is not release
+	log_event "TICK-FAILED $1 exit=124 (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see selftest-busy.log :: the leg's plant" >/dev/null
+}
+bw_mutant_rc() { # sed-script tree -> exit status of factory_worktree_busy with common.sh mutated
+	local seds=$1 tree=$2 d="$work/busyctl" rc=0
+	rm -rf -- "$d"
+	mkdir -p -- "$d"
+	sed "$seds" "$HERE/common.sh" >"$d/common.sh" || return 9
+	(
+		# shellcheck disable=SC1091  # the mutated copy is what the control is measuring
+		. "$d/common.sh" >/dev/null 2>&1 || exit 9
+		factory_worktree_busy "$tree" >/dev/null 2>&1
+	)
+	rc=$?
+	printf '%s\n' "$rc"
+}
+
+busy_guard_refuses_a_live_tree() {
+	local label="the removal guard asks the journal" bad="" rc=0 out=""
+	local x="$work/busy-trees/issue-361" y="$work/busy-trees/issue-362"
+
+	# The precondition of the whole family: with no journal at all the answer is free -- nothing has
+	# ever claimed a tree -- and it is the same `free` an empty journal must answer, so a broken
+	# reader cannot hide behind a missing file.
+	rm -f -- "$FACTORY_LOG/supervisor.log"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="no journal at all read $rc, want free (1); a machine that never ran cannot hold a tree"
+
+	bw_journal
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }an empty journal read $rc, want 1"
+
+	# The incident's own shape: a TICK-START with no release is busy, and the answer names the
+	# holder -- unit and stamp -- because the refusing sentence has to say who to wait for.
+	bw_plant_start unclaimed:3611 "$x"
+	# The plant's precondition, read from the journal rather than trusted: the line is there in
+	# factory.sh's own field order, so a busy below is the guard reading a real claim, not noise.
+	grep -qF "TICK-START unclaimed:3611 tree=$x log=selftest-busy.log" "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the planted TICK-START is not in the journal in the production field order"
+	out=$(factory_worktree_busy "$x" 2>/dev/null) && rc=0 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }a TICK-START with no release read $rc, want busy (0)"
+	[[ "$out" =~ ^unclaimed:3611\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}: ]] ||
+		bad="${bad:+$bad; }busy did not name the holding unit and its TICK-START stamp: [$out]"
+
+	# The tree field is load-bearing: the same journal leaves a different path free. Without this
+	# the guard could be answering "any tick anywhere is running" and still pass every claim above.
+	rc=0
+	factory_worktree_busy "$y" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a tick holding $x read busy for the different tree $y ($rc)"
+
+	# The release, and order: TREE-AFTER-TICK frees the tree, and a second dispatch of the same
+	# unit is busy again -- a release is worth only the hold it follows.
+	bw_plant_release unclaimed:3611
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a released tick still read busy ($rc); TREE-AFTER-TICK is the release"
+	bw_plant_start unclaimed:3611 "$x"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }a second TICK-START after the release read $rc, want busy (0): an old release does not clear a new hold"
+
+	# Outcomes are not releases -- the #351 class. TICK-DONE beside an unreleased hold keeps the
+	# tree busy (a check keyed on TICK-DONE would call every failed tick busy forever, and 73+32
+	# outcome lines against 104 releases is that count in the other direction); and the ticket's
+	# third polarity: FAILED WITH its TREE-AFTER-TICK reads free.
+	bw_plant_done unclaimed:3611
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }TICK-DONE acted as the release ($rc); only TREE-AFTER-TICK releases"
+	bw_plant_failed unclaimed:3611
+	bw_plant_release unclaimed:3611
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a FAILED unit that got its TREE-AFTER-TICK read busy ($rc)"
+
+	# Interleaving: two units on two trees; releasing one must not free the other.
+	bw_journal
+	bw_plant_start unclaimed:3611 "$x"
+	bw_plant_start "pr:3611" "$y"
+	bw_plant_release unclaimed:3611
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }releasing one unit freed nothing or the wrong thing (x read $rc)"
+	rc=0
+	factory_worktree_busy "$y" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }the other unit's hold was released by the first unit's release (y read $rc)"
+
+	# The fail-closed arm: a journal that exists and cannot be read is `unknown`, which is a
+	# refusal -- not the `free` that deletes the tick's tree. The unreadability is planted as a
+	# directory where the file was, so it holds for root as much as for uid 1000.
+	bw_journal
+	bw_plant_start unclaimed:3611 "$x"
+	mv -- "$FACTORY_LOG/supervisor.log" "$FACTORY_LOG/supervisor.log.bak"
+	mkdir -- "$FACTORY_LOG/supervisor.log"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	rmdir -- "$FACTORY_LOG/supervisor.log"
+	mv -- "$FACTORY_LOG/supervisor.log.bak" "$FACTORY_LOG/supervisor.log"
+	[ "$rc" = 2 ] || bad="${bad:+$bad; }an unreadable journal read $rc, want unknown (2); unknown that reads free is the deletion again"
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s TICK-START without TREE-AFTER-TICK refuses; the release frees\n' "$label"
+
+	# The three controls, uncounted: each mutates one shipped choice and must turn exactly the
+	# assertion that choice carries. A control that still says ok after the mutation is a leg
+	# passing on something other than the mechanism it names.
+	# A: key the release on TICK-DONE instead of TREE-AFTER-TICK -- must read the outcome-without-
+	# release journal (busy shipped) as free.
+	bw_journal
+	bw_plant_start unclaimed:3611 "$x"
+	bw_plant_done unclaimed:3611
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="control A's fixture is not the shipped-busy shape it mutates (shipped read $rc)"
+	if [ -z "$bad" ] && [ "$(bw_mutant_rc 's/$2 == "TREE-AFTER-TICK"/$2 == "TICK-DONE"/' "$x")" = 1 ]; then
+		printf '        control: keyed on TICK-DONE instead, that same journal reads free -- the\n'
+		printf '        leg is pinned to TREE-AFTER-TICK being the release line, not an outcome.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a release keyed on TICK-DONE read %s, want free (1): the\n' "control: $label" \
+			"$(bw_mutant_rc 's/$2 == "TREE-AFTER-TICK"/$2 == "TICK-DONE"/' "$x")"
+		printf '          ok above would survive the #351 keying anyway, so it does not pin it.\n'
+	fi
+	# B: let the tree matcher never match -- must read the held tree (busy shipped) as free.
+	bw_journal
+	bw_plant_start unclaimed:3611 "$x"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="control B's fixture is not busy shipped (read $rc)"
+	if [ -z "$bad" ] && [ "$(bw_mutant_rc 's/(index($0, tq) > 0 || index($0, tn) > 0)/(index($0, " tree=never-planted-361 "))/' "$x")" = 1 ]; then
+		printf '        control: a tree matcher that misses reads free everywhere -- the busy above\n'
+		printf '        comes from the journal line naming THIS path, not from any TICK-START.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a tree matcher that never matches read %s, want free (1):\n' "control: $label" \
+			"$(bw_mutant_rc 's/(index($0, tq) > 0 || index($0, tn) > 0)/(index($0, " tree=never-planted-361 "))/' "$x")"
+		printf '          the busy above is not coming from the path match it claims to test.\n'
+	fi
+	# C: answer `free` when the journal cannot be read -- must turn the fail-closed arm. The arm
+	# is the shape check, not the reader: measured on this box, `awk '{print}' somedir` warns
+	# "is a directory: skipped" and exits 0, so the reader never fails and only the guard's own
+	# judgement turns a non-regular journal into `unknown`. Mutating that judgement must read
+	# the same directory fixture as free.
+	bw_journal
+	bw_plant_start unclaimed:3611 "$x"
+	mv -- "$FACTORY_LOG/supervisor.log" "$FACTORY_LOG/supervisor.log.bak"
+	mkdir -- "$FACTORY_LOG/supervisor.log"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	local crc
+	crc=$(bw_mutant_rc 's/\[ -f "\$FACTORY_LOG\/supervisor.log" \] && \[ -r "\$FACTORY_LOG\/supervisor.log" \] || return 2/[ -f "\$FACTORY_LOG\/supervisor.log" ] \&\& [ -r "\$FACTORY_LOG\/supervisor.log" ] || return 1/' "$x")
+	rmdir -- "$FACTORY_LOG/supervisor.log"
+	mv -- "$FACTORY_LOG/supervisor.log.bak" "$FACTORY_LOG/supervisor.log"
+	[ "$rc" = 2 ] || bad="control C's fixture is not the shipped-unknown shape (read $rc)"
+	if [ -z "$bad" ] && [ "$crc" = 1 ]; then
+		printf '        control: with the shape judgement taken out, the unreadable journal reads\n'
+		printf '        free -- the unknown above is the arm working, not awk failing for luck.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the unreadable-journal arm without its refusal read %s,\n' "control: $label" "$crc"
+		printf '          want free (1): the unknown above would not be pinned to the arm.\n'
+	fi
+	return 0
+}
+busy_guard_refuses_a_live_tree
+
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

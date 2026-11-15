@@ -1389,6 +1389,63 @@ factory_worktree() {
 	printf '%s\n' "$path"
 }
 
+# Is anyone still working in this tree? The verb that lets a removal ask, added for #361: AGENTS.md
+# tells a session to remove a merged branch's tree, and on 13 Nov one did, seven minutes into a
+# 2700 s tick. That session was not careless -- it ran `pgrep -af 'opencode run --auto --agent
+# factory'` minutes before the removal and correctly saw no worker; the tick began at 01:08:31Z
+# (`TICK-START unclaimed:315 tree=/home/rodney/prj/wt/issue-315`) and the removal landed
+# 01:14:40Z-01:15:43Z. A liveness check is worth only the instant it is taken, so this one is taken
+# at the moment of removal, and it reads the journal rather than `ps`: the journal records the
+# supervisor's own claim on a tree at the instant the claim is taken -- `TICK-START <unit>
+# tree=<path> log=...` (factory.sh) -- and `TREE-AFTER-TICK <unit>` is written by
+# `factory_quarantine_after_tick` after the session, above both of the tick's exits, so every
+# completed dispatch has a release line and an unfinished one does not. The outcome lines are NOT
+# releases: measured in that journal 105 `TICK-START` against 104 `TREE-AFTER-TICK`, `TICK-DONE` 73
+# and `TICK-FAILED` 32 -- a check keyed on `TICK-DONE` alone would call every failed tick busy
+# forever, the same class of bug as the marker #351 retired.
+#
+# The hold is keyed on the path the journal wrote, so ask with the path exactly as
+# `git worktree list` prints it. A trailing slash is taken back and the `realpath`ed shape is also
+# tried, because the dangerous miss is answering `free` about a tree that is held: widening the
+# match can only err toward `busy`, and `busy` is a removal a person can then argue with, while
+# `free` is the incident again.
+#
+# Fail-closed by shape: a journal that exists but cannot be read answers `unknown`, not `free` --
+# a guard whose read failed must not read as a pass (#232's thesis, applied to this guard). A
+# journal that does not exist answers free: no supervisor has ever logged a claim on any tree.
+#
+# usage: factory_worktree_busy PATH
+# stdout: when busy, one line `<unit> <TICK-START stamp>` -- who holds it and since when, the two
+#         facts the refusing sentence needs.
+# exit:   0 busy     -- a TICK-START for this path with no TREE-AFTER-TICK for that unit after it
+#         1 free     -- no TICK-START for this path, or a release after the last one
+#         2 unknown  -- empty path, or a journal that exists and could not be read. Not `free`.
+factory_worktree_busy() { # path -> 0 busy(unit stamp) | 1 free | 2 cannot answer
+	local path=$1 norm="" out="" rc=0
+	[ -n "$path" ] || return 2
+	path=${path%/}
+	norm=$(realpath -m -- "$path" 2>/dev/null) || norm=$path
+	[ -e "$FACTORY_LOG/supervisor.log" ] || return 1
+	# Judge the journal before reading it. `awk` SKIPS a directory operand -- measured on this
+	# box's awk: `awk '{print}' somedir` prints a warning to stderr and exits 0 -- so a journal
+	# that is not a regular file must be refused here, not hoped to fail in the reader: a skip
+	# lands on `free`, which is exactly the answer a guard is not allowed to give when it could
+	# not read. The same shape rule refuses a FIFO or a socket; `-r` catches what a non-root
+	# reader cannot open, and the awk exit below catches whatever still slips through.
+	[ -f "$FACTORY_LOG/supervisor.log" ] && [ -r "$FACTORY_LOG/supervisor.log" ] || return 2
+	out=$(awk -v tq=" tree=$path " -v tn=" tree=$norm " '
+		$2 == "TICK-START" && (index($0, tq) > 0 || index($0, tn) > 0) { run[$3] = 1; line[$3] = $0 }
+		$2 == "TREE-AFTER-TICK" && ($3 in run) { delete run[$3]; delete line[$3] }
+		END { for (u in run) { split(line[u], f, " "); print f[3], f[1]; exit } }
+	' "$FACTORY_LOG/supervisor.log" 2>/dev/null) || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		return 2 # unreadable journal: the guard could not read, which is not `free`
+	fi
+	[ -n "$out" ] || return 1
+	printf '%s\n' "$out"
+	return 0
+}
+
 # git's own words, when a read said any. The FIRST line only, because that is the line that names the
 # problem and the rest is git's prose about the same problem; and capped, because the sentence this
 # feeds is one line in `factory/HALT` that a person reads in a terminal. A truncated line says it was
