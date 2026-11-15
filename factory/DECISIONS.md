@@ -9327,3 +9327,92 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   retires the erratum and the two digits alone, or `git revert -m 1` of the merge retires the whole update.
   What lost: this branch carries a harness-log repair that may duplicate a separate trunk repair, and the
   published figures in the two repaired entries remain stamped at older trees on purpose.
+
+## H-0189 · `NEXT.md` was a hand-off no code read and a gate no ref ever had, so the contract, the file and the check land in one commit -- and the check refused its own author's hand-off on the first run
+
+- Question: every dispatch in this loop restates a queue contract the repository does not contain. The one
+  that ran today says `scripts/check-next-md.sh` is the gate the loop tells you about, that it runs only
+  when `NEXT.md` is in the diff, and that its verdict belongs in the pull-request body. Measured on `main`
+  at `7c0a3e5` by the report and re-measured here at `80dd8bf`: `bash scripts/check-next-md.sh` answers
+  rc=127, a repo-wide grep for `check-next-md` answers 0 hits, the all-ref pickaxe for the string answers
+  nothing, and `grep -n 'NEXT' Makefile` answers nothing -- so the file is tracked, ticks write it, and
+  nothing reads it. Which half is the defect: retire `NEXT.md` and the sentences with it, or write the
+  named gate and give the file a reader? And if the latter, whose shape -- the `# Next work` heading the
+  report proposes, or one that names the unit which wrote it? Measured before choosing, because the report
+  does not say which shape the file carries: `git log --format=%h -- NEXT.md` names five commits, and the
+  first line of the file in each is the generic `# Next work for the factory on this branch` in four of
+  them and `# NEXT — issue-325 unit` in the newest, which is the text on `main` today.
+- Options: write the gate and the missing contract sentence, requiring the heading to name the unit that wrote it | write
+  the gate but gate the proposed generic `# Next work` heading instead | retire the practice honestly -- delete
+  `NEXT.md`, strip both sentences from the dispatch, record that here | gate staleness against the live
+  API so a hand-off naming merged work reddens | add the reader as a CI-only leg and leave `verify:` alone
+- Chose: write the gate and the missing contract sentence, requiring the heading to name the unit that wrote it
+- Why: one cause, three symptoms, one sentence fixes all three -- the obligation lived only in a dispatch,
+  the artifact had no reader, and the check existed only as a name. Retiring the file removes the loop's
+  only instrument for "a unit is in flight here", and the price of not having one is measurable in this
+  branch's own history instead of only in the report: the all-ref pickaxe `git log --all -S '#296' --
+  NEXT.md` answers two commits, the line in at `89c2298` and out at `af848f4`, and the second is not a
+  merge -- it is the next unit writing its own hand-off over the file, 58 lines to 42. The report blames a
+  merge conflict resolution and that is wrong here; `git show f369a98:NEXT.md` holds no `#296` at all. So
+  the measured loss is what a rewrite does to a line it did not write, which is why the contract says
+  overwrite AND carry forward, and why `NEXT.md` owed item 3 names the rule no tree-only gate can
+  enforce. A gate nobody can see running is what this harness keeps being written about, so the contract
+  now says what the code enforces rather than the reverse: the skill subsection names the file, the run
+  command and the four parts it must hold, and it hangs off
+  `.opencode/skills/factory/SKILL.md:10` "Everything you must hand over lives in a file"
+  -- the page has promised a hand-off file since before this unit and never said which one. The two
+  clauses are `Makefile:123` "bash scripts/check-next-md.sh --self-test"
+  and `Makefile:124` "bash scripts/check-next-md.sh;": the fixture suite and the tree, the same pair
+  `check-decisions.py` runs, because a step can never witness its own deletion. Tie-break 1: no third-party
+  dependency -- bash, awk, and `git ls-files` only, `go.mod` untouched. Tie-break 2: no lockout or
+  tamper-resistance property moves; no daemon file is in this commit. Tie-break 4: five artifacts, and the
+  smallest of them that makes a written contract true. Tie-break 5: `git revert` of this commit retires the
+  two clauses, the script, the subsection and this entry together, and `NEXT.md` returns to the `issue-325`
+  text -- which is also why the new file carries that text's owed items forward instead of replacing them:
+  the rollback then cannot re-drop a line. Tie-break 6: `H-0139`'s rule that a pointer must carry its
+  sentence is why the two clauses went below line 116 rather than into the `verify:` comment block. Tie-break
+  7, and the deviation the report will read as the biggest one: the heading must name the unit, so the gate
+  refuses the generic `# Next work for the factory on this branch` that four of the five commits used and
+  the report proposes verbatim. A hand-off that does not say who is speaking is indistinguishable from a
+  stale one, and staleness is this ticket's loss -- `89c2298` wrote a live `#296` warning and `af848f4`
+  overwrote the file without it. The blast radius of refusing the old heading is measured, not assumed:
+  `git show origin/<head>:NEXT.md` for every open pull request -- #401, #400, #398 -- prints
+  `# NEXT — issue-325 unit`, the accepted form, so nothing in flight reddens at its merge; and the shape is
+  now written in the skill, which is the agreement the report asked for whichever heading was chosen.
+- What the report asked for and this does NOT ship, with the measurement that decided it: a leg refusing a
+  hand-off line that names a pull request which has since merged or been refused. That question has no
+  answer inside the tree -- it is a GitHub read -- and this repository already refuses gates whose verdict
+  changes with the refs they can see, so an API leg would trade a gate that answers the same in CI as at
+  the merge for one that needs a token and a network. It is written into `NEXT.md` as owed item 1 with
+  `check-denies.py` named as the skip-loudly precedent rather than left out.
+- The witness, and the self-refusal, are both measured. `#391` is the reason 17 of the 18 cases are
+  fixtures and the 18th asks the Makefile this file ships in: a deleted step leaves its own `--self-test`
+  line behind and the recipe prints OK over a gate that runs nothing, so the surviving clause is the only
+  witness and it lives inside this script; its controls are the two fixture cases that delete both clauses
+  and delete only the plain one. And this unit's first `NEXT.md` named the harness decision log with its
+  trailing letter missing -- a true sentence about a path that is not in the tree -- and the phantom-path
+  leg reddened the hand-off for it, offering the repair the refusal names: describe the tool in words.
+  That is the discriminating evidence for the leg, because the same file with the same sentence in prose
+  reads OK.
+- What lost: a well-formed hand-off about work `main` finished last week still passes, because shape is all
+  a tree-only gate can see. The phantom-path leg reads three files, so an invented tool named in
+  `docs/factory.md` is still unchecked -- and it was scoped there deliberately: measured here, four
+  instruction-adjacent pages already name paths that are not in the tree and are telling the truth about
+  them (the harness log with its trailing letter missing in three, a per-run capture manifest under the
+  fixture runs directory in `testing/capture/cdp.py`), so a wider leg has to explain those four before it
+  can catch anything. No check distinguishes a carried-forward owed line from a deleted one, so the drop
+  this ticket is about stays a rule and not a gate. The `verify:` comment block grew no prose, because
+  five `Makefile:` pointers in this log sit between 90 and 116 and any line added there moves them; the
+  reason the clauses exist lives in the script's header instead of beside them.
+- Checkpoint: 63cfe50
+- Effect: 5 artifacts in one commit -- `scripts/check-next-md.sh` new at mode 100755, two `verify:`
+  clauses in `Makefile`, one subsection in `.opencode/skills/factory/SKILL.md`, `NEXT.md` rewritten with
+  the previous unit's owed items carried forward, and this entry. Measured in this tree before the commit:
+  the new gate on the real tree was RED with exactly 2 problems before the two edits (the skill never
+  mentioning the file, and nothing under `verify:` running the step) and prints 3 ok lines at rc 0 after;
+  its self-test prints 18 case(s), every refusal raised for the sentence named, both null variants
+  accepted, the shipped step witnessed; `shellcheck -x` over it exits 0 with the file-level SC2016
+  directive, 10 findings without it. `make verify`, which now contains both clauses, is run on this tree
+  with this entry in it and before this commit, and its verdict is quoted from the read-back in the
+  pull-request body rather than written here (#1180: an `Effect:` written before the gate runs is a
+  prophecy). Refs #337 for the report this unit was cut from; no pull request here closes anything.
