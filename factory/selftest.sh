@@ -3143,8 +3143,8 @@ chmod +x "$proc_bin/opencode"
 # picks the transcript so one stub serves both the shipped run (`clean`, the default, so an ordinary
 # activation looks ordinary) and a planted hold (`held`). The transcripts are the box's own 11 Nov
 # activations with the unit renamed, and they terminate on `Deactivated.` rather than `Finished <unit>`
-# on purpose: a fresh fixture box has no `$FACTORY_SERVICE_UNIT`, so its unit name is derived, and only
-# the name-blind arms of the parser may be load-bearing here.
+# on purpose: nothing exports `$FACTORY_SERVICE_UNIT` only on a fresh box -- under a supervisor tick
+# the unit's own Environment= assignment is inherited, so only the name-blind arms may be load-bearing.
 cat >"$proc_bin/journalctl" <<'PROCJ'
 #!/usr/bin/env bash
 case "${PROC_REAP:-clean}" in
@@ -5263,7 +5263,7 @@ claim_repo=$claim_work/repo
 claim_fix=$claim_work/fixture
 claim_err=$claim_work/stderr
 claim_rows_file=$claim_work/rows
-claim_window=100
+claim_window=100 claim_unit=plock-claims-selftest.service
 mkdir -p "$claim_bin" "$claim_dir" "$claim_repo" "$claim_fix"
 
 # The repository is here for two preflight questions and nothing else: `is this a git repository` has
@@ -7301,7 +7301,7 @@ ask_dispatch() { # run the shipped supervisor, dry, over whatever is planted
 		FACTORY_DIR="$claim_harness" FACTORY_ROOT="$claim_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
 		FACTORY_REVIEWER_TEAM=workers \
-		FACTORY_OPENCODE=opencode \
+		FACTORY_OPENCODE=opencode FACTORY_SERVICE_UNIT="$claim_unit" \
 		FACTORY_LOG="$claim_work/dlog" FACTORY_LEDGER="$claim_work/dledger" \
 		FACTORY_RUN="$claim_work/drun" FACTORY_TREES="$claim_work/dtrees" \
 		"$claim_harness/factory.sh" --dry-run >"$claim_work/dry.out" 2>&1 || true
@@ -16300,6 +16300,69 @@ cv_leg_cmsg_empty() {
 	return 0
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
+
+# Redirecting FACTORY_LOG is not isolation. `factory_service_unit` answers `$FACTORY_SERVICE_UNIT`
+# before it derives anything, and the installed supervisor unit exports that variable in its own
+# Environment=, so every child of a tick inherits the PRODUCTION unit name: the claims fixture pointed
+# its log at $claim_work/dlog and still asked the operator's journal which directory its previous pass
+# wrote to -- then appended its safety copy there. Measured on this box on 15 Nov: `make selftest` with
+# the variable exported appended 3 lines to the production journal, without it 0, same tree both times,
+# 682 legs green either way. A leg that waits for the write can therefore only fail on a supervised
+# machine, so this one plants a production-shaped name and demands the fixture's own, read back through
+# a stub that records the unit it was asked about -- honouring its own `-u`, per H-0125, so a stub that
+# answered every unit alike could not pass it.
+ask_journal_unit_is_its_own() {
+	local asked=$work/unit-ask/asked planted=plock-operator-unit.service
+	mkdir -p "$work/unit-ask/bin" || return 1
+	: >"$asked" || return 1
+	cat >"$work/unit-ask/bin/journalctl" <<'CLAIMJ'
+#!/usr/bin/env bash
+# Records every unit it was asked about, then answers like a box holding nothing for that unit: an empty
+# answer is what a fresh fixture box says, and it is what makes the harness reach the resolver at all.
+while [ $# -gt 0 ]; do
+	case $1 in
+	-u)
+		printf '%s\n' "${2-}" >>"$CLAIM_UNIT_ASKED"
+		shift 2
+		;;
+	-u*)
+		printf '%s\n' "${1#-u}" >>"$CLAIM_UNIT_ASKED"
+		shift
+		;;
+	*) shift ;;
+	esac
+done
+printf '%s\n' '-- No entries --'
+CLAIMJ
+	chmod +x "$work/unit-ask/bin/journalctl" || return 1
+	(
+		export CLAIM_UNIT_ASKED=$asked FACTORY_SERVICE_UNIT=$planted
+		PATH="$work/unit-ask/bin:$PATH" ask_dispatch
+	)
+	case "$(cat "$asked" 2>/dev/null)" in
+	"")
+		printf '            nothing asked journalctl a unit, so the log-move read never reached the\n' >&2
+		printf '            resolver and this leg compared two empty lists.\n' >&2
+		return 1 ;;
+	*"$planted"*)
+		printf '            the dispatch asked the planted operator unit: %s\n' \
+			"$(tr '\n' ' ' <"$asked" | sed 's/ *$//')" >&2
+		printf '            A fixture that asks the machine which journal is its own answers with\n' >&2
+		printf '            whatever supervisor it happened to run under, and then appends its tail\n' >&2
+		printf '            copy into a tree the operator is watching. Pass the fixture a name.\n' >&2
+		return 1 ;;
+	esac
+	case "$(sort -u "$asked")" in
+	"$claim_unit") return 0 ;;
+	(*)
+		printf '            the dispatch asked: %s -- the fixture unit is %s\n' \
+			"$(tr '\n' ' ' <"$asked" | sed 's/ *$//')" "$claim_unit" >&2
+		printf '            Any name but its own sends the claims fixture to somebody else'\''s\n' >&2
+		printf '            journal: derived names work only while nothing exports the real one.\n' >&2
+		return 1 ;;
+	esac
+}
+claim_leg 'the claims dispatch asks only its own unit journal' ask_journal_unit_is_its_own
 
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045

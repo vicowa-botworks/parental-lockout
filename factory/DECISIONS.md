@@ -9453,3 +9453,55 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   named only the one-home leg; and a future hand-off that quotes a measured label value now goes red
   by design and must name the reader instead of the value, which is friction this entry accepts. No
   GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
+## H-0204 · A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its log-move record into the operator's live supervisor journal, so a fixture's isolation is not complete until it owns its unit identity
+
+- Question: the factory selftest writes into production state. One suite appends a 3-line
+  `LOG-MOVED` record naming a deleted `/tmp/plock-factoryselftest-*/claims/dlog` as the new log
+  directory, and it appends it into `factory/log/supervisor.log` — the operator's live tail, which
+  held 604 such lines out of 7006 when counted. Measured: the claims `ask_dispatch` makes 6
+  `journalctl` asks and every one of them names a unit the fixture never chose. What does the test
+  owe, and does anything in shipped code have to change?
+- Options: pin the unit in the claims setup and in `ask_dispatch`'s own env list so the log-move read
+  resolves the fixture | make the shipped `factory_service_unit` refuse a unit whose journal is not
+  under its own `FACTORY_LOG` root | make `journal_hints` fail when `FACTORY_LOG` is outside the repo
+  root | give each fixture a unique `FACTORY_NAME` so the derived name is unique by construction |
+  leave the read alone and stop only the append
+- Chose: pin the unit in the claims setup and in `ask_dispatch`'s own env list so the log-move read
+  resolves the fixture
+- Why: `factory_service_unit`'s first arm honours `FACTORY_SERVICE_UNIT` ahead of any derivation, and
+  the installed unit exports `Environment=FACTORY_SERVICE_UNIT=parental-lockout-factory.service`,
+  which every process under a tick inherits verbatim — caught twice by scanning `/proc` descriptors
+  while appending (pids 495790, 495823). So redirecting `FACTORY_LOG` alone cannot produce
+  production-free state: the same fixture reads production journald and then appends into the
+  journal that read names. Options 2 and 3 are refused because `factory/common.sh` is pointer-locked
+  the same way this file is — 26 pointers into it, highest 3016 of 3181 — and because the log-move
+  legs pin a five-clause refusal legend that any new shipped clause cascades into; they would also
+  break `reap_leg_live`, which reads this box's journal deliberately for shape-only assertions.
+  Option 4 is refused because it does not touch the arm that outranks derivation, so it changes
+  nothing under the tick. Option 5 is refused as half a fix: the read is what selects the append
+  target. Tie-break 1: bash only, no new dependency. Tie-break 2: no lockout semantics move.
+  Tie-break 4: one variable in two env lists plus one leg — the smallest surface that makes the
+  fixture own its identity. Tie-break 5: `git revert` of the effect commit retires fix and entry
+  together, with the checkpoint above as the target. Tie-break 6: H-0125 established that the
+  journald stub must honour its own flags, and the `proc_*` log-move fixtures already plant a
+  fixture-local previous log directory; this only extends the sanctioned pattern to the claims
+  fixture that omitted it.
+- Checkpoint: 2af486e66f5a894e2be35b3f0f676905faaf19a3
+- Effect: `claim_unit` is defined once in the claims setup and exported in `ask_dispatch`'s env list;
+  the isolated-leg env list carries it too, so a leg that runs the shipped binary does not resolve
+  the operator's unit either. All three body edits are 1-for-1 line swaps (net 0 at 3146, 5266,
+  7304) and the control leg `ask_journal_unit_is_its_own` is appended at 16304-16365, below the
+  highest pointer into this file (15569), so no pointer parts from its text. Read back after the
+  gate ran, on this tree: `bash factory/selftest.sh` 683 passed, 0 failed, and `make verify` green
+  with the citation checker reporting 0 moved and 0 unopenable; under a tick-shaped environment the
+  6 dispatch asks now name `plock-claims-selftest.service` and the production journal gained 0 lines
+  across four runs. Reproduced at the unpatched checkout under the same environment: 679 passed, 0
+  failed and +3 lines of exactly the `new=/tmp/plock-factoryselftest-*/claims/dlog` shape — stated
+  as reproduced there, not as a same-tree A/B, because that control ran at a different HEAD (679
+  legs against this tree's 683). Deleting only the pin here fails 4 legs, this one among them, which
+  is what makes the pin load-bearing rather than decorative. What lost, as the cost of the choice:
+  the leg guards the dispatch path and the other ask sites are not census-enforced; the surviving
+  production-name ask belongs to `reap_leg_live` and is left alone on purpose, so isolation is
+  asserted over writes, not over every read; and the polluted journal is not cleaned — 604 lines are
+  history and the file is gitignored, which makes tidying it the operator's call, not this branch's.
+  No GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
