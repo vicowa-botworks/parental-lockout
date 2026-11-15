@@ -2020,12 +2020,29 @@ factory_tree_unmerged() { # tree -> the operation word (see the codes above)
 #   `git ls-files -u` is the read that answers: it prints the state itself, and stage N's blob is
 #       reachable by `git cat-file` for as long as the index names it, so the stage copies are made from
 #       the index, before anything is cleared. This is the read #328 names.
+#   `git ls-files -u` is read with `-z`, and that is a measurement, not a style choice. Its default
+#       rendering QUOTES a path git considers unusual: a file named `we"ird.txt` prints as
+#       `100644 df967b9… 1^I"we\"ird.txt"$`, with the quotes and the backslash part of the bytes. Taken
+#       literally -- which is what the first version did -- that string becomes the mirror's own filename,
+#       so the stage bytes land at `unmerged/1/"we\"ird.txt"` (a path that is not the path), and the
+#       worktree read `[ -f "$tree/\"we\\\"ird.txt\"" ]` finds nothing and writes
+#       `worktree/"we\"ird.txt".ABSENT`: the mirror asserts the file was GONE while it stood in the tree
+#       holding the typed-in resolution, the one copy of the work this arm exists to keep. `-z` prints the
+#       raw bytes, NUL-terminated, and `core.quotePath=false` does NOT help -- measured, the `"` is still
+#       escaped, because quotePath governs non-ASCII only. Every read of this file below, and every line
+#       the MANIFEST prints, is therefore NUL-delimited: a `$(cut … | tr '\n' ' ')` inside the recipe also
+#       splits any path containing a space into two arguments.
 #
 # What lands in the directory, and the MANIFEST says which is which:
 #
 #   diff-HEAD.patch         every tracked edit against HEAD, staged and unstaged, conflicted paths included
 #   diff-cached.patch       the staged half on its own: what `git add` put in the index and no commit took
-#   ls-files-u              the unmerged stage table, exactly as git printed it
+#   ls-files-u              the unmerged stage table, exactly as `git ls-files -u -z` printed it: raw
+#                           path bytes, NUL-terminated, one record per stage
+#   unmerged.paths          the conflicted paths, each once, NUL-terminated -- the list the recipes and
+#                           the worktree copies walk, so no path is ever re-derived by cutting the table
+#   absent.list             the conflicted paths that were GONE from the worktree, NUL-terminated; only
+#                           written when there is one, because the recipes test for it before obeying it
 #   unmerged/<stage>/<path>  stage N's own bytes -- 1 base, 2 ours, 3 theirs; a delete/add conflict has
 #                           only the two sides it has, and a blob git cannot give up is said so in a
 #                           `.UNREADABLE` note rather than skipped quietly
@@ -2033,6 +2050,15 @@ factory_tree_unmerged() { # tree -> the operation word (see the codes above)
 #                           `.ABSENT` note when the person deleted it -- an abort writes a version back
 #                           over an absence, so the absence is the fact worth keeping
 #   untracked/<path>        every untracked file, with untracked.list naming them
+#
+# The directory NAMES ITSELF: the unit is in the name, the MANIFEST's first block repeats the directory
+# path under `mirror:`, and the read-back after the rename checks that the MANIFEST it opened names THAT
+# directory. The reason is `mv`: `mv -f A B` with B an existing directory does not replace B, it puts A
+# INSIDE B (measured: `B/A/inside.txt`). A mirror name that is a second-resolution clock can therefore
+# land inside an older mirror of the same tree, and `[ -f "$dir/MANIFEST" ]` still passes -- on the older
+# run's MANIFEST. The journal would then name a directory that is not the copy just taken. Both halves
+# are needed: the existence test stops the collision, and the self-named MANIFEST is what catches a
+# collision that the test raced.
 #
 # The one thing a mirror cannot hold is the merge itself -- but the side commit's sha is in the
 # MANIFEST, and a merge is the only operation with a verb that reproduces its own conflict, which is
@@ -2043,15 +2069,29 @@ factory_tree_unmerged() { # tree -> the operation word (see the codes above)
 # exit:   0 the mirror is there; 2 refused -- nothing in the tree was touched
 factory_tree_mirror_merge() { # unit tree -> the mirror directory
 	local unit=$1 tree=$2
-	local dir="" tmp="" head="" side="" paths="" p="" meta="" stage="" sha="" err=""
+	local dir="" tmp="" head="" side="" p="" meta="" stage="" sha="" err="" slug=""
 	local n_unmerged=0 n_worktree=0 n_untracked=0 n_files=0 base=""
+	local -A seen=()
 
 	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
 		printf 'mirror refused: %s cannot be created\n' "$FACTORY_AT_RISK" >&2
 		return 2
 	fi
-	dir="$FACTORY_AT_RISK/$(basename -- "$tree")-merge-quarantine-$(date -u +%Y%m%dT%H%M%SZ)"
+	# The name carries the UNIT as well as the tree and the clock, because the clock is only a second and
+	# the tree's basename is not unique: two units' trees named `issue-9` under different roots, or the same
+	# tree quarantined twice in one second, would ask for the same directory. `mv -f` does not resolve that
+	# kindly -- into an existing directory it NESTS (measured: `B/A/inside.txt`) -- and the read-back below
+	# would then be satisfied by the older mirror's MANIFEST. Sanitized, because a unit slug is
+	# `pr:307`/`unclaimed:328` and `:` is legal in a filename but not in what a reader expects to glob.
+	slug=${unit//[^A-Za-z0-9._-]/-}
+	dir="$FACTORY_AT_RISK/$(basename -- "$tree")-merge-quarantine-$(date -u +%Y%m%dT%H%M%SZ)${slug:+-$slug}"
+	if [ -e "$dir" ]; then
+		printf 'mirror refused: %s already exists, and writing a second mirror into the first is how a\n' "$dir" >&2
+		printf 'journal line comes to name a directory that is not the copy it just took\n' >&2
+		return 2
+	fi
 	tmp="$dir.tmp.$$"
+
 	if ! mkdir -p -- "$tmp" 2>/dev/null; then
 		printf 'mirror refused: %s cannot be created\n' "$tmp" >&2
 		return 2
@@ -2081,14 +2121,17 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		rm -rf -- "$tmp"
 		return 2
 	fi
-	if ! git -C "$tree" ls-files -u >"$tmp/ls-files-u" 2>/dev/null; then
+	if ! git -C "$tree" ls-files -u -z >"$tmp/ls-files-u" 2>/dev/null; then
 		printf 'mirror refused: git ls-files -u would not read the index, so the stages cannot be copied\n' >&2
 		rm -rf -- "$tmp"
 		return 2
 	fi
-	paths=$(sed -e 's/^[^\t]*\t//' -- "$tmp/ls-files-u" | sort -u)
+	# Each path once, NUL-terminated, derived in-shell from the records already read. Not `cut -f2 |
+	# sort -u`: the newline form splits a path containing a newline, and every consumer is a recipe a
+	# tired person runs, so the list has to be the one shape that cannot lie about a filename.
+	# An associative array rather than a seen-string because a path may contain anything but a NUL.
 
-	while IFS= read -r meta; do
+	while IFS= read -r -d '' meta; do
 		[ -n "$meta" ] || continue
 		p=${meta#*$'\t'}
 		stage=${meta%%$'\t'*}
@@ -2097,6 +2140,10 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		sha=${sha%% *}
 		base=${p%/*}
 		[ "$base" != "$p" ] || base=''
+		if [ -z "${seen[$p]+set}" ]; then
+			seen[$p]=1
+			printf '%s\0' "$p" >>"$tmp/unmerged.paths"
+		fi
 		mkdir -p -- "$tmp/unmerged/$stage${base:+/$base}" 2>/dev/null || continue
 		if git -C "$tree" cat-file blob "$sha" >"$tmp/unmerged/$stage/$p" 2>/dev/null; then
 			n_unmerged=$((n_unmerged + 1))
@@ -2106,27 +2153,32 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		fi
 	done <"$tmp/ls-files-u"
 
-	while IFS= read -r p; do
-		[ -n "$p" ] || continue
-		base=${p%/*}
-		[ "$base" != "$p" ] || base=''
-		mkdir -p -- "$tmp/worktree${base:+/$base}" 2>/dev/null || continue
-		if [ -f "$tree/$p" ]; then
-			if cp -p -- "$tree/$p" "$tmp/worktree/$p" 2>/dev/null; then
-				n_worktree=$((n_worktree + 1))
+	if [ -f "$tmp/unmerged.paths" ]; then
+		while IFS= read -r -d '' p; do
+			[ -n "$p" ] || continue
+			base=${p%/*}
+			[ "$base" != "$p" ] || base=''
+			mkdir -p -- "$tmp/worktree${base:+/$base}" 2>/dev/null || continue
+			if [ -f "$tree/$p" ]; then
+				if cp -p -- "$tree/$p" "$tmp/worktree/$p" 2>/dev/null; then
+					n_worktree=$((n_worktree + 1))
+				else
+					printf 'the worktree file could not be copied\n' >"$tmp/worktree/$p.UNCOPYABLE"
+				fi
+			elif [ -e "$tree/$p" ]; then
+				printf 'not a regular file: %s\n' "$(ls -ld -- "$tree/$p" 2>/dev/null || printf 'unreadable')" \
+					>"$tmp/worktree/$p.NOTREGULAR"
 			else
-				printf 'the worktree file could not be copied\n' >"$tmp/worktree/$p.UNCOPYABLE"
+				# An absent file is the state: a delete/add conflict, or a person clearing the file in
+				# frustration. `git merge --abort` writes a version back over the absence, so the absence
+				# is the fact worth keeping. The .ABSENT note tells a READER; absent.list is what the
+				# MANIFEST's recipe OBEYS, because a suffix on a name that may itself contain a dot is
+				# not a list anybody can reconstruct with a glob.
+				printf 'absent from the worktree at quarantine time\n' >"$tmp/worktree/$p.ABSENT"
+				printf '%s\0' "$p" >>"$tmp/absent.list"
 			fi
-		elif [ -e "$tree/$p" ]; then
-			printf 'not a regular file: %s\n' "$(ls -ld -- "$tree/$p" 2>/dev/null || printf 'unreadable')" \
-				>"$tmp/worktree/$p.NOTREGULAR"
-		else
-			# An absent file is the state: a delete/add conflict, or a person clearing the file in
-			# frustration. `git merge --abort` writes a version back over the absence, so the absence
-			# is the fact worth keeping.
-			printf 'absent from the worktree at quarantine time\n' >"$tmp/worktree/$p.ABSENT"
-		fi
-	done <<<"$paths"
+		done <"$tmp/unmerged.paths"
+	fi
 
 	while IFS= read -r -d '' p; do
 		[ -n "$p" ] || continue
@@ -2143,6 +2195,7 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf 'mid-merge quarantine mirror\n\n'
 		printf 'unit:      %s\n' "$unit"
 		printf 'tree:      %s\n' "$tree"
+		printf 'mirror:    %s\n' "$dir"
 		printf 'taken:     %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 		printf 'HEAD:      %s\n' "${head:-none -- an unborn head}"
 		printf 'MERGE_HEAD %s\n' "${side:-unreadable}"
@@ -2155,11 +2208,21 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf 'diff-cached.patch       the STAGED half: paths that were `git add`ed and not committed.\n'
 		printf '                        Conflicted paths are a `* Unmerged path` notice here, not a hunk,\n'
 		printf '                        and `git apply` skips a notice, so this file is only the staged work.\n'
-		printf 'ls-files-u              the unmerged stage table, as git printed it\n'
+		printf 'ls-files-u              the unmerged stage table exactly as `git ls-files -u -z` printed it:\n'
+		printf '                        raw path bytes, NUL-terminated, one record per stage\n'
+		printf 'unmerged.paths          every conflicted path, once each, NUL-terminated -- what the\n'
+		printf '                        recipes below walk, so no path is ever re-derived by cutting a table\n'
+		printf 'absent.list             the conflicted paths that were GONE from the worktree, NUL-\n'
+		printf '                        terminated; written only when there is one\n'
 		printf 'unmerged/<stage>/<path> stage bytes: 1 base, 2 ours, 3 theirs\n'
 		printf 'worktree/<path>         the conflicted file as it stood -- markers, a typed-in\n'
 		printf '                        resolution, or a .ABSENT note if it was deleted\n'
 		printf 'untracked/<path>        every untracked file; untracked.list names them\n'
+		printf '\nThe two blocks below are A SCRIPT, not prose, and `factory/selftest.sh` runs each of them\n'
+		printf 'verbatim -- that is why the path reads are `read -r -d ""` over unmerged.paths and not\n'
+		printf '$(cut … | tr "\n" " "): the substitution splits `my report.txt` into two arguments, and\n'
+		printf 'the unquoted `ls-files -u` would have handed this file the quoted `"we\\"ird.txt"` for a\n'
+		printf 'path that holds a double quote. Run a block as a script (bash); the `if` arms span lines.\n'
 		printf '\nWant the bytes back. Run these in the tree named above, at that HEAD, tree clean:\n'
 		printf '  M=%s\n' "$dir"
 		printf '  git apply "$M/diff-HEAD.patch"\n'
@@ -2167,22 +2230,40 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 		printf '        # the second line puts the `git add`ed-and-never-committed paths back in the index;\n'
 		printf '        # `--allow-empty` is not needed because of the -s test (measured: an empty input is\n'
 		printf '        # refused, `No valid patches in input`, rc 128).\n'
-		printf '  cp -a "$M/untracked/." .\n'
+		printf '  if [ -f "$M/untracked.list" ]; then cp -a "$M/untracked/." .; fi\n'
+		printf '        # guarded: `cp -a $M/untracked/. .` exits 1 when the mirror has no untracked/ at\n'
+		printf '        # all, and a recipe whose LAST line is non-zero reads as a failed restore.\n'
+		printf '  if [ -f "$M/absent.list" ]; then\n'
+		printf '    while IFS= read -r -d "" p; do rm -f -- "$p"; done <"$M/absent.list"\n'
+		printf '  fi\n'
+		printf '        # the paths recorded as GONE stay gone. diff-HEAD.patch carries the deletion as a\n'
+		printf '        # `deleted file mode` hunk (measured), and this says it independently of that.\n'
 		printf '\nWant the conflict back too, to finish it by hand. Same tree, clean, then:\n'
 		printf '  M=%s\n' "$dir"
 		printf '  git merge %s\n' "${side:-<MERGE_HEAD above>}"
-		printf '  cut -f2 "$M/ls-files-u" | sort -u |\n'
-		printf '    while IFS= read -r p; do cp "$M/worktree/$p" "$p" 2>/dev/null; done\n'
-		printf '  git apply $(cut -f2 "$M/ls-files-u" | sed "s|.*|--exclude=&|" | tr "\\n" " ") "$M/diff-HEAD.patch"\n'
-		printf '        # the conflicted paths came back from worktree/, and their hunks refuse against\n'
-		printf '        # marker bytes -- measured, `patch does not apply`. The excludes skip exactly those.\n'
-		printf '  cp -a "$M/untracked/." .\n'
+		printf '  args=(); while IFS= read -r -d "" p; do args+=(--exclude="$p"); done <"$M/unmerged.paths"\n'
+		printf '  git apply ${args[@]+"${args[@]}"} "$M/diff-HEAD.patch"\n'
+		printf '        # every tracked edit EXCEPT the conflicted paths: their hunks refuse against the\n'
+		printf '        # marker bytes they are about to be overwritten with -- measured, `patch does not\n'
+		printf '        # apply`. This line is also what puts a new `git add`ed path back in the WORKTREE.\n'
+		printf '  while IFS= read -r -d "" p; do\n'
+		printf '    [ -f "$M/worktree/$p" ] && cp "$M/worktree/$p" "$p"\n'
+		printf '  done <"$M/unmerged.paths"\n'
+		printf '  if [ -f "$M/absent.list" ]; then\n'
+		printf '    while IFS= read -r -d "" p; do rm -f -- "$p"; done <"$M/absent.list"\n'
+		printf '  fi\n'
+		printf '        # a path the person deleted is NOT put back by this recipe: the re-merge writes a\n'
+		printf '        # version over the absence, and absent.list is the only record that it was an\n'
+		printf '        # answer rather than an accident.\n'
+		printf '  if [ -s "$M/diff-cached.patch" ]; then git apply --cached "$M/diff-cached.patch"; fi\n'
+		printf '  if [ -f "$M/untracked.list" ]; then cp -a "$M/untracked/." .; fi\n'
 		printf '\nWhat this mirror cannot hold: the unmerged INDEX ENTRIES themselves -- three stages per\n'
 		printf 'path, which no patch format carries. That is the one thing a merge is needed for, and\n'
 		printf 'recipe 2 above reproduces it: re-merge, then put the worktree bytes back over the markers.\n'
 		printf 'A staged resolution that was already `git add`ed is stage 0 and comes back from\n'
 		printf 'diff-cached.patch without any merge.\n'
 	} >"$tmp/MANIFEST"
+
 
 	n_files=$(find "$tmp" -type f 2>/dev/null | wc -l | tr -d '[:space:]')
 	if [ "${n_files:-0}" -lt 2 ]; then
@@ -2196,6 +2277,18 @@ factory_tree_mirror_merge() { # unit tree -> the mirror directory
 	if ! mv -f -- "$tmp" "$dir" 2>/dev/null || [ ! -f "$dir/MANIFEST" ]; then
 		printf 'mirror refused: %s was written but cannot be read back\n' "$dir" >&2
 		rm -rf -- "$tmp"
+		return 2
+	fi
+	# And the read-back asks WHOSE mirror it opened. `[ -f "$dir/MANIFEST" ]` proves a file is there,
+	# which is satisfied by an older run's MANIFEST if the rename landed inside a directory that already
+	# existed -- the `mv -f` nesting the block above refuses to create, and can only refuse for the names
+	# it saw. The self-name is what catches the race the existence test cannot: this run wrote exactly one
+	# sentence naming exactly one directory, and if the MANIFEST on disk does not carry it, this is not
+	# this run's copy. Nothing is deleted here: what stands at $dir may be somebody else's rescue.
+	if ! grep -qxF -- "mirror:    $dir" "$dir/MANIFEST"; then
+		printf 'mirror refused: %s/MANIFEST does not name this directory, so it is not the copy this run\n' "$dir" >&2
+		printf 'wrote; it is an older mirror standing under this name. This run'"'"'s bytes, if they moved,\n' >&2
+		printf 'are under %s/\n' "$dir" >&2
 		return 2
 	fi
 	printf '%s\n' "$dir"
