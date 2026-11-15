@@ -1917,6 +1917,290 @@ factory_tree_halt() {
 	esac
 }
 
+# Which multi-parent operation a tree is sitting in, and what may be done about it. One word on stdout;
+# the exit status is the same verdict in numeric form (0 = abortable, 1 = none, 2 = refuse).
+#
+#   0  `merge`         a merge in progress with a HEAD to return to: `git merge --abort` is defined for
+#                      it and restores the commit the tree was cut from, which is the clean tree a
+#                      quarantine asks for
+#   1  `none`          no operation recorded -- the ordinary dirty tree -- the arm that has always worked
+#   2  `halt-<shape>`  a rebase, an am, a cherry-pick, a revert, a bisect, a sequencer with rows left, a
+#                      merge onto an unborn HEAD, or a tree git would not answer for: the caller refuses
+#                      and halts, and names this word as its reason
+#
+# Why a merge is the only shape with a verb. `git merge --abort` returns to `HEAD` -- the commit this
+# tree was handed at. `git rebase --abort` returns to the branch the rebase started ON, which in a unit
+# tree cut from trunk is not necessarily the commit the supervisor handed out; `git cherry-pick --quit`
+# deletes the instruction file and leaves the tree exactly as conflicted as it was; `git bisect reset`
+# checks out a different commit entirely. None of them produces "the tree, clean, at the commit we gave
+# you", which is the only thing this harness is entitled to do to somebody's work.
+#
+# Why the operation must be asked BEFORE the stash, not read out of the stash's failure. `git stash`
+# refuses every one of these shapes with the same two lines -- `error: could not write index` and
+# `<path>: needs merge`, exit 1, with the operation left running (measured 14 Nov on git 2.53.0 for a
+# conflicted merge: exit 1, and `MERGE_HEAD`, all three stage entries and `git status`'s `UU` were all
+# still there afterwards). A refusal that cannot say which operation it stood in cannot pick the verb
+# that ends it, and the wrong verb is its own loss of work. #328 is the queue-wide cost of not asking:
+# a CONFLICT-HALTED marker that survived 10h13m and 1192 ticks because the one action that could clear
+# the tree refused it and every other unit queued behind that refusal.
+#
+# Why the marker rather than "does the index have unmerged entries": the marker is what git itself keys
+# the operation on, it is readable when the index is not, and it names WHICH operation. Every path is
+# read under `rev-parse --absolute-git-dir`, never `$tree/.git` -- in a linked worktree `.git` is a FILE
+# naming the real directory (measured here: `/home/rodney/prj/parental-lockout/.git/worktrees/issue-328`),
+# so a path test at `$tree/.git/MERGE_HEAD` answers false for a merge genuinely in progress, and
+# answering `none` is what sends the caller into the stash that fails. `--absolute-git-dir` is the read
+# that resolves in both shapes (measured: `<repo>/.git` in the primary, the `worktrees/<name>` directory
+# here), and `MERGE_HEAD` is per-worktree state, which is the file a merge in THIS tree writes.
+#
+# Missing a shape costs the old behaviour and nothing worse: an operation this list does not cover
+# answers `none`, the caller tries the stash, git refuses, the tree halts with that refusal in front of
+# it -- exactly what happens to every shape today.
+factory_tree_unmerged() { # tree -> the operation word (see the codes above)
+	local tree=$1 gd="" op=""
+	gd=$(git -C "$tree" rev-parse --absolute-git-dir 2>/dev/null) || {
+		printf 'halt-git-unreadable'
+		return 2
+	}
+	# Rebase first. A conflicted step of an interactive rebase parks in `rebase-merge` and carries
+	# `MERGE_HEAD` beside it, so reading the merge before this arm would answer `merge` for a rebase
+	# step and abort it back to the branch the rebase started on.
+	if [ -d "$gd/rebase-merge" ] || [ -d "$gd/rebase-apply" ]; then
+		printf 'halt-rebase'
+		return 2
+	fi
+	if git -C "$tree" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+		if [ -n "$(git -C "$tree" rev-parse -q --verify HEAD 2>/dev/null)" ]; then
+			printf 'merge'
+			return 0
+		fi
+		# An abort restores HEAD. With no HEAD there is nothing to restore to, and git says so; a tree
+		# this unborn is a failed first commit, and only the person who started it knows what it was.
+		printf 'halt-merge-rootless'
+		return 2
+	fi
+	for op in CHERRY_PICK_HEAD REVERT_HEAD BISECK_LOG; do
+		if [ -e "$gd/$op" ]; then
+			case "$op" in
+			CHERRY_PICK_HEAD) printf 'halt-cherry-pick' ;;
+			REVERT_HEAD) printf 'halt-revert' ;;
+			BISECK_LOG) printf 'halt-bisect' ;;
+			esac
+			return 2
+		fi
+	done
+	# A sequencer directory with rows left is a multi-pick or multi-revert mid-flight. It keeps only its
+	# `head-name` after the final pick, so a directory that still holds something is an unfinished one.
+	if [ -d "$gd/sequencer" ] && [ -n "$(ls -A -- "$gd/sequencer" 2>/dev/null)" ]; then
+		printf 'halt-sequencer'
+		return 2
+	fi
+	printf 'none'
+	return 1
+}
+
+# The mirror for a tree that cannot be stashed: a DIRECTORY, because no single file describes this state.
+# What the ordinary diff does and does not carry here was measured on git 2.53.0, on a fresh
+# `git merge --no-commit --no-ff`, in four states of the conflicted file -- still holding git's markers,
+# hand-resolved, deleted from the worktree, and a delete/update conflict (stage 3 absent):
+#
+#   `git diff HEAD --diff-filter=U` renders 0 bytes in all four, and names no path. There is no "the
+#       unmerged paths" read: the filter matches none of them against a commit.
+#   `git diff --diff-filter=U`, the same filter with no commit named, DOES name them -- and emits the
+#       32-byte notice `* Unmerged path nested/deep.txt` per path instead of a hunk. That is the exact
+#       shape H-0063 records as the worst possible mirror: non-empty, so every size guard passes, and it
+#       restores nothing.
+#   `git diff HEAD`, with no filter, DOES carry the conflicted path's bytes -- 271 B with the markers as
+#       `+` lines, 243 B as `-MAIN/+what I typed in` for a hand resolution, 248 B as a
+#       `deleted file mode` hunk when the file is gone. So the patch is a faithful copy of the BYTES,
+#       and the worktree copy below is redundancy rather than the only copy. What no patch carries is the
+#       staged CONFLICT STATE, and applying such a patch onto a re-merged tree refuses (`patch does not
+#       apply`, measured) because the bytes on disk are markers -- hence the two procedures in the
+#       MANIFEST, and hence `ls-files -u` plus the stage blobs.
+#   `git ls-files -u` is the read that answers: it prints the state itself, and stage N's blob is
+#       reachable by `git cat-file` for as long as the index names it, so the stage copies are made from
+#       the index, before anything is cleared. This is the read #328 names.
+#
+# What lands in the directory, and the MANIFEST says which is which:
+#
+#   diff-HEAD.patch         every tracked edit against HEAD, staged and unstaged, conflicted paths included
+#   diff-cached.patch       the staged half on its own: what `git add` put in the index and no commit took
+#   ls-files-u              the unmerged stage table, exactly as git printed it
+#   unmerged/<stage>/<path>  stage N's own bytes -- 1 base, 2 ours, 3 theirs; a delete/add conflict has
+#                           only the two sides it has, and a blob git cannot give up is said so in a
+#                           `.UNREADABLE` note rather than skipped quietly
+#   worktree/<path>         the conflicted file as it stood: markers, a typed-in resolution, or a
+#                           `.ABSENT` note when the person deleted it -- an abort writes a version back
+#                           over an absence, so the absence is the fact worth keeping
+#   untracked/<path>        every untracked file, with untracked.list naming them
+#
+# The one thing a mirror cannot hold is the merge itself -- but the side commit's sha is in the
+# MANIFEST, and a merge is the only operation with a verb that reproduces its own conflict, which is
+# exactly why this verb is offered for a merge and refused for the others.
+#
+# usage: factory_tree_mirror_merge UNIT TREE
+# stdout: the directory, on disk and read back
+# exit:   0 the mirror is there; 2 refused -- nothing in the tree was touched
+factory_tree_mirror_merge() { # unit tree -> the mirror directory
+	local unit=$1 tree=$2
+	local dir="" tmp="" head="" side="" paths="" p="" meta="" stage="" sha="" err=""
+	local n_unmerged=0 n_worktree=0 n_untracked=0 n_files=0 base=""
+
+	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
+		printf 'mirror refused: %s cannot be created\n' "$FACTORY_AT_RISK" >&2
+		return 2
+	fi
+	dir="$FACTORY_AT_RISK/$(basename -- "$tree")-merge-quarantine-$(date -u +%Y%m%dT%H%M%SZ)"
+	tmp="$dir.tmp.$$"
+	if ! mkdir -p -- "$tmp" 2>/dev/null; then
+		printf 'mirror refused: %s cannot be created\n' "$tmp" >&2
+		return 2
+	fi
+	head=$(git -C "$tree" rev-parse -q --verify HEAD 2>/dev/null || true)
+	side=$(git -C "$tree" rev-parse -q --verify MERGE_HEAD 2>/dev/null || true)
+
+	# Tracked work that is not the conflict. The redirect ORDER is the one H-0063 records: `2>&1` first
+	# points stderr at this substitution's pipe, where it can be quoted, and stdout to the FILE, where
+	# only the patch belongs -- the other order puts git's warning inside the mirror and the `[ -s ]`
+	# read calls it a patch.
+	if ! err=$(git -C "$tree" diff --binary HEAD 2>&1 >"$tmp/diff-HEAD.patch"); then
+		printf 'mirror refused: git diff HEAD would not render the tracked work :: %s\n' \
+			"$(printf '%s' "${err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-140)" >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
+	# The staged half, which a worktree-vs-HEAD patch cannot tell apart from a write nobody staged. #328's
+	# own tree was reported as `staged-but-uncommitted: AGENTS.md DECISIONS.md docs/factory.md (+13 more,
+	# 16 in all)` -- resolutions `git add`ed and never committed, the exact state of a tick killed between
+	# those two commands. Conflicted paths appear in THIS diff as git's `* Unmerged path <p>` notice rather
+	# than a hunk -- measured, 27 bytes for one conflicted path and no hunk -- and `git apply` skips a
+	# notice line, so what is left in this file is the staged state and nothing else.
+	if ! err=$(git -C "$tree" diff --cached --binary HEAD 2>&1 >"$tmp/diff-cached.patch"); then
+		printf 'mirror refused: git diff --cached HEAD would not render the staged work :: %s\n' \
+			"$(printf '%s' "${err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-140)" >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
+	if ! git -C "$tree" ls-files -u >"$tmp/ls-files-u" 2>/dev/null; then
+		printf 'mirror refused: git ls-files -u would not read the index, so the stages cannot be copied\n' >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
+	paths=$(sed -e 's/^[^\t]*\t//' -- "$tmp/ls-files-u" | sort -u)
+
+	while IFS= read -r meta; do
+		[ -n "$meta" ] || continue
+		p=${meta#*$'\t'}
+		stage=${meta%%$'\t'*}
+		stage=${stage##* }
+		sha=${meta#* }
+		sha=${sha%% *}
+		base=${p%/*}
+		[ "$base" != "$p" ] || base=''
+		mkdir -p -- "$tmp/unmerged/$stage${base:+/$base}" 2>/dev/null || continue
+		if git -C "$tree" cat-file blob "$sha" >"$tmp/unmerged/$stage/$p" 2>/dev/null; then
+			n_unmerged=$((n_unmerged + 1))
+		else
+			printf 'stage %s of %s (blob %s) could not be read\n' "$stage" "$p" "$sha" \
+				>"$tmp/unmerged/$stage/$p.UNREADABLE"
+		fi
+	done <"$tmp/ls-files-u"
+
+	while IFS= read -r p; do
+		[ -n "$p" ] || continue
+		base=${p%/*}
+		[ "$base" != "$p" ] || base=''
+		mkdir -p -- "$tmp/worktree${base:+/$base}" 2>/dev/null || continue
+		if [ -f "$tree/$p" ]; then
+			if cp -p -- "$tree/$p" "$tmp/worktree/$p" 2>/dev/null; then
+				n_worktree=$((n_worktree + 1))
+			else
+				printf 'the worktree file could not be copied\n' >"$tmp/worktree/$p.UNCOPYABLE"
+			fi
+		elif [ -e "$tree/$p" ]; then
+			printf 'not a regular file: %s\n' "$(ls -ld -- "$tree/$p" 2>/dev/null || printf 'unreadable')" \
+				>"$tmp/worktree/$p.NOTREGULAR"
+		else
+			# An absent file is the state: a delete/add conflict, or a person clearing the file in
+			# frustration. `git merge --abort` writes a version back over the absence, so the absence
+			# is the fact worth keeping.
+			printf 'absent from the worktree at quarantine time\n' >"$tmp/worktree/$p.ABSENT"
+		fi
+	done <<<"$paths"
+
+	while IFS= read -r -d '' p; do
+		[ -n "$p" ] || continue
+		base=${p%/*}
+		[ "$base" != "$p" ] || base=''
+		mkdir -p -- "$tmp/untracked${base:+/$base}" 2>/dev/null || continue
+		if cp -p -- "$tree/$p" "$tmp/untracked/$p" 2>/dev/null; then
+			printf '%s\n' "$p" >>"$tmp/untracked.list"
+			n_untracked=$((n_untracked + 1))
+		fi
+	done < <(git -C "$tree" ls-files --others --exclude-standard -z 2>/dev/null)
+
+	{
+		printf 'mid-merge quarantine mirror\n\n'
+		printf 'unit:      %s\n' "$unit"
+		printf 'tree:      %s\n' "$tree"
+		printf 'taken:     %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		printf 'HEAD:      %s\n' "${head:-none -- an unborn head}"
+		printf 'MERGE_HEAD %s\n' "${side:-unreadable}"
+		printf 'git:       %s\n' "$(git --version 2>/dev/null || printf 'unknown')"
+		printf '\npaths: %s unmerged stage file(s), %s worktree copy(ies), %s untracked file(s)\n' \
+			"$n_unmerged" "$n_worktree" "$n_untracked"
+		printf 'diff-HEAD.patch         every tracked edit vs HEAD, conflicted paths included\n'
+		printf '                        (empty: %s)\n' \
+			"$([ -s "$tmp/diff-HEAD.patch" ] && printf 'no, it has bytes' || printf 'yes -- the tree held nothing but the conflict')"
+		printf 'diff-cached.patch       the STAGED half: paths that were `git add`ed and not committed.\n'
+		printf '                        Conflicted paths are a `* Unmerged path` notice here, not a hunk,\n'
+		printf '                        and `git apply` skips a notice, so this file is only the staged work.\n'
+		printf 'ls-files-u              the unmerged stage table, as git printed it\n'
+		printf 'unmerged/<stage>/<path> stage bytes: 1 base, 2 ours, 3 theirs\n'
+		printf 'worktree/<path>         the conflicted file as it stood -- markers, a typed-in\n'
+		printf '                        resolution, or a .ABSENT note if it was deleted\n'
+		printf 'untracked/<path>        every untracked file; untracked.list names them\n'
+		printf '\nWant the bytes back. Run these in the tree named above, at that HEAD, tree clean:\n'
+		printf '  M=%s\n' "$dir"
+		printf '  git apply "$M/diff-HEAD.patch"\n'
+		printf '  if [ -s "$M/diff-cached.patch" ]; then git apply --cached "$M/diff-cached.patch"; fi\n'
+		printf '        # the second line puts the `git add`ed-and-never-committed paths back in the index;\n'
+		printf '        # `--allow-empty` is not needed because of the -s test (measured: an empty input is\n'
+		printf '        # refused, `No valid patches in input`, rc 128).\n'
+		printf '  cp -a "$M/untracked/." .\n'
+		printf '\nWant the conflict back too, to finish it by hand. Same tree, clean, then:\n'
+		printf '  M=%s\n' "$dir"
+		printf '  git merge %s\n' "${side:-<MERGE_HEAD above>}"
+		printf '  cut -f2 "$M/ls-files-u" | sort -u |\n'
+		printf '    while IFS= read -r p; do cp "$M/worktree/$p" "$p" 2>/dev/null; done\n'
+		printf '  git apply $(cut -f2 "$M/ls-files-u" | sed "s|.*|--exclude=&|" | tr "\\n" " ") "$M/diff-HEAD.patch"\n'
+		printf '        # the conflicted paths came back from worktree/, and their hunks refuse against\n'
+		printf '        # marker bytes -- measured, `patch does not apply`. The excludes skip exactly those.\n'
+		printf '  cp -a "$M/untracked/." .\n'
+		printf '\nWhat this mirror cannot hold: the unmerged INDEX ENTRIES themselves -- three stages per\n'
+		printf 'path, which no patch format carries. That is the one thing a merge is needed for, and\n'
+		printf 'recipe 2 above reproduces it: re-merge, then put the worktree bytes back over the markers.\n'
+		printf 'A staged resolution that was already `git add`ed is stage 0 and comes back from\n'
+		printf 'diff-cached.patch without any merge.\n'
+	} >"$tmp/MANIFEST"
+
+	n_files=$(find "$tmp" -type f 2>/dev/null | wc -l | tr -d '[:space:]')
+	if [ "${n_files:-0}" -lt 2 ]; then
+		printf 'mirror refused: only %s file(s) were written to %s, which is not a copy of anything\n' \
+			"${n_files:-0}" "$tmp" >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
+	# Written, then read back, the same bargain the patch arm strikes with its own file: a mirror nobody
+	# can open is a halt with extra steps, and one that is half-written is worse than no mirror.
+	if ! mv -f -- "$tmp" "$dir" 2>/dev/null || [ ! -f "$dir/MANIFEST" ]; then
+		printf 'mirror refused: %s was written but cannot be read back\n' "$dir" >&2
+		rm -rf -- "$tmp"
+		return 2
+	fi
+	printf '%s\n' "$dir"
+}
+
 # --------------------------------------------------------------------------- quarantine
 #
 # A worktree a dead tick left dirty used to stop the queue, and stopping it bought nothing: the edit
@@ -1931,12 +2215,20 @@ factory_tree_halt() {
 # after `git stash push` undo themselves with `factory_tree_unstash`, so the sentence is true only if
 # that pop succeeds. If it does not, the tree is clean and the only copy is in `refs/stash` under the
 # sha the refusal prints -- a recoverable outcome, not the advertised one. Before the stash nothing is
-# moved at all, and a tree that is mid-merge is in that first group: `git stash push -u` refuses a
-# half-merged index (`could not write index` / `needs merge`) and leaves `MERGE_HEAD` and every stage
-# entry intact, so a tree stuck mid-merge keeps halting, with a `TREE-QUARANTINE-REFUSED` sentence in
-# front of it and the resolution still there for a person. An auto-cleaner that can eat work is worse
+# moved at all. What happens in a tree that is mid-merge changed on #328, and the reason it changed is
+# the cost of the old sentence: `git stash push -u` refuses a half-merged index (`could not write index`
+# / `needs merge`) and leaves `MERGE_HEAD` and every stage entry intact, which was read as "nothing can
+# be done here", so a CONFLICT-HALTED marker sat 10h13m across 1192 ticks and every other unit queued
+# behind the refusal. The operation is now asked before the stash (`factory_tree_unmerged`), and a merge
+# is the one shape with a verb that ends it correctly: mirror the whole state into a directory under
+# `$FACTORY_AT_RISK`, then `git merge --abort`, which returns the tree to the HEAD it was handed. A
+# rebase, an am, a cherry-pick, a revert, a bisect, a sequencer with rows left, and a merge onto an
+# unborn HEAD still refuse and halt, because no verb of theirs produces "this tree, clean, at the commit
+# we gave out" -- `git rebase --abort` goes to the branch the rebase started on and `git cherry-pick
+# --quit` leaves the tree exactly as conflicted as it was. An auto-cleaner that can eat work is worse
 # than the halt it replaced -- this repository keeps `~/prj/at-risk/` precisely because `/tmp` already
-# ate some.
+# ate some -- and that is why the arm that clears a conflict writes its copy first and refuses if the
+# copy did not land.
 #
 # The plumbing was measured on git 2.53.0, in a linked worktree, before any of this was written:
 #
@@ -1957,15 +2249,25 @@ factory_tree_halt() {
 #   `docs/screenshots/360/*.png` are committed, so a killed capture tick leaves exactly that shape.
 #
 # usage: factory_tree_quarantine UNIT TREE
-# stdout: `stash=<sha> mirror=<path>`, both belong in the journal line: a mirror nobody can locate
-#         is a halt with extra steps.
+# stdout: the stash arm prints `stash=<sha> mirror=<path>`; the mid-merge arm prints
+#         `kind=merge merge=<sha> stash=<sha|none> mirror=<dir>` -- `kind=` is there because the two arms
+#         leave the tree clean by different verbs and a reader (and a leg) has to be able to tell which
+#         one ran. `merge=` is the side commit, read before the abort destroys `MERGE_HEAD`: #328 asked
+#         for it on the journal line by name, and a 40-character sha is what a reader needs in another
+#         clone. `mirror=` is LAST in both arms because the caller reads the path out with
+#         `${line##*mirror=}`, which takes everything after the first match.
+#         Everything printed belongs in the journal line: a mirror nobody can locate is a halt with
+#         extra steps.
 # exit:   0 the tree is clean now and the mirror is on disk
 #         1 there was nothing to quarantine; nothing was touched
-#         2 refused -- nothing was touched, so the caller must halt
+#         2 refused. Before the action nothing is moved, so the tree is as it was found -- with one
+#           exception the merge arm cannot avoid: if the abort succeeded and the re-read then failed,
+#           the conflict has been ended and the mirror and the stash are the copies. Both are named in
+#           the sentence, which is why the caller must halt.
 factory_tree_quarantine() {
 	local unit=$1 tree=$2
 	local dirt_rc=0 err="" sha="" subject="" patch="" tmp="" restore="" confirm="" confirm_rc=0
-	local why=""
+	local why="" op="" mirror="" top="" stashed="" side=""
 
 	if [ -z "$unit" ] || [ -z "$tree" ]; then
 		printf 'quarantine refused: wants a unit and a tree, got %s/%s\n' "${unit:-nothing}" "${tree:-nothing}" >&2
@@ -1991,6 +2293,74 @@ factory_tree_quarantine() {
 		printf 'quarantine refused: the tree could not be read (rc=%s), so nothing was touched\n' "$dirt_rc" >&2
 		return 2
 	fi
+
+	# Asked after the verdict and before any action: the verdict says there is work, this says which
+	# operation owns it. A merge has a verb that ends it and returns the tree to this HEAD, so it is
+	# taken here rather than reaching `git stash` and failing; every other operation refuses here with
+	# its own name in the sentence, which is the thing the stash's `needs merge` never said (#328).
+	# `none` falls through to the stash path untouched, which is what it has always been.
+	op=$(factory_tree_unmerged "$tree") || :
+	case "$op" in
+	merge)
+		# Read the side commit FIRST: `merge --abort` deletes `MERGE_HEAD`, and this is the value the
+		# journal line and nothing else carries into the audit record.
+		side=$(git -C "$tree" rev-parse -q --verify MERGE_HEAD 2>/dev/null || true)
+		mirror=$(factory_tree_mirror_merge "$unit" "$tree") || {
+			printf 'quarantine refused: the conflicted tree could not be mirrored, so the merge was left in place\n' >&2
+			return 2
+		}
+		[ -f "$mirror/MANIFEST" ] || {
+			printf 'quarantine refused: the mirror at %s has no MANIFEST, so it is not a copy of anything\n' "$mirror" >&2
+			return 2
+		}
+		# The copy is on disk and openable. Now the tree may be ended -- `--abort`, never `--quit`:
+		# quitting keeps a conflicted merge's entries in the index, and the next pass would quarantine
+		# the same tree again with the streak already armed.
+		if ! err=$(git -C "$tree" merge --abort 2>&1); then
+			printf 'quarantine refused: `git merge --abort` failed :: %s -- the tree is untouched and the mirror is at %s\n' \
+				"$(printf '%s' "$err" | tr '\n\r' '  ' | cut -c1-160)" "$mirror" >&2
+			return 2
+		fi
+		# Untracked files are not the merge's content and an abort leaves them exactly where they were,
+		# so the tree is not clean yet. With the stage entries gone the stash is legal again, and it is
+		# the same verb the other arm uses -- which is why this arm sits BEFORE it rather than inside it.
+		# A stash that does not happen is not a failure of this arm: git's "No local changes to save" is
+		# exit 0 and moves nothing, and `refs/stash` is repo-global (H-0107), so an old entry from
+		# another unit would be credited to this one. The subject is the only read that tells them
+		# apart, and `stash=none` is the honest answer when it does not name this unit.
+		sha=""
+		if git -C "$tree" stash push -u -m "supervisor quarantine $unit $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+			>/dev/null 2>&1; then
+			if top=$(git -C "$tree" rev-parse -q --verify refs/stash 2>/dev/null); then
+				subject=$(git -C "$tree" log -1 --format=%s "$top" 2>/dev/null)
+				case "$subject" in
+				*"supervisor quarantine $unit "*) sha=$top ;;
+				esac
+			fi
+		fi
+		confirm=$(factory_tree_dirt "$tree") && confirm_rc=0 || confirm_rc=$?
+		# One variable for the label, because `"${sha:+${sha:0:9}}${sha:-none}"` -- the first shape of
+		# this line -- is two complementary expansions in a row: when the stash exists BOTH fire and the
+		# journal gets the short sha and the full sha concatenated (measured, `stash=a22ef5e61a22ef5e61…`
+		# 46 characters). A field a leg has to pin is a field that gets built once.
+		stashed=none
+		[ -z "$sha" ] || stashed=${sha:0:9}
+		if [ "$confirm_rc" -ne 1 ]; then
+			printf 'quarantine refused: the merge was aborted and %s is %s; the mirror is at %s, stash %s\n' \
+				"$tree" \
+				"$([ "$confirm_rc" -eq 0 ] && printf 'still dirty (%s)' "${confirm:-git named nothing}" || printf 'unreadable (%s)' "${confirm:-git gave no reason}")" \
+				"$mirror" "$stashed" >&2
+			return 2
+		fi
+		printf 'kind=merge merge=%s stash=%s mirror=%s\n' "${side:-none}" "$stashed" "$mirror"
+		return 0
+		;;
+	halt-*)
+		printf 'quarantine refused: the tree is in a %s, which has no verb that returns it to this HEAD; nothing was touched\n' \
+			"${op#halt-}" >&2
+		return 2
+		;;
+	esac
 
 	if ! err=$(git -C "$tree" stash push -u -m "supervisor quarantine $unit $(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>&1); then
 		printf 'quarantine refused: git stash failed :: %s\n' "$(printf '%s' "$err" | tr '\n\r' '  ' | cut -c1-160)" >&2
