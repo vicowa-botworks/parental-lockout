@@ -149,13 +149,19 @@ func TestCheckUnenforcedReportsADanglingProfileAsNeverLocked(t *testing.T) {
 
 func TestDoctorExitsNonZeroWhenAnAccountIsUnlockedInAWindow(t *testing.T) {
 	// The acceptance criterion, end to end through the command rather than the function.
+	//
+	// The rule says allDay on purpose: "start": "00:00", "end": "23:59" alone reads as 24/7
+	// but releases the account 23:59:00--00:00:00 every day, because `end` is exclusive --
+	// and this fixture ran against the real wall clock, which made this test red for that
+	// minute daily (#355). scripts/check-fixture-window.sh refuses the bare pair in any
+	// fixture; TestUnenforcedJoinAnswersToTheClockItIsGiven pins the gap itself as data.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	body := `{
   "version": 1,
   "settings": {"enforcement": true, "pollSeconds": 30, "lockBackends": ["logind"]},
   "profiles": [{"id": "school", "name": "School nights", "timezone": "UTC",
-    "rules": [{"id": "all", "days": ["mon","tue","wed","thu","fri","sat","sun"],
+    "rules": [{"id": "all", "allDay": true, "days": ["mon","tue","wed","thu","fri","sat","sun"],
                "start": "00:00", "end": "23:59", "enabled": true}]}],
   "users": [{"username": "casey", "profileID": "school", "enabled": true}]
 }`
