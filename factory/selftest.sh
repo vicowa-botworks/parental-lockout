@@ -9621,6 +9621,109 @@ proc_leg '…and closes nothing on the strength of a ref' \
 	'the fixture gh recorded no close, merge, edit, review or comment' proc_wrote_nothing
 printf '[]' >"$proc_fix/pr-merged.json"
 
+# --------------------------------------------------- the delivered row that names a dirty tree (#347)
+#
+# `delivered` is a verdict about the TRUNK, and it used to be heard as one about the tree: #347
+# measured issue 328's 991-line repair sitting uncommitted in `wt/issue-248` -- no blob, no ref --
+# while every activation logged that branch DELIVERED, because the class never opens the worktree
+# its own row names. The arm now reads that tree with the same dirtiness reader a dispatch halt
+# uses and logs what it finds, report-only. These legs drive the shipped supervisor over four trees
+# the fixture `gh` calls delivered: one holding the tracked edit and the untracked file the outage
+# had, one clean, one checked out under another name, and one in the stale-entry shape #232 named.
+printf '%s' '[
+ {"number":791,"baseRefName":"main","headRefName":"issue-903","mergedAt":"2026-11-13T04:05:06Z","body":"fix(fixture): the delivery with a dirty tree\n"},
+ {"number":792,"baseRefName":"main","headRefName":"issue-904","mergedAt":"2026-11-13T04:05:06Z","body":"fix(fixture): the delivery with a clean tree\n"},
+ {"number":793,"baseRefName":"main","headRefName":"issue-905","mergedAt":"2026-11-13T04:05:06Z","body":"fix(fixture): the delivery whose tree moved on\n"},
+ {"number":794,"baseRefName":"main","headRefName":"issue-906","mergedAt":"2026-11-13T04:05:06Z","body":"fix(fixture): the delivery beside a stale entry\n"}
+]' >"$proc_fix/pr-merged.json"
+proc_new delivered-tree
+for dt_b in 903 904 905 906; do
+	git -C "$proc_repo" branch "issue-$dt_b" origin/main
+done
+git -C "$proc_repo" worktree add -q "$proc_trees/issue-903" issue-903
+printf 'the repair nobody committed\n' >>"$proc_trees/issue-903/tracked.txt"
+printf 'untracked and nowhere else\n' >"$proc_trees/issue-903/repair-notes.md"
+git -C "$proc_repo" worktree add -q "$proc_trees/issue-904" issue-904
+git -C "$proc_repo" worktree add -q "$proc_trees/issue-905" issue-905
+git -C "$proc_trees/issue-905" checkout -q --detach
+printf 'work that belongs to no delivery\n' >>"$proc_trees/issue-905/tracked.txt"
+mkdir -p "$proc_trees/issue-906/.git"
+proc_run delivered-tree-1
+
+dirt_tree_named() {
+	proc_journal_line "$proc_journal" 'DELIVERED-TREE-DIRTY branch/issue-903' |
+		grep -qF -- "$proc_trees/issue-903" &&
+		proc_journal_line "$proc_journal" 'DELIVERED-TREE-DIRTY branch/issue-903' |
+			grep -qF -- 'tracked.txt' &&
+		proc_journal_line "$proc_journal" 'DELIVERED-TREE-DIRTY branch/issue-903' |
+			grep -qF -- 'repair-notes.md'
+}
+proc_leg 'the delivered tree with uncommitted work is named' \
+	'its journal line names the tree path, the tracked file and the untracked file' dirt_tree_named
+
+dirt_row_still_reports() {
+	proc_journal_line "$proc_journal" 'DELIVERED branch/issue-903' | grep -qF -- 'reported, not worked'
+}
+proc_leg '…and the delivery report itself is unchanged beside it' \
+	'the DELIVERED line still says reported, not worked' dirt_row_still_reports
+
+dirt_clean_quiet() {
+	! grep -q 'TREE-DIRTY branch/issue-904\|TREE-UNREADABLE branch/issue-904' "$proc_journal"
+}
+proc_leg 'a clean delivered tree adds no line' \
+	'no TREE-DIRTY or TREE-UNREADABLE row was written for issue-904' dirt_clean_quiet
+
+dirt_moved_quiet() {
+	! grep -q 'TREE-DIRTY branch/issue-905\|TREE-UNREADABLE branch/issue-905' "$proc_journal"
+}
+proc_leg 'a tree checked out under another name claims nothing' \
+	'the detached dirty issue-905 is silent: the guard is the attribution' dirt_moved_quiet
+
+dirt_stale_named() {
+	proc_journal_line "$proc_journal" 'DELIVERED-TREE-UNREADABLE branch/issue-906' |
+		grep -qF -- "$proc_trees/issue-906"
+}
+proc_leg 'the stale entry under the trees root is named, not skipped' \
+	'its journal line says the directory cannot be read as its branch' dirt_stale_named
+
+# The fallback the issue rows need: triage prints `-` in the branch column for an `issue` unit, and
+# the only branch that tree was ever cut for is `issue-<key>`. Driven at the helper, because the
+# row-side half is the branch rows' fixture above; the pr unit has no derivable branch at all and
+# must stay silent rather than guess one from a number.
+dirt_issue_fallback() {
+	local root save=$FACTORY_TREES rc
+	root=$(mktemp -d "$proc_work/inspect-XXXXXX")
+	git -C "$proc_repo" worktree add -q -b issue-907 "$root/issue-907" origin/main
+	printf 'the repair an issue row hides\n' >>"$root/issue-907/tracked.txt"
+	FACTORY_TREES=$root
+	factory_delivered_inspect issue 907 - | grep -qF -- 'DELIVERED-TREE-DIRTY issue/907'
+	rc=$?
+	FACTORY_TREES=$save
+	return "$rc"
+}
+proc_leg 'an issue row with no branch column inspects issue-<key>' \
+	'the fallback derives the tree the dispatch would have cut' dirt_issue_fallback
+
+dirt_pr_quiet() {
+	[ -z "$(FACTORY_TREES="$proc_trees" factory_delivered_inspect pr 791 -)" ]
+}
+proc_leg 'a pr unit derives no branch and says nothing' \
+	'no tree is named for a number that is not an issue or a ref' dirt_pr_quiet
+
+# Control: the silence above is the guard's, and a guard no control kills is a comment. The mutant
+# makes HEAD always agree with the row, and the dirty detached tree must then be reported -- if
+# this control passes without the leg, the leg was never pinning the guard.
+dirt_control_guard() {
+	proc_mutate '2>/dev/null) || head=' 'head=$branch' && {
+		proc_run delivered-tree-ctrl
+		grep -q 'TREE-DIRTY branch/issue-905' "$proc_journal"
+	}
+}
+proc_leg 'control: with the branch guard off, the moved tree is misreported' \
+	'the mutant pass reports the detached dirty tree the shipped pass refused to name' dirt_control_guard
+
+printf '[]' >"$proc_fix/pr-merged.json"
+
 # --------------------------------------------------- the ref whose content is somebody else's open pull request (#284)
 #
 # The name arm in `factory/factory.sh` refuses a safety copy by how it is spelled, and #284 measured

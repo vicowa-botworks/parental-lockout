@@ -1857,6 +1857,57 @@ factory_tree_dirt_read() {
 	return 1
 }
 
+# What a `delivered` row owes the tree its branch names. #347 measured the gap this closes: a branch
+# whose pull request merged is reported DELIVERED every pass and its worktree is never opened again,
+# so issue 328's 991-line repair sat uncommitted in `wt/issue-248` -- no blob, no ref -- while every
+# activation logged that branch as a delivery, the loudest possible `nothing is owed here`. Post-merge
+# cleanup is keyed to `$FACTORY_TREES/<slug>` and reaches a delivered tree only by dispatch, which a
+# delivered row never triggers; so the report is the only verb left, and this is it.
+#
+# usage: factory_delivered_inspect UNIT KEY BRANCH
+#   BRANCH is the row's branch column; `-` (what triage prints for an issue row) falls back to the
+#   unit's own naming, `issue-<KEY>`, because that is the branch `factory_worktree` cut for it.
+# stdout: one journal fragment for the three states that must not be silent -- dirty (finding named),
+#         unreadable including #232's stale entry (named as such), or a directory whose HEAD cannot be
+#         trusted -- and NOTHING for a clean tree, a missing tree, and a tree checked out elsewhere.
+# exit:   always 0. This is a report beside a report: the DELIVERED line it follows is the verdict,
+#         and a tree the harness cannot read may not turn a pass red any more than a tree it can.
+#
+# The branch guard is the whole attribution: the directory is named for a branch, and the only thing
+# that makes what sits in it THAT delivery's leftover is a HEAD with the same name. A detached tree
+# or one re-attached elsewhere reports nothing, on the quarantine lesson -- the harness reports whose
+# tree it found and lets a person decide what it is; naming someone else's work as a delivered
+# leftover would be the same misattribution in the quiet direction.
+factory_delivered_inspect() {
+	local unit=$1 key=$2 branch=$3 path dirt rc
+	[ "$branch" = "-" ] && branch=""
+	if [ -z "$branch" ] && [ "$unit" = issue ]; then
+		branch="issue-$key"
+	fi
+	[ -n "$branch" ] || return 0
+	path="$FACTORY_TREES/$(factory_slug "$branch")"
+	[ -d "$path" ] || return 0
+	local head
+	head=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null) || head=''
+	if [ -z "$head" ]; then
+		printf 'DELIVERED-TREE-UNREADABLE %s/%s %s -- the row says delivered and the directory named for the branch is not a repository it can read\n' \
+			"$unit" "$key" "$path"
+		return 0
+	fi
+	if [ "$head" != "$branch" ]; then
+		return 0
+	fi
+	dirt=$(factory_tree_dirt "$path"); rc=$?
+	if [ "$rc" -eq 0 ]; then
+		printf 'DELIVERED-TREE-DIRTY %s/%s %s -- the row says delivered and the tree holds work: %s\n' \
+			"$unit" "$key" "$path" "$dirt"
+	elif [ "$rc" -ne 1 ]; then
+		printf 'DELIVERED-TREE-UNREADABLE %s/%s %s -- the row says delivered and the tree says: %s\n' \
+			"$unit" "$key" "$path" "$dirt"
+	fi
+	return 0
+}
+
 # The halt, in one place, because the decision above it was written twice and executed by nothing.
 # A mutation audit of this file's two call sites -- flip `[ "$dirt_rc" -ne 1 ]` to `-ne 0`, or to
 # `-eq 0`, or delete the guard -- left every leg green, three mutations running (H-0044): the probe
