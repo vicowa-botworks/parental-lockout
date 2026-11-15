@@ -9088,7 +9088,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `2026-11-14T13:41:48Z`, so at this head the label the ticket withholds is read by the classifier
   (`factory/triage.sh:230` "park_json=$(printf '%s'" reads it into the queue read, and
   `is_parked` asks the same map at the row emit) and honoured by the dispatcher
-  (`factory/factory.sh:1501` "a stop that no later pass can read is not a stop": the `parked` arm logs
+  (`factory/factory.sh:1504` "a stop that no later pass can read is not a stop": the `parked` arm logs
   `PARKED` and starts no tick). Does a unit create the label, rename
   the one home at `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}",
   or stop?
@@ -9395,3 +9395,74 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+## H-0197 · #346 measured a deleted tracked file surviving 101 activations in the one tree the pass never read, so the tree owes a classification that restores only what git already holds and refuses to own the operator's bytes
+
+- Question: the activation pass quarantines, mirrors and cleans every tree it hands to a
+  tick, and reads none of the tree it runs its own git commands in: measured 13 Nov, the
+  primary checkout of this repository sat ` D .cortexkit/.gitignore` across 101 activations
+  with all 14 worktrees clean and nothing in the journal (issue #346). A tracked file that
+  HEAD still holds had been deleted under the pass and no component noticed, so the queue
+  kept dispatching work into a checkout whose own files disagreed with its commits. What
+  does that tree owe -- and where is the line between repairing it and the harness eating
+  the operator's work?
+- Options: mirror-and-clean it the way per-unit trees are quarantined | re-clone or
+  hard-reset the main checkout at activation | classify read-only, restore only the committed
+  deletions git already holds every byte of, refuse modified, untracked and staged content
+  untouched, and halt nothing | journal the dirt and write nothing
+- Chose: classify read-only, restore only the committed deletions git already holds every byte
+  of, refuse modified, untracked and staged content untouched, and halt nothing
+- Why: option 1 is refused by ownership, not taste: the quarantine pass can stash a unit
+  tree because the harness made that tree and the mirror is the only copy of work the tick
+  died with; the main checkout is the operator's working tree and live index, and stashing
+  its in-flight edit into `at-risk/` takes custody of bytes the pass never created. Option 2
+  is the arbitrary-delete primitive `#1686` already priced from the other direction -- a root
+  daemon that rewrites a path it did not create -- and it also drops the local-only refstate
+  every `factory_refresh_origin` fetch writes into that checkout. Option 4 is contradicted by
+  the ticket's own measurement: 101 activations of watchful silence is what option 4 already
+  is, and the tree rotted anyway; a verdict nobody can act on is what the ticket filed. The
+  one shape where a write is safe is a tracked file missing while HEAD holds every byte of
+  it: the restore creates nothing the harness invented, which is the same rule the quarantine
+  pass runs in reverse -- it refuses to clean what no mirror holds, and here nothing can hold
+  the operator's unstaged bytes, so nothing is written for them. Exit 0 always, because a
+  halting verdict on this tree would gate every unit behind one dirty checkout, the #248
+  outage shape (15h57m), and the dirty state is being repaired, not adjudicated. The call
+  site sits once per activation, beside `factory_refresh_origin` and before triage, so the
+  journal carries one verdict per pass regardless of queue length. Tie-break 1: no `go.mod`
+  line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends.
+  Tie-break 4: `factory/` plus this log; tick behavior and the per-unit quarantine pass are
+  untouched. Tie-break 5: `git revert` of the effect commit retires function, call site,
+  legs and entry together. Tie-break 6: the house rule of a control per hazard -- both
+  controls print without a `pass` increment, and the inert-site plant is measured silent
+  rather than asserted silent.
+- Checkpoint: 7f69e08cfea025e9595197d39545eb4181d468e1
+- Effect: `factory_main_tree_inspect` and the `factory_main_tree_check` wrapper appended at
+  the tail of `factory/common.sh` below line 3016, the last line any log anchors, so no
+  existing pointer moves; one call site in `_factory_main` (`factory/factory.sh`) between
+  the origin refresh and the triage read, which shifts this
+  log's own pointers by the three lines above it -- `H-0179`'s pointer at line 1501 re-pointed
+  to `factory/factory.sh:1504` "a stop that no later pass can read is not a stop" in this
+  commit, the quoted sentence verified at the new line before the digits moved; and a new section in `factory/selftest.sh` placed above only the tally so
+  every anchored pointer in that file stays put -- twelve counted legs over every polarity
+  (clean, restoral with byte-identity to HEAD, refusal each for modified, untracked and
+  staged content, two mixed trees pinning that a refusal never half-restores, no-tree and
+  unreadable UNKNOWNs planted by shadowing `factory_tree_dirt` inside subshells, and the
+  DRY_RUN rehearsal), two process legs running the shipped supervisor so the call site
+  itself is pinned, and two uncounted controls: the blind verdict that must draw no restoral
+  line, and the inert call site under which the planted deletion must survive. The suite
+  read-back after the edit: `bash factory/selftest.sh` -> 694 passed, 0 failed, exit 0, the
+  trunk's 682 plus exactly the twelve legs. `make verify` on the exact bytes this entry
+  ships is quoted with its tally and last line in the commit message that carries this entry
+  and in the pull-request body (#1180: an `Effect:` written before the gate runs is a
+  prophecy). Rollback: `git revert` of the effect commit retires function, call site, legs
+  and this entry together; the checkpoint pre-dates all four. What lost: modified, untracked
+  and staged content in the main checkout gets a journalled refusal and no repair -- by
+  design, because the pass has no safe verb for bytes that exist nowhere else, but a human
+  reading `MAIN-CHECKOUT-REFUSED` at 3 a.m. still has to act; the verdict is advisory, so a
+  tree the pass refuses to touch keeps dispatching ticks until someone reads the journal;
+  and the inspection runs once per activation, not per unit, so within one pass the tree can
+  be dirtied again unseen. No GitHub write, no label, no merge, no governing file edited by
+  this decision. What lost: the three race arms the code carries -- `late-clean`,
+  `checkout-refused` and the two `RESTORE-INCOMPLETE` wordings -- have journalled sentences and
+  no planted leg; a shadowed `git` could plant them and nobody has priced that fixture yet, so
+  their exact wording is pinned by nothing but the source.

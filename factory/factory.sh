@@ -1408,6 +1408,9 @@ factory_body() {
 		log_event "$reap_line"
 	done < <(factory_reap_journal_lines)
 	factory_refresh_origin "$(factory_main_checkout)"
+	# #346: the tree these very git commands run in was the one tree the pass never read. Once per
+	# activation, beside the refresh; advisory always-0 by design (H-0197), so it cannot halt a pass.
+	factory_main_tree_check "$(factory_main_checkout)"
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
