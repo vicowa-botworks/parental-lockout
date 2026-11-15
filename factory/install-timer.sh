@@ -355,7 +355,8 @@ render() {
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
 		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
-		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
+		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g" \
+		-e "s#@RERUN_EXIT@#$(sed_replacement "$FACTORY_EXIT_RERUN")#g"
 }
 
 service_unit=$(cat <<'UNIT' | render
@@ -449,7 +450,15 @@ TimeoutStartSec=@STOP@
 # repository sees, and when it is wrong it does not merely fail to help, it points away from the cause.
 # The reason and the resume command stay in the log line, which is where the halt's content belongs; the
 # unit's job is only to say whether the pass did what it was told.
-SuccessExitStatus=@HALT_EXIT@
+#
+# The second code is the stale-tree repair's (#342, H-0194). A pass that fast-forwards the tree the
+# unit execs stops itself with FACTORY_EXIT_RERUN -- the merge replaced the bytes of the script bash
+# reads incrementally, so continuing would run a mix of old and new code -- and hands the queue to the
+# next activation, which `OnUnitInactiveSec=` fires seconds later on the merged code. That stop is a
+# decision, exactly like the halt, and it must not read as `Failed with result 'exit-code'`: this
+# line is the whole reason the halt code was added in the first place, and a repair that journalled
+# as a crash would re-create the defect #246 measured, one code later.
+SuccessExitStatus=@HALT_EXIT@,@RERUN_EXIT@
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
