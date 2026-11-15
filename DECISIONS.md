@@ -4744,3 +4744,67 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Why: the tie-break that separates them is the fourth, fewest files, and it agrees with the substance -- the two changes witness different claims, so a side that wins is a side that loses a guard. Each whole-side option breaks the invariants in the other direction: `--theirs` deletes #324's rows and reopens a hole this tree no longer has, `--ours` deletes eighteen of #322's rows and leaves the branch at 54 beside a `main` at 72, so the next merge re-collides on the same four sentences. Deleting a row per side is refused by the thing the rows exist for: `EXPECTED_ROWS` is pinned because `A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected verdict`, so agreement bought with a deletion is bought with the exact rot the pin catches. Then both intents were measured on the merged tree rather than assumed to coexist, in a copy and never the gated tree (#1807), each mutation asserted to have matched exactly once before its result was believed. Emptying the kept frame's write returns rc 1 with `the kept frame audit@360.png is not the picture this run was handed: 0 byte(s)`; writing the same COUNT of different bytes returns rc 1 naming the 36 bytes it got instead; emptying one rule body returns rc 1 with `PROBE: each fixture keeps its refused frames apart stayed green with its own contract broken (hollow cdp.keep_refused)`. The fourth probe is the null variant and it is the one that shows the two are load-bearing and not merely present: downgrade this branch's clause from byte equality to `len(got) != len(_SELFTEST_FRAME)` and the same-count mutation prints `81 refusal rules hold` at rc 0 again, so what the second byte row pins is equality and not length -- the option #324's own body refused. `EXPECTED_ROWS` 73 is that arithmetic and nothing else: `main`'s 72 plus #324's one added row, the byte row counted once because only its expectation moved. `python3 scripts/check-decisions.py` on the resolved tree reads 235 entries, `0 pointing somewhere a reader cannot open`, and the debt unchanged at 539, so this merge added no citation of its own and moved no measured number.
 - What lost: `main`'s count sentence -- `The classes below are four … and one claim about what the 81 rules do not look at` -- is false on the merged tree and goes, and the comment above `DOCUMENTED_HOLES` now says three, all of them one floor at three sites. So does that class's own text: the sentence `nothing reads the file's contents` survives nowhere in the file, because a listed hole with no row is refused and a shut hole cannot be re-measured -- the record of what the hole was is `D-0076`, `D-0077` and this entry. This branch's wording of the verdict class (three arms: `if bad:`, the reach check, its `return 1`) goes too, and it goes because it is out of date rather than wrong at the time: #322's pass pinned two of those three arms. `Fifty-five attacks nobody invokes` loses to `main`'s `f"{EXPECTED_ROWS} attacks…"`, which cannot rot, and this branch's hand-typed count goes with it. In `DECISIONS.md` the two appended entries sit by id, `D-0076` above `D-0077`, which breaks append order on purpose: `D-0077` was written first (checkpoint `607966e`, 14 Nov 12:07 local) and `D-0076` reached `main` later (PR #379 merged 15:18 local), while the gate refuses an inverted log -- `is out of order (… came before it); the log is a history and a history that jumps around cannot be bisected` -- so append order loses to resolvability. What this entry does NOT repair: `--citations` lists fifteen pointers at `testing/capture/pages.py` and six at `scripts/attack-capture-self-test.py`, every one of them UNANCHORED before this merge and unchanged by it, and both files' line numbers moved underneath them -- repairing published entries is #374's, on `D-0077`'s own ruling, and the number this commit could move, 539, it did not. `testing/capture/pages.py` carries no resolution of mine at all, only the union git produced; the claim that union is sound is the four measurements above, not a sentence about a diff.
 - Checkpoint: 5765e45
+
+## D-0082 · #326 names three unaudited capture surfaces and measurement retires two of them: ship a third attack suite against `manifest.py --self-test` with its floors listed, or patch the module under audit, or chase the ticket's letter into the two suites that already cover the drivers
+
+- Question: #326 (filed 11 Nov) says `manifest.py --self-test`, `lock.py` and `testlock.py` have no
+  `--self-test` coverage. Measured 14 Nov on this head: the two drivers have been *driven* by
+  `pages.py --self-test` since #296 -- `single_shot` and its siblings call the real `main()` with the
+  browser faked -- and `attack-capture-self-test.py` has carried rows patching `lock.py` and
+  `testlock.py` since #304, so rows here duplicating that would be a second runner over covered
+  code. What survives of the ticket is `manifest.py`: it has a 54-rule self-test, and NOTHING attacks
+  that self-test -- the capture suite's docstring has admitted since 13 Nov that the module "has NO
+  row set here or in ``attack-self-test.py``". So the deliverable is an external attack suite for
+  `manifest.py --self-test`, and the choices are the mechanism, and what to do with what the attacks
+  find: seven patches print `54 rules hold` over a hollowed clause.
+- Options: add the rows to `attack-capture-self-test.py`, whose box and shape are already built for a capture target | write the third suite, `scripts/attack-manifest-self-test.py`, inheriting the two siblings' harness whole | close the seven holes in this same commit by giving `manifest.py` the canary controls `D-0072` gave `pages.py` | chase the ticket's letter and add call-site rows for `lock.py`/`testlock.py` guards to the capture suite
+- Chose: write the third suite, `scripts/attack-manifest-self-test.py`, inheriting the two siblings' harness whole
+- Why: the capture suite's child is `pages.py --self-test`; a row inside it measuring a different
+  guard's verdict would make that file's baseline lie about what it ran, so the mechanism question
+  decides itself once the target is fixed. Closing the holes in the same commit is refused because
+  the suite and the module under audit must not ship as one change: the seven `HOLE` rows with their
+  `closes:` sentences are the mechanism that PROVES a future repair works -- repair `manifest.py` and
+  the rows flip to `HOLE CLOSED`, and `DOCUMENTED HOLE NO LONGER SEEN` forces the class retired,
+  which is #323's arc (floors listed, then canaried, then rows moved to `CAUGHT`) replayed with the
+  steps in order. The fourth option was probed, not assumed: deleting `cdp.require_records` AND
+  `cdp.require_labelled_cells` from `pages.py`'s shoot loop prints `capture self-test: 81 refusal
+  rules hold` at rc 0, and so does deleting `cdp.require_labelled_cells` from `testlock.capture()`
+  -- both patches live in a copy of the tree, both suites run after each, and `manifest.py` agrees
+  at `54 rules hold` every time. A row cannot be written `CAUGHT` against a hole that is real, and a
+  `HOLE` row in THIS suite would assert the wrong suite's floor: the finding belongs to the capture
+  suite's list and is filed as its own issue with the two probes in its body. Every expectation in
+  the 31-row file is a measurement against this head, not a wish: 20 `CAUGHT`, 4 honest edits
+  `GREEN`, 7 `HOLE` across 7 classes, run in ~4 s (`TOTAL  31 attacks: 20 caught, 4 honest edits
+  still green, 7 holes, 0 invalid, 0 unexpected`, rc 0).
+- What lost: the suite's box had to learn one thing the sibling does not need -- `manifest.py` reads
+  `ROOT/Makefile` at import to pin its own invocation, so a box without the Makefile answers
+  "the Makefile could not be read" and the pre-flight stops the run (measured: the suite's first
+  minute of existence was spent proving that refusal real); the sibling's box recipe loses to this
+  one's and the difference is documented in the new docstring. The Makefile comment at line 85,
+  "the mutation attack suite above does not have it, and that is a separate gap" -- now
+  understates: the manifest suite pins its two invocations the same two-step way, but the sentence
+  cannot gain a line in place because nine decision-log pointers sit at lines 90 through 116 of the
+  Makefile (`check-decisions.py --citations Makefile` printed all nine UNANCHORED before this commit
+  and the region through line 116 ships byte-identical but for one in-place word at line 68), and
+  adding a line under a pointer is the exact drift `H-0139` was written about.
+  `attack-capture-self-test.py` loses its
+  sentence that the manifest module "has NO row set" -- corrected 13 Nov, made false 14 Nov by this
+  file's existence -- and the four replaced lines keep the file's line count exactly, because six
+  UNANCHORED pointers at its 566-576 must not move either (verified: `diff` of lines 566-576 against
+  `HEAD` is empty). The call-site hole stays open until the filed issue is worked -- named in #326's
+  comment and in this suite's docstring with the two probes reproducible; `manifest.py`'s seven
+  floors stay floors. And two probes that had been run in earlier drafts of this work were re-run
+  whole before shipping their numbers, which killed one claim: an earlier draft of the new
+  docstring said `require_trail` was deleted from `testlock.capture()` -- what was measured is
+  `require_labelled_cells` at `testlock.py` line 143; the shipped sentence names only what was
+  re-measured.
+- Checkpoint: 1e2929e
+- Effect: four files. New `scripts/attack-manifest-self-test.py`: 31 rows, every anchor asserted to
+  match exactly once before any child starts, `EXPECTED_ROWS = 31`, both witnesses of its own
+  `make verify` wiring pinned inside it. `Makefile` `+4/-3`: the gate step
+  `==> capture manifest attack suite` lands after `==> screenshot manifest` (line 130 of the new
+  file, clear of every cited line), the empty-filter loop names all three suites and its echo says
+  "all three"; both filter shapes refuse (`zzzznomatch` and `''` each exit 1 saying `no row
+  matched`). `scripts/attack-capture-self-test.py`: four docstring lines replaced in place. This
+  entry, and nothing else: `git show --numstat` on the effect commit is the record, and the numbers
+  above are quoted from runs captured in it, not from the working tree's memory.
