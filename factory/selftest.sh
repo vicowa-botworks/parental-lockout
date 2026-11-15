@@ -16377,7 +16377,7 @@ fp_leg_planted() {
 	return 0
 }
 
-fp_leg_arms() { # what an empty directory and a missing one each answer, in words that name the case
+fp_leg_arms() { # what an empty directory, an absent one and a journal-less one each answer, in words that name the case
 	local empty=$work/footprint/empty out
 	mkdir -p "$empty"
 	out=$(factory_log_footprint "$empty") || {
@@ -16398,6 +16398,30 @@ fp_leg_arms() { # what an empty directory and a missing one each answer, in word
 	}
 	printf '%s\n' "$out" | grep -qF 'journal:' || {
 		printf '\tthe absent arm dropped the journal path line\n'
+		return 1
+	}
+	# The third arm: a log directory holding transcripts and no journal. That is what a hand-deleted
+	# `supervisor.log` leaves, and what a rotation would leave in the instant between moving the file
+	# and creating the next one (#334's fix 2 will live here). The field must say `never` while the
+	# count and the bytes still describe the transcripts that ARE there.
+	#
+	# This plant is also the only witness for WHICH file the journal field is taken from that does not
+	# depend on the order `find` returns names in. With no `supervisor.log` present there is no
+	# ordering in which a last-file-wins scan can print `never`, so the mutant that fills the field
+	# with the last file it scanned dies on this line -- measured SURVIVING the 3-file plant above at
+	# 6cebe8d, where that plant printed the planted `journal 250 B` whenever the journal happened to be
+	# the name `find` returned last. An assertion a wrong implementation can satisfy by luck of
+	# directory order is H-0043's defect with the numbers still in it.
+	local nojournal=$work/footprint/no-journal
+	mkdir -p "$nojournal"
+	head -c 400 /dev/zero >"$nojournal/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$nojournal/refresh.log"
+	out=$(factory_log_footprint "$nojournal") || {
+		printf '\tfactory_log_footprint failed on a journal-less directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal never; 2 files, 500 B' || {
+		printf '\tthe journal-less directory did not read `journal never` with its transcripts still counted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
 		return 1
 	}
 	return 0
@@ -16447,7 +16471,7 @@ fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALL
 	return 0
 }
 claim_leg 'footprint: planted bytes, count, oldest' fp_leg_planted
-claim_leg 'footprint: the empty and absent arms' fp_leg_arms
+claim_leg 'footprint: empty, absent, journal-less' fp_leg_arms
 claim_leg 'footprint wired into --status' fp_leg_wired
 
 
