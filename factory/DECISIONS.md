@@ -9469,3 +9469,115 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   Rollback: `git revert` of the effect commit retires the anchor, the comment and the
   seventeen digits together. No GitHub write, no label, no merge, no governing file
   edited by this decision.
+
+## H-0201 · The one-home census omitted `NEXT.md` by accident rather than by rule, and a ninth file spelling the label was invisible to the leg built to catch exactly that, so the exemption boundary becomes written text and the drift control plants in every census file
+
+- Question: #360 says the one-home census is a fixed eight-file list that omits `NEXT.md`, so a ninth
+  live file spelling the escalation label has no leg able to see it. Re-measured at `6db0b13` with the
+  leg functions lifted verbatim: the census copy as it stands passes (rc 0), the same copy plus a
+  planted `NEXT.md` mention still passes (rc 0, blind), and the identical plant in `docs/factory.md`
+  is refused (rc 1) — the leg bites; `NEXT.md` is a file it never opens. What moved since the ticket
+  was filed: commit `af848f4` rewrote `NEXT.md` whole and deleted with it the one live
+  sentence that spelled `needs-human` (line 55 of that file at `9d15457`), so the ticket's specific
+  stale sentence is gone — swept by an unrelated hand-off, not by any leg, which is the finding
+  standing on its head. The list is eight: `factory/selftest.sh:7468` "the files whose mentions are instructions"
+  and the leg's hand-copied twin array under its header at
+  `factory/selftest.sh:7490` "the name is spelled once, and that once is common.sh"; the exemption
+  comment names only the two decision logs and never mentions `NEXT.md`; the leg's own failure text
+  still counted "the other six". Is `NEXT.md` a fossil or an instruction, and what does the tree owe
+  either way?
+- Options: `NEXT.md` joins both census lists, the exemption comment states the sole boundary, and the
+  drift control plants once per census file | `NEXT.md` is recorded as a third fossil beside the two
+  logs, with the invariant sentence in `factory/common.sh` gaining the same exemption | the census is
+  widened to every tracked file | the hand-off file alone is re-pointed at the reader by name instead
+  of the value | `esc_one_home`'s array is derived from `esc_live` so the twin lists cannot drift
+- Chose: `NEXT.md` joins both census lists, the exemption comment states the sole boundary, and the
+  drift control plants once per census file
+- Why: the fossil exemption rests on one fact — an entry records what was believed when it was written,
+  and editing history to chase a renamed label turns every citation in it into a lie. That fact does
+  not extend to `NEXT.md`: it is rewritten whole by every unit (measured — `af848f4` replaced the file
+  and its line-55 sentence in one stroke, with no leg consulted), so it protects no history,
+  and it is read forward by the next unit, so a name in it is an instruction that gets carried. Tie-break
+  3 decides what remains: the chosen shape makes the leg refuse where the fossil shape would pass in
+  silence. Option 4 was measured moot — there is no sentence left to re-point (rc-0 row above; the file
+  as it stands holds no occurrence). Option 5 is the true root of the twin lists and was still refused:
+  it changes `esc_one_home`'s behavior beyond the requirement, and the per-file control now witnesses
+  every member from `esc_live` against the leg's own array, so a list that parts from the other fails
+  the gate rather than the census. Option 3 is refused by the ticket's own measurement: it reddens on
+  the decision logs, whose citations are this repository's evidence, and the only green it can reach is
+  rewritten history. Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when
+  a lockout starts or ends. Tie-break 4: one file, `factory/selftest.sh`, held at net-zero physical
+  lines (32 insertions, 32 deletions) so none of the 64 pointers aimed at that file moved — `grep -n`
+  still answers 7469 for the leg header. Tie-break 5: `git revert` of the effect commit retires the
+  whole change. Tie-break 6: this is how the family already treats a hazard — one control per plant,
+  membership never accepted as witness.
+- Checkpoint: 5a4179e37764387bbcf5055d52374f374981cc7a
+- Effect: `factory/selftest.sh` only. `NEXT.md` joined `esc_live` and the leg's files array; the
+  exemption comment now states that the two decision logs are the only exemption and names this entry;
+  the leg's stale "other six" reads "the rest of the census"; control 1 of `esc_controls` plants the
+  name in every non-home census file and demands the leg refuse each, naming the file and the phase on
+  failure. Read back after the gate ran: `bash factory/selftest.sh` -> 682 passed, 0 failed (the
+  ticket's 564 was the count at `9d15457`; the census has grown on `main` since), and `make verify` and
+  its last line are quoted in the commit message and the pull-request body, never here as a
+  prophecy. Rollback: `git revert` of the effect commit retires the fix and this entry together; the
+  checkpoint above is the target. What lost, stated as the cost of the choice: the leg's array is still
+  a hand-copy of `esc_live` (option 5's single source was refused), so the two lists remain two and
+  only the control keeps them honest; `esc_pr_verb` keeps its own eight-file census — the identical
+  ninth-file blindness applies there to hand-offs prescribing the dead `pr` verb, and #360's scope
+  named only the one-home leg; and a future hand-off that quotes a measured label value now goes red
+  by design and must name the reader instead of the value, which is friction this entry accepts. No
+  GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
+
+## H-0204 · PR #400's base sync has exactly one legal splice, and this branch's own +21 fixture lines moved two pointers main published fresh, so the markers come out, the seam keeps one blank, and the digits move -- with the erratum riding the merge commit as H-0181 set the shape
+
+- Question: PR #400 reads `CONFLICTING`/`DIRTY` against main with all five checks green (read back
+  15 Nov: mergeable=CONFLICTING, mergeStateStatus=DIRTY, reviewDecision empty). `git merge origin/main`
+  conflicts in one file, factory/DECISIONS.md: the merge base `6db0b13` ends at H-0182, this branch
+  appended H-0186, main appended H-0201 (main holds no H-0183..H-0200 -- those ids went to sibling
+  entries off-trunk -- and an id-keyed union does not care: ascending is ascending). Measured on the
+  splice: main adds 58 lines to the log and removes none, the merged file takes exactly 56 non-blank
+  lines from main with zero deletions of ours, the seam keeps the one blank line both precedent
+  double-appends left (8d2682b, 73dbd91), and the only interior difference from the base is this
+  branch's own seventeen digit repairs. The reversed order was run rather than asserted: the gate
+  refuses it with "H-0186 is out of order (H-0201 came before it)". The citation gate then refused two
+  pointers that only the merge surface breaks: `factory/selftest.sh:7468` "the files whose mentions are instructions"
+  and `factory/selftest.sh:7490` "the name is spelled once, and that once is common.sh" -- this branch's
+  H-0186 fixture inserts 21 lines above them (hunks `@@ -3975,6 +3975,13 @@` and `@@ -3993,8 +4000,22 @@`,
+  both above line 4021), while main's H-0201 change holds net-zero physical lines (32 insertions, 32
+  deletions, lowest touched line 7447). So the drift is ours and lands on main's fresh pointers, and CI
+  runs `make verify` on the merge surface, not on the branch alone. What does the merge owe?
+- Options: repair only the two digits inside main's published entry and file this erratum in the same
+  merge that carries the splice | ship the conflict-clearing merge with a log the gate refuses, leaving
+  two pointers for whoever edits main next | order the union main-first, which the gate was run and
+  refuses as quoted above | raise POINTER_DEBT by two and call the drifted pointers grandfathered |
+  leave the branch conflicting and park it for a trunk-side repair
+- Chose: repair only the two digits inside main's published entry and file this erratum in the same
+  merge that carries the splice
+- Why: H-0181 measured this split from the other side -- the trunk moving under published pointers --
+  and repaired it with same-length digit moves plus an erratum, because a coordinate is a pointer at
+  text the current tree still holds, so the digits move with the text while the measurements around
+  them stay stamped at the tree they were taken on. These two coordinates were true on main and read
+  false only on this merge surface; the digits are repaired, no surrounding sentence re-asserted.
+  Option 2 ships exactly what H-0176 had to pay: clearing CONFLICTING is worthless if CI refuses the
+  surface it lands on. Option 3 was run, not asserted, and quoted above. Option 4 is what the gate's
+  own closing line tells the unit that tries it -- "a pointer a reader cannot open is a defect, not a
+  grandfathered promise" -- and the ratchet moves one way only. Tie-break 1: no `go.mod` line, stdlib
+  only. Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 3: the chosen shape
+  refuses to ship a log with two pointers a reader cannot open. Tie-break 4: one log, two same-length
+  numeric substitutions, and this entry; no product diff moves. Tie-break 5: `git revert -m 1` of the
+  merge retires the whole base sync; a later `git revert` retires this erratum alone. Tie-break 6:
+  H-0173, H-0174, H-0176, H-0177, H-0180 and H-0181 all carry their base-sync erratum on the merge
+  commit; this is the family's own shape.
+- Checkpoint: bf0bfabfdf9a6a73e053ced9758a1d536c64dc3c
+- Effect: the ascending union (56 non-blank lines taken from main, zero deletions of ours, one blank at
+  the seam, the reversed order measured refused) and two same-length digit repairs inside H-0201,
+  carried by the merge commit that records this decision. `factory/selftest.sh` auto-merged and both
+  suites are run on the merged tree rather than read. The gate runs are read back after they finish
+  and quoted in the commit message and the pull-request body, never written here as prophecy.
+  Rollback: `git revert` of this entry's commit retires the erratum and the two digits together;
+  `git revert -m 1` of the merge retires the whole update. What lost: the repaired digits re-stamp
+  main's published coordinates at this tree with no renumbering; the ids H-0183..H-0200 stay
+  off-trunk, a gap in main's history this merge neither authored nor can close; and the two drifted
+  pointers remain specimen evidence that the merge surface can redden a green branch's log, which is
+  the exposure #370's title prices. No GitHub write, no label, no pull-request merge, no governing
+  file edited by this decision.
