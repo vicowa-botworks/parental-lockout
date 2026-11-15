@@ -1630,6 +1630,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
+| `FACTORY_HALT_RELEASES` | `2` | how many times one unit's machine-written halt may remove itself when the tree it names is provably past its cause (#341); see the section under "Stopping it" |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
@@ -1652,8 +1653,40 @@ neither is a machine's to clean up. To stop it hard: `systemctl --user stop ploc
 
 Nothing halted and the queue still is not moving: read the `code:` line of
 `factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
-`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place that
-says otherwise (#249, and the section above).
+`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place
+that says otherwise (#249, and the section above).
+
+### A standing halt is re-asked every activation (#341)
+
+A halt the harness wrote is now a question, not a verdict. The marker used to be a fact about the
+instant it was written: every later activation printed its sentence and never asked the tree again,
+and the streak halt is written one second AFTER the quarantine has already stashed and mirrored the
+work it names -- so the named condition was false from the marker's birth and the queue froze anyway.
+Measured on #302: 14h34m, 77 activations, 34 idle units, until a person ran `rm`.
+
+Now the activation guard calls `factory_halt_reprobe` before it refuses. The marker written by
+`factory_tree_halt` carries a machine line-tail -- `:: halt-target: unit=…|cause=…|mirror=…|tree=…`
+-- and the re-probe asks that tree the content question (`factory_tree_dirt`) plus the two #323
+state questions (`MERGE_HEAD`, unmerged index entries). The outcomes, each one a journal line:
+
+- **`HALT-RELEASED <unit> cause-cleared tree-clean`** -- the named tree is provably clean and not
+  half-merged: the marker is removed, the streak counter it came from is cleared, and this pass
+  proceeds to triage. `HALTED` is not printed.
+- **`HALTED …, re-probed this pass without release: …`** -- still dirty, half-merged, or git would
+  not answer: the halt stands, and the sentence says this pass asked.
+- **`HALT-STUBBORN <unit> releases=N`** -- the cause is cleared but the unit's release budget
+  (`FACTORY_HALT_RELEASES`, above) is spent: the halt stands and the journal names both files a
+  human resume touches (the marker and the counter). This is the trade this section sells: a unit
+  that keeps stopping short of delivery can consume two more activations before a person is
+  required -- two ticks against the 15h57m #248 counted read by nobody.
+- **`HALTED …, and not re-probed since: …`** -- a hand-written marker. It names no target, there is
+  nothing to ask, and nothing but the person who wrote it removes it. That rule predates #341 and
+  survives it.
+
+A dry run never re-probes: a release is a write, and dry runs write nothing to the real queue's halt
+switch. The `HALT-NOTICED` issue comment stays the halt-write moment's, throttled once per hour; a
+notice posted over a mirrored halt now names the stash and the mirror path and says plainly that
+removing the marker loses nothing, because for that shape removing the marker loses nothing.
 
 ## What "dirty" means, because the test decides when the queue stops
 

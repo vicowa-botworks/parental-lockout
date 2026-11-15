@@ -247,6 +247,13 @@ FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}
 # 115 `HALTED` lines and 15h57m of frozen queue that only a person opening the journal could see).
 FACTORY_HALT_NOTICE_AFTER=${FACTORY_HALT_NOTICE_AFTER:-3600}
 
+# How many times a standing halt may remove itself when the tree it names is PROVABLY past its
+# cause (#341: a streak halt on a clean tree printed the same `HALTED` line for 14h34m until a
+# person ran `rm`). This is the budget for that self-clearing: a unit that keeps stopping short of
+# delivery can cost the queue at most this many re-halts before the halt turns hard again and the
+# resume is a human with the `HALT-STUBBORN` line in hand. See `factory_halt_reprobe`.
+FACTORY_HALT_RELEASES=${FACTORY_HALT_RELEASES:-2}
+
 # Longer than this with no pass at all, and `--status` calls it STALLED. The timer's own cadence is
 # `OnUnitInactiveSec=600`, so one hour is roughly five missed activations: enough that a single slow
 # pass is not reported as a stall, short enough that tonight's 91-minute freeze (#246, a leaked
@@ -389,7 +396,7 @@ factory_halted() { [ -e "$FACTORY_HALT" ]; }
 
 factory_halt_reason() {
 	if [ -e "$FACTORY_HALT" ]; then
-		tr -d '\n' <"$FACTORY_HALT"
+		tr -d '\n' <"$FACTORY_HALT" | sed 's/ :: halt-target: .*$//'
 	else
 		printf ''
 	fi
@@ -527,8 +534,20 @@ factory_timer_state() {
 # So the marker stays sticky, the line stops pretending to be new, and all three readers of the
 # marker -- `factory_verdict`, `factory.sh --status`, and the journal's `HALTED` line -- print this
 # one. `factory/selftest.sh` refuses a shipped script that prints the stored sentence without it.
-factory_halt_report() { # -> 'cause recorded <age> ago, and not re-probed since: <sentence>'
-	local reason mtime now
+	# SC2120/SC2119: the argument is passed at call sites shellcheck cannot see from this file --
+	# factory.sh's guard passes `probed`/`guarded`; every call HERE means the default clause.
+	# shellcheck disable=SC2120
+factory_halt_report() { # [probed|guarded] -> 'cause recorded <age> ago, <asking>: <sentence>'
+	# The asking clause is a parameter because the guard now asks (#341): the same line used to
+	# promise "not re-probed since" unconditionally, and after the re-probe shipped, that promise
+	# would have been false on every guarded pass. `--status` and `factory_verdict` take no argument
+	# -- they report without asking -- so only the guard's line may claim it asked.
+	local reason mtime now asked
+	asked='and not re-probed since'
+	case "${1:-}" in
+	(probed) asked='re-probed this pass without release' ;;
+	(guarded) asked='re-probed on every activation without release' ;;
+	esac
 	reason=$(factory_halt_reason)
 	# One `stat`, deliberately not `factory_file_age`. The unit stays the shared one -- every age here
 	# is still spoken by `factory_age_human` -- but that primitive's answer is
@@ -545,18 +564,18 @@ factory_halt_report() { # -> 'cause recorded <age> ago, and not re-probed since:
 		# A time that is merely absent is the bug this line exists to fix: no age is what a fresh
 		# detection looks like. Reachable for real when the marker is removed between
 		# `factory_halted()` and this read. Say the time could not be read, visibly.
-		printf 'cause recorded at a time that could not be read, and not re-probed since: %s' "$reason"
+		printf 'cause recorded at a time that could not be read, %s: %s' "$asked" "$reason"
 		return 0
 		;;
 	esac
 	now=$(date -u +%s)
 	if [ "$mtime" -gt "$now" ]; then
-		printf 'cause recorded %s ahead of this clock, so its age is unknown, and not re-probed since: %s' \
-			"$(factory_age_human "$((mtime - now))")" "$reason"
+		printf 'cause recorded %s ahead of this clock, so its age is unknown, %s: %s' \
+			"$(factory_age_human "$((mtime - now))")" "$asked" "$reason"
 		return 0
 	fi
-	printf 'cause recorded %s ago, and not re-probed since: %s' \
-		"$(factory_age_human "$((now - mtime))")" "$reason"
+	printf 'cause recorded %s ago, %s: %s' \
+		"$(factory_age_human "$((now - mtime))")" "$asked" "$reason"
 }
 
 # systemd's own lines about this unit, oldest first, newest `FACTORY_REAP_TAIL` of them -- and only
@@ -922,6 +941,8 @@ EOF
 factory_verdict() {
 	local tick pass
 	if factory_halted; then
+		# Zero-argument is the verdict's clause: it reports, never probes.
+		# shellcheck disable=SC2119
 		printf 'HALTED %s\n' "$(factory_halt_report)"
 		return 0
 	fi
@@ -1877,7 +1898,7 @@ factory_tree_dirt_read() {
 # reads the answer and throws it away, which is the same bug as misreading it with different syntax.
 factory_tree_halt() {
 	local verb=$1 unit=$2 tree=$3 state=${4:-} finding=${5:-}
-	local dirt dirt_rc=0 how
+	local dirt dirt_rc=0 how stamp cause mirror
 	if [ "$state" = confirmed ]; then
 		# The caller has already established the finding, and the tree may no longer show it. Since
 		# #248 that is the normal case for the streak halt: the quarantine succeeds, the tree is clean
@@ -1898,6 +1919,31 @@ factory_tree_halt() {
 	2) how="make the tree readable and its index rewritable, then \`git -C $tree update-index --refresh\` to see what is really there" ;;
 	*) how="resolve the work it names (commit it to its branch, or discard it on purpose)" ;;
 	esac
+	# The machine fields on the same line (#341). A standing halt used to be a fact about the past --
+	# written once, then printed by every later activation that never asked the tree again, so a cause
+	# that had already been dealt with kept the whole queue frozen (measured: 14h34m). `factory_halt_reprobe`
+	# re-asks the named tree on every activation, and it can do that only if the marker says WHICH tree
+	# and WHICH unit its cause belonged to, and whether a mirror of the work exists to fall back on.
+	# They ride on the operator's own line, after a `:: halt-target: ` marker, because a second line
+	# would be a second sentence in `factory_halt_reason`'s output and would break the one-line rule
+	# the #237 legs pin; `factory_halt_reason` strips everything from that marker on.
+	case "$state" in
+	confirmed) cause=quarantined ;;
+	*)
+		case "$dirt_rc" in
+		2) cause=unreadable ;;
+		*) cause=dirty ;;
+		esac
+		;;
+	esac
+	mirror=none
+	case "$finding" in
+	*mirror=*)
+		mirror=${finding##*mirror=}
+		mirror=${mirror%%[[:space:]]*}
+		;;
+	esac
+	stamp=" :: halt-target: unit=$unit|cause=$cause|mirror=$mirror|tree=$tree"
 	case "$verb" in
 	TICK-HALTED)
 		log_event "$verb $unit $tree has uncommitted work (${dirt:-no reason returned}); refusing to work in it"
@@ -1906,7 +1952,7 @@ factory_tree_halt() {
 		log_event "$verb $unit $tree has uncommitted work (${dirt:-no reason returned}); refusing to merge into it"
 		;;
 	esac
-	printf '%s\n' "a working tree was found with uncommitted work: $tree -- what it holds: ${dirt:-nothing, but the verdict could not be read}. $how, then \`rm $FACTORY_HALT\` to resume" \
+	printf '%s\n' "a working tree was found with uncommitted work: $tree -- what it holds: ${dirt:-nothing, but the verdict could not be read}. $how, then \`rm $FACTORY_HALT\` to resume$stamp" \
 		>"$FACTORY_HALT"
 	# A halt nobody can see is a halt nobody resolves. The marker is a file in a directory no one
 	# opens; the unit's own issue or pull request is where someone is already looking.
@@ -2139,7 +2185,7 @@ factory_tree_unstash() {
 #
 # usage: factory_notice_halt UNIT   (0 always: a notice that cannot be posted must not mask the halt)
 factory_notice_halt() {
-	local unit=$1 number="" tmp="" out="" rc=0
+	local unit=$1 number="" tmp="" out="" rc=0 tgt_mirror="" resume=""
 	[ "$DRY_RUN" = "1" ] && return 0
 	number=${unit##*:}
 	case "$number" in
@@ -2149,13 +2195,24 @@ factory_notice_halt() {
 
 	factory_paths
 	tmp="$FACTORY_RUN/halt-notice.$$"
+	# Demand 4 (#341): the streak halt fires AFTER the quarantine succeeded, so by the time this
+	# notice posts, the work is already stashed and mirrored, and "say what should happen to what
+	# the tree holds" asks the owner to negotiate for bytes that are already saved in two places.
+	# When the marker names a mirror, say where the work is and that the safe resume is simply
+	# removing the marker; when it does not (a hand-written halt, or a dirty halt before any
+	# rescue), the old sentence is the true one and stays.
+	resume='Nothing has been discarded and nothing will be -- say what should happen to what the tree holds and the queue resumes the moment the marker is removed.'
+	tgt_mirror=$(factory_halt_target | cut -f3) || tgt_mirror=''
+	if [ -n "$tgt_mirror" ] && [ "$tgt_mirror" != none ]; then
+		resume="The work has already been preserved: the stash is named on the \`TREE-QUARANTINED\` line of the supervisor journal, and a byte-for-byte mirror sits at \`$tgt_mirror\`. Nothing has to be reconstructed and nothing will be discarded -- the safe resume is to remove the marker, and from the next activation the queue re-asks the tree itself."
+	fi
 	{
 	# One printf with one format, and the whole sentence inside it. Written as a `\`-continued chain of
 	# printf arguments, shellcheck reads the first fragment as a format with no placeholder and reports
 	# that the rest of the sentence is *ignored* -- a notice to a human that silently loses its second
 	# half is the failure class this harness keeps being about.
-	printf 'The delivery supervisor has **halted the whole queue** on this unit.\n\n```\n%s\n```\n\nEvery other unit is stopped with it: the halt switch is read before triage, so nothing else is picked up, reviewed or merged until this is resolved. Nothing has been discarded and nothing will be -- say what should happen to what the tree holds and the queue resumes the moment the marker is removed.\n' \
-		"$(factory_halt_reason)"
+	printf 'The delivery supervisor has **halted the whole queue** on this unit.\n\n```\n%s\n```\n\nEvery other unit is stopped with it: the halt switch is read before triage, so nothing else is picked up, reviewed or merged until this is resolved. %s\n' \
+		"$(factory_halt_reason)" "$resume"
 	} >"$tmp" 2>/dev/null || {
 		rm -f -- "$tmp"
 		return 0
@@ -2194,6 +2251,12 @@ factory_notice_halt() {
 # `TICK-START` -- see that function for the measurement that moved it.
 factory_quarantine_reset() { # unit
 	factory_ledger_set "$1" quarantine-count 0
+	# #341: the same event that ends a streak run is the event that says this unit delivered rather
+	# than stopped short, which is exactly what the halt-release budget measures. A unit whose tick
+	# ran and whose tree came back clean has its releases earned back: a later halt can still be
+	# released. A unit that never reaches this line spends `FACTORY_HALT_RELEASES` and then
+	# `HALT-STUBBORN` is the sentence that hands the queue to a human.
+	factory_ledger_clear "$1" halt-releases
 }
 
 # The end of a streak, asked at the only moment it has an answer: after the tick, of the tree.
@@ -3178,4 +3241,107 @@ run_action() {
 		log_event "FAILED ($rc) $*"
 		return 1
 	fi
+}
+
+# --------------------------------------------------------------------------- halt re-probe (#341)
+#
+# A halt marker used to be a fact about the past. It was written at the instant a cause was seen,
+# and every activation after that only printed its sentence -- the tree was never asked again. That
+# is right for the halt a person wrote by hand, and it was wrong for the one the streak counter
+# writes: the streak quarantines the work away, so within the same pass the cause it named was gone,
+# and the marker stood on a tree that had been clean ever since. Measured on #302: two stops short
+# of delivery froze EVERY activation for 14h34m, the queue re-printing one `HALTED` line, until a
+# human ran `rm`. The marker outlived its cause and nothing noticed, because nothing asked.
+#
+# So the supervisor's activation guard now asks, every time: is the tree this marker names provably
+# past its cause? `factory_halt_target` reads the machine fields `factory_tree_halt` stamps; only a
+# marker written by that writer can be released, because only it says what to re-ask. A hand-written
+# marker carries no fields and no re-probe releases it -- the same rule as before, exactly: the
+# human who wrote it removes it.
+#
+# What release costs, said plain: a unit that halts, gets its dirt cleaned by some other hand, and
+# halts again costs the queue one extra activation per cycle, and `FACTORY_HALT_RELEASES` caps the
+# cycles. Past the cap the halt turns hard (`HALT-STUBBORN`) and the resume is a human again. The
+# trade is deliberate: #248 counted 15h57m of frozen queue read by nobody, and a twice-stubborn
+# unit's re-halt is two ticks.
+
+FACTORY_HALT_TARGET=' :: halt-target: '
+
+# The machine fields `factory_tree_halt` appended to the marker's one line.
+# stdout: `unit<TAB>cause<TAB>mirror<TAB>tree`. rc 1 when the marker carries none of them -- which
+# is what a human-written halt looks like, and what any marker this file did not write looks like.
+factory_halt_target() {
+	local raw tail unit cause mirror tree
+	[ -e "$FACTORY_HALT" ] || return 1
+	raw=$(tr -d '\n' <"$FACTORY_HALT")
+	tail=${raw#*"$FACTORY_HALT_TARGET"}
+	[ "$tail" != "$raw" ] || return 1
+	case "$tail" in (unit=*) tail=${tail#unit=} ;; (*) return 1 ;; esac
+	unit=${tail%%|*}
+	tail=${tail#*|}
+	case "$tail" in (cause=*) tail=${tail#cause=} ;; (*) return 1 ;; esac
+	cause=${tail%%|*}
+	tail=${tail#*|}
+	case "$tail" in (mirror=*) tail=${tail#mirror=} ;; (*) return 1 ;; esac
+	mirror=${tail%%|*}
+	case "$tail" in (*'|tree='*) tree=${tail##*'|tree='} ;; (*) return 1 ;; esac
+	[ -n "$unit" ] && [ -n "$cause" ] && [ -n "$tree" ] || return 1
+	printf '%s\t%s\t%s\t%s\n' "$unit" "$cause" "$mirror" "$tree"
+}
+
+# Ask the marker's cause the question it was about, and remove the marker when the answer says the
+# cause is gone. Only the activation guard calls it (never `--status`, never `factory_verdict`: a
+# status read must not write anything, and the release is a write).
+#
+# The question is the content verdict, `factory_tree_dirt` -- the same read the halt's own writer
+# asks -- because a clean tree is the only answer that can contradict "this tree had uncommitted
+# work". Clean of PATHS is not clean of state: a half-merged tree (#323's shape) can stage every
+# resolution and read clean with `MERGE_HEAD` still standing, and a pass that resumed into it would
+# merge on top of a merge. So the half-merged tree is not a release either, and a tree git will not
+# answer for is not a release: every answer but "provably clean" holds the halt, because a halt that
+# stands one hour too long is #237's annoyance and one that releases early is work destroyed.
+#
+# rc: 0 released (marker gone, `HALT-RELEASED` journaled) | 1 holds | 2 no machine target to ask.
+factory_halt_reprobe() {
+	local tgt unit cause mirror tree dirt drc=0 gitdir n
+	tgt=$(factory_halt_target) || return 2
+	IFS=$'\t' read -r unit cause mirror tree <<EOF
+$tgt
+EOF
+	[ -n "$tree" ] || return 2
+	dirt=$(factory_tree_dirt "$tree" 2>/dev/null) || drc=$?
+	if [ "$drc" = 1 ]; then
+		# Clean of paths; now clean of state. A tree this file halted on is a repository by
+		# construction -- if git will not answer for it any more, that is not a cleared cause.
+		# The two state questions are #323's shapes verbatim: `MERGE_HEAD` standing means a merge
+		# is unresolved however clean the staged tree reads, and unmerged index entries
+		# (`--diff-filter=U`, the read #341 demand 1 names) are a half-merged index by definition.
+		# Neither may release: resuming into either merges or ticks on top of a merge in progress.
+		gitdir=$(git -C "$tree" rev-parse --absolute-git-dir 2>/dev/null) || gitdir=''
+		if [ -z "$gitdir" ] || [ -e "$gitdir/MERGE_HEAD" ] ||
+			[ -n "$(git -C "$tree" diff --name-only --diff-filter=U 2>/dev/null | head -n 1)" ]; then
+			drc=2
+		fi
+	fi
+	if [ "$drc" != 1 ]; then
+		# Still dirty (0), unreadable or half-merged (2), or the verdict could not be read at all:
+		# every one of them holds. The HALTED line the caller prints carries this pass's asking.
+		return 1
+	fi
+	n=$(factory_ledger_int "$unit" halt-releases)
+	if [ "$n" -ge "$FACTORY_HALT_RELEASES" ]; then
+		# The budget is spent. The cause of THIS marker is cleared -- say so, because the sentence
+		# a human acts on has to tell them the tree is fine and it is the COUNTER that stops the
+		# queue, and name both files a resume touches.
+		log_event "HALT-STUBBORN $unit releases=$n cause cleared and tree clean, but every release is spent -- resume is \`rm $FACTORY_HALT\` and \`echo 0 >$(factory_ledger_path "$unit" halt-releases)\`"
+		return 1
+	fi
+	factory_ledger_set "$unit" halt-releases "$((n + 1))"
+	# The streak counter counted the runs of bad luck that produced this halt; the halt is over, so
+	# the run it measured is over too. Left standing, the next single quarantine would read as a
+	# streak on the strength of a counter from a halt this pass just released.
+	factory_ledger_clear "$unit" quarantine-count
+	rm -f -- "$FACTORY_HALT"
+	log_event "HALT-RELEASED $unit cause-cleared tree-clean cause=$cause releases=$((n + 1)) mirror=$mirror"
+	return 0
 }
