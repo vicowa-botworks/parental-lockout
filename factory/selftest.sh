@@ -16406,7 +16406,16 @@ fp_leg_arms() { # what an empty directory and a missing one each answer, in word
 fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALLS, not sentences
 	local dir=$work/footprint/wired/factory
 	mkdir -p "$dir"
-	status_arm "$HERE/factory.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' || {
+	# The predicate, in one place for the positive check and both control scans: the line must
+	# START the call (indent, then the bare name) and must not be the continuation of somebody
+	# else's command -- a `printf '%s\n' \` followed by the name passes a bare grep, but bash
+	# runs printf there, not the footprint. (Round 2 of the pre-PR review.)
+	is_call() {
+		awk 'p !~ /\\$/ && $0 ~ /^[[:space:]]+factory_log_footprint([[:space:]]|$)/ { f = 1 }
+			{ p = $0 }
+			END { exit !f }'
+	}
+	status_arm "$HERE/factory.sh" | is_call || {
 		printf '\tthe --status arm does not call factory_log_footprint\n'
 		return 1
 	}
@@ -16418,7 +16427,7 @@ fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALL
 		printf '\tcontrol failed: deleting the call changed nothing, so the plant planted nothing\n'
 		return 1
 	}
-	status_arm "$dir/deleted.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' && {
+	status_arm "$dir/deleted.sh" | is_call && {
 		printf '\tcontrol failed: the scan still found the deleted call\n'
 		return 1
 	}
@@ -16431,7 +16440,7 @@ fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALL
 		printf '\tcontrol failed: the comment plant did not land\n'
 		return 1
 	}
-	status_arm "$dir/commented.sh" | grep -qE '^[[:space:]]+factory_log_footprint([[:space:]]|$)' && {
+	status_arm "$dir/commented.sh" | is_call && {
 		printf '\tcontrol failed: the scan reads a comment naming the function as a call\n'
 		return 1
 	}

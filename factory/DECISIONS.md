@@ -9443,9 +9443,11 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   -- the minimum is measured, not asserted; a single-file directory reads "1 file"; and a planted
   `sub/` holding a bigger file named `supervisor.log` must not move one printed number, which is
   the plant that pins `-maxdepth 1`), and the wired leg anchors its predicate on the call shape
-  and carries two planted controls with a `cmp` guard that each plant planted -- deleting the call
-  line, and replacing it with a comment that only mentions the name, which the first version read
-  as wired (found by the pre-PR adversarial round; H-0043's rule). Live
+  -- a preceding-line check included, so a continuation carrying the name as somebody else's
+  argument is not a call -- and carries two planted controls with a landed-guard apiece: `cmp`
+  proves the delete deleted, a marker `grep` proves the comment landed. The comment plant is the
+  mutation the first version read as wired; both survivors were found by the pre-PR adversarial
+  rounds (H-0043's rule). Live
   read-back against the real log directory: `--status` printed
   `log:     journal 995814 B; 171 files, 36074649 B under .../factory/log; oldest 20261110T134828Z.unclaimed:213.log 4d16h`.
   This decision deletes and rotates nothing; the deletion is H-0188 and it awaits a human.
