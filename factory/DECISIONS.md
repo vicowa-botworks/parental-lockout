@@ -8558,7 +8558,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: the extension is the only marker that survives both spellings -- `triage.sh`, `./DECISIONS.md` and
   `internal/web/handlers.go` all answer to it, and `pr`, `unclaimed`, `STATE_PROPS`, `D-0033`, `verify` and
   `make` all refuse it -- so the widening is one regex:
-  `scripts/check-decisions.py:619` "[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$" . It leaves the six shapes
+  `scripts/check-decisions.py:628` "[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$" . It leaves the six shapes
   both logs are full of alone.
   Option one is uniform and wrong on the corpus: 158 rows are an orphan `:NNN` inside a wrapped paragraph, a
   shape H-0153 already rules on (a continuation inherits the last file resolved on the same *physical* line,
@@ -8581,7 +8581,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   names no file. The second loss is smaller: `--citations` calls the count of what it read `read out of the
   two logs`, because `resolve against this tree` was never true of the rows the third number names.
 - Effect: `scan_citations` resolves a continuation from `last` directly (a continuation is a file, by
-  construction -- see `scripts/check-decisions.py:766` "A continuation inherits the FILE, not the spelling"),
+  construction -- see `scripts/check-decisions.py:775` "A continuation inherits the FILE, not the spelling"),
   and the absent-file arm admits an extension-bearing bare name beside a slashed path. 4 rows in the two
   logs move from checked-by-nothing to counted, so the ratcheted number rises 535 -> 539 with nothing added
   to it by anyone; that is this entry's measurement, and `POINTER_DEBT`'s comment block carries the
@@ -8631,7 +8631,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   so checking it is refusing the guide. What is owed by a guide instead is narrow and true: every coordinate
   it tells a unit to copy resolves today -- so ambiguous, unopenable and moved are refused, and `unanchored`
   is dropped. The pass reuses `classify()` rather than restating the anchor logic, which is the invariant
-  #367 review #1 bought (`scripts/check-decisions.py:1049` "def teaches_problems(read, index,"); it runs on
+  #367 review #1 bought (`scripts/check-decisions.py:1058` "def teaches_problems(read, index,"); it runs on
   the tree only when the corpus is the real pair of logs, because `--log` narrows the subject deliberately;
   and a teaching file that is absent is skipped, since a fixture tree with two entries and a copied script
   must not be refused for instructions it does not have. What lost, both pinned so they are decisions and
@@ -8760,7 +8760,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   shadow the other's -- and the pass total, not the census, is the verdict:
   `bash factory/selftest.sh` 649 passed, 0 failed. `main`'s disclosed duplicate definitions
   `branch_err_lacks()` and `emit()` are still exactly two each on the base, here, on `main` and
-  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'" in a
+  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3187` "if ! grep -q '[^[:space:]]'" in a
   file whose ONLY `main` hunk enters 22 lines at `:975` (file 3152 -> 3174).
   What is new since this branch was cut, and it changes the merge message rather than the splice:
   `H-0166` shipped `scripts/check-commit-verbs.sh`, and `make verify` now runs it over every message
@@ -8784,7 +8784,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0143`/`H-0144` settled and `H-0161` and `H-0167` repeated -- an in-place rewrite deletes lines
   the other side wrote and so poisons the zero-deletion census that is the only evidence a splice
   kept both intents, and a coordinate is a measurement at a head: `H-0167`'s
-  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
+  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3187` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
   call `H-0167` followed from `:876` to `:919` is at merged `factory/factory.sh:1189` "factory_stop_marker TICK-UNDELIVERED", because
   `main` moved `factory_tick` again; `H-0167`'s `54a7cf7:factory/selftest.sh:12887`, this branch's dense-log
   leg, is at merged `factory/selftest.sh:13855` "a dense log is read, not mulled over". `main`'s 15 fresh probes: 13 land, 2 name no file
@@ -8881,7 +8881,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   enforces. What is actually hard arrives with the other 12 commits: `main` carries
   `scripts/check-decisions.py` +1106 lines, the citation-anchor rule from #367, and it judges this log
   for the first time on the merged tree. Judged by it the tree holds 567 citations that owe an anchor
-  against `scripts/check-decisions.py:586` "POINTER_DEBT = 539" -- an excess of 28 -- and 2 citations a
+  against `35cd0ea:scripts/check-decisions.py:586` "POINTER_DEBT = 539" -- an excess of 28 -- and 2 citations a
   reader cannot open, and by that rule's own design the second kind suspends the first: the number is
   not judged while any pointer cannot be opened, so the excess stays hidden until someone fixes the two,
   and then it refuses. Attribution, with the checker's own classifier over the merged tree (import the
@@ -8997,7 +8997,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   stays the supervisor's action.
 ## H-0177 · PR #354's fifth base collision lands the same day #367 taught the gate to read every citation in this log, so the resolution is three steps and the log has to say which of its own refusals a moved coordinate does NOT fall under
 
-- Question: `H-0168` refused "re-point every coordinate the merge moves" as its option 5, on the measured ground that it re-dates a measurement in place and deletes lines the other side wrote, and `H-0174` stood on that refusal. Four hours later the merged tree will not go green without six such edits, every one of them inside `main`'s entries, because `main` took #367 and `scripts/check-decisions.py:586` "POINTER_DEBT = 539" now ratchets a count of pointers that this log writes and that the gate reads against the tree being gated: six anchored coordinates in `H-0162`, `H-0170` and `H-0171` come back "it is at line 12100 now, not 11823", and this branch's own four unanchored ones lift the count from 539 to 543. So: what is the rule that says when a merge may move a coordinate, and where do the two colliding tails of this log go?
+- Question: `H-0168` refused "re-point every coordinate the merge moves" as its option 5, on the measured ground that it re-dates a measurement in place and deletes lines the other side wrote, and `H-0174` stood on that refusal. Four hours later the merged tree will not go green without six such edits, every one of them inside `main`'s entries, because `main` took #367 and `35cd0ea:scripts/check-decisions.py:586` "POINTER_DEBT = 539" now ratchets a count of pointers that this log writes and that the gate reads against the tree being gated: six anchored coordinates in `H-0162`, `H-0170` and `H-0171` come back "it is at line 12100 now, not 11823", and this branch's own four unanchored ones lift the count from 539 to 543. So: what is the rule that says when a merge may move a coordinate, and where do the two colliding tails of this log go?
 
 - Options: keep the two blocks in the order the conflict hunk offers them -- this branch's `H-0174` and `H-0175` first, then `main`'s three | splice the log out of the two parent blobs and let the ascending-id rule place the blocks, `main`'s three first | refuse the six as not-this-unit's work and raise POINTER_DEBT to the merged measurement, which the gate offers in as many words | stamp every moved coordinate with the tree it was read at (`8437eea:factory/selftest.sh:11823`), the spelling this gate exempts, and touch nobody's lines | move `main`'s six anchored pointers onto the lines their own anchor text now sits on, anchor this branch's four, and stamp the one coordinate that is a measurement record rather than a pointer | fold both sides' entries into one narrative entry written for this merge
 
@@ -9088,7 +9088,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `2026-11-14T13:41:48Z`, so at this head the label the ticket withholds is read by the classifier
   (`factory/triage.sh:230` "park_json=$(printf '%s'" reads it into the queue read, and
   `is_parked` asks the same map at the row emit) and honoured by the dispatcher
-  (`factory/factory.sh:1501` "a stop that no later pass can read is not a stop": the `parked` arm logs
+  (`factory/factory.sh:1512` "a stop that no later pass can read is not a stop": the `parked` arm logs
   `PARKED` and starts no tick). Does a unit create the label, rename
   the one home at `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}",
   or stop?
@@ -9395,3 +9395,104 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+## H-0200 · Post-merge cleanup was keyed to `$FACTORY_TREES/<slug>` and nothing else, so a unit-made tree outlived its branch for six days with no arm able to see it; the census now reports provable deadness and prunes only what git marks
+
+- Question: #348 measured the blind spot twice on one box: `/home/rodney/prj/.wt-armcheck` — detached
+  at `cf87ecc`, an ancestor of trunk, clean, and on no `$FACTORY_TREES` at all — sat in every tick's
+  `git worktree list` from 7 to 13 Nov (the `factory/log/` transcripts: tick
+  20261110T134828Z.unclaimed, log line 15, and four more ticks) while the merge-time cleanup at `factory/factory.sh` removed exactly one path,
+  `$FACTORY_TREES/$(factory_slug "$branch")`, and `factory/triage.sh` carried the string `worktree`
+  zero times. The second shape, `/home/rodney/prj/wt/wt/verify-343` on 13 Nov, is one directory
+  *under* the trees — a location `factory/common.sh` forbids out loud and `factory_slug` cannot
+  name — and it left its admin row behind for part of a minute, where the next `git worktree add`
+  fails on a stale row. What does the harness owe: counting, removing, or both?
+- Options: a per-pass census that reports provably-dead trees and prunes only git-marked rows |
+  widen the merge-time cleanup to walk `git worktree list --porcelain` and remove what fails the
+  key | a count line in `triage.sh` alone | a prune timer unit and nothing else
+- Chose: a per-pass census that reports provably-dead trees and prunes only git-marked rows
+- Why: the chosen shape is a per-pass census in `factory_worktree_lines` (`factory/common.sh:1435`),
+  wired into `factory_body` beside the refs refresh (`factory/factory.sh:1411` "The census of every
+  tree this repository can see"), printing `WORKTREE-ORPHAN <path> head=<sha> reason=<…>` for trees
+  that are *provably* dead and `WORKTREE-PRUNABLE`/`WORKTREE-PRUNED` for rows git marks prunable,
+  and reporting — never removing — for everything else. Option 2 is refused by the ticket's own
+  evidence, not caution — `/tmp/opencode/p302/pre` is a
+  detached clean tree belonging to a live unit's work, indistinguishable in shape from a dead one
+  until its branch merges, and a forced removal of a directory someone is standing in is the
+  irreversible act this repository reserves; a cleanup arm keyed to ancestry would have eaten it.
+  Option 3 answers "how many" and still names nothing a person can act on, and the issue title's
+  complaint (`triage counts worktrees 0 times`) is answered here because the census journals every
+  pass — the orphan now appears in `supervisor.log` with path and head, where a count line says only
+  that something is wrong somewhere. Option 4 fixes the stale row and never sees `.wt-armcheck`. The
+  deadness gate is `factory/common.sh:1554` `[ "$dirt_rc" = 1 ] || return 0` and it is load-bearing
+  in both directions: the dirty control in selftest is what stops a future edit from keying
+  auto-removal to the orphan line without that leg going red. Two arms were drawn from the design
+  by measurement rather than by taste. A PARTIAL prune arm (marked ≠ removed) was dropped because a
+  locked-and-vanished tree is *never marked* — measured, git 2.53.0: the row lists `locked` with no
+  `prunable` line, prune exits 0 printing nothing, row intact — so the arm had no reachable state and
+  this repository does not ship probes-less branches. And the census asks `factory_tree_dirt`, not
+  the raw stat question: the `#228` guard (`naive_dirt_tests`) refused `status --porcelain` in a
+  shipped script on sight, which is the guard working, while the *contract* nearly went the other
+  way — the first gate written here assumed clean-is-zero, and because that helper answers
+  dirty=0-with-reason, clean=1-silent, unread=2, the inverted gate reported exactly the trees whose
+  dirt could not be read: the suite's first run printed zero orphan lines where three belonged, and
+  went red before anything shipped. The prune's confirmation capture went through the same
+  correction: `prune -v` writes its `Removing` lines to *stderr* (measured: stdout empty), so a
+  stderr-to-file version counted 0 removals after a prune that worked, caught by the leg that pins
+  the count. The refresh-before-triage placement is H-0075's thesis reused: the verdict compares
+  heads to `origin/main` and must judge against the refs the pass just fetched; and the census needs
+  no network, so a pass that cannot reach the queue — exactly the pass whose trees an operator goes
+  looking for — still prints it.
+- Tie-breaks: 1, no `go.mod` line — stdlib and git only. 2, nothing here decides when a lockout
+  starts or ends; this is harness inventory. 4, the evidence is `factory/selftest.sh`'s new section
+  (22 counted legs) plus this log, and no existing behavior changes: the cleanup at merge time is
+  untouched, and `triage.sh` is not edited, so every existing reader of both sees what it saw
+  before. 5, `git revert` of the effect commit retires census, wiring, legs and this entry together
+  and restores the blind but harmless status quo. 6, one hazard per control: the dirty tree is the
+  control that keeps the *report* safe for a future *actor*; no plant is needed for the census
+  itself because its dangerous direction — reporting a live tree — is what the dirty and unmerged
+  legs pin directly.
+- Checkpoint: 85e25806b5caf86e910ee3a7737aefc601d488f7
+- Effect: `factory_worktree_lines` and `factory_worktree_verdict` (+171 lines in
+  `factory/common.sh`), the census loop after the refs refresh (+12 in `factory/factory.sh`), and
+  the census section before the selftest tally (+219 in `factory/selftest.sh`): 22 counted legs over
+  one fixture — the three dead shapes and their two `reason` arms, silence for the live conventional
+  branch, the main checkout, an unmerged head and a locked tree, the dirty control, the prune
+  (report-then-prune, git's own removal count, row gone from the registry, second pass silent), the
+  DRY-RUN arm that must change nothing, the measured lock (a vanished locked row is taken by neither
+  arm and the leg pins the row still present), and the one-sentence `WORKTREE-CENSUS-FAILED` whose
+  leg pins that it prints nothing else. Pointer erratum, caused by these very insertions and repaired
+  in this commit per the H-0182 precedent: `check-decisions.py` named three slid anchors before I
+  touched it — H-0173's two `factory/common.sh:3016` → `:3187` (quote "if ! grep -q '[^[:space:]]'"
+  verified at the new line first; the `54a7cf7:`-pinned historical coordinate untouched) and H-0179's
+  `factory/factory.sh:1501` → `:1512` (quote "a stop that no later pass can read is not a stop"
+  verified); all substitutions same-length, so no line of the log moved. The erratum then multiplied,
+  and it is the entry's own worst-hazard made flesh: I edited `scripts/check-decisions.py` to record
+  the re-measured debt *without first running* `--citations scripts/check-decisions.py`, and the
+  seven lineage lines slid and re-valued five more pointers — H-0171's `:619` → `:628` and `:766` →
+  `:775`, and H-0172's `:1049` → `:1058` (digits only, quotes verified at each new line), while
+  H-0176's and H-0177's `:586` "POINTER_DEBT = 539" could not be digit-repaired at all: the value
+  changed, so the historical sentence no longer exists anywhere to anchor. Both now carry the
+  revision that held them true — `35cd0ea:scripts/check-decisions.py:586`, verified by
+  `git show 35cd0ea:scripts/check-decisions.py | sed -n 586p` — which is the self-naming-revision
+  exemption `H-0173` already uses, and it is the form H-0177's refused "re-point every coordinate"
+  option left available: a re-date falsifies a measurement, a pin states which tree it measured.
+  H-0200's AGENTS.md lesson made flesh, in its own commit.
+  The entry itself is the growth the ratchet exists for: `--citations` re-measured the debt at 546,
+  seven fresh coordinates over the 539 recorded on 14 Nov, and that number is written into
+  `scripts/check-decisions.py` in this commit per the AGENTS.md rule -- a merge that grows the logs
+  re-measures and records, never trims. This entry's own three fresh coordinates were re-read at
+  their shipped lines, and the
+  AGENTS.md Worktrees append lands at file end, past every one of the 14 `AGENTS.md:` pointers
+  `--citations` lists, so none of them moved. Suite read-back after the edit:
+  `bash factory/selftest.sh` → 705 passed, 0 failed, exit 0, where the pre-edit baseline at
+  `85e2580` read 682 passed, 0 failed — twenty-two counted legs added. `make verify` on the exact
+  bytes this entry ships is quoted with its tally and last line in the commit message that carries
+  this entry and in the pull-request body (#1180: an `Effect:` written before the gate runs is a
+  prophecy). Rollback: `git revert` of the effect commit retires the two functions, the wiring, the
+  section, the AGENTS.md paragraph and this entry together; the checkpoint pre-dates all five. What
+  lost: the forced cleanup walk lost `p302/pre`; the triage-only count lost the path-in-the-log that
+  makes the line actionable; the PARTIAL prune arm lost its branch to git's lock behavior; and
+  auto-removal of *anything* is deferred, deliberately, to whoever arrives with a dirty-aware actor
+  and inherits the control leg this section already ships. GitHub writes by this decision: the pull
+  request this entry rides, and nothing else — no merge, no label, no issue write.

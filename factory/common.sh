@@ -1389,6 +1389,177 @@ factory_worktree() {
 	printf '%s\n' "$path"
 }
 
+# The census of every worktree this repository can see (#348), printed as journal lines.
+#
+# The cleanup at merge time is keyed to `$FACTORY_TREES/<slug of the merged branch>` and to nothing
+# else, so two shapes outlive their branch forever, and until #348 both were counted by nobody: an
+# orphan a unit made for itself off the convention (measured 7-13 Nov: `/home/rodney/prj/.wt-armcheck`
+# — detached at a merged commit, clean, listed by every tick's `git worktree list` for six days and
+# reachable by no arm), and a tree placed where the naming cannot produce one (measured 13 Nov:
+# `$FACTORY_TREES/wt/verify-343`, which also left its admin row behind for part of a minute, and a
+# stale row makes the next `git worktree add` refuse). This prints and removes no tree: a directory
+# off the convention may be a person's working directory, and `/tmp/opencode/p302/pre` is the
+# recorded case of a scratch tree that belonged to live work. The only action here is the prune,
+# and it takes only the rows git itself marks prunable — rows whose directories are already gone.
+#
+#		WORKTREE-ORPHAN <path> head=<sha> reason=<merged-and-clean|outside-trees>
+#
+# is printed when, and only when, the tree is provably dead: the path is not
+# `$FACTORY_TREES/<slug of a branch that still exists>`, the head is an ancestor of `origin/main`,
+# and `factory_tree_dirt` answers clean — which for that helper is exit 1 and silence, its refusal
+# arm being 2 (H-0050); the stat question `status --porcelain` is the instrument #228 was filed
+# against, and a verdict built on an incomplete read is not evidence of deadness. A tree that fails
+# either test prints no line:
+# the census is silent about everything it cannot prove dead, which is what makes the line safe for
+# a future edit to key cleanup against, and the dirty control in selftest is the leg that goes red
+# if that gate is ever opened. `reason` names the arm that missed it — `merged-and-clean` for a
+# direct child of `$FACTORY_TREES` that no existing branch names (the merge-time cleanup had a shot
+# at it and missed or failed), `outside-trees` for anywhere else, where no arm ever reaches. Skips
+# that are not verdicts: the main checkout itself, bare repositories, `locked` trees (a person
+# parked those, and git's own prune is measured to leave them alone — rc 0, silent output, row
+# intact, git 2.53.0), and rows marked prunable, whose directories are gone and which the prune arm
+# already spoke for. A tree checked out on a branch that still exists but parked off the
+# conventional path is a candidate like any other, and the two deadness tests decide it — an
+# unmerged head keeps a person's own checkout off the report.
+#
+# The prune, in the same pass, because the same list is what sees the stale row:
+#
+#		WORKTREE-PRUNABLE <path> <git's reason> -- one per marked row, before anything is pruned
+#		WORKTREE-PRUNED <n>                     -- the prune ran and git confirmed n removals
+#		WORKTREE-PRUNE-FAILED <git's first stderr line>
+#		DRY-RUN  git worktree prune (...)       -- marked rows exist; nothing was touched
+#
+# And a census that could not run says so once, with git's own words, and prints nothing else:
+# `WORKTREE-CENSUS-FAILED <line>`. Silence would read as "no orphans", which is the sentence this
+# whole component exists to stop being free.
+factory_worktree_lines() { # [main-checkout] -> WORKTREE-* journal lines; prunes admin rows unless DRY_RUN
+	local main=${1:-$(factory_main_checkout)}
+	local raw err line n_marked=0 removed pv prune_rc path
+	local rpath rhead rbranch rbare rlocked rprunable trees_real main_real
+
+	if [ ! -d "$main" ]; then
+		printf 'WORKTREE-CENSUS-FAILED no checkout at %s, nothing could be listed\n' "$main"
+		return 0
+	fi
+	err=$(mktemp)
+	if ! raw=$(git -C "$main" worktree list --porcelain 2>"$err"); then
+		printf 'WORKTREE-CENSUS-FAILED %s\n' "$(factory_git_said "$err")"
+		rm -f -- "$err"
+		return 0
+	fi
+
+	# Arm 1: the rows git itself marks prunable. Report every one, then prune once — the report
+	# precedes the removal so the journal names each vanished path, not just a count of a batch.
+	path=''
+	while IFS= read -r line; do
+		case $line in
+		'worktree '*) path=${line#'worktree '} ;;
+		'prunable '*)
+			if [ -n "$path" ]; then
+				printf 'WORKTREE-PRUNABLE %s %s\n' "$path" "${line#'prunable '}"
+				n_marked=$((n_marked + 1))
+			fi
+			;;
+		esac
+	done <<<"$raw"
+	if [ "$n_marked" -gt 0 ]; then
+		if [ "$DRY_RUN" = "1" ]; then
+			printf 'DRY-RUN  git worktree prune in %s (%s marked rows)\n' "$main" "$n_marked"
+		else
+			removed=0
+			prune_rc=0
+			# 2>&1, not 2>file: git writes prune's `Removing <name>: <reason>` confirmations to its
+			# STANDARD ERROR (measured, git 2.53.0 -- stdout empty, stderr carries every line), so a
+			# capture aimed only at a file would count zero removals after a prune that worked.
+			pv=$(git -C "$main" worktree prune -v 2>&1) || prune_rc=$?
+			if [ "$prune_rc" -ne 0 ]; then
+				printf '%s\n' "$pv" >"$err"
+				printf 'WORKTREE-PRUNE-FAILED %s\n' "$(factory_git_said "$err")"
+			else
+				# git prints one `Removing <name>: <reason>` line per row it took (measured,
+				# git 2.53.0); counting its confirmations rather than the marked rows keeps the
+				# number honest if the two ever part.
+				removed=$(printf '%s\n' "$pv" | grep -c '^Removing ' || true)
+				printf 'WORKTREE-PRUNED %s rows whose directories were already gone\n' "$removed"
+			fi
+		fi
+	fi
+
+	# Arm 2: the census over the rows still on the list. Compare each path to the convention and
+	# each head to the trunk; print only what provably died.
+	trees_real=$(realpath -- "$FACTORY_TREES" 2>/dev/null) || trees_real=$FACTORY_TREES
+	main_real=$(realpath -- "$main" 2>/dev/null) || main_real=$main
+	rpath='' rhead='' rbranch='' rbare=0 rlocked=0 rprunable=0
+	while IFS= read -r line; do
+		case $line in
+		'worktree '*)
+			factory_worktree_verdict "$main" "$main_real" "$trees_real" \
+				"$rpath" "$rhead" "$rbranch" "$rbare" "$rlocked" "$rprunable"
+			rpath=${line#'worktree '}
+			rhead='' rbranch='' rbare=0 rlocked=0 rprunable=0
+			;;
+		'HEAD '*) rhead=${line#'HEAD '} ;;
+		'branch '*) rbranch=${line#'branch '} ;;
+		'detached') ;;
+		bare) rbare=1 ;;
+		'locked '*) rlocked=1 ;;
+		locked) rlocked=1 ;;
+		'prunable '*) rprunable=1 ;;
+		esac
+	done <<<"$raw"
+	factory_worktree_verdict "$main" "$main_real" "$trees_real" \
+		"$rpath" "$rhead" "$rbranch" "$rbare" "$rlocked" "$rprunable"
+	rm -f -- "$err"
+	return 0
+}
+
+# One row of the census; the verdict and its wording are `factory_worktree_lines'` header. Prints
+# the WORKTREE-ORPHAN line when the entry is provably dead, and nothing at all otherwise.
+factory_worktree_verdict() { # <main> <main-real> <trees-real> <path> <head> <branch-ref> <bare> <locked> <prunable>
+	local main=$1 main_real=$2 trees_real=$3 path=$4 head=$5 branch=$6
+	local bare=$7 locked=$8 prunable=$9
+	local real dirt_rc
+
+	if [ -z "$path" ] || [ "$bare" = 1 ] || [ "$locked" = 1 ] || [ "$prunable" = 1 ]; then
+		return 0
+	fi
+	real=$(realpath -- "$path" 2>/dev/null) || real=$path
+	if [ "$real" = "$main_real" ]; then
+		return 0
+	fi
+	# A branch that still exists and owns this tree at the conventional path: the harness's own
+	# unit directory, live or awaiting its own merge-time cleanup, and never this census's to judge.
+	if [ -n "$branch" ] && [ "${real%/*}" = "$trees_real" ] &&
+		[ "${real##*/}" = "$(factory_slug "${branch#refs/heads/}")" ]; then
+		return 0
+	fi
+	if [ -z "$head" ]; then
+		return 0
+	fi
+	if ! git -C "$main" merge-base --is-ancestor "$head" origin/main 2>/dev/null; then
+		return 0
+	fi
+	# The content verdict, not the stat question (#228/#232). Read the contract at the top of
+	# `factory_tree_dirt` before editing this: its numbers are NOT clean=0. It returns 0 PRINTING a
+	# finding -- "dirty", the sentence naming it -- returns 1 with EMPTY stdout meaning clean, and
+	# returns 2 printing why the tree could not be read at all (H-0050). The dangerous direction for
+	# this census is 2: an unreadable tree is not a provably-dead one, and a gate that conflates 1
+	# with 0 -- `|| return 0`, written against an assumed clean-is-zero here on 15 Nov, which went
+	# red on the suite's first run and is why that line names the shape of the bug instead -- is the
+	# same hole #228 was filed for, wearing the good helper's clothes. So: exactly 1, with the
+	# reason it printed (there is none at 1) and nothing else, is evidence of deadness; 0 and 2 both
+	# end this row in silence.
+	dirt_rc=0
+	factory_tree_dirt "$path" >/dev/null || dirt_rc=$?
+	[ "$dirt_rc" = 1 ] || return 0
+	if [ "${real%/*}" = "$trees_real" ]; then
+		printf 'WORKTREE-ORPHAN %s head=%s reason=merged-and-clean\n' "$path" "$head"
+	else
+		printf 'WORKTREE-ORPHAN %s head=%s reason=outside-trees\n' "$path" "$head"
+	fi
+	return 0
+}
+
 # git's own words, when a read said any. The FIRST line only, because that is the line that names the
 # problem and the rest is git's prose about the same problem; and capped, because the sentence this
 # feeds is one line in `factory/HALT` that a person reads in a terminal. A truncated line says it was

@@ -70,3 +70,9 @@ Per-unit trees live in `$FACTORY_TREES` (default `../wt`), never under `/tmp` �
 delete can also delete unmerged work. Remove one when its branch merges
 (`git worktree remove`), and run `git worktree prune` after a machine restart. Six abandoned
 worktrees, two of them on the same commit, are what happens otherwise.
+
+The harness now also takes inventory: every supervisor pass censuses `git worktree list --porcelain`,
+journals `WORKTREE-ORPHAN <path> head=<sha> reason=…` for each tree that is provably dead — head an
+ancestor of `origin/main`, content verdict clean, and not a tree an existing branch owns under
+`$FACTORY_TREES` — and prunes only rows git itself marks prunable. What the census reports it does
+not remove: a tree off the convention may be a person's working directory (#348, H-0200).

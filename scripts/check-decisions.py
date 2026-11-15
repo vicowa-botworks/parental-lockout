@@ -583,7 +583,16 @@ def label_of(e):
 # them are the paragraph-length continuations `scan_citations` documents it cannot place. None of them is
 # refused today; every one is visible, and none may grow except by a merge that re-measures. Paying one
 # down means editing this line in the same commit.
-POINTER_DEBT = 539
+# Re-measured on 15 Nov with the debt at 546: 248 entries across the two logs. The seven that arrived
+# since 539 are the fresh coordinates `factory/DECISIONS.md`'s H-0200 writes about its own effect --
+# three of them carry their quote and are anchored, four name a line and no text -- counted by
+# `--citations` and recorded here in the same commit as the entry, per the AGENTS.md rule that a merge
+# which grows the logs re-measures rather than trims. This very line was the hazard it names: writing
+# it slid five older pointers in `scripts/check-decisions.py`, repaired in the same commit -- three by
+# digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
+# re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
+# in the file and a pin, unlike a re-date, states which tree they measured).
+POINTER_DEBT = 546
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
