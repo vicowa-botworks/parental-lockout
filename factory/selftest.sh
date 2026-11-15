@@ -3860,9 +3860,9 @@ mm_round_trip() {
 			"$(cat "$t/keepme.txt")" >&2
 		return 1
 	}
-	[ "$(cat "$t/other.txt" | tail -n 1)" = 'edited while conflicted' ] || {
+	[ "$(tail -n 1 "$t/other.txt")" = 'edited while conflicted' ] || {
 		printf '            the edit to a path the merge did not touch did not come back (%s) -- that is\n' \
-			"$(cat "$t/other.txt" | tr '\n' '|')" >&2
+			"$(tr '\n' '|' <"$t/other.txt")" >&2
 		printf '            the tracked work an ordinary quarantine would have put in a stash.\n' >&2
 		return 1
 	}
@@ -3987,15 +3987,18 @@ mm_delete_update() {
 		return 1
 	}
 	d=$(sed -n 's/.*mirror=\([^ ]*\).*/\1/p' "$mm/du.out" | head -n 1)
-	[ -n "$d" ] && [ -d "$d" ] || {
+	# `if`, not `[ -n "$d" ] && [ -d "$d" ] || { … }`: that shape runs the refusal when `-n` passes and
+	# `-d` fails, which is what is wanted, but it ALSO runs it when `-n` fails, and then the message
+	# blames stdout for a mirror that was never named. SC2015 says the same thing more briefly.
+	if [ -z "$d" ] || [ ! -d "$d" ]; then
 		printf '            no mirror named on stdout: %s\n' "$(tr '\n' ' ' <"$mm/du.out")" >&2
 		return 1
-	}
+	fi
 	# The hand-deleted path: no bytes to copy, so the fact is the absence. An abort writes `MAIN` back
 	# over it, and a mirror that recorded nothing here would restore a file the person had removed.
 	[ -e "$d/worktree/keepme.txt.ABSENT" ] || {
 		printf '            the deleted conflicted path has no .ABSENT note (%s), so the mirror cannot\n' \
-			"$(ls "$d/worktree" 2>/dev/null | tr '\n' ' ')" >&2
+			"$(find "$d/worktree" -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | tr '\n' ' ')" >&2
 		printf '            tell a later reader that the file was gone rather than never written.\n' >&2
 		return 1
 	}
