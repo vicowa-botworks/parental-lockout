@@ -9395,3 +9395,75 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and exactly one id line on stdout, not the order of the two notes within stderr, which was never a
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
+
+## H-0192 · The tick instruction interpolated the escalation label's VALUE, which no file census can see and the one leg that read that arm required as its acceptance token, so the repair owes a render-based discriminator and a widened scan
+
+- Question: #340: the `address_review` arm's transport-failure branch ended (bytes before this
+  branch's edit, verbatim from its diff) `ask, mark it with the escalation label --
+  ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull request you already have. Take the name
+  from its one home rather than typing it` — and the arm assembles `id_line` as a double-quoted
+  string, so the SUPERVISOR's own expansion at prompt-build time put the label's VALUE into the tick
+  instruction while the very next clause said to read it from its one home. The value was the live
+  wrong word: `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}"
+  names a label this repository does not have — `factory/common.sh:240` "one of eighteen labels" —
+  and the skill forbids exactly that reach:
+  `.opencode/skills/factory/SKILL.md:301` "Never invent a label name." and
+  `.opencode/skills/factory/SKILL.md:305` "Nothing outside that script's output may reach"
+  toward `--add-label`.
+  The reader-call rule had a home (`factory/common.sh:227` "rather than sourcing the 2,850 lines of")
+  and a precedent (#315, whose record at `factory/DECISIONS.md:7271` "the artifact is a pull request"
+  prescribed naming the working verb), yet the file census stayed green and the leg that read
+  this arm stayed green *because* of the copy. What did the guards miss, and what do they become?
+- Options: delete the interpolation, widen `ask_prompt_assembles_it`'s accept clause to admit the
+  reader call, and add a leg that renders the expansion and refuses any literal name in it | keep the
+  prose and teach the file census to scan rendered prompts | leave the accept clause as it was | a
+  prose warning in the arm's comment
+- Chose: delete the interpolation, widen `ask_prompt_assembles_it`'s accept clause to admit the
+  reader call, and add a leg that renders the expansion and refuses any literal name in it
+- Why: option 2 keeps the defect while pretending coverage — the census asks *who writes the name*,
+  which is a question about files; a prompt is not a file, the source legitimately holds
+  `escalation-label.sh`, and may hold the variable name again, so no file scan can discriminate this
+  shape. The discriminator therefore reads the EXPANSION: extract the arm's `if [ -n "$ask" ]` block
+  and `eval` it in a subshell shaped like the supervisor's (common.sh sourced, `key`/`ask`/`id_line`
+  set, sentinel `PROMPT-SENTINEL`), with two preconditions measured before the refusal — the rendering
+  starts from the id_line it was handed, and it still carries the reader call — so an expansion that
+  lost the prose cannot pass vacuously green. The extraction boundary is measured, not assumed: the
+  shipped arm holds exactly one such block closed by exactly one `fi` (`... | grep -c 'fi$'` on the
+  arm answers 1); an arm that grows a second shape makes the leg refuse (rc 1) rather than render the
+  wrong prose. Option 3 is the measured cause of the drift, so it is widened, not kept: the leg
+  accepted the arm only under `*FACTORY_ESCALATION_LABEL*`, which meant any repair dropping the token
+  turned the suite red and punished the correct fix — the copy survived by test, not by choice. The
+  widened clause `*FACTORY_ESCALATION_LABEL*|*escalation-label.sh*` is the weaker scan and is named
+  as such beside the new leg. Tie-break 1: no dependency, no `go.mod` line, stdlib and shell only.
+  Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 4: `factory/factory.sh`
+  and `factory/selftest.sh` and this log only; the shipped change removes one interpolated value from
+  prose, and no enforcement behavior moves. Tie-break 5: `git revert` of the effect commit restores
+  the interpolation and retires the leg together; the checkpoint pre-dates both. Tie-break 6: the
+  house one-control-per-hazard rule — `ask_prompt_rendered_control` re-plants the deleted
+  interpolation as the VARIABLE (`$FACTORY_ESCALATION_LABEL`, so a #311 rename follows the plant
+  instead of vacuating it) inside the empty-ask branch of a copy outside the repository, measures that
+  the plant landed and that the copy still renders the escalation branch, and FAILs if the leg passes
+  a rendered name anyway; the control is uncounted and prints its ok line by the `alloc_control`
+  convention.
+- Checkpoint: 92ada93c1c5a3d24cf3fc8699aff78f7d827accb
+- Effect: the deleted sentence rewritten in `factory/factory.sh`'s empty-ask arm (2 lines out, 2 in),
+  which is now `factory/factory.sh:1031` "ask, mark it with the escalation label, and stop there" —
+  the words the deletion removed are not in it; `ask_prompt_assembles_it` widened and its failure
+  sentence re-worded; `ask_prompt_render`, `ask_prompt_carries_no_name` (one counted leg) and
+  `ask_prompt_rendered_control` at the tail of `factory/selftest.sh`. Read-back:
+  `bash factory/selftest.sh` → 683 passed, 0 failed, exit 0, where the baseline at the checkpoint read
+  682 — one counted leg added, the control uncounted by convention; and the mutant run both ways on
+  the shipped tree: restoring the interpolation in place turns exactly one leg red (682 passed, 1
+  failed, FAIL count 1, `the rendered tick prompt carries no escalation name`), restoring the fix
+  returns 683/0. `scripts/check-shell.sh`'s shellcheck is clean, with two house-inline disables —
+  SC2034 for `key`/`ask`, read only by the eval'd block, and SC1091 for the `common.sh` source — each
+  carrying the reason in words. `make verify` on the exact bytes this entry ships is quoted with its
+  tally and last line in the commit message that carries this entry (#1180: an `Effect:` written
+  before the gate runs is a prophecy). What lost: the widened source scan admits an arm that carries
+  only the reader call, so a future interpolation of some *other* literal can pass that leg — only
+  the render leg sees name-bearing prose now, which is why it is the counted one and the scan is
+  documented as the weaker guard; the render leg is bound to the arm's current single-block shape and
+  refuses rather than adapts if that shape moves; and #311 stays where it stood — the name still
+  resolves to none of the eighteen, and this change only guarantees it is the reader's word at read
+  time, never a baked one. No GitHub write, no label, no merge, no governing file edited by this
+  decision.
