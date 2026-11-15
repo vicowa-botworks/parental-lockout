@@ -3271,17 +3271,17 @@ proc_run() {
 }
 
 # proc_mutate <anchor> <line> -> the fixture's common.sh with one line after the shipped one. It
-# refuses unless the anchor occurs exactly once, because a mutant planted on the wrong line is a
-# control that measures nothing while printing the loudest sentence in the section.
+# refuses unless the anchor occurs exactly once: a mutant planted on the wrong line measures nothing.
+# Anchor and line arrive through ENVIRON, never `awk -v`, which eats backslashes (H-0196, gawk 5.2.1).
 proc_mutate() {
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/common.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/common.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/common.sh, so it would\n' "$hits" >&2
 		printf '            not be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ print } index($0, a) { print line }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ print } index($0, ENVIRON["PMUT_ANCHOR"]) { print ENVIRON["PMUT_LINE"] }' \
 		"$HERE/common.sh" >"$proc_dir/common.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/common.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -3640,9 +3640,9 @@ proc_mutate_last() { # <needle>
 		printf '            code while reporting a mutation.\n' >&2
 		return 1
 	}
-	if ! awk -v n="$hits" -v needle="$needle" '
+	if ! PROC_MUT_NEEDLE=$needle awk -v n="$hits" '
 		{
-			if (index($0, needle) && ++seen == n) {
+			if (index($0, ENVIRON["PROC_MUT_NEEDLE"]) && ++seen == n) {
 				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
 				next
 			}
@@ -4544,15 +4544,15 @@ fi
 # supervisor exited 5 with eight units still queued"). Make unit A's session fail — the state the guard
 # was written for — and run it twice, once shipped and once with the guard taken, so the one variable
 # is the guard and not the failure.
-proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced
+proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced, both travelling by ENVIRON: awk -v eats backslashes (H-0196)
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/factory.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/factory.sh, so it would not\n' "$hits" >&2
 		printf '            be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ if (index($0, a)) print line; else print }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ if (index($0, ENVIRON["PMUT_ANCHOR"])) print ENVIRON["PMUT_LINE"]; else print }' \
 		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/factory.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -13409,7 +13409,7 @@ dpn_leg() { # <label> <requires> command...
 # shellcheck disable=SC2317  # reached from the controls below
 dpn_mut() {
 	local src=$1 anchor=$2 line=$3 out=$4 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$src")
+	hits=$(DPN_ANCHOR=$anchor awk 'index($0, ENVIRON["DPN_ANCHOR"]) { c++ } END { print c + 0 }' "$src")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in %s, so it would not be planted\n' \
 			"$hits" "${src##*/}" >&2

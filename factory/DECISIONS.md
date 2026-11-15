@@ -9470,3 +9470,52 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   a decision numbered without it can be perfectly correct, the entry only owes its provenance, and
   pinning the behavior instead of the attribution would make an honest by-eye repair on an old branch
   a violation. No GitHub write, no label, no merge, no governing file edited by this decision.
+
+## H-0196 · #407: the mutant that got planted was not the mutant the leg described -- gawk 5.2.1 ate the trailing backslash of the `awk -v` value, so a mutation channel is `ENVIRON`, never `-v`
+
+- Question: the same bytes were green on the unit's machine and red on the runner -- `factory/selftest.sh:
+  693 passed, 1 failed`, the FAIL `a decision taken by eye is UNEARNED`, its stderr `the mutant anchor
+  occurs 0 time(s) in factory/factory.sh` beside the anchor `FACTORY_TICK_UNIT="$unit" \`. That anchor
+  stands once in the shipped file. Why did the counting pass not see it, and what must a mutation
+  helper do so a leg's verdict stops depending on which awk the machine happens to carry?
+- Options: anchor and line travel through `ENVIRON` | through `-v` with backslashes doubled | on stdin
+  beside the file argument | through `sed "s/$anchor/$repl/"` | through `python3` argv, which is how
+  `claim_mutate_text` already plants | the leg picks an anchor with no backslash | the section refuses
+  to run unless `awk --version` names mawk
+- Chose: anchor and line travel through `ENVIRON`
+- Why: measured with `printf 'x\n' | awk -v l='TAIL\' '{print "["l"]"}'` -- mawk 1.3.4, the unit's
+  `/usr/bin/awk`, prints `[TAIL\]`; GNU Awk 5.2.1, the runner's awk read out of run 43718345241's own
+  log rather than assumed, prints `[TAIL]`. gawk resolves escape sequences inside an `-v` value, so a
+  value whose last byte is `\` arrives with that byte gone, and both the anchor and the replacement
+  were `-v` values: the anchor arrived as `FACTORY_TICK_UNIT="$unit" ` -- trailing space, no
+  continuation -- matching nothing, because the shipped line is the first half of a two-line command.
+  The plant guard then did exactly its job: a control whose mutant cannot be written refuses instead of
+  passing, which is why this surfaced as a red check and not as a leg that quietly tested shipped code.
+  `ENVIRON` resolves nothing -- both binaries print `[TAIL\]` -- and it is already this file's channel
+  wherever a mutant's text is load-bearing: `proc_mutate_last`'s `PROC_MUT_LINE` and `dpn_mut`'s
+  `DPN_ANCHOR`/`DPN_LINE` were reading `ENVIRON` before this decision. Doubling the backslash loses on
+  the same measurement in the other direction: it plants `\\` under mawk, trading one implementation's
+  lie for the other's. stdin loses because the file being mutated is already the file argument. python
+  argv is byte-faithful and would serve, at the price of an interpreter per plant plus a quoting layer
+  for the tab every mutant line opens with, for what `ENVIRON` does in one word. `sed` is what
+  `claim_mutate_triage` still uses and it is the worse channel -- there the anchor is a regex, `/`, `&`
+  and `\` included -- but nothing in that helper failed at this head, so rewriting its substitution is a
+  second decision with its own controls, and it is named here rather than touched. The anchor with no
+  backslash is the repair that would have turned CI green, and it is what lost: the leg exists to corrupt
+  the export line as it is actually written, and choosing an anchor that keeps the channel invisible
+  leaves the channel lossy for the next unit's plant -- the same red on a different branch, with the
+  diagnosis paid for twice. A guard that refuses to run under gawk is a leg that does not run on CI,
+  which is the condition that let this ship while looking green.
+- Checkpoint: 5076faec5ea7447ea2f2a4fa68b86f022e18304e
+- Effect: in `factory/selftest.sh`, `proc_mutate` and `proc_mutate_factory` carry anchor and line as
+  `PMUT_ANCHOR`/`PMUT_LINE` and read them out of `ENVIRON`, and `proc_mutate_last`'s needle and
+  `dpn_mut`'s anchor count travel the same way. Ten lines changed; the file's line count did not --
+  16962 before, 16962 after -- so no published pointer aimed at this file moved, and this entry spells
+  no new coordinates. Gate read-back on these bytes: 248 entries, 641 citations, 0 pointing somewhere a
+  reader cannot open, debt unchanged at 539. Selftest read-back: under gawk 5.2.1 forced onto PATH, 694
+  passed, 0 failed, exit 0, against 693 passed, 1 failed on the pre-fix bytes with the awk binary the
+  only variable; `make verify` under the machine's own mawk, 694 passed, 0 failed, last line `verify:
+  OK`, exit 0. What lost: the backslash-free anchor, doubled backslashes, stdin, python argv, the
+  version-asserting guard, and the claim that a local `make verify` reproduces the runner -- the two
+  awks disagree, so a selftest verdict is only worth the awk it was read under, and this unit read it
+  under both. No GitHub write, no label, no merge, no governing file edited by this decision.
