@@ -1635,6 +1635,22 @@ factory_body() {
 		# triage.sh looks for still arrives here as a report, not as a done.
 		delivered)
 			log_event "DELIVERED $unit/$key $detail -- reported, not worked: nothing is dispatched and nothing is closed"
+			# The DELIVERED line above is a verdict about the TRUNK -- the work the row names is on
+			# main -- and it used to be read as a verdict about the tree, which is how 991 lines ended
+			# up sitting uncommitted behind a sentence that said nothing is owed (#347). This second
+			# line is the tree's own state, read with the same dirtiness reader a dispatch halt uses,
+			# and it is report-only for the same reason the row is: the class exists to start nothing.
+			# A dirty delivered tree is a person's uncommitted work, and the harness that refuses to
+			# close the issue also refuses to touch it -- no stash, no bundle, no abort; those are the
+			# verbs issue 328 nearly died of. See H-0199.
+			case "$unit" in
+			issue | branch)
+				inspected=$(factory_delivered_inspect "$unit" "$key" "$branch")
+				if [ -n "$inspected" ]; then
+					log_event "$inspected"
+				fi
+				;;
+			esac
 			;;
 		parked)
 			# The other half of #313, and the reason the class exists: an escalating unit is told to
