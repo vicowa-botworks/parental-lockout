@@ -18436,6 +18436,179 @@ cv_leg_cmsg_empty() {
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
 
+# #334 -- the footprint line. Nothing bounds `factory/log/` (20 MB across 100 files at filing, 35 MB
+# across 171 three days later, oldest file still the harness's first day), and `--status` printed the
+# journal's path and nothing about its size. The retention decision is escalated (`H-0188`) -- deleting
+# the operator's audit trail is not a tick's move -- but the line that makes the growth visible is, and
+# these legs drive the shipped function against planted directories of known bytes and known ages.
+# Nothing here deletes anything; that is the escalated half's problem, not the suite's.
+fp_leg_planted() {
+	local dir=$work/footprint/planted out
+	mkdir -p "$dir"
+	head -c 250 /dev/zero >"$dir/supervisor.log"
+	head -c 400 /dev/zero >"$dir/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$dir/refresh.log"
+	local t_old t_mid t_new
+	t_old=$(date -u -d '3 days ago' +%s)
+	t_mid=$(date -u -d '2 days ago' +%s)
+	t_new=$(date -u -d '1 day ago' +%s)
+	touch -d "@$t_old" "$dir/20261110T134828Z.unclaimed:213.log"
+	touch -d "@$t_mid" "$dir/supervisor.log"
+	touch -d "@$t_new" "$dir/refresh.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed on a planted directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | head -n 1 | grep -qxF "journal: $dir/supervisor.log" || {
+		printf '\tthe first line is not the journal path line: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\tthe planted bytes were not summed as planted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest 20261110T134828Z\.unclaimed:213\.log (2d23h|3d0h)' || {
+		printf '\tthe oldest file is not named with a days-shaped age: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# One file must read "1 file", not "1 files" -- the plural is cheap here and the journal line is
+	# read by a person deciding whether the growth is a problem.
+	local one=$work/footprint/one
+	mkdir -p "$one"
+	head -c 250 /dev/zero >"$one/supervisor.log"
+	out=$(factory_log_footprint "$one") || {
+		printf '\tfactory_log_footprint failed on the single-file directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 1 file,' || {
+		printf '\tthe single-file directory did not read singular: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# The control for `oldest`: touch that transcript and the same scan must change its answer. A
+	# report that names the same file no matter what is planted reports an order, not a minimum.
+	touch -d "@$t_new" "$dir/20261110T134828Z.unclaimed:213.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed after the flip\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest supervisor\.log (1d23h|2d0h)' || {
+		printf '\tafter the flip the scan still names the same file: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# Directories under the log dir are not this footprint -- and the promise needs a plant or the
+	# `-maxdepth 1` can rot away green. A recursive scan printing `%f` would let a nested file
+	# named `supervisor.log` masquerade as the journal and silently overwrite the journal field.
+	mkdir -p "$dir/sub"
+	head -c 999 /dev/zero >"$dir/sub/supervisor.log"
+	head -c 4000 /dev/zero >"$dir/sub/big.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed over the nested-directory plant\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\ta planted subdirectory changed the footprint: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	return 0
+}
+
+fp_leg_arms() { # what an empty directory, an absent one and a journal-less one each answer, in words that name the case
+	local empty=$work/footprint/empty out
+	mkdir -p "$empty"
+	out=$(factory_log_footprint "$empty") || {
+		printf '\tfactory_log_footprint failed on an empty directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'nothing under' || {
+		printf '\tthe empty directory did not say so: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	out=$(factory_log_footprint "$work/footprint/nosuch") || {
+		printf '\tfactory_log_footprint failed on an absent directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'does not exist' || {
+		printf '\tthe absent directory did not name its condition: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal:' || {
+		printf '\tthe absent arm dropped the journal path line\n'
+		return 1
+	}
+	# The third arm: a log directory holding transcripts and no journal. That is what a hand-deleted
+	# `supervisor.log` leaves, and what a rotation would leave in the instant between moving the file
+	# and creating the next one (#334's fix 2 will live here). The field must say `never` while the
+	# count and the bytes still describe the transcripts that ARE there.
+	#
+	# This plant is also the only witness for WHICH file the journal field is taken from that does not
+	# depend on the order `find` returns names in. With no `supervisor.log` present there is no
+	# ordering in which a last-file-wins scan can print `never`, so the mutant that fills the field
+	# with the last file it scanned dies on this line -- measured SURVIVING the 3-file plant above at
+	# 6cebe8d, where that plant printed the planted `journal 250 B` whenever the journal happened to be
+	# the name `find` returned last. An assertion a wrong implementation can satisfy by luck of
+	# directory order is H-0043's defect with the numbers still in it.
+	local nojournal=$work/footprint/no-journal
+	mkdir -p "$nojournal"
+	head -c 400 /dev/zero >"$nojournal/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$nojournal/refresh.log"
+	out=$(factory_log_footprint "$nojournal") || {
+		printf '\tfactory_log_footprint failed on a journal-less directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal never; 2 files, 500 B' || {
+		printf '\tthe journal-less directory did not read `journal never` with its transcripts still counted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	return 0
+}
+
+fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALLS, not sentences
+	local dir=$work/footprint/wired/factory
+	mkdir -p "$dir"
+	# The predicate, in one place for the positive check and both control scans: the line must
+	# START the call (indent, then the bare name) and must not be the continuation of somebody
+	# else's command -- a `printf '%s\n' \` followed by the name passes a bare grep, but bash
+	# runs printf there, not the footprint. (Round 2 of the pre-PR review.)
+	is_call() {
+		awk 'p !~ /\\$/ && $0 ~ /^[[:space:]]+factory_log_footprint([[:space:]]|$)/ { f = 1 }
+			{ p = $0 }
+			END { exit !f }'
+	}
+	status_arm "$HERE/factory.sh" | is_call || {
+		printf '\tthe --status arm does not call factory_log_footprint\n'
+		return 1
+	}
+	# Control one, planted outside the repository: a copy with the call line deleted. The guard
+	# that the plant planted is `cmp` -- an edit that changed nothing would certify absence for
+	# free -- and then the same anchored scan must go red.
+	sed '/^[[:space:]]*factory_log_footprint[[:space:]]*$/d' "$HERE/factory.sh" >"$dir/deleted.sh"
+	cmp -s "$HERE/factory.sh" "$dir/deleted.sh" && {
+		printf '\tcontrol failed: deleting the call changed nothing, so the plant planted nothing\n'
+		return 1
+	}
+	status_arm "$dir/deleted.sh" | is_call && {
+		printf '\tcontrol failed: the scan still found the deleted call\n'
+		return 1
+	}
+	# Control two, the comment plant: the call line replaced by a comment that only MENTIONS the
+	# name. A scan that reads a sentence as a call certifies wiring that is not there -- the exact
+	# defect the pos-call-sites section repaired with a shape predicate (H-0043's rule).
+	sed 's/^[[:space:]]*factory_log_footprint[[:space:]]*$/\t# prints its lines via factory_log_footprint from common.sh/' \
+		"$HERE/factory.sh" >"$dir/commented.sh"
+	grep -qF '# prints its lines via factory_log_footprint' "$dir/commented.sh" || {
+		printf '\tcontrol failed: the comment plant did not land\n'
+		return 1
+	}
+	status_arm "$dir/commented.sh" | is_call && {
+		printf '\tcontrol failed: the scan reads a comment naming the function as a call\n'
+		return 1
+	}
+	return 0
+}
+claim_leg 'footprint: planted bytes, count, oldest' fp_leg_planted
+claim_leg 'footprint: empty, absent, journal-less' fp_leg_arms
+claim_leg 'footprint wired into --status' fp_leg_wired
+
 # ---- the rendered tick prompt carries no escalation name (#340)
 #
 # `ask_prompt_assembles_it` reads the SOURCE of the `address_review` arm; this section reads what that

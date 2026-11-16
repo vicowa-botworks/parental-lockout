@@ -3856,6 +3856,65 @@ run_action() {
 	fi
 }
 
+# The footprint of the journal directory, printed as two `--status` lines (#334).
+#
+# Nothing in this harness bounds `factory/log/`. `log()` appends to `supervisor.log`, one transcript
+# per tick is written beside it, and no code rotates, truncates or prunes either -- three days of the
+# timer measured 20 MB across 100 files at filing and 35 MB across 171 three days later, the oldest
+# file still the harness's first day. What a unit may NOT do is pick the retention: deleting the
+# operator's audit trail is one of the four classes AGENTS.md reserves, and #334 says so itself. What
+# a unit owes without making that decision is the reading that makes the growth visible -- #260's
+# argument about a record's LOCATION, aimed at its SIZE: "a record whose location and size are
+# invisible is found by archaeology". `--status` printed the journal's path and nothing else, and
+# asking "how big has it got" cost 150 lines of grep.
+#
+# So this reports and deletes nothing; the deletion is the escalated half (`H-0188`). One `find`
+# over the directory, no read of the journal's CONTENT -- the whole point of #334 is that readers
+# walking the file get linearly more expensive, so the footprint line must not be one of them. The
+# age named is the OLDEST regular file's mtime: the answer to "how far back does the record go", in
+# the same shape `factory_age_human` gives every other duration on this page. Directories under the
+# log dir are not counted, and neither is their content -- nothing the harness writes nests there.
+# Filenames are read NUL-delimited; a basename containing a NUL is not a thing, and one containing
+# a TAB would split oddly across the fields -- every name written here comes from `factory_slug` or
+# is a fixed literal, so neither exists in this directory by construction.
+factory_log_footprint() { # [log dir] -> the `journal:` line and the `log:` footprint line
+	local dir=${1:-$FACTORY_LOG}
+	printf 'journal: %s\n' "$dir/supervisor.log"
+	if [ ! -d "$dir" ]; then
+		printf 'log:     %s does not exist -- nothing journaled from this tree yet\n' "$dir"
+		return 0
+	fi
+	local n=0 bytes=0 jbytes='' oldest='' oldest_mtime='' size mtime name now jfield
+	now=$(date -u +%s)
+	while IFS=$'\t' read -r -d '' size mtime name; do
+		mtime=${mtime%%.*}
+		[ -n "$mtime" ] || mtime=0
+		n=$((n + 1))
+		bytes=$((bytes + size))
+		if [ "$name" = "supervisor.log" ]; then
+			jbytes=$size
+		fi
+		if [ -z "$oldest_mtime" ] || [ "$mtime" -lt "$oldest_mtime" ]; then
+			oldest_mtime=$mtime
+			oldest=$name
+		fi
+	done < <(find "$dir" -maxdepth 1 -type f -printf '%s\t%T@\t%f\0' 2>/dev/null)
+	if [ "$n" = 0 ]; then
+		printf 'log:     nothing under %s -- no journal and no transcripts yet\n' "$dir"
+		return 0
+	fi
+	if [ -n "$jbytes" ]; then
+		jfield="$jbytes B"
+	else
+		jfield=never
+	fi
+	local noun=file
+	[ "$n" = 1 ] || noun=${noun}s
+	printf 'log:     journal %s; %s %s, %s B under %s; oldest %s %s\n' \
+		"$jfield" "$n" "$noun" "$bytes" "$dir" "$oldest" \
+		"$(factory_age_human "$((now > oldest_mtime ? now - oldest_mtime : 0))")"
+}
+
 # --------------------------------------------------------------------------- halt re-probe (#341)
 #
 # A halt marker used to be a fact about the past. It was written at the instant a cause was seen,

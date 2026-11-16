@@ -159,7 +159,7 @@ EOF
 		# journal, the timer still said `active`, and nothing printed `SubState=stop-sigterm`.
 		printf 'reaping: %s\n' "$(factory_reap_line)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
-		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
+		factory_log_footprint
 		printf '\nledger:\n'
 		shopt -s nullglob
 		for f in "$FACTORY_LEDGER"/*; do
