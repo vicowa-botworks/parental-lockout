@@ -10048,7 +10048,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: 2d300546b6e5bdc364950867cbbcec5550f7c941
 - Effect: one file spliced out of the two parent blobs, nothing else hand-written. Arithmetic first,
   because it is the cheapest proof a union lost nothing: main's blob 9944 lines / 186 entries, ours
-  9456 / 179, the merge base 9397 / 178, merged 10003 / 187 -- ours plus main's delta exactly. No-loss
+  9456 / 179, the merge base 9397 / 178, merged 10003 / 187 with the two parents' entries only and
+  10071 / 188 at `dc448fe`, the commit that first ships this one -- ours plus main's delta exactly.
+  No-loss
   census as digit-normalised line multisets against BOTH parents: no line of either parent is absent
   from the merge, and no line of the merge lacks a parent twin, so the splice authored no prose of its
   own. The auto-merged `factory/selftest.sh` was measured the same way rather than diffed -- leg
