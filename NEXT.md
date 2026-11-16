@@ -75,9 +75,10 @@ its own carried lineage, in that file's order, condensed but not dropped.
 6. **A tick's pre-flight fetch is unbudgeted** (carried, #419). **One instance re-measured here:**
    `git fetch --prune origin` in this tree hit the tool's own 120 s ceiling once and returned rc 0 in
    well under a second on the retry, moving no ref. A fast fetch is not evidence the ceiling was wrong.
-7. **`make verify` reads RED from a tick's own shell until #425 is repaired** (carried; see item 26).
-   This unit ran `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify` and says
-   so where the verdict is quoted.
+7. **The dispatch environment's effect on `make verify` is unresolved, not fixed.** See item 26: the
+   carried cause is unconfirmed on this tree and the review's substitute names a variable that does
+   not exist here. This unit ran verify with all six `FACTORY_*` names unset and says so where the
+   verdict is quoted.
 8. `H-0188` is owed a human answer and is the only thing that bounds `factory/log` (20 MB / 100 files
    on 12 Nov, 36 MB / 172 later); rotation and truncation are both deletions of the operator's records,
    a reserved class. Read the escalation comment on #334 before touching the footprint function again.
@@ -139,10 +140,21 @@ its own carried lineage, in that file's order, condensed but not dropped.
     `reviewDecision=APPROVED` with `reviewRequests: []` at head `d8aa547` before this push; ask
     `gh pr view 411 --json reviewDecision,reviews,mergeable,mergeStateStatus` after the push and
     before calling anything ready. The re-ask is the supervisor's poke, not a unit's.
-26. `make verify` reads RED for a tick that exports its own dispatch env (`FACTORY_LOG`,
-    `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH`), and it is `main`'s defect (#425). Workaround until
-    repaired, and say so wherever the verdict is quoted:
-    `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`.
+26. **The sanitization question is open, and both proposed causes are unsupported on this tree.**
+    The carried line (from `H-0226`) says `make verify` reads RED for a tick that exports its own
+    dispatch env, naming `FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH` (#425). A review
+    today says the opposite cause — that the three-name workaround still reads red, that
+    `FACTORY_STATE_DIR` is the load-bearing name because `factory_supervisor_state_file` honours it,
+    and that `FACTORY_SERVICE_UNIT` is the other, naming a leg `a control run can suppress the other`.
+    Measured here: `grep -rln FACTORY_STATE_DIR .` returns **0 files** and `factory/common.sh` defines
+    no `factory_supervisor_state_file`; the leg it quotes does not exist, the nearest is
+    `factory/selftest.sh:14831` "control: one note can suppress the other". What this unit actually
+    measured: its dispatch env carries six names (`FACTORY_LOG`, `FACTORY_REVIEWER`,
+    `FACTORY_REVIEWER_TEAM`, `FACTORY_TICK_BRANCH`, `FACTORY_SERVICE_UNIT`, `FACTORY_TICK_UNIT`) and
+    verify with **all six** unset reads `verify: OK` on the merged tree (3365 passed, 0 failed,
+    cross-builds ok). Nobody in this thread has run verify with the dispatch env **intact**, so the
+    premise of the whole class is unreproduced here — do not extend any sanitization list before that
+    run exists, or you are documenting a variable that is not in the harness.
 27. **Three non-blocking review items from PR #402's review, carried because they are still true of the
     shipped gate**: a bare `-` bullet slips the empty-marker leg; the scanned-file list is unpinned
     (a future PR could narrow it with the suite green); the shape leg early-returns after its first
@@ -150,11 +162,22 @@ its own carried lineage, in that file's order, condensed but not dropped.
 28. #355's own claims are untested against main's `serve`-stop rewrite: `D-0085`'s single-clock join
     and `H-0202`'s shape-guard were measured on this branch's own head. The gate is green over the
     merged tree, which is the only new evidence.
-29. Two open branches still re-conflict on these same two logs at every merge (#428, #381): this is
-    the third sync this hour whose whole conflict surface is a decision-log tail.
-30. `H-0203` and `H-0225` remain gaps in the merged id sequence with no pull request in `main`;
-    `docs/factory.md` requires a gap to be explicable, and these two are explained only by refs on
-    this machine. A unit on another clone cannot see why.
+29. Two open branches still re-conflict on these same two logs at every merge (#428, #381): this
+    sync's whole conflict surface is the two decision-log tails and nothing else. Do not quote a
+    count of "syncs this hour" for it — a review challenged the phrase and no timestamped census of
+    merge units exists in this tree to back any such number.
+30. The merged id sequence still shows `H-0203` and `H-0225` as gaps, and both ARE explained by refs
+    — measured with python over each blob, not grep: `origin/main` holds 218 headings and lacks both;
+    `refs/heads/issue-361` + `refs/remotes/origin/issue-361` hold `H-0203` (commit `63bcf84`, whose
+    trailer is `Decision: H-0203`) and `refs/heads/issue-348` holds `H-0225`; neither ref is an
+    ancestor of `origin/main`. A review today asserted the opposite — that both are in `main` via
+    `d0c94d4` (PR #414) and `4118646` (PR #420) — and **both objects are unknown revisions in this
+    clone** (`git cat-file -t` fails), so that correction was refused on measurement. A unit on
+    another clone that has not fetched `issue-348`/`issue-361` will see two unexplained gaps: that is
+    the allocator's `REFRESH-BLIND` risk in concrete form, not a lost entry.
+
+31. **Two reviews on this pull request, at 14:33:30Z and 14:47:41Z, name artifacts this repository has never contained, and every one of their load-bearing claims was checked before anything was changed here.** Absent across all refs (`git log --all` finds 0 commits adding them): the two python test files the 14:33 review names, test_all_day_boundary and
+       test_doctor_schedule_window, both said to live under the testing tree, plus the symbols `allDayNotStarted` and `stillLocked`, the report strings `all day, not started` / `still ends at` / `still locked until`, and any `test_*.py` under `testing/` (the tree holds `README.md`, `capture/`, `e2e/`), so `python3 -m unittest discover -s testing` collects 0 tests, not 34. The line they cite, `cmd/plock/doctor_checks.go:458`, is `if !a.InWindow {` here and `\t\t\tcontinue` at `4fbb051`; `doctor.go:141` is the `--try`/`--json` refusal, and the only other clock reads in that file are the report stamp at 155 and the TLS check at 186, neither of which evaluates a schedule. Two sentences quoted as this body's have never been in this body. Commits `d0c94d4` and `4118646` do not exist here. What the reviews asked for already ships on this branch: the fixture says `allDay` with both stamps at `00:00:00Z` and `scripts/check-fixture-window.sh` refuses the `00:00`/`23:59` pair (`4fbb051`), and the guard runs at `Makefile:152`, BEFORE vet/build/race. If a future unit is told to fix the all-day union, ask for the ref first — the second review's own instrument confirmed this sync independently (clean merge, ids unique and ascending, both gates rc 0, its full run 3365 passed 0 failed), so the reviewer can read this tree; it is the findings, not the tree, that are elsewhere.
 
 ## Hard rules for whoever picks this up
 
