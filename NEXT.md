@@ -1,6 +1,8 @@
 # NEXT — issue-337 unit
 
-State at push: branch `issue-337`, checkpoint `63cfe50`; the effect commit carries `Decision: H-0189`.
+State at push: branch `issue-337`, checkpoint `ae1047e`; the effect commit carries `Decision: H-0207`
+-- the second base-sync union for PR #402 (the first is `H-0190`, the hand-off gate is `H-0189`).
+Everything below is the hand-off `H-0189` shipped, carried forward unmodified.
 `make verify`'s verdict is quoted in the pull-request body from its read-back, never from here (#1180).
 
 ## What this unit shipped
@@ -15,6 +17,9 @@ State at push: branch `issue-337`, checkpoint `63cfe50`; the effect commit carri
 - `Makefile` — `==> hand-off contract` and `==> hand-off file` inside `verify:` (clauses only: the
   comment block above `verify:` carries five `Makefile:` pointers, so it grew no prose).
 - `NEXT.md` — this file, rewritten with the previous unit's owed items carried forward.
+- Two base-sync merges for PR #402, recorded as `H-0190` and `H-0207`: the conflict is the decision-log
+  double-append, never code, and each is resolved as one ascending-id union byte-exact on each side.
+  A third can land before the merge — main's log moves under every open branch while #381 is unshipped.
 
 ## What is still owed (all listed, none silent)
 
