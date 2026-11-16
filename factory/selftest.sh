@@ -8863,11 +8863,11 @@ ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 		return 1 ;;
 	esac
 	case "$arm" in
-	*FACTORY_ESCALATION_LABEL*) return 0 ;;
+	*FACTORY_ESCALATION_LABEL*|*escalation-label.sh*) return 0 ;;
 	esac
-	printf '            the empty-ask branch ends without the escalation label (the name comes\n' >&2
-	printf '            from `common.sh`, never spelled out) and a stop, so the one move that\n' >&2
-	printf '            invents an ask is still open to it\n' >&2
+	printf '            the empty-ask branch ends without the escalation label -- neither the\n' >&2
+	printf '            name nor the reader call that prints it from `common.sh` -- so the move\n' >&2
+	printf '            that invents an ask is still open to it\n' >&2
 	return 1
 }
 claim_leg 'the tick assembles the ask into its instruction' ask_prompt_assembles_it
@@ -18428,6 +18428,169 @@ cv_leg_cmsg_empty() {
 	return 0
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
+
+# ---- the rendered tick prompt carries no escalation name (#340)
+#
+# `ask_prompt_assembles_it` reads the SOURCE of the `address_review` arm; this section reads what that
+# arm BECOMES. The difference is the defect. The arm builds `id_line` as a double-quoted string, so
+# any `${...}` inside it is expanded by the SUPERVISOR at prompt-build time: the file census stays
+# green because the source carries a variable name, while the bytes the tick reads carry a value. A
+# prompt is not a file, so no `esc_one_home` row covered the one artifact a stopped unit cannot skip
+# reading -- and the rendered instruction used to spell the escalation label out between two commas,
+# eight words before the same paragraph ordered the name to be read from its one home (#340). The leg
+# that could have noticed instead REQUIRED that token, so #340 widened it to accept the reader call
+# as well; that widened scan is now the weaker guard, and the rendering below is the discriminator.
+#
+# Both read the EXPANSION, never the source: a leg that grepped the file for the name would pass on
+# exactly the shape it exists to refuse, because the source legitimately holds `escalation-label.sh`
+# and may hold the variable name again.
+ask_prompt_render() { # ask_prompt_render <factory.sh> -- print the rendered empty-ask branch
+	local src=$1 dir block out
+	if [ ! -f "$src" ]; then
+		printf '            %s is not there, so there is nothing to render\n' "$src" >&2
+		return 2
+	fi
+	dir=$(cd -- "$(dirname -- "$src")" && pwd)
+	if [ ! -f "$dir/common.sh" ]; then
+		printf '            no common.sh beside %s: the render has to run in the environment\n' "$src" >&2
+		printf '            the supervisor has at prompt-build time, which is what that file\n' >&2
+		printf '            loads, not an approximation of it\n' >&2
+		return 2
+	fi
+	# Only the transport-failure branch: the `if [ -n "$ask" ]` block, run with the ask EMPTY. The
+	# shipped arm holds exactly one such block and closes it with exactly one `fi` -- measured on
+	# the arm itself, `... | grep -c 'fi$'` answers 1 -- so the range cannot stop at a nested one;
+	# an arm that grows a second shape refuses below instead of rendering the wrong prose.
+	block=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$src" \
+		| awk '/if \[ -n "\$ask" \]; then/{f=1} f{print} f && /^\t\tfi$/{exit}')
+	if [ -z "$block" ]; then
+		printf '            no `if [ -n "$ask" ]` block inside the address_review arm: the arm no\n' >&2
+		printf '            longer assembles the ask by building a string, so this leg has no\n' >&2
+		printf '            expansion to read and refuses rather than passing blind\n' >&2
+		return 1
+	fi
+	# `eval` of the extracted block in a subshell shaped like the supervisor's: common.sh sourced --
+	# that is where an interpolated value would come from -- `key` and `id_line` set to the two
+	# variables the block interpolates, and a sentinel chosen so it cannot collide with a label name.
+	if ! out=$(
+		(
+			set +e
+			# shellcheck disable=SC1091  # the same common.sh the supervisor has sourced at the moment
+			# it expands the block below; the render is worth nothing without it.
+			. "$dir/common.sh" >/dev/null 2>&1
+			# shellcheck disable=SC2034  # key and ask are read by the block extracted from factory.sh
+			# and eval'd two lines down -- by everything except a static read of this file. id_line
+			# is the sentinel that block appends to, and it cannot collide with a label name.
+			key=999 ask='' id_line='PROMPT-SENTINEL'
+			eval "$block" >/dev/null 2>&1
+			printf '%s' "$id_line" ) 2>/dev/null
+	); then
+		printf '            the empty-ask branch of %s refused to execute at all\n' "$src" >&2
+		return 1
+	fi
+	printf '%s\n' "$out"
+}
+ask_prompt_carries_no_name() { # ask_prompt_carries_no_name [root] -- no literal name reaches the tick
+	local root=$HERE/.. name rendered
+	[ -z "${1:-}" ] || root=$1
+	if ! name=$(bash "$root/factory/escalation-label.sh" 2>/dev/null); then
+		printf '            the reader refuses, so there is no name to compare the rendering\n' >&2
+		printf '            against -- and a stopped unit right now cannot label anything either.\n' >&2
+		printf '            Fix the reader first; this leg inherits its verdict until then.\n' >&2
+		return 1
+	fi
+	if [ -z "$name" ]; then
+		printf '            the reader printed an empty name. Refusing to compare nothing is not\n' >&2
+		printf '            a pass: an empty name is itself the bare `--add-label` hazard #315 names\n' >&2
+		return 1
+	fi
+	if ! rendered=$(ask_prompt_render "$root/factory/factory.sh"); then
+		printf '            the shipped empty-ask branch failed to render, so there is nothing\n' >&2
+		printf '            here this leg could read and still call a prompt\n' >&2
+		return 1
+	fi
+	# Preconditions first, both of them, so any refusal below is aimed at a rendering that happened:
+	# an expansion that lost the prose would make the name grep vacuously green. The prompt must
+	# start from the id_line it was handed, and it must still BE the escalation branch.
+	case "$rendered" in
+	PROMPT-SENTINEL*) : ;;
+	*) printf '            the rendered prompt does not even start from the id_line it was\n' >&2
+		printf '            handed, so the extraction ran something the supervisor never runs\n' >&2
+		return 1 ;;
+	esac
+	printf '%s\n' "$rendered" | grep -qF -- 'escalation-label.sh' || {
+		printf '            the rendered prompt carries no reader call, which means this is not\n' >&2
+		printf '            the escalation branch any more -- a leg that greps a name out of some\n' >&2
+		printf '            other prose passes on everything\n' >&2
+		return 1
+	}
+	# The defect. Substring, the same test `esc_one_home` runs over files: the question is whether
+	# the bytes of the name reach the tick, and the shape #340 measured sat mid-line between two
+	# commas, where a whole-line test would have walked past it.
+	case "$rendered" in
+	*"$name"*)
+		printf '            the RENDERED prompt spells the escalation name to the tick. The file\n' >&2
+		printf '            census is green because the source holds a variable; a prompt is not a\n' >&2
+		printf '            file, and a name sitting beside prose that says "rather than typing\n' >&2
+		printf '            it" is the paste #315 refused, taught from the one artifact a stopped\n' >&2
+		printf '            unit cannot skip reading (#340). Rendered hits:\n' >&2
+		printf '%s\n' "$rendered" | grep -nF -- "$name" | sed 's/^/              /' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'the rendered tick prompt carries no escalation name' ask_prompt_carries_no_name
+ask_prompt_rendered_control() {
+	# One plant, outside the repository: the interpolation this unit deleted, restored in the shape
+	# the drift actually arrives -- prose that types the name because reading it is longer. It plants
+	# the VARIABLE, not today's value, so the plant follows a #311 rename instead of pinning it, and
+	# it plants INSIDE the empty-ask branch, so the only thing the refusal below can be caused by is
+	# an expansion that carries the name.
+	local ctrl=$claim_work/ask-render fs
+	esc_ctrl_copy "$ctrl/plant" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted copy could not be written\n' 'control: the rendered name'
+		return 0
+	}
+	fs=$ctrl/plant/factory/factory.sh
+	awk -v 'pl=\t\t\tid_line="$id_line MARKER-NAME: $FACTORY_ESCALATION_LABEL"' '
+		/^\taddress_review\)/ { inarm = 1 }
+		inarm && /^\t\telse$/ && !planted { print; print pl; planted = 1; next }
+		{ print }
+		inarm && /^\t\t;;$/ { inarm = 0 }
+	' "$HERE/factory.sh" >"$fs" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the interpolation could not be planted\n' 'control: the rendered name'
+		return 0
+	}
+	# Measured, not assumed: a plant that did not land and a leg that is blind print the same green.
+	if ! grep -qF -- 'MARKER-NAME: $FACTORY_ESCALATION_LABEL' "$fs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant is not in the copy, so the refusal below was never aimed\n' \
+			'control: the rendered name'
+		printf '          at an instruction that carries the name\n'
+		return 0
+	fi
+	# And the copy must still render the escalation branch: the refusal below has to be caused by
+	# the name reaching the prompt, not by an extraction that stopped working on the copy.
+	if ! ask_prompt_render "$fs" 2>/dev/null | grep -qF -- 'escalation-label.sh'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted copy stopped rendering the escalation branch, so the\n' \
+			'control: the rendered name'
+		printf '          refusal below proves nothing about a name reaching the prompt\n'
+		return 0
+	fi
+	if ask_prompt_carries_no_name "$ctrl/plant" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a copy whose RENDERED prompt spells the name still passes, so the\n' \
+			'control: the rendered name'
+		printf '          ok above is grepping the source and not the expansion\n'
+	else
+		printf '        control: putting the interpolation back renders the name into the prompt and\n'
+		printf '        is refused, so the ok above reads the bytes a tick reads.\n'
+	fi
+}
+ask_prompt_rendered_control
 
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
