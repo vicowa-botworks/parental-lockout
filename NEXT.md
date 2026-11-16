@@ -147,12 +147,14 @@ here (#1180).
     real, while `1c536a4` is not an object in this repository (`git cat-file -t` refuses it), there is no
     pull request #419 for it to be the head of, and its "cap raise to 6" matches nothing in the tree
     (`FACTORY_REVIEW_POKES` is `${FACTORY_REVIEW_POKES:-1800}` at `factory/common.sh:214`, a
-    seconds-interval, not a count of 6). **The invented rows are the dangerous ones: an earlier draft of
-    this hand-off carried "#419, #424 and #427 have merged" forward as a queue fact, and it took this
-    tick's type tests to catch it** — see the queue section above. Blast radius here was
-    zero — the merge took `NEXT.md` whole from ours, nothing written this tick quoted it, and this file
-    was rewritten from `git show HEAD:NEXT.md` — but a unit that had trusted it would have "restored"
-    owed items that main never wrote. Second instrument before any overwrite: `git diff --quiet HEAD --
+    seconds-interval, not a count of 6). **The invented rows are the dangerous ones: the hand-off this tick
+    committed carried "#419, #424 and #427 have merged" forward as a queue fact, and it took this tick's type
+    tests to catch it** — see the queue section above. Blast radius was **not** zero, and the correction is
+    item 14(c): `569ec56:NEXT.md:17` and `:13` carry the invented merge-claim and the `--limit` page count
+    into the branch, and `9aa0ed4` repairs both. What was never touched is `main`, every other branch, and
+    the file on disk — nothing was overwritten, and this file was rewritten from `git show HEAD:NEXT.md`
+    after the type tests, not from the read. A unit that had trusted it would have "restored" owed items
+    that main never wrote. Second instrument before any overwrite: `git diff --quiet HEAD --
     NEXT.md && wc -c NEXT.md && sha256sum NEXT.md && grep -c '<marker from the read>' NEXT.md`; if the two
     instruments disagree, say so on the pull request instead of writing. Same class as #1180, arriving on
     the read side.
@@ -205,6 +207,30 @@ here (#1180).
     nothing was invented; the number was just taken one step early. Same lesson item 10 records for the
     third sync's message: state census numbers with the stage they belong to, because the next unit reads a
     commit message as the shipped artifact.
+
+14. **Two more claims in this head's own merge commit do not survive re-derivation, and both are corrected
+    here rather than left in a message a later unit will read as evidence.** (a) It says `NEXT.md`
+    came byte-identical from ours: **false**. `git diff --numstat 4cb5277 6ca61c3 -- NEXT.md` is **empty** —
+    `main` never touched the hand-off over the base — and the merge blob is **186 lines**, 105 added and 39
+    removed against ours' 120, because the merge commit also carries this unit's own hand-off rewrite. A
+    path can come from one side *and* be rewritten in the same commit, so "byte-identical" is a claim about
+    two blobs and needs `git show <merge>:<path> | sha256sum` against the parent to say it. (b) Its leg
+    census "507 at the base + 3 ours + 12 main = 522" is not reproducible with any grep this unit can name;
+    the reproducible one is `git show <rev>:factory/selftest.sh | grep -cE '_leg[[:space:]]'` → **519 base /
+    522 ours / 531 main / 534 merged** — the same +3 and +12 deltas and the same additivity, 12 higher in
+    absolute offset. What does verify exactly is restated with its command: the three code identities
+    (18623 = 17983+640 = 18450+173, 3853 = 3765+88 = 3794+59, 1737 = 1720+17, all four blobs read with
+    `git show <rev>:<file> | wc -l`) and `git diff 6ca61c3 569ec56 -- factory/factory.sh`, which is exactly
+    one hunk — `factory_log_footprint` replacing the `journal:` `printf` at line 157, and nothing else.
+    (c) Item 11 grew during this correction: the fabricated queue claim did not stay in a draft, it **went
+    to the branch** at `569ec56:NEXT.md:17` ("PRs #419, #424 and #427 have merged") and `:13` (`--json
+    number -q length` → 30, which is the default `--limit` page, not the queue); `9aa0ed4` corrects both and
+    the re-runnable proof is `git show 569ec56:NEXT.md | grep -n '419, #424'`. Verified while writing this,
+    on the side that needed verifying: the allocator really did journal both answers for `H-0219` as item
+    13's rule demands — `$FACTORY_LOG/supervisor.log` carries `14:38:36Z DECISION-ID H-0219 …
+    REFRESH-BLIND 352s union` and `14:38:39Z DECISION-ID H-0219 … REFRESH 0s union`, the only two `H-0219`
+    lines in the journal — and the `TREE-CLEAN conflict:401 … cause=never-dirty` line quoted from the merge
+    hand-off is real at `14:31:37Z`, alongside two earlier ones at `10:07:50Z` and `11:25:48Z`.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers — fix on a later head, they will spend the approval again)
 
