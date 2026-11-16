@@ -25,12 +25,22 @@ here (#1180).
   `Could not resolve to a PullRequest` for all three, and #419 and #424 are open *issues*. An earlier
   draft of this very bullet claimed those three had merged, and it was contaminated by the fabricated
   file item 11 describes — read the type test, not the prose.
-- The supervisor dispatched this as `conflict:401` at `14:31:37Z` (`TICK-START`), and its own pass
-  journalled `TREE-CLEAN conflict:401 ... cause=never-dirty` in the same second this tree was sitting in
-  a conflicted merge with 7 unmerged and modified paths. That sentence was measured, not fixed here — a
-  conflict tick is *supposed* to find the tree dirty, and `H-0193`'s quarantine did not fire because the
-  dirt counter never saw the merge. Worth a look by whoever owns `factory_tree_dirt`: an in-progress
-  merge leaves index stages, not worktree bytes.
+- The supervisor dispatched this as `conflict:401` at `14:31:37Z` (`TICK-START`) and its own pass journalled
+  `TREE-CLEAN conflict:401 /home/rodney/prj/wt/issue-334 cause=never-dirty nothing was dirty; nothing was
+  quarantined` in that same second. An earlier version of this bullet called the pairing a defect — that the
+  dirt counter cannot see an in-progress merge because it leaves index stages rather than worktree bytes, so
+  `H-0193`'s quarantine never fired. **That accusation is withdrawn, and this is the measurement that kills
+  it:** `git merge` writes `ORIG_HEAD` when it starts, and its mtime is `2026-11-16T09:33:33-0500` =
+  `14:33:33Z` — **116 s after** the probe — with the checkpoint at `14:33:31Z` (`5a69f38`) and the merge
+  commit at `14:43:58Z` (`569ec56`); `grep -cE '^2026-11-16T14:(3[3-9]|4[0-3]):.*TICK-START'
+  $FACTORY_LOG/supervisor.log` answers **0**, so no tick probed this tree while it was conflicted; and the
+  reflog puts `reset: moving to HEAD` at `14:31:36Z`, one second before the read, so the tree genuinely was
+  clean when it was read. All four `TREE-CLEAN conflict:401` lines (`02:55:06Z`, `10:07:50Z`, `11:25:48Z`,
+  `14:31:37Z`) sit outside the window. Nothing was filed against `factory_tree_dirt` and it is not broken
+  here. What survives is weaker and honest: **no probe in this family ever runs against a conflicted tree**,
+  so the `UU`-index case is untested, not proven. The fixture that would settle it is a throwaway worktree
+  under `/tmp/opencode` parked mid-merge and one call to `factory_tree_dirt` — with one tracked file
+  reddened in the same tree as the control that proves the fixture has the precondition it claims.
 
 ## What this unit shipped
 
@@ -208,8 +218,8 @@ here (#1180).
     third sync's message: state census numbers with the stage they belong to, because the next unit reads a
     commit message as the shipped artifact.
 
-14. **Two more claims in this head's own merge commit do not survive re-derivation, and both are corrected
-    here rather than left in a message a later unit will read as evidence.** (a) It says `NEXT.md`
+14. **Three claims in this head's own merge commit do not survive re-derivation, and a fourth was an
+    accusation that never had evidence — all corrected here rather than left for a later unit to inherit.** (a) It says `NEXT.md`
     came byte-identical from ours: **false**. `git diff --numstat 4cb5277 6ca61c3 -- NEXT.md` is **empty** —
     `main` never touched the hand-off over the base — and the merge blob is **186 lines**, 105 added and 39
     removed against ours' 120, because the merge commit also carries this unit's own hand-off rewrite. A
@@ -229,8 +239,19 @@ here (#1180).
     on the side that needed verifying: the allocator really did journal both answers for `H-0219` as item
     13's rule demands — `$FACTORY_LOG/supervisor.log` carries `14:38:36Z DECISION-ID H-0219 …
     REFRESH-BLIND 352s union` and `14:38:39Z DECISION-ID H-0219 … REFRESH 0s union`, the only two `H-0219`
-    lines in the journal — and the `TREE-CLEAN conflict:401 … cause=never-dirty` line quoted from the merge
-    hand-off is real at `14:31:37Z`, alongside two earlier ones at `10:07:50Z` and `11:25:48Z`.
+    lines in the journal. (d) The fourth was the worst because it was not a number but an accusation, and it
+    is withdrawn: the committed hand-off told the next unit that `TREE-CLEAN conflict:401 …
+    cause=never-dirty` at `14:31:37Z` proved `factory_tree_dirt` cannot see an in-progress merge and that
+    `H-0193`'s quarantine therefore never fired. It proved nothing of the kind. `git merge` writes
+    `ORIG_HEAD` at start and its mtime is `14:33:33Z`, **116 s after** that probe; the checkpoint is
+    `14:33:31Z`, the merge commit `14:43:58Z`; `grep -cE '^2026-11-16T14:(3[3-9]|4[0-3]):.*TICK-START'
+    $FACTORY_LOG/supervisor.log` answers **0**, so no tick ever probed this tree conflicted; and the reflog
+    puts `reset: moving to HEAD` at `14:31:36Z`, one second before the read, so the tree was clean when it
+    was read and the verdict was right. Nothing was filed against `factory_tree_dirt`. The honest residue is
+    the untested case, not the broken one, and it is in the queue section above with the fixture and the
+    control that would settle it. The lesson is the one this item already teaches, aimed one level earlier:
+    a claim about *why* something was logged needs the clock of the thing it is compared against, and
+    `ORIG_HEAD`'s mtime is free.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers — fix on a later head, they will spend the approval again)
 
