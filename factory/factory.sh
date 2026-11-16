@@ -1143,8 +1143,8 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, mark it with the escalation label -- ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull
-request you already have. Take the name from its one home rather than typing it, and use the ISSUE verb
+ask, mark it with the escalation label, and stop there with the pull request you already have. This
+prompt carries no name to type: read it from its one home in the calls below, and use the ISSUE verb
 even though this artifact is a pull request: gh pr edit cannot label anything on this account -- it
 dies on the retired projectCards field before gh reads the name -- so the marker and its read-back are
 exactly these two calls:
@@ -1234,8 +1234,19 @@ Inventing the ask is the failure this repository has written up more often than 
 	# instead of the shared one -- so `opencode session list` in the tree no longer shows a tick's
 	# conversation. The per-tick log is the durable record either way, which is what `TICK-START`
 	# already names.
+	#
+	# The three `FACTORY_*` exports are the allocator's unit context (#345): a decision id is only
+	# as trustworthy as the evidence an allocator was running when it was handed out, and #345
+	# measured ticks taking ids by eye. With these set, every `factory/next-decision-id.sh` this
+	# session runs journals its answer against this unit and branch, and
+	# `factory_decision_provenance` below reads that journal at the end of the tick. A session that
+	# sanitises its own environment loses the journalling and gains an `UNEARNED` report -- the
+	# report is the point; the allocator answers exactly the same either way.
 	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
+		FACTORY_LOG="$FACTORY_LOG" \
+		FACTORY_TICK_UNIT="$unit" \
+		FACTORY_TICK_BRANCH="$branch" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
@@ -1254,6 +1265,12 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
 	# whatever it found: what the tick achieved remains the tick's own answer.
 	factory_quarantine_after_tick "$unit" "$tree"
+
+	# The journal's second end-of-tick read, beside the tree's: does every decision id this branch
+	# newly carries have a `DECISION-ID` allocation the allocator journalled for this branch (#345)?
+	# Same posture as the streak above -- reported, never fatal, above both exits below -- because an
+	# id whose provenance nobody saw is for a human to weigh, not for the pass to act on.
+	factory_decision_provenance "$unit" "$branch" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two

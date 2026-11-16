@@ -1616,6 +1616,33 @@ pass. That is the supervisor's ref policy rather than the allocator's, so it is 
 `H-0056` counter-argument written out on it -- not a paragraph here that only whoever reads this
 section will ever find.
 
+### Provenance: which id the journal watched being earned
+
+Acceptance prices the collision at the merge; it priced nothing about *attributing* one. #345 measured
+the gap: neither side of the `D-0058` collision ran the allocator -- 4 of 52 checkpoint-creating ticks
+executed it -- and afterwards every check saw two well-formed headings sharing one id with nothing
+anywhere recording which side had earned it, because the allocator's answer existed as stdout for the
+moment it printed. A number taken by eye was indistinguishable from a number handed out.
+
+So the allocator's answer now leaves a witness, and every tick audits for its absence. Whenever the
+allocator runs inside a tick context -- `factory_tick` exports `FACTORY_TICK_UNIT` and
+`FACTORY_TICK_BRANCH`, and the allocator refuses to guess: a bare terminal run journals nothing -- its
+answer is journalled in `supervisor.log` as `DECISION-ID <id> unit=<row> branch=<branch> (allocator,
+<log>, <read>)`, failure-blind like the tree verdicts, because a write that cannot land must never eat
+the id it is meant to accompany. At the end of every activation `factory_decision_provenance`
+(`factory/common.sh`) compares each decision log's headings against that record: every id the branch
+newly carries, with no allocation journalled for it on *that branch*, gets
+`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- attributed, once per unit,
+recorded and never fatal. The report is deliberately about attribution, not behavior: an unearned id
+is often harmless prose, and the human's verb is the yield procedure above, which a clean report would
+have made a coin flip. An id earned on a sibling branch reports too -- that is the #345 shape, a
+collision's other half is always somewhere the journal has never looked. And a tree whose `origin/main`
+cannot be read journals `DECISION-ID-UNCHECKED` naming the failed read and renders no verdict, per the
+`TICK-UNCHECKED` doctrine: every id in the tree is neither claimed nor refused by a read that did not
+happen. `H-0195` carries the option set, including the two refused for measurement: dispensing ids at
+claim time (a claim cannot know the unit will decide) and a gate-level duplicate refusal (it arrives at
+merge, on the wrong branch's bytes, saying `duplicate` where the question is `whose`).
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh` -- except
