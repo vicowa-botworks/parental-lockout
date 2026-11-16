@@ -61,7 +61,13 @@ here (#1180).
    ate a whole 5400 s pass with zero journal lines); the unowned half is that the allocator's own
    `REFRESH` advice tells a unit to fetch and nothing tells it to bound the fetch or say which fetch is
    hanging.
-7. **Carried forward from the `issue-325` unit** (its merge is `main`'s head; this unit re-measured none
+7. **The dispatch that invented this gate was not the only one.** Nothing in the tree enumerates the
+   commands a dispatch may name, so a future sentence can invent a different tool. The three-file leg is
+   the cheapest available net, not a proof none exist. (Restored 16 Nov by the third-sync unit: the
+   PR #401 reviewer measured at `ca8f541` that this line — main's owed item 5 at `535e80c` — was absent
+   from the head hand-off while still true on the merged tree, exactly the silent-drop class item 4
+   describes; the repair the reviewer prescribed was this line or a recorded exclusion.)
+8. **Carried forward from the `issue-325` unit** (its merge is `main`'s head; this unit re-measured none
    of it — re-run before acting on any row):
    - the deleted-call hole: removing `_rule_probes_are_live(registry, ran, bad) from self_test()` is
      still green (D-0076's class). The promised closure is a tally of what the pass DID, handed to the
@@ -72,11 +78,11 @@ here (#1180).
    - #325 itself stays open until its own test is met on the merged tree; read the issue body against
      `gh pr view` before deciding what the branch delivers, and keep the closing-keyword adjacency rule
      of #1256 off the issue number either way.
-8. **This push spends the approval, and only a read-back says so.** `H-0217` records that the push
+9. **This push spends the approval, and only a read-back says so.** `H-0217` records that the push
    dismisses the `APPROVED` read back at `ca8f541` (measured on #269: a base-sync push dismisses reviews
    without touching any exit status). Ask `gh pr view 401 --json reviewDecision,reviews,mergeable,mergeStateStatus`
    after the push and before calling anything ready; the re-ask is the supervisor's poke, not a unit's.
-9. **The checkpoint commit message for this sync says "eight fresh entries" where the merge measured
+10. **The checkpoint commit message for this sync says "eight fresh entries" where the merge measured
    six** (`H-0183`, `H-0184`, `H-0185`, `H-0206`, `H-0209`, `H-0213` — the number `H-0217` carries and
    the numstat proves). `ed1954e` is an empty checkpoint and cannot be re-worded without a rewrite,
    which is denied here; the sentence lives in the pull-request body instead, so a reader of the log
