@@ -11535,9 +11535,265 @@ unit_deadlines() {
 	# Last, because it borrows `$gen_tree` and hands it back: the fixture itself gets a plant, aimed
 	# at the one thing every leg above depends on.
 	gen_control_unarmed
+	gen_tree=$gen_root
 	return 0
 }
 unit_deadlines
+
+# ------------------------------------------------- the unit's success codes (#342, review of 674d0de)
+#
+# `SuccessExitStatus=` is the unit's whole answer to "did the pass do what it was told", and it lists
+# two codes now: the halt's 8 (#246) and the stale-tree repair's 9 (H-0194). systemd parses that value
+# as a list separated by SPACES -- `systemd.service(5)` says so in words -- and a comma does not
+# reject one element, it discards the assignment. Measured on this box (systemd 259.9) against two
+# renderings of the shipped template, both written to a `*.service` filename because
+# `systemd-analyze verify` refuses anything else:
+#
+#	SuccessExitStatus=8,9  ->  `unit.service:57: Failed to parse value, ignoring: 8,9`   (rc 0)
+#	SuccessExitStatus=8 9  ->  no complaint                                               (rc 0)
+#
+# So the comma form un-lists 8 along with 9 and a deliberate halt reads
+# `Failed with result 'exit-code'` again -- the exact defect #246 added this line to stop, re-created
+# by re-running the installer. Two consequences for a gate: the parse failure EXITS 0, so the verdict
+# is the text and never the status; and a leg that greps `install-timer.sh` for the string it wrote
+# cannot see any of this, because the string is exactly what the template says. Hence rendering
+# through the generator, like every leg above, and then asking systemd to load the result.
+#
+# The leg also proves its own probe has teeth in the same run: it writes a second copy of the same
+# rendered unit with the separator changed to a comma and refuses if systemd loads THAT one without
+# complaining. A box where the fixture cannot fail is a box where the ok certifies nothing, and this
+# failure mode is silent in both directions.
+exit_code_of() { # <VAR> -> the code as `common.sh` states it, never a literal repeated here
+	sed -n "s/^$1=\([0-9][0-9]*\).*/\1/p" "$HERE/common.sh" | head -n 1
+}
+
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
+leg_success_exit_status_parses() {
+	local v tok halt rerun d good bad out
+	v=$(deadline_value "$gen_svc" SuccessExitStatus)
+	if [ -z "$v" ]; then
+		printf '            the rendered unit lists no SuccessExitStatus at all, so a deliberate halt\n' >&2
+		printf '            and a stale-tree re-exec both read as `Failed with '"'"'exit-code'"'"'`: the\n' >&2
+		printf '            defect #246 added this line to stop, wearing H-0194'"'"'s number.\n' >&2
+		return 1
+	fi
+	halt=$(exit_code_of FACTORY_EXIT_HALT)
+	rerun=$(exit_code_of FACTORY_EXIT_RERUN)
+	if [ -z "$halt" ] || [ -z "$rerun" ]; then
+		return 2
+	fi
+	case "$v" in
+	*,*)
+		printf '            SuccessExitStatus=%s. systemd separates statuses with SPACES, and on a\n' "$v" >&2
+		printf '            comma it ignores the ENTIRE value -- measured here: "Failed to parse\n' >&2
+		printf '            value, ignoring: 8,9", at exit 0. Neither code is listed then, so the\n' >&2
+		printf '            halt regresses along with the repair.\n' >&2
+		return 1
+		;;
+	esac
+	for tok in $v; do
+		is_a_number "$tok" || {
+			printf '            SuccessExitStatus=%s holds `%s`, which is not an exit status: the same\n' "$v" "$tok" >&2
+			printf '            ignore-the-whole-value path as a comma, and the same silence.\n' >&2
+			return 1
+		}
+	done
+	for tok in "$halt" "$rerun"; do
+		case " $v " in
+		*" $tok "*) ;;
+		*)
+			printf '            SuccessExitStatus=%s does not list %s -- that is the code a deliberate\n' "$v" "$tok" >&2
+			printf '            stop exits with, and the unit reading it as a crash is the whole reason\n' >&2
+			printf '            the line exists.\n' >&2
+			return 1
+			;;
+		esac
+	done
+	if ! command -v systemd-analyze >/dev/null 2>&1; then
+		printf '        note: systemd-analyze is not in this tree, so the parser was not asked -- the\n'
+		printf '              separator and the two codes above are all this leg could check here.\n'
+		return 0
+	fi
+	d=$work/verify-exit-status
+	mkdir -p -- "$d" || return 1
+	cp -- "$gen_svc" "$d/plock-good.service" || return 1
+	sed '/^SuccessExitStatus=/ s/[[:space:]]\{1,\}/,/g' "$gen_svc" >"$d/plock-bad.service" || return 1
+	good=$(systemd-analyze verify "$d/plock-good.service" 2>&1 || true)
+	if printf '%s\n' "$good" | grep -q 'Failed to parse value'; then
+		printf '            systemd refuses the SHIPPED rendering:\n' >&2
+		printf '%s\n' "$good" | grep 'Failed to parse value' | sed 's/^/              /' >&2
+		printf '            -- and it says so at exit 0, which is why this leg reads the text.\n' >&2
+		return 1
+	fi
+	bad=$(systemd-analyze verify "$d/plock-bad.service" 2>&1 || true)
+	if ! printf '%s\n' "$bad" | grep -q 'Failed to parse value'; then
+		printf '            the fixture, not the unit: a comma-separated copy of this very unit loaded\n' >&2
+		printf '            without a complaint, so "systemd is happy" would be no evidence at all.\n' >&2
+		printf '            Either systemd stopped rejecting this value or the plant missed the line:\n' >&2
+		printf '%s\n' "$bad" | sed 's/^/              /' | head -n 4 >&2
+		return 1
+	fi
+	return 0
+}
+
+unit_exit_status_codes() {
+	local saved=$gen_tree rc=0
+	if [ ! -f "$HERE/install-timer.sh" ]; then
+		printf '  SKIP  %-40s install-timer.sh is not in this tree\n' "the unit's two success codes"
+		return 0
+	fi
+	# Its own fixture rather than the one `unit_deadlines` left behind: the bargain in that section is
+	# that a refusal to render is a FAIL, and it stays a FAIL only if the fixture is built here, where
+	# the leg that reads it can say so.
+	gen_tree=$work/genrepo-exits
+	if ! gen_setup "$gen_tree" 1; then
+		gen_tree=$saved
+		printf '  SKIP  %-40s the throwaway generator could not be built in %s\n' \
+			"the unit's two success codes" "$work"
+		return 0
+	fi
+	gen_dry_run "$HERE/install-timer.sh" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		gen_tree=$saved
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the generator refused its own fixture (exit %s),\n' \
+			"the unit's two success codes" "$rc"
+		printf '          so nothing was rendered to ask: %s\n' "$(sed -n '1,1p' "$gen_err")"
+		return 0
+	fi
+	gen_split
+	gen_leg 'both success codes are listed' \
+		'space-separated statuses, both codes from common.sh' \
+		leg_success_exit_status_parses
+	gen_control 'the two codes comma-separated' "$work/ctrl-comma" \
+		's/^SuccessExitStatus=@HALT_EXIT@ @RERUN_EXIT@$/SuccessExitStatus=@HALT_EXIT@,@RERUN_EXIT@/' \
+		leg_success_exit_status_parses
+	gen_tree=$saved
+	return 0
+}
+unit_exit_status_codes
+
+# --------------------------------------- every reader of the position row takes every field (#342 item 2)
+#
+# `factory_supervisor_position` answers six tab-separated fields, and `read` gives the LAST name the
+# rest of the line. Five names therefore do not drop the sixth field, they HIDE it inside the fifth
+# variable: on this branch's own head the row for the tree the installed unit execs is
+# `674d0de<TAB>issue-342<TAB>25<TAB>2<TAB>0<TAB>535e80c`, so `pos_dirty` held `0<TAB>535e80c`,
+# `[ "$pos_dirty" = "0" ]` was false, and the installer refused a clean tree as dirty while printing
+# `0 535e80c uncommitted`. The guards that decide anything read fields 3 and 4, which stay aligned --
+# that is why 691 legs were green over it: the two verdicts were right and only the sentences about
+# them were wrong, and no leg pins a sentence. So the pin here is not those two lines but the COUNT,
+# read off the row's own format strings in `common.sh`: a seventh field added tomorrow reddens this leg
+# until every reader is updated, which is the class the review asked about ("no leg pins these arms").
+#
+# The scope is `install-timer.sh` on purpose. It is the file the review names and the one whose reads
+# were the miss; elsewhere the row is read once per printed sentence and each of those sentences has a
+# leg of its own (the AT line's `main=`/`behind=` pair is one), so a slip there shows up as a wrong
+# journal line in a leg, not as silence.
+supervisor_row_fields() { # -> how many fields the position row prints, counted off common.sh's own printf
+	local f c counts
+	counts=$(awk '/^factory_supervisor_position\(\) \{/,/^\}/' "$HERE/common.sh" |
+		sed -n "s/^[[:space:]]*printf '\([^']*\)'.*/\1/p" |
+		while IFS= read -r f; do
+			c=$(printf '%s' "$f" | grep -o '\\t' | wc -l)
+			printf '%s\n' "$((c + 1))"
+		done)
+	[ -n "$counts" ] || return 1
+	[ "$(printf '%s\n' "$counts" | sort -u | wc -l)" -eq 1 ] || return 2
+	printf '%s\n' "$counts" | head -n 1
+}
+
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg
+leg_readers_take_every_field() { # [install-timer.sh] -- a control may pass a planted copy
+	local f=${1:-$HERE/install-timer.sh} n rc=0 needle line names unreadable='' offenders='' seen=0
+	n=$(supervisor_row_fields) || {
+		rc=$?
+		if [ "$rc" -eq 2 ]; then
+			printf '            the row'"'"'s own printf arms disagree about how many fields there are,\n' >&2
+			printf '            so "read the whole row" has no answer and every reader is guessing.\n' >&2
+		else
+			printf '            no row format could be read out of `factory_supervisor_position` -- the\n' >&2
+			printf '            function changed shape, and the readers below are unpinned: it still\n' >&2
+			printf '            prints a tab-separated row, but not one this leg can count.\n' >&2
+		fi
+		return 1
+	}
+	needle="IFS=\$'\t' read -r"
+	while IFS= read -r line; do
+		seen=$((seen + 1))
+		names=$(printf '%s\n' "$line" | sed -n 's/.*read -r \(.*\) <<.*/\1/p' | wc -w)
+		names=${names//[[:space:]]/}
+		# Empty or non-numeric means the sed matched none of the line, so there is nothing to count.
+		# The polarity here was inverted in the first draft -- `[ -z "${names//[0-9]/}" ]` is TRUE for
+		# `6`, which is the whole answer `wc -w` prints -- and the shipped, correct file was the control
+		# that said so: a leg that refuses the clean tree is worse than no leg, because the next one to
+		# hit it edits the leg, not the bug.
+		case $names in
+		'' | *[!0-9]* | 0)
+			unreadable="$unreadable    $line\n"
+			continue
+			;;
+		esac
+		[ "$names" -eq "$n" ] || offenders="$offenders    $names of $n fields: ${line#*read -r }\n"
+	done < <(grep -Fn -- "$needle" "$f" || true)
+	if [ "$seen" -eq 0 ]; then
+		printf '            `%s` reads no tab-separated row anywhere in %s -- either every reader\n' "$needle" "${f##*/}" >&2
+		printf '            became something else, or the needle stopped matching. Either way this leg\n' >&2
+		printf '            is green because it is blind, which is the failure it exists to refuse.\n' >&2
+		return 1
+	fi
+	if [ -n "$unreadable" ]; then
+		printf '            these reads are not the shape this leg can count (`read -r <names> <<`):\n' >&2
+		printf '%b' "$unreadable" >&2
+		printf '            the row is still being split there; update the leg so the count is checked.\n' >&2
+		return 1
+	fi
+	if [ -n "$offenders" ]; then
+		printf '            the row carries %s fields and `read` gives the LAST name the rest of the\n' "$n" >&2
+		printf '            line, so a short read does not lose a field, it buries one in the variable\n' >&2
+		printf '            before it. Measured on the shipped bytes at 674d0de: the dirty flag became\n' >&2
+		printf '            `0<TAB>535e80c`, a clean tree was refused as dirty, and the guard above the\n' >&2
+		printf '            refusal never noticed because fields 3 and 4 stay aligned.\n' >&2
+		printf '%b' "$offenders" >&2
+		return 1
+	fi
+	return 0
+}
+
+readers_take_every_field() { # the leg, with a plant that buries the sixth field again
+	local dir=$work/ctrl-row copy rc=0
+	if [ ! -f "$HERE/install-timer.sh" ]; then
+		printf '  SKIP  %-40s install-timer.sh is not in this tree\n' "every reader takes every field"
+		return 0
+	fi
+	gen_leg 'every reader takes every field' \
+		"the count off common.sh's row, every read in install-timer.sh" \
+		leg_readers_take_every_field
+	mkdir -p -- "$dir" || return 1
+	copy=$dir/install-timer.sh
+	sed 's/ pos_dirty _ <</ pos_dirty <</' "$HERE/install-timer.sh" >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy could not be written\n' "control: the sixth name deleted"
+		return 0
+	}
+	if cmp -s "$copy" "$HERE/install-timer.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant changed nothing: the read it\n' "control: the sixth name deleted"
+		printf '          aims at is not the shipped line, so the ok above counts names in a file\n'
+		printf '          this control cannot break.\n'
+		return 0
+	fi
+	if leg_readers_take_every_field "$copy" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the leg accepted a five-name read of a\n' "control: the sixth name deleted"
+		printf '          six-field row, which is the exact bug the review found at 674d0de.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses the read that buries the base sha\n' "control: the sixth name deleted"
+	printf '          in the dirty flag -- the shipped defect, replanted.\n'
+	return 0
+}
+readers_take_every_field
 
 # ------------------------------------------------------------ decision ids across refs (#253)
 #
@@ -14642,15 +14898,25 @@ stale_position_line_carries_trunk_pair() {
 # -------------------------------------------------------------------------------- the pass's shape
 # The shape-pinning legs, in the style of the section above: a whole pass reads GitHub and may not
 # be run here, so these pin what the shipped body CALLS and in what order -- with a plant each.
+first_match_line() { # <file> <regex> -> the first line number that matches, empty when none does
+	# The bare idiom `l=$(grep -n R F | head -n 1 | cut -d: -f1)` is a way to kill this whole suite
+	# without naming a leg: line 69 runs `set -euo pipefail`, so an absent needle makes grep exit 1,
+	# the pipeline exit 1, the assignment exit 1, and the run dies at exit 1 with no FAIL and no
+	# verdict -- measured on a planted copy whose sed anchor had slid. It is the worst shape this
+	# class can take, because the absent needle is exactly the failure the leg exists to PRINT: the
+	# refusal written under each of those greps cannot be reached. Guarded so an absent match comes
+	# back empty and the caller's own sentence says what is missing.
+	{ grep -n -- "$2" "$1" || true; } | head -n 1 | cut -d: -f1
+}
 stale_fetch_precedes_read() { # [factory.sh] -- a control may pass a planted copy
 	local f=${1:-$HERE/factory.sh} lf lr lt sr
-	lf=$(grep -n '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$' "$f" | head -n 1 | cut -d: -f1)
+	lf=$(first_match_line "$f" '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$')
 	[ -n "$lf" ] || {
 		pos_say 'the harness tree is never fetched -- the comparison runs on that tree'"'"'s own'
 		pos_say 'stale clock; #342 ask 5'
 		return 1
 	}
-	lr=$(grep -n 'sup_repair=$(factory_supervisor_repair)' "$f" | head -n 1 | cut -d: -f1)
+	lr=$(first_match_line "$f" 'sup_repair=$(factory_supervisor_repair)')
 	{ [ -n "$lr" ] && [ "$lf" -lt "$lr" ]; } || {
 		pos_say "the harness fetch is on line $lf and the repair that compares on line ${lr:-<absent>} --"
 		pos_say 'a repair after the fetch would fast-forward an origin/main from the wrong clock'
@@ -14679,7 +14945,7 @@ stale_fetch_precedes_read() { # [factory.sh] -- a control may pass a planted cop
 	# `factory_tick`: the dispatch invocation lives at line 61 and line 1128 in prose and in the
 	# function body -- both above any reasonable repair line -- while what the order is about is
 	# that no tick has started when the tree moves (measured by this leg's own first smoke).
-	lt=$(grep -n '^[[:space:]]*factory_tick "' "$f" | head -n 1 | cut -d: -f1)
+	lt=$(first_match_line "$f" '^[[:space:]]*factory_tick "')
 	{ [ -n "$lt" ] && [ "$lr" -lt "$lt" ]; } || {
 		pos_say "the repair is on line ${lr:-<absent>} and the tick dispatch on line ${lt:-<absent>} --"
 		pos_say 'the window that makes the move safe closes at the first dispatch'
@@ -14697,14 +14963,17 @@ stale_fetch_precedes_read() { # [factory.sh] -- a control may pass a planted cop
 
 stale_fetch_position_control() {
 	# Two plants, because the leg now pins two things: the fetch lands ahead of the step that acts,
-	# and the hoisted self-report stays read-only. Each plant is checked to have changed the copy --
-	# a plant that matches nothing turns a control green by doing nothing, which is the failure this
-	# suite has recorded most often.
+	# and the hoisted self-report stays read-only. Each plant is checked to have changed the copy AND
+	# to have landed where it says: a plant that deletes the line it meant to move changes the copy
+	# while proving nothing, and this control shipped exactly that way once -- its anchor ended in `$`
+	# while the shipped line carries ` || sup_repair_rc=$?`, so the fetch was deleted, never re-added,
+	# and the copy had no fetch to be behind the repair. Matching the line by prefix instead of to its
+	# end keeps a suffix edit from sliding the anchor; the landing check below is what catches a rename.
 	local label='the harness fetch moved behind the repair' dir=$r342_work/ctrl-fetch copy lf lr
 	mkdir -p -- "$dir" || return 1
 	copy=$dir/factory.sh
 	sed -e '/^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$/d' \
-		-e 's#^\tsup_repair=$(factory_supervisor_repair)$#\tsup_repair=$(factory_supervisor_repair)\n\tfactory_refresh_origin "$FACTORY_HARNESS"#' \
+		-e 's#^\tsup_repair=$(factory_supervisor_repair).*#\0\n\tfactory_refresh_origin "$FACTORY_HARNESS"#' \
 		"$HERE/factory.sh" >"$copy" || {
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
@@ -14716,11 +14985,25 @@ stale_fetch_position_control() {
 		printf '          has stopped pinning the order.\n'
 		return 0
 	fi
-	lf=$(grep -n '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$' "$copy" | head -n 1 | cut -d: -f1)
-	lr=$(grep -n 'sup_repair=$(factory_supervisor_repair)' "$copy" | head -n 1 | cut -d: -f1)
-	if [ -z "$lf" ] || { [ -n "$lr" ] && [ "$lf" -lt "$lr" ]; }; then
+	lf=$(first_match_line "$copy" '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$')
+	lr=$(first_match_line "$copy" 'sup_repair=$(factory_supervisor_repair)')
+	if [ -z "$lf" ]; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-40s still fetches before the repair (line %s vs %s),\n' "control: $label" "${lf:-<none>}" "${lr:-<none>}"
+		printf '  FAIL  %-40s the plant landed nowhere: the copy has no harness\n' "control: $label"
+		printf '          fetch left on it, so the sed above deleted the line it was meant to\n'
+		printf '          move and never re-added it. The ok above would be a grep reading a\n'
+		printf '          file that has nothing in it -- this is the shape the anchor slid into.\n'
+		return 0
+	fi
+	if [ -z "$lr" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy has no sup_repair line to be behind,\n' "control: $label"
+		printf '          so the leg above pins an order against a line that is not in the file.\n'
+		return 0
+	fi
+	if [ "$lf" -lt "$lr" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s still fetches before the repair (line %s vs %s),\n' "control: $label" "$lf" "$lr"
 		printf '          so the ok above is the grep being blind.\n'
 		return 0
 	fi

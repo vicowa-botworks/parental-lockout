@@ -1953,8 +1953,13 @@ the trunk, so this pass stopped before dispatching and the next activation runs 
 
 `3` and `7` are the two that matter to monitoring: `3` means the token or the network is gone, and
 `7` means two timers are pointing at the same repository. `8` and `9` are the two the unit files must
-agree with: both are listed in the generated service's `SuccessExitStatus=`, because both are
-decisions the pass made on purpose, and a deliberate stop that journals as
+agree with: both are listed in the generated service's `SuccessExitStatus=`, **separated by spaces**,
+because both are decisions the pass made on purpose. The separator is part of the mechanism, not
+formatting: `systemd.service(5)` parses that value as a space-separated list, and on a comma systemd
+does not skip one code, it ignores the whole assignment -- measured on the two renderings of the
+generator's own line (systemd 259.9): `SuccessExitStatus=8,9` prints `Failed to parse value,
+ignoring: 8,9` and lists neither code, at exit 0; `SuccessExitStatus=8 9` prints nothing. A
+deliberate stop that journals as
 `Failed with result 'exit-code'` points every reader away from the line that explains it (#246,
 measured on code `4` hiding `Agent not found` for 152 activations; #305 added `8` to the line; #342
 added `9` in the same commit that made the code reachable).
