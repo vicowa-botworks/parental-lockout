@@ -171,20 +171,46 @@ remove. Two facts a later unit should not have to rediscover:
     `t328/adv/n*/wt`, `s406/wt-merge`). That is the intended behaviour — reported, never removed — but it
     means the line count in a supervisor pass is a count of other people's work, not a to-do list. Anyone
     tempted to act on a `WORKTREE-ORPHAN` row reads that tree's owner first.
-19. **`make verify` never touches the mutant sets — CI's `mutation sets` job is the only gate that does,
-    and a base sync is exactly what stalenesses them.** `Makefile:48` "kept OUT of verify for the opposite
-    reason" states the split as a cost decision: the checker compiles the tree once per mutant and pays
-    minutes. But a sync whose whole content is moved code lines is what moves a mutant patch off its
-    anchor, so a sync unit runs `make check-mutations` before pushing rather than letting CI find it.
-    Measured at head `e8ab8b9`: the local run answers `all 847 mutants apply and compile`, with its own
-    caveat printed beside it — `this does not run the suite, so a mutant that survives every test is
-    invisible here (make mutate)` — and CI's job on the same head passed in 16m19s. Two mechanics worth
-    knowing before you start it: it applies each mutant to the **working tree** and restores between runs,
-    so `git status` reads one to three dirty files while it runs and nothing may be committed during it
-    (the same hazard #2215 names for the negative-control helper), and its summary is a per-file tally over
-    `scripts/mutations/` — 13 files, `audit` 59 through `web` 292, summing to the `all 847` it prints. That
-    847 is the mutant **set** population and is not the number any `make verify` line reports; quoting one
-    as the other is how a set count gets inflated in prose.
+19. **`make verify` never *applies* the mutant sets — the apply-and-compile half lives only in
+    `make check-mutations`, which CI runs as `mutation sets` — and a base sync is exactly what
+    stalenesses them.** `Makefile:48` "kept OUT of verify for the opposite reason" states the split as a
+    cost decision: the checker compiles the tree once per mutant and pays minutes. Read the split
+    narrowly, because the set files are not absent from `verify`: its `==> script and set-file encoding
+    guards` step (`Makefile:116`) runs `scripts/check-scripts.py`, whose own docstring calls that file
+    "the toolchain-free half of check-mutations.py" and whose pass opens every file under
+    `scripts/mutations/` for its bytes. Measured in a `git archive` copy of `13afad2`: one appended
+    `0xff` byte in `scripts/mutations/version.json` stops `make verify` at that step with
+    `1 set-file encoding problem(s)` (rc 2), while `check-mutations.py --self-test` stays green at 99
+    rules over the same bytes. So what a green local run cannot see is a stale **anchor**, not a bad
+    byte — and a sync whose whole content is moved code lines is exactly what moves a mutant patch off
+    its anchor, so a sync unit runs `make check-mutations` before pushing rather than letting CI find
+    it. Measured at head `e8ab8b9`: the local run answers `all 847 mutants apply and compile`, with its
+    own caveat printed beside it — `this does not run the suite, so a mutant that survives every test is
+    invisible here (make mutate)` — and CI's `mutation sets` job on that head ran 20:57:16Z→21:13:35Z,
+    16m19s, success; the same job at `13afad2` ran 21:15:24Z→21:27:51Z, 12m27s, success. Two mechanics
+    worth knowing before you start it: it applies each mutant to the **working tree** and restores
+    between runs, so `git status` reads one to three dirty files while it runs and nothing may be
+    committed during it (the same hazard #2215 names for the negative-control helper). What it prints is
+    two different things, and item 14 of this file is the reason to keep them apart: a **per-set tally**,
+    one line per set file (`scripts/check-mutations.py:1855`) — 13 files at this head, from
+    `version.json`'s 2 to `web.json`'s 292 — and one closing **summary**, `summary_line()`
+    (`scripts/check-mutations.py:553`), whose `all 847` is that tally's sum. Neither is the number any
+    `make verify` line reports, because verify's set-file line counts *files*, not mutants (`0 problems
+    in 10 tools and 13 set files`); quoting one as the other is how a set count gets inflated in prose.
+20. **A base sync is owed again as of this push, and it is the blocker after this review round.** `main`
+    moved to `5aaa9a7` (PR #408, the issue-346 merge) while #410's third review was being written, so the
+    `e8ab8b9` sync is stale again. Measured with `git merge-tree --write-tree HEAD origin/main` at
+    `13afad2`: exit 1, FOUR conflicted files — `NEXT.md`, `factory/DECISIONS.md`, `factory/factory.sh`,
+    `factory/selftest.sh` — and GitHub answers `mergeable=UNKNOWN` while it recomputes. Resolving that is
+    a conflict tick's work and is not this prose round's; whoever takes it owes `make check-mutations`
+    before the push, for the reason item 19 now states correctly.
+21. **A stale count in a Makefile comment, found while verifying item 19 and deliberately not repaired
+    here.** `Makefile:74` "all 773 rows checked" prices a claim that is still true at this head — parsing
+    all 13 set files, 0 of the 847 mutants name `scripts/` in their `file`, `old` or `new` field — but 773
+    is how many rows the sets held when that sentence was written, not how many they hold now. That is the
+    family the open issue about prose figures stated "at this head" with no gate able to read them
+    describes, and it is left for the unit that owns the file, because a Makefile line moves decision-log
+    citations this round does not own.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
@@ -234,14 +260,16 @@ remove. Two facts a later unit should not have to rediscover:
   use fresh unique directory names.
 - Run the gate as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make
   verify` until #425 is repaired, and say so wherever the verdict is quoted.
-- **A base sync also runs `make check-mutations` before it pushes.** `verify` never touches the mutant
-  sets — `Makefile:48` "kept OUT of verify for the opposite reason" states that as a cost decision — and CI
-  is the only thing that checks them, so a sync whose content is moved code lines can move a patch off its
-  anchor and read green locally. Nothing is committed while that run is in flight: it applies each mutant to
-  the working tree and restores between runs, so `git status` reads one to three dirty files on purpose
-  (#2215 is the same hazard). Measured at head `e8ab8b9`: the local run prints `all 847 mutants apply and
-  compile`, the 847 being the per-file tally's own sum (13 files, 59 at the low end, 292 at the high), and
-  CI's job on the same head passed in 16m19s.
+- **A base sync also runs `make check-mutations` before it pushes.** `verify` never *applies* the mutant
+  sets — `Makefile:48` "kept OUT of verify for the opposite reason" states that as a cost decision, and
+  verify's `check-scripts.py` step reads their bytes for encoding and nothing more (measured: one
+  non-UTF-8 byte appended to a set file stops `make verify` at `==> script and set-file encoding
+  guards`, rc 2) — so an anchor a sync moved off is caught only by `make check-mutations`, which CI runs
+  as `mutation sets`, and the sync can read green locally. Nothing is committed while that run is in
+  flight: it applies each mutant to the working tree and restores between runs, so `git status` reads one
+  to three dirty files on purpose (#2215 is the same hazard). Measured at head `e8ab8b9`: the local run
+  prints `all 847 mutants apply and compile`, the 847 being that per-set tally's own sum (13 files at
+  this head, from `version.json`'s 2 to `web.json`'s 292), and CI's job on that head passed in 16m19s.
 - Never commit the built `plock` binary; `git add -A` has swept it four times. Check
   `git ls-files | grep -x plock` before every `git add -A`, and read the pushed file list afterwards.
 - No `gh pr edit` on this account (it dies on the retired `projectCards` field and writes nothing, and it
