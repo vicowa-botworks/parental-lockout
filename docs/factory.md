@@ -334,6 +334,17 @@ logged as `DELIVERED branch/issue-249 … reported, not worked` and nothing is d
 legs run the supervisor over a fixture whose merged pull request sits on `issue-902` and read that line,
 the absence of a tick, and the absence of any write to the queue.
 
+The same sentence, however, is a verdict about the trunk only, and #347 measured what happened while it
+was heard as one about the tree: issue 328's 991-line repair sat uncommitted in `wt/issue-248` -- no
+blob, no ref -- behind a `DELIVERED` line repeated every activation, because the class never opened the
+worktree its row named. The arm now reads that tree with the same dirtiness reader a dispatch halt uses
+and adds a second, report-only line: `DELIVERED-TREE-DIRTY` names the path and every dirty or untracked
+file, and `DELIVERED-TREE-UNREADABLE` names the directory that cannot answer what branch it is on
+(#232's stale entry). A clean tree, a missing tree, and a tree checked out under another name stay
+silent -- the checked-out branch is the whole attribution -- and everything stays report-only, because
+the uncommitted work a delivered tree holds is a person's: no stash, no bundle, no abort, the verbs
+issue 328 nearly died of (H-0199).
+
 Measured against GitHub and this machine's refs at ~21:00Z on 12 Nov, both ends from the same tree: **32
 rows before the change, 69 after**. The 37 that appear are all `branch delivered`, every one of the 11
 `branch_without_pr` rows is still offered, and the tally falls from three refs to two -- the one of them
