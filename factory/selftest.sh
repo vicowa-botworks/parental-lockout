@@ -3138,6 +3138,12 @@ if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TI
 	printf 'fixture tick: %s fails, which is what the dispatcher is being asked about\n' "$PROC_TICK_FAILS"
 	exit 1
 fi
+# #341 needs the `#302` shape: a session that exits 0 with finished, verified, UNCOMMITTED work in
+# its tree -- that is the trigger the quarantine streak arms on. Only when PROC_DIRTY names the
+# unit, so every other fixture sees exactly the stub it always saw.
+if [ -n "${PROC_DIRTY:-}" ] && [ "${tree:-none}" != none ] && printf '%s' "$title" | grep -qF -- "$PROC_DIRTY"; then
+	printf 'finished, verified, uncommitted\n' >>"$tree/undelivered-work.txt"
+fi
 # A leg that needs the session to run something INSIDE the tick's own environment (#345's wiring
 # legs): the exports those legs pin (`FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH`) are
 # only observable from inside the session, so the stub executes the leg's script against the tree
@@ -3255,6 +3261,7 @@ proc_run() {
 	env PATH="$proc_bin:$PATH" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
+		PROC_DIRTY="${proc_dirty:-}" \
 		PROC_TICK_ALLOC="${proc_tick_alloc:-}" \
 		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
@@ -18591,6 +18598,320 @@ ask_prompt_rendered_control() {
 	fi
 }
 ask_prompt_rendered_control
+
+
+# ------------------------------------------------------------------ #341: a standing halt is re-asked every activation
+#
+# The outage this section refuses: `unclaimed:302` twice left verified work uncommitted, the streak
+# halted the queue, and the marker -- written one second AFTER the quarantine had already stashed and
+# mirrored the work it named -- stood for 14h34m and 77 activations, printing "and not re-probed
+# since" 77 times over a tree that had been clean since the moment the cause was recorded. The cause
+# was false from birth and nothing noticed, because nothing asked. These legs drive the shipped
+# `factory.sh` end to end (no mutants in the shipped runs): a stub tick that exits 0 and leaves the
+# `#302` shape in its tree -- finished, verified, uncommitted -- so the streak arms and halts for the
+# real reason, and then they ask what the NEXT activation does with a marker whose cause is gone.
+#
+# The contract under test, in four sentences: an activation with a standing, machine-written halt
+# re-asks the marker's own tree before it refuses, and releases the halt (`HALT-RELEASED`, marker
+# removed, pass continues) when that tree is provably clean and not half-merged; a tree still dirty
+# or mid-merge holds, and the `HALTED` line says this pass asked; a twice-spent release budget turns
+# a cleared cause into `HALT-STUBBORN` and a human resume; and a hand-written marker, which names no
+# target to ask, is held forever exactly as before.
+
+# One fixture walked to the halt: three activations of shipped code with a tick that leaves its work
+# uncommitted in unit A's tree. Activation one arms the streak (tree dirty after the tick), two
+# quarantines at attempt=1 and arms again, three quarantines at attempt=2 -- TREE-STREAK, and the
+# shipped `factory_tree_halt` writes the marker over a tree the quarantine itself just cleaned.
+# Leaves the fixture in the post-halt state and the third journal in $hp_j3.
+hp_walk_to_halt() { # <fixture-name>
+	proc_dirty=unclaimed:900
+	proc_new "$1"
+	proc_run "$1-1"
+	proc_run "$1-2"
+	proc_run "$1-3"
+	proc_dirty=''
+	hp_j3=$proc_journal
+	hp_tree=$proc_trees/issue-900
+	return 0
+}
+
+hp_walk_to_halt reprobe
+
+hp_w1_target() {
+	local line
+	if [ -z "$(proc_journal_line "$hp_j3" 'TREE-STREAK unclaimed:900')" ]; then
+		printf '            the shipped streak never halted -- these legs would then release nothing.\n' >&2
+		sed -n 's/^/              /p' "$hp_j3" | cut -c1-150 >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            TREE-STREAK halted without leaving the marker, which is #248'"'"'s\n' >&2
+		printf '            outage wearing this fixture'"'"'s clothes: nothing after it would stop.\n' >&2
+		return 1
+	}
+	[ "$(wc -l <"$proc_halt")" = 1 ] || {
+		printf '            the marker is not one line, so `factory_halt_reason` would join two\n' >&2
+		printf '            sentences with no space and the #237 legs'"'"' one-line rule is gone.\n' >&2
+		return 1
+	}
+	line=$(cat "$proc_halt")
+	# The wildcard stars stay OUTSIDE the quotes: `mirror='` ends the quoted literal and a `*`
+	# written inside double quotes is a star the marker would have to contain literally.
+	local want=' :: halt-target: unit=unclaimed:900|cause=quarantined|mirror='
+	case "$line" in
+	*"$want"*"$hp_tree"*) : ;;
+	*) printf '            the halt the harness wrote does not name the target a later activation\n' >&2
+		printf '            must re-ask, so #341'"'"'s gap is open again: unit, cause, mirror or tree\n' >&2
+		printf '            is missing from the stamp. The marker:\n              %s\n' "${line:0:200}" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the streak halt stamps its target' \
+	'one-line marker carrying :: halt-target: unit|cause=quarantined|mirror=<path>|tree=<path>' hp_w1_target
+
+proc_run reprobe-4
+
+hp_w2_release() {
+	[ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED unclaimed:900 cause-cleared tree-clean')" ] || {
+		printf '            the activation after a streak halt did not release it, while the tree\n' >&2
+		printf '            the marker names is clean -- the quarantine cleaned it. This is the\n' >&2
+		printf '            14h34m/77-activations line this issue was filed over. Its journal:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ ! -e "$proc_halt" ] || {
+		printf '            it journaled the release and left the marker standing, so the NEXT\n' >&2
+		printf '            activation would halt again on a cause already released.\n' >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ]; then
+		printf '            the released activation still printed its halt line:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" 'HALTED ')" >&2
+		return 1
+	fi
+	awk '/HALT-RELEASED/ { r = NR } /TICK-START/ { t = NR }
+		END { exit (r && t && t > r) ? 0 : 1 }' "$proc_journal" || {
+		printf '            the pass did not go on to triage after releasing -- a TICK-START must\n' >&2
+		printf '            exist and come after the release line, or the release freed nothing:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$proc_rc" = 0 ] || {
+		printf '            the released activation exited %s; with the marker gone it is an\n' "$proc_rc" >&2
+		printf '            ordinary pass and owes an ordinary 0.\n' >&2
+		return 1
+	}
+	# Anti-flap (demand 2's honest half): the release ends the run of bad luck it measured, so the
+	# streak counter that produced it must not stand ready to fire a THIRD halt on one fresh accident.
+	local n
+	n=$(cat "$proc_stash/unclaimed:900.quarantine-count" 2>/dev/null || printf 'absent')
+	[ "$n" = "0" ] || [ "$n" = "absent" ] || {
+		printf '            the release left quarantine-count at %s, so the next single accident\n' "$n" >&2
+		printf '            halts the queue on the strength of the streak this halt already consumed.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the next activation releases it' \
+	'HALT-RELEASED, marker gone, no HALTED line, triage follows, exit 0, streak cleared' hp_w2_release
+
+# Control, demand 1's own words: "control rewrites the re-probe to trust the marker's word and the
+# leg must go red." Planted at the top of `factory_halt_reprobe`'s body, so the shipped guard is
+# intact and the ONE changed decision is whether the tree is asked at all. Without this control a
+# deleted re-probe could hide behind any journal that happened to hold the right lines.
+proc_new rectl
+proc_mutate '	local tgt unit cause mirror tree' \
+	'	return 1 # MUTANT-341A: trust the marker, never the tree' || proc_halt_control_planted=0
+proc_dirty=unclaimed:900
+proc_run rectl-1
+proc_run rectl-2
+proc_run rectl-3
+proc_dirty=''
+proc_run rectl-4
+
+hp_w3_control() {
+	if [ "${proc_halt_control_planted:-1}" = 0 ]; then
+		printf '            the control was never planted, so this leg ran shipped code and\n' >&2
+		printf '            proves nothing about the re-probe.\n' >&2
+		return 1
+	fi
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the control released the halt WITHOUT asking the tree -- the mutant\n' >&2
+		printf '            removes the asking, so a release here means the release does not come\n' >&2
+		printf '            through `factory_halt_reprobe` and the control measures nothing.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the control removed the marker while refusing to re-probe it: an\n' >&2
+		printf '            un-asked release is the flap #341 demand 2 is written against.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ] || {
+		printf '            the trusted-marker control printed no halt line at all:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the trusted-marker control exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: trusting the marker holds it' \
+	'mutant never asks the tree: no release, marker stands, HALTED printed, exit 8' hp_w3_control
+
+# Demand 2's bound: releases are a budget, and the halt that spends it stops being a self-clearing
+# condition. Two are seeded as already spent (the shipped value is `2`); the third halt, on a tree
+# this pass proves clean, is `HALT-STUBBORN` -- the cause is named cleared, and the resume is a human
+# with the counter in hand, not another quiet release eleven minutes before the next halt.
+hp_walk_to_halt rstub
+printf '2\n' >"$proc_stash/unclaimed:900.halt-releases"
+proc_run rstub-4
+
+hp_w4_bound() {
+	[ -n "$(proc_journal_line "$proc_journal" 'HALT-STUBBORN unclaimed:900 releases=2')" ] || {
+		printf '            the third halt released, or held without naming the spent budget. Two\n' >&2
+		printf '            releases per unit is the bound demand 2 sets, and `HALT-STUBBORN` is\n' >&2
+		printf '            the sentence a human acts on. Its journal:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ -e "$proc_halt" ] || {
+		printf '            the spent budget released the marker anyway; the bound is then a\n' >&2
+		printf '            comment, not a bound.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ] || {
+		printf '            the stubborn halt printed no HALTED line, so `--status` and the\n' >&2
+		printf '            journal would disagree about whether the queue is stopped.\n' >&2
+		return 1
+	}
+	if grep -qF 'HALT-RELEASED' "$proc_journal"; then
+		printf '            a release was journalled while the budget was spent.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'demand 2'"'"'s bound: the third halt stands' \
+	'HALT-STUBBORN releases=2, marker stands, HALTED printed, no release' hp_w4_bound
+
+# The hold arms. A marker whose tree is still dirty, and a marker whose clean tree is half-merged
+# (the #323 shapes demand 1 names: MERGE_HEAD, and unmerged index entries), must both hold -- and
+# the line they hold with must say THIS pass asked, which is what separates #341's contract from
+# #237's. The notice stays silent while holding: `HALT-NOTICED` belongs to the moment a halt is
+# written, throttled by its own ledger stamp; a guard that re-noticed on every refusal would mail
+# the issue every ten minutes for as long as the outage runs.
+hp_walk_to_halt rdirty
+printf 'work the next tick has not seen\n' >"$proc_trees/issue-900/still-here.txt"
+proc_run rdirty-4
+
+hp_w5_dirty_hold() {
+	local line
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the halt released over a tree with a dirty path in it -- releasing on\n' >&2
+		printf '            less than "provably clean" is the failure direction that destroys work.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the dirty tree did not hold the marker.\n' >&2
+		return 1
+	}
+	line=$(proc_journal_line "$proc_journal" 'HALTED ')
+	[ -n "$line" ] || {
+		printf '            the holding activation printed no halt line:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'re-probed this pass without release:'*) : ;;
+	*) printf '            the holding line does not say this pass asked the tree (demand 1);\n' >&2
+		printf '            the asking clause must stand before the reason, where #237 put its\n' >&2
+		printf '            age clause, not replace the age clause entirely:\n' >&2
+		printf '              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	[ -z "$(proc_journal_line "$proc_journal" 'HALT-NOTICED')" ] || {
+		printf '            the guard re-noticed while holding; the notice is the write moment'"'"'s,\n' >&2
+		printf '            throttled once per hour, not one comment per activation.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the holding activation exited %s; the halt keeps its 8.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a dirty tree holds, saying it was asked' \
+	'no release, marker stands, HALTED names this pass'"'"'s asking, no re-notice, exit 8' hp_w5_dirty_hold
+
+hp_walk_to_halt rmerge
+gd=$(git -C "$proc_trees/issue-900" rev-parse --absolute-git-dir)
+: >"$gd/MERGE_HEAD"
+proc_run rmerge-4
+
+hp_w6_merge_hold() {
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the halt released into a tree with MERGE_HEAD standing -- a pass that\n' >&2
+		printf '            resumes onto a merge in progress merges ON TOP of it. This is the\n' >&2
+		printf '            #323 shape demand 1 names, and clean paths are not clean state.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the mid-merge tree did not hold the marker.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the mid-merge hold exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a half-merged tree holds the release' \
+	'MERGE_HEAD planted on the otherwise-clean tree: no release, marker stands, exit 8' hp_w6_merge_hold
+
+# The other kind of marker: a person's sentence, which names no tree to ask. Nothing may remove a
+# halt a human wrote -- its cause lives in their head, not in a `git status` -- so the guard holds
+# it, and the line keeps #237's original words: nobody re-probed, because nobody can.
+hp_walk_to_halt rhuman
+rm -f -- "$proc_halt"
+printf 'operator stopped the queue pending a decision on the release branch\n' >"$proc_halt"
+proc_run rhuman-4
+
+hp_w7_human_hold() {
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            a hand-written halt was released by the harness. The human who wrote\n' >&2
+		printf '            it owns removing it; that rule predates #341 and survives it.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the hand-written marker is gone -- released or erased, both are the\n' >&2
+		printf '            same defect: the harness deleting a human'"'"'s stop sign.\n' >&2
+		return 1
+	}
+	local line
+	line=$(proc_journal_line "$proc_journal" 'HALTED ')
+	case "$line" in
+	*'not re-probed since'*) : ;;
+	*) printf '            the human-marker line lost #237'"'"'s clause (there is no target to\n' >&2
+		printf '            re-ask, and the line must say so rather than claim an asking it\n' >&2
+		printf '            did not make):\n              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	case "$line" in
+	*'re-probed this pass'* | *'on every activation'*)
+		printf '            the line claims this pass re-asked a marker with no target to ask:\n' >&2
+		printf '              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	[ "$proc_rc" = 8 ] || {
+		printf '            the human-marker hold exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a hand-written halt is never released' \
+	'no target to ask: no release, marker stands, #237 clause verbatim, exit 8' hp_w7_human_hold
 
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
