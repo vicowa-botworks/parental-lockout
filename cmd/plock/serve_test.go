@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,17 +116,70 @@ func brokenLoginctl(_ context.Context, _ []string, _ []string, _ uint32) ([]byte
 	return nil, errors.New("loginctl exited with 1: exit status 1")
 }
 
+// liveServeDaemons counts the daemons started through startServe that have not
+// proven they stopped, and it is the question a production seam asks before going back.
+//
+// The question is set by cleanup order: t.Cleanup runs LIFO and startServe registers
+// its wait AFTER installServeRunner, so the wait runs first and the seam restores run
+// after it. A restore is therefore only safe when that wait found the daemon gone.
+// When it does not, the goroutine is still running, and runServeContext reads both
+// seams exactly once during its own startup -- the runner it hands the backend chain
+// and the login-session location it hands the engine and the dashboard -- so a daemon
+// that has not reached those reads yet takes the real platform.ExecRunner and the real
+// /proc read with it: `loginctl lock-session` against whatever session is really on
+// the box running the suite, with the arguments of a test that has finished. That is
+// the exact thing every stub in this file exists to prevent, and `go test`'s package
+// timeout does not catch it, because such a goroutine is not blocked, it is serving.
+//
+// So a refused restore leaves its stub installed and says nothing. The leak only ever
+// runs in one direction -- a later test finds an earlier stub where production used to
+// be, and every daemon a later test starts still installs the runner it asked for --
+// and the message belongs to startServe's wait, which is the one place that actually
+// saw the daemon running. TestSeamRestorationIsHeldWhileADaemonHasNotStopped pins what
+// the refusal does, in both directions.
+//
+// A counter rather than a flag carried by the helper, because the two seam installers
+// are called BEFORE startServe runs (installServeSelfLocation is the line above the
+// call), so the guard has to be reachable from both. No test in this package calls
+// t.Parallel, so one number describes one test at a time.
+//
+// It counts every daemon this package starts, not only the ones startServe made, and
+// that is what refuseWithin's share of it is for: three tests — the broken-backend, the
+// no-audit-trail-behind and the unusable-audit-path refusals — install the runner and
+// reach runServeContext through refuseWithin rather than startServe, so they have no wait
+// on `stopped` at all, and on its deadline arm refuseWithin reports and returns while its
+// own goroutine may still be inside runServeContext. Those restores ask this same number,
+// so the number has to move with those goroutines.
+//
+// Atomic rather than a plain int because an arm can read it while a goroutine is still
+// running, and a guard that trips the race detector to protect the suite is no guard.
+// "> 0" and not "== 1": a test that starts two daemons and cancels one must not restore,
+// and over-counting can only ever withhold a restore, which is the recoverable direction —
+// a stale stub fails the next test loudly, a real `loginctl` does not fail anything on
+// this box before it locks a screen. TestMain reads the count at package exit, because a
+// refused restore is silent by design and exit is the only moment the fact is visible.
+var liveServeDaemons atomic.Int64
+
 // installServeRunner swaps the process seam for the duration of one test.
 //
 // Every serve test needs this now that the startup guard asks the backends whether
 // this machine can lock anybody: without it the suite refuses to start on a headless
 // runner and passes on a desktop, which is the exact defect the guard is meant to
 // remove.
+//
+// The restore asks liveServeDaemons first, because putting the real runner back under
+// a daemon that has not proven it stopped is what turns a slow test into one test's
+// daemon locking a real session.
 func installServeRunner(t *testing.T, fn serveRunnerFunc) {
 	t.Helper()
 	previous := serveRunner
 	serveRunner = fn
-	t.Cleanup(func() { serveRunner = previous })
+	t.Cleanup(func() {
+		if liveServeDaemons.Load() > 0 {
+			return // see liveServeDaemons: the stub stays, production stays out of reach
+		}
+		serveRunner = previous
+	})
 }
 
 func writeServeConfig(t *testing.T, dir string) string {
@@ -154,6 +208,13 @@ func writeServeConfig(t *testing.T, dir string) string {
 // startServe returns both streams. The second one matters: the disabled-transport
 // warning is deliberately written to stderr, so a test that reads only stdout would
 // "prove" the warning works by asserting on a stream it was never written to.
+//
+// The exit code is the test's to take or leave. The helper's own cleanup never reads
+// it, because a buffered token is one reading: a test body that takes it empties the
+// buffer and the cleanup then waits on a send that already happened. Completion is
+// announced on a channel the helper keeps to itself, so a test that wants the code and
+// a cleanup that wants the stop ask two different questions, and a daemon that does not
+// stop in time is a failure with a message rather than a silent 15 seconds.
 func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, context.CancelFunc, <-chan int) {
 	t.Helper()
 	installServeRunner(t, workingLoginctl)
@@ -163,7 +224,17 @@ func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, contex
 
 	ctx, cancel := context.WithCancel(context.Background())
 	code := make(chan int, 1)
+	stopped := make(chan struct{})
+	liveServeDaemons.Add(1)
 	go func() {
+		// Released BEFORE the close. The cleanup's wait returns on the close and the
+		// seam restores that follow it ask liveServeDaemons; releasing after the close
+		// would let a restore read a daemon that had already returned as still live,
+		// and withhold a seam that was safe to restore.
+		defer func() {
+			liveServeDaemons.Add(-1)
+			close(stopped)
+		}()
 		args := []string{"--config", cfgPath, "--state-dir", dir,
 			"--audit-path", filepath.Join(dir, "audit.jsonl")}
 		code <- runServeContext(ctx, &out, io.MultiWriter(&errOut), args)
@@ -171,11 +242,162 @@ func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, contex
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-code:
+		case <-stopped:
 		case <-time.After(15 * time.Second):
+			// The arm the inline wait three tests down has always had, and the reason
+			// it says something now: an overrun is not just slow, it is the one state
+			// where the restores about to run below this one are unsafe.
+			t.Errorf("serve was still running 15s after its context was cancelled, so its goroutine " +
+				"may not have read its process seams yet: the stubs this test installed stay installed " +
+				"rather than being restored to production under a live daemon. A daemon left running " +
+				"this way can lock the session of whoever is running the suite.")
 		}
 	})
 	return &out, &errOut, cancel, code
+}
+
+// canaryRunner answers with its own name, so a test can tell WHICH stub a seam holds
+// rather than only that it holds a stub. Existence is not identity here: a restore that
+// put the wrong value back would satisfy an assertion on "some stub", and which value a
+// live daemon is left holding is the entire claim the guard makes.
+func canaryRunner(name string) serveRunnerFunc {
+	return func(context.Context, []string, []string, uint32) ([]byte, error) {
+		return []byte(name), nil
+	}
+}
+
+// heldRunner names the canary the runner seam is holding, and it never calls the thing
+// it finds when that thing is the real runner: the seam exists to stand between a test
+// and `loginctl`, so a read that invoked platform.ExecRunner would put a subprocess on
+// the machine running the suite. The type says which it is, because production is a
+// struct value and every stub this file writes is a serveRunnerFunc.
+//
+// A canary answers with its name; workingLoginctl answers with its session table;
+// anything else reads as "".
+func heldRunner() string {
+	switch fn := serveRunner.(type) {
+	case platform.ExecRunner:
+		return "(production)"
+	case serveRunnerFunc:
+		out, err := fn(context.Background(), nil, nil, 0)
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	default:
+		return ""
+	}
+}
+
+// seamUID is a canary for the login-session seam. The uids below are from the 70000s,
+// which no account on this machine and no container namespace owns, so a value outside
+// them means the seam is not holding the stub the test installed.
+type seamUID uint32
+
+const (
+	seamBaselineUID  seamUID = 70_000
+	seamInstalledUID seamUID = 70_001
+)
+
+// heldUID reads the login-session seam back. Unlike heldRunner this one is safe to call
+// even when it is production: selfLocation is os.ReadFile of /proc/self/cgroup and a
+// parse, so the read runs no subprocess and writes nothing. A uid outside the canary
+// range is therefore an answer, not a hazard -- and it is the answer that says the seam
+// is not holding what the test installed.
+func heldUID() seamUID {
+	if serveSelfLocation == nil {
+		return 0
+	}
+	return seamUID(serveSelfLocation().UID)
+}
+
+// seamLeg runs one seam install inside a throwaway subtest and asserts what the seam
+// held once that subtest's cleanups had all run -- the only moment a restore's verdict
+// is readable, because the restore IS a cleanup. The window is a subtest of its own so
+// the assertion can name the leg, and so the window's own pass or fail cannot be
+// confused with the verdict about it.
+//
+// The order is the whole trick, and it is the order a real overrun leaves behind:
+// t.Cleanup runs LIFO, so the readback registered first runs LAST, the daemon released
+// second runs SECOND, and the install registered last runs FIRST. The restore is thus
+// attempted while a daemon is still unproven, exactly as it is when startServe's 15 s
+// wait gives up with the goroutine still running. With live=false nothing was ever
+// taken, which is every ordinary pass.
+func seamLeg[T comparable](t *testing.T, live bool, want T, install func(*testing.T), readback func() T, why string) {
+	t.Helper()
+	var left T
+	t.Run("window", func(t *testing.T) {
+		t.Cleanup(func() { left = readback() })
+		if live {
+			liveServeDaemons.Add(1)
+			t.Cleanup(func() { liveServeDaemons.Add(-1) })
+		}
+		install(t)
+	})
+	if left != want {
+		t.Errorf("the seam reads %v at the end of the window, and it should read %v. %s", left, want, why)
+	}
+}
+
+// TestSeamRestorationIsHeldWhileADaemonHasNotStopped pins the half of the helper's
+// contract the wasted 15 s used to hide: startServe registers its wait AFTER the seam
+// installs, so the wait runs first and the restores run after it, and on an overrun the
+// daemon is still running when they do. A restore that lands then hands the real
+// platform.ExecRunner -- and the real /proc read -- to a daemon whose test is over.
+//
+// The overrun is reproduced, not waited for: waiting for one would mean a test costing
+// 15 s to prove a 15 s timeout, and the state is fully describable without it. Each
+// seam has two legs and the second is why the first is evidence: a restore that never
+// ran at all would satisfy the live leg just as well as a guard that works.
+func TestSeamRestorationIsHeldWhileADaemonHasNotStopped(t *testing.T) {
+	// Both seams are written directly below, so this is what puts the process back
+	// whichever leg withholds its restore.
+	previousRunner, previousLocation := serveRunner, serveSelfLocation
+	t.Cleanup(func() { serveRunner, serveSelfLocation = previousRunner, previousLocation })
+
+	// A baseline that is itself a canary, so every leg asks one question: which canary
+	// does the seam hold when the cleanups are done?
+	baselineRunner := func() { serveRunner = canaryRunner("baseline") }
+	baselineLocation := func() {
+		serveSelfLocation = func() platform.SelfLocation {
+			return platform.SelfLocation{UID: uint32(seamBaselineUID)}
+		}
+	}
+
+	const runnerHazard = "startServe's wait runs ahead of this restore, so on an overrun the daemon is " +
+		"still running, and a runServeContext that has not built its backend chain yet takes the real " +
+		"platform.ExecRunner from here: `loginctl lock-session` on the session of whoever is running the suite."
+
+	baselineRunner()
+	t.Run("the runner seam is held while a daemon has not stopped", func(t *testing.T) {
+		seamLeg(t, true, "installed",
+			func(t *testing.T) { installServeRunner(t, canaryRunner("installed")) }, heldRunner, runnerHazard)
+	})
+
+	baselineRunner()
+	t.Run("the runner seam goes back when nothing is live", func(t *testing.T) {
+		seamLeg(t, false, "baseline",
+			func(t *testing.T) { installServeRunner(t, canaryRunner("installed")) }, heldRunner,
+			"Nothing was live, so the restore should have run. A guard that always withheld would pass "+
+				"the leg above just as well and leave every later test on a stale stub.")
+	})
+
+	baselineLocation()
+	t.Run("the login-session seam is held while a daemon has not stopped", func(t *testing.T) {
+		seamLeg(t, true, seamInstalledUID,
+			func(t *testing.T) { installServeSelfLocation(t, uint32(seamInstalledUID), true) }, heldUID,
+			"runServeContext hands the engine and the dashboard whatever this read says, so a stub dropped "+
+				"under a live daemon leaves the page explaining a session the daemon never declined, and "+
+				"the uid the enforcement loop locks is no longer the one the test wrote.")
+	})
+
+	baselineLocation()
+	t.Run("the login-session seam goes back when nothing is live", func(t *testing.T) {
+		seamLeg(t, false, seamBaselineUID,
+			func(t *testing.T) { installServeSelfLocation(t, uint32(seamInstalledUID), true) }, heldUID,
+			"Nothing was live, so the restore should have run, and a guard that always withheld would "+
+				"pass the leg above just as well.")
+	})
 }
 
 func TestServeRejectsABrokenConfigAtStartup(t *testing.T) {
@@ -596,7 +818,21 @@ func refuseWithin(t *testing.T, out, errOut *syncBuffer, args []string) int {
 	defer cancel()
 
 	done := make(chan int, 1)
-	go func() { done <- runServeContext(ctx, out, errOut, args) }()
+	// The same count startServe's daemons move, because the deadline arm below returns
+	// while this goroutine may still be inside runServeContext — and the three refusal
+	// tests that come through here install the runner seam with no wait on `stopped`
+	// behind them.
+	//
+	// Released BEFORE the code is handed over, the same order startServe's goroutine
+	// uses for its close: whoever receives the code then also sees the release, and a
+	// restore run by a cleanup right after this returns is never withheld by a daemon
+	// that has already gone.
+	liveServeDaemons.Add(1)
+	go func() {
+		refused := runServeContext(ctx, out, errOut, args)
+		liveServeDaemons.Add(-1)
+		done <- refused
+	}()
 	select {
 	case code := <-done:
 		return code
