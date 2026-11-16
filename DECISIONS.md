@@ -3391,6 +3391,24 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   it once, this head matches it **0** times), so it arrives `INVALID`; that is a second decision and the
   next entry, not this commit. **What this does not take:** no behaviour in `testing/capture/` is
   changed by this commit, no rule is added or dropped, and no row of the suite is edited here.
+- Correction (`#345`, 15 Nov): the **cause** sentence is false — both the Question's "Both units were
+  handed the id by `factory/next-decision-id.sh`" and the "What lost" clause "#300 was cut from a clone
+  this one has never seen". #345 read the supervisor's own per-tick transcripts (a `grep -c` over the
+  `issue-297` tick's 201 280-byte transcript answers **0** for `next-decision-id`; the `issue-296`
+  tick's log line 272 shows its allocator "substitute" was `grep -n "^## D-00\(5[0-9]\)" DECISIONS.md |
+  tail -12`): **neither unit ran the allocator** — each numbered by eye off the file's tail, which is
+  the exact move the skill bans. Both trees were worktrees of **one** clone, so `refs/remotes` was
+  shared through the common dir (H-0075's measured shape), the activation's `REFRESH` line for the
+  second dispatch sits in `supervisor.log` 15 s before that tick opened (per-machine and gitignored, so
+  the reading is quoted, not pointed at), and `06b7c29`'s `D-0058` had been on `origin` 37 minutes
+  before the second unit's checkpoint. Measured counterfactual (throwaway clone at `4901264`, the
+  allocator of that commit, one variable — the sibling's ref): with no `refs/remotes/origin/issue-296`
+  the allocator answers `D-0058`; with it restored to `06b7c29` the same call answers `D-0059`. The
+  union read was never blind; nobody asked it. `#303`'s body therefore named a mechanism that did not
+  operate, and `#307` hardened an allocator read nobody performed — the correction lives as a comment
+  on `#303` because its body is the artifact `#307` was dispatched from (#345). What stands untouched
+  is every judgement in this entry: the renumbering, the id taken, and the reasoning above all remain
+  correct — only this cause sentence was wrong, and it gets a dated bullet rather than an edit (#1180).
 
 ## D-0062 · The merge repairs the witness it retired: the attack’s anchor moves onto a one-line statement, because an aligned continuation line is the thing that went stale
 
@@ -5022,6 +5040,138 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
   before a gate runs is a prophecy (#1180).
 
+## D-0084 · #332: `startServe` waits for the daemon to stop on the same one-slot token its callers drain, so three call sites burn 15 s each on every run and the arm they time out into says nothing while the seam restore runs after it — announce the stop on a channel the helper keeps, hold the seam restore while a daemon is unproven, keep the token and document it, have each drainer post it back, or drop the wait and let all eight sites drain
+
+- Question: `startServe` (`cmd/plock/serve_test.go`) makes its cleanup wait for the daemon to stop by
+  reading the buffered exit code it also returns, and three of the eight call sites read that code in
+  their own body — `TestServeStopsWhenTheContextIsCancelled`, `TestServeRunsTheEnforcementLoop`, and
+  `TestServeStartsWhenOneBackendIsUsable`. A capacity-1 buffer holds one reading, so those three
+  cleanups wait on a send that already happened: measured on `origin/main` at `6db0b13`,
+  `go test -race -count=1 -v ./cmd/plock` spent 15.04 s, 15.05 s and 15.08 s on exactly those three
+  and 66.175 s on the package, and every later pass re-pays it. The arm they time out into was empty,
+  and because `t.Cleanup` runs LIFO with the wait registered AFTER the seam install, giving up is what
+  runs straight into `installServeRunner`'s restore of the process seam — and a daemon still inside
+  `runServeContext` reads that seam exactly once, `cmd/plock/serve.go:121` "chain, chainErr := platform.New(cfg.Settings, serveRunner)",
+  and the login-session read exactly once, `cmd/plock/serve.go:194` "self := serveSelfLocation()", and
+  hands the answer to the enforcement engine and to the page. So: which does the helper wait on, and
+  who is allowed to put `cmd/plock/serve.go:51` "var serveRunner platform.Runner = platform.ExecRunner{}"
+  back underneath a daemon that is still running?
+- Options: announce the stop on a channel the helper keeps to itself and let every seam restore ask that same fact first | keep waiting on the code token and document that a test which reads the code gives up the helper's own wait | keep waiting on the code token and have each draining test post the token back when it is done reading it | hand call sites an accessor that caches the first read of the code so the cleanup always finds the token | drop the helper's wait entirely and make all eight call sites drain the code themselves
+- Chose: announce the stop on a channel the helper keeps to itself and let every seam restore ask that same fact first
+- Why: the token and the stop are two questions and one slot was answering both, so the fix is a second
+  channel — `stopped`, closed by the goroutine on the way out — that no caller can touch, which leaves
+  the code channel's contract exactly as it was and takes 15 s off each of the three drainers without
+  asking a single test to change what it reads. A closed channel over a sent token is what makes the
+  wait safe to add rather than merely cheaper: any number of readers may watch `stopped` and none of
+  them can consume another's notice, which is why the seam restores are allowed to ask the same fact
+  too. The accessor shape offered second by the issue — cache the first read of the code so the cleanup
+  always finds the token — loses on that paragraph and not on the 15 s: it repairs one helper's wait and
+  leaves the two seam installers, which are what the hazard is actually about, with nothing to ask,
+  because a value cached inside one helper's stack cannot be read by an installer in a second file, nor
+  by the three refusal tests that reach `runServeContext` through `refuseWithin` rather than this helper,
+  while a package counter can be read by all of them. It also leaves one channel answering two questions, which is the shape that
+  caused the ticket. That second half is what the wasted 15 s was actually hiding, and it is the part with a victim:
+  the wait and the restores are three cleanups on one stack and the wait runs first, so every overrun
+  — the only state in which the wait is ever passed — is a daemon that has not returned while both
+  seams go back to production underneath it. `loginctl lock-session` is what the restored runner
+  reaches for, aimed at the uid the restored `/proc` read reports, which on the machine running the
+  suite is the session of whoever is running it; an inherited stub does the opposite harm, leaving the
+  page explaining a session the daemon never declined and the engine locking a uid no test wrote. Both
+  are refused by the same `liveServeDaemons` counter, and the counter is a `sync.atomic` rather than a
+  plain int because a package with eight unproven daemons at exit has an arm that reads it while a
+  goroutine is still running — the exact thing `-race` exists to catch, and a guard that trips the
+  detector to protect the suite is no guard. `> 0` and not `== 1`: a test that starts two daemons and
+  cancels one must not restore, and over-counting can only ever withhold a restore, which is the
+  recoverable direction — a stale stub fails the next test loudly, a real `loginctl` does not fail
+  anything on this machine before it locks a screen. The guard lives in the installers rather than in
+  `startServe`'s wait because three of the eight sites install the runner without calling `startServe`
+  at all — the broken-backend, no-audit-trail-behind and unusable-audit-path refusals reach the daemon
+  through `refuseWithin`, whose deadline arm reports and returns while its own goroutine may still be
+  inside `runServeContext` — so that helper's wait could never cover them and `refuseWithin` moves the
+  same counter. Both goroutines release the count before announcing the stop, the close in one and the
+  code in the other, and that order is measured in both directions rather than asserted: the shipped
+  order gave the seam back in 50 runs of a refusal through `refuseWithin`, the opposite order was
+  invisible in 200 runs, and widening the same mutant with a 50 ms sleep between the send and the
+  release withheld it in 5 of 5 — so the order closes a window that is real and one instruction wide,
+  and it is not claimed to be one this suite has ever fallen through. The first run of that probe
+  reported zero withheld restores in both halves, and both were the same build failure — an unused
+  `context` import in the probe's own file — caught only because the summary line was printed beside the
+  count it was grepping; the numbers above are the re-run, and every line of it carries its own summary
+  beside its count — `ok` with zero for the shipped order, `ok` with zero for the 200-run mutant, `FAIL`
+  with 5 of 5 for the widened one. `TestMain` reads the same counter
+  at package exit and turns a non-zero count into a failed package: measured with a leaked counted
+  daemon and every individual assertion true, exit 1 with the count printed, and exit 0 with the
+  assertion deleted, which is the blindness that assertion exists to end. It also catches the ticket's
+  own defect from the other side: with the reporting arm emptied again — the shipped blindness — and the
+  goroutine hung, the test still passes at 15.06 s and the package still fails at exit naming one
+  unproven daemon, so the hazard cannot leave the suite unsaid even in a tree that lost the message. A counter nobody had ever filled is not evidence that it stays empty, so both directions are
+  measured and not asserted: `TestSeamRestorationIsHeldWhileADaemonHasNotStopped` reproduces the LIFO
+  order of a real overrun in 0.00 s instead of waiting 15 s for one — an overrun is the only state
+  where the restores are unsafe, and the state is fully describable without the delay — and its four
+  legs answer which canary each seam holds, with a canary baseline so "it went back" and "it was never
+  taken" cannot read the same. Five mutants, each expected to redden named legs only: removing either
+  guard reddens exactly that seam's held-leg and nothing else; inverting it reddens both runner legs
+  and both location legs stay green; and withholding-always, the shape that would satisfy the
+  held-legs forever and silently stale every later test, reddens exactly both goes-back legs. The
+  reporting arm is pinned from the other side by hanging the goroutine between `runServeContext`
+  returning and the token being sent, which is the only thing the wait can observe: with the shipped
+  arm it fails at 15.03 s naming the seam and the screen, and with the arm emptied again — the defect
+  as it was shipped — the identical hang passes green at 15.07 s, which is the measurement that the
+  suite was blind here rather than merely slow. The same hang applied to a site that waits inline
+  instead of through the helper — a temp test that installs an outer canary and then calls `startServe`,
+  so its own wait is the inline shape while its seams still come from the helper — shows the guard
+  working where the ticket's fix does not reach: the seam holds `workingLoginctl`'s session table with the
+  hang and the outer canary without it.
+- What lost: `TestServeAnnouncesItsStart` gains nothing from the guard, because there is no seam there
+  for it to hold. A probe reading the seam while that site's daemon is live finds production, and the same
+  run finds `liveServeDaemons` at 0 while the daemon runs and 0 after it stops, so this branch's wait, its
+  count and its guarded restores all pass the site by; it keeps its own inline 15 s arm saying only
+  "serve did not exit after cancel", and with no count an overrun there is invisible to the exit read that
+  catches every other serve overrun in the package. Nor is the site inert: the same config with a counting
+  stub installed records one call in a 35 s window at `pollSeconds` 30, argv
+  `loginctl --no-ask-password list-sessions --json=short`, so the daemon reaches a real binary every poll
+  whether or not a seam is in the way, and an overrun there keeps executing it after the test is over
+  behind a real `127.0.0.1` listener. That is a second, smaller hole, measured rather than argued, and it
+  is filed as its own issue and named on the pull request rather than papered over here.
+  The `stopped` channel also costs the helper one more thing to close correctly: a daemon that never
+  returns now leaves a goroutine holding a `t` whose test is over, which is what the reporting arm
+  exists to catch rather than something it prevents. Three claims from the investigation did not
+  survive measurement and are retracted here rather than carried: the inline-wait probe above is a temp
+  test written for the purpose and never `TestServeAnnouncesItsStart`, which turns out to install no seam
+  at all (measured in `What lost` just above), so the guard was never demonstrated at that site; there is
+  no second 15 s window in
+  `scripts/package-verify.sh` — `watch-timeout` appears nowhere in `scripts/` or `Makefile` at
+  `origin/main` or at this head, measured by `grep -rn` returning empty — and `installServeSelfLocation`
+  never had an inline wait of its own, only the install and the guarded restore. What is true of the
+  waits instead, counted at this head: two more 15 s arms in this file (`TestServeStartsWhenOneBackendIsUsable`
+  and `TestServeAnnouncesItsStart`) and two 20 s arms in `waitFor`/`waitForEither`, all of which
+  report, plus `internal/web/server_test.go` at its own 15 s and 20 s arms, which are another
+  package's business. This entry's own three line numbers are in `cmd/plock/serve.go`, which this
+  change does not touch, precisely so the next merge cannot move the ground under them. Two pointers
+  to line 407 of serve_test.go inside `D-0067` name a line that had already drifted before this branch
+  — measured at `origin/main` line 407 is `func TestARefusalLeavesNoAuditTrailBehind(t *testing.T) {`,
+  and so it is at `e811cb4`, the commit whose `Decision:` trailer cites it — and this change carries it
+  206 lines further down. Both are left exactly as written: each quotes a test binary's own failure
+  line, the CI transcript at `43296841286` and a mutant's repro "byte for byte", so the number belongs
+  to the receipt and not to today's file, and re-pointing it would falsify the quote rather than fix
+  it. It is written here without backticks on purpose: a backticked `path:line` is a citation this gate
+  counts and this line cannot promise, because the line it names is already not there.
+- Checkpoint: ade6fc379d43309a3a94b2825c81b7120a76f55d
+- Effect: `cmd/plock/serve_test.go`, `cmd/plock/serve_selfsession_test.go` and `cmd/plock/main_test.go`;
+  `cmd/plock/serve.go` is untouched, so the daemon's behavior is unchanged and the diff is the wait, the
+  counter, the two guarded restores, the reporting arm, the witness test and its four legs, and the exit
+  read in `TestMain`. Every number here is one pair of runs, this tree against a worktree at `6db0b13` --
+  this branch's own parent, which is `origin/main` -- so the two sides differ by these four files and
+  nothing else. `go test -count=1 ./...` ran twice a side with the warm run quoted; `make verify` and
+  `go test -race -count=1 -v ./cmd/plock` ran once a side, on a warm build cache. The three drainers went
+  15.07/15.02/15.02 s → 0.02 s each and `cmd/plock` went 65.661 s → 20.572 s (`ok` lines) under
+  `go test -race -count=1 -v ./cmd/plock`, with 0 `DATA RACE` lines on either side; `go test -count=1
+  ./...` went 47.905 s → 17.742 s, rc 0 both sides; `make verify` went 152.548 s → 92.427 s, rc 0 and
+  `verify: OK` on both, 0 race lines in either log. The only file changed after those runs is
+  `DECISIONS.md`, this entry, whose own gate is re-run before the push; the code measured is the code
+  committed, and the pull-request body repeats the numbers with their exit statuses as read back from
+  the pushed state (#1180).
+
 ## D-0085 · #355: the census reached for the wall clock mid-join, so the one minute a day the gate went red was not reproducible outside itself — repair only the fixture's spelling, thread one clock through the seam, or make the whole report one clock
 
 - Question: the doctor acceptance fixture's window `00:00`–`23:59` excludes its own end —
@@ -5060,7 +5210,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   nowhere in the file, an argument that advertised a dependency it did not have. The
   guard #355 proposed — refusing fixture windows that end at `23:59` — lost to nothing:
   this same branch later wrote it (`scripts/check-fixture-window.sh`, wired into
-  `Makefile:150` "fixture window guard"), as decision H-0202, which amends this
+  `Makefile:152` "fixture window guard"), as decision H-0202, which amends this
   bullet — the pinned gap-minute cells and the shape guard now police the class together.
 - Checkpoint: ac936ae
 - Effect: the commit carrying this entry — `unenforcedCandidates` takes `now`;

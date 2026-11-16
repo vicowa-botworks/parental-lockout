@@ -85,6 +85,14 @@
 # read would be noise, and noise gets ignored, which is why the ticket's literal test ("no
 # `refs/remotes/origin/<my branch>`") was measured and not used -- dispatch pushes no unit branch, so
 # that arm is true of every allocation this harness has ever made.
+#
+# The answer is journalled when a unit was answered. #345 measured that neither unit of the `D-0058`
+# collision ran this command at all -- each numbered by eye -- and nothing anywhere could tell an
+# issued id from an eyeballed one. So a run that carries the dispatch's `FACTORY_TICK_UNIT` and
+# `FACTORY_LOG` appends one `DECISION-ID` line to the supervisor's journal, and the end-of-tick pass
+# compares every newly present heading against it (`factory_decision_provenance`, common.sh). A bare
+# run -- a person, a test -- has no unit to journal for and writes nothing; a failed write is said on
+# stderr and changes neither the id nor the exit.
 set -euo pipefail
 
 USAGE='usage: next-decision-id.sh [--repo DIR] [--prefix D|H] [DECISIONS.md]
@@ -516,6 +524,44 @@ if [ -n "$blind_why" ]; then
 else
 	printf 'next-decision-id: REFRESH the union behind %s is %ss old (bound %ss); a sibling that pushed since then is invisible here\n' \
 		"$next" "$blind_age" "$blind_max" >&2
+fi
+
+# ------------------------------------------------------------------- what the answer costs the record
+#
+# A better message from this command cannot help a tick that never ran it, which is what #345
+# measured: neither unit that collided on `D-0058` executed the allocator at all -- each ran
+# `grep '^## D-' | tail` and took the next number by eye -- and nothing on the harness side could
+# tell an issued id from an eyeballed one until a merge made two entries share it. So an answer
+# handed to a UNIT is journalled here, in the supervisor's own journal, and the pass reads that
+# journal at the end of the tick: a heading in the unit's logs with no journalled allocation
+# reports `DECISION-ID-UNEARNED` (`factory_decision_provenance`, common.sh). The journal line is
+# the provenance; the comparison is what makes skipping the allocator visible.
+#
+# Written only when a unit was answered: `FACTORY_TICK_UNIT` and `FACTORY_LOG` are set by
+# `factory_tick` when it launches the session (`factory/factory.sh`), and a bare run -- a person
+# checking, a selftest leg, any off-dispatch call -- has no unit to journal for and writes nothing.
+# stdout keeps carrying the id alone and the exit stays 0 whatever this write does: the id is
+# still the best number available, and a failed write that stays silent is a write that did not
+# happen (#1180), so it says so on stderr instead.
+if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]; then
+	jrn_branch=${FACTORY_TICK_BRANCH:-}
+	[ -n "$jrn_branch" ] ||
+		jrn_branch=$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+	jrn_read=REFRESH
+	if [ -n "$blind_why" ]; then
+		jrn_read=REFRESH-BLIND
+	fi
+	[ -z "$blind_age" ] || jrn_read="$jrn_read ${blind_age}s"
+	jrn_read="$jrn_read union"
+	if printf '%s DECISION-ID %s unit=%s branch=%s (allocator, %s, %s)\n' \
+		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$next" "$FACTORY_TICK_UNIT" \
+		"${jrn_branch:-unknown}" "$rel" "$jrn_read" \
+		>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then
+		printf 'next-decision-id: journalled DECISION-ID %s (%s)\n' "$next" "$jrn_read" >&2
+	else
+		printf 'next-decision-id: JOURNAL-WRITE-FAILED %s -- %s is journalled nowhere, so the end-of-tick comparison will call it unearned\n' \
+			"$FACTORY_LOG/supervisor.log" "$next" >&2
+	fi
 fi
 
 printf '%s\n' "$next"

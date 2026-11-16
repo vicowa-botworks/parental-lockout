@@ -3865,7 +3865,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   legs, which is the measurement option 3 could not offer; (C) `main`'s projection neutralised in the
   CLAIM shim (`gh_json_payload "$file" "$json"` -> `cat`) -> `434 passed, 3 failed`, failing
   `the shim answers only the fields named`, `a field the fixture lacks is refused`, `a read one field
-  short delivers nothing` (`factory/selftest.sh:5049`, `:5052`, `:5058`) -- `main`'s legs are live and
+  short delivers nothing` (`factory/selftest.sh:6151`, `:5052`, `:5058`) -- `main`'s legs are live and
   aimed at the merged fixture; (D) the same in the PROCESS shim (`"$jsonf"`) -> `436 passed, 1 failed`,
   `…and the process shim obeys it too` (`:5051`), which is what proves `main`'s auto-merged
   `install_gh_fields "$proc_fix"` and `. "$here/fields.sh"` survived a region neither side conflicted
@@ -5983,7 +5983,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   entry, so a unit that reads exit 1 as fatal loses the `Awaiting:` record. But the mechanism the ticket
   blames does not exist. `grep -rn -- --add-label .` over the whole repository returns exactly one line,
   `.opencode/skills/factory/SKILL.md:225`, prose; `factory/factory.sh:725` is prose inside the instruction string and
-  `factory/selftest.sh:6216` is a scan for the literal string, so nothing in `factory/` executes a label
+  `factory/selftest.sh:7318` is a scan for the literal string, so nothing in `factory/` executes a label
   call and no `set -e` is anywhere near it. The exit lands on a model, which can carry on — this entry is
   that carry-on. The free repair is the reorder: commit the record, then apply the label, then read the
   label back. It names no label and picks neither option, which is why it is a recommendation on #311
@@ -5994,7 +5994,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   reaches, because a label is repository configuration and its undo is `gh label delete`, which is a
   delete. 6 was reached for and refuses to answer — the name appears in five governing places
   (`AGENTS.md:38`, `.opencode/skills/factory/SKILL.md:225`, `.opencode/skills/factory/SKILL.md:402`, `docs/factory.md:394`, `factory/factory.sh:725`) and
-  one leg (`factory/selftest.sh:6216`, whose `*needs-human*) return 0 ;;` arm fails with the sentence at
+  one leg (`factory/selftest.sh:7318`, whose `*needs-human*) return 0 ;;` arm fails with the sentence at
   `:6218`), so "what the surrounding code already does" and "what the surrounding code says" are the same
   sentence in five files with no precedent either side.
 
@@ -6044,7 +6044,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Awaiting: a person, to run one of two commands and say which. Option 1 is #311's own line, verbatim:
   `gh label create needs-human --color B60205 --description "A decision only a human may make:
   dependency, security or tamper-resistance semantics, publishing, deleting data"`. Option 2 is a branch
-  renaming the five mentions and `factory/selftest.sh:6199-6220` to a label that exists — `blocked`,
+  renaming the five mentions and `factory/selftest.sh:7301-7322` to a label that exists — `blocked`,
   whose own description ("the blocking artifact is named on the issue") an escalation comment does
   satisfy, at the cost of one label carrying two meanings. Also owed, and independent of which is chosen:
   whether the `.opencode/skills/factory/SKILL.md:222-228` reorder (record first, label second, read back) and a workable verb at
@@ -6068,7 +6068,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `.opencode/skills/factory/SKILL.md`, both above the line cited -- and not any edit to what this entry
   recorded. The other thirteen re-read true: `.opencode/skills/factory/SKILL.md:225`, the `:222-228` block and `:229` (all fifteen
   of #310's inserted `SKILL.md` lines sit below :228), `docs/factory.md:394`, `factory/factory.sh:725`,
-  `factory/selftest.sh:6216` and `:6218` (that file gains 86 lines on that branch, all at 6492 and after),
+  `factory/selftest.sh:7318` and `:6218` (that file gains 86 lines on that branch, all at 6492 and after),
   the `:6199-6220` block, `factory/common.sh:151`, `factory/triage.sh:267`, `triage.sh:62-64`,
   `./DECISIONS.md:2112-2114` and `./DECISIONS.md:2221-2231`; and `git diff 65e980b..origin/main` and
   `git diff 65e980b..HEAD` are both EMPTY for `DECISIONS.md`, `docs/factory.md`, `factory/factory.sh`,
@@ -6085,7 +6085,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   (`factory/escalation-label.sh` prints it; `factory/common.sh` is the" and the `Chose: escalated`
   clause sits at `:46-48`; `docs/factory.md:394` and `factory/factory.sh:725` did NOT shift at all, the
   coordinate still names the same sentence and only the words changed, `needs-human` becoming
-  `the escalation label (…)` and `${FACTORY_ESCALATION_LABEL}`; the arm `factory/selftest.sh:6216`
+  `the escalation label (…)` and `${FACTORY_ESCALATION_LABEL}`; the arm `factory/selftest.sh:7318`
   named is `*FACTORY_ESCALATION_LABEL*) return 0 ;;` at `:6217`, whose failure sentence is three lines
   at `:6219-6221`, and the leg block `:6199-6220` is `:6200-6223`. The `SKILL.md` ones are shifts of
   +30 from `H-0140`'s reordered escalation step and one rewrite: `:225` (`--add-label needs-human`) is
@@ -6279,7 +6279,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   sentence: no behaviour depended on it, and the procedure already covers the case, so this is not a
   new rule -- it is that "no shared file" has to include the two logs or it says nothing. Same entry,
   one more measured slip: `H-0140`'s `Why:` says "The census reads a list of seven files", and the
-  array at `factory/selftest.sh:6330-6332` holds **eight** paths (`common.sh`,
+  array at `factory/selftest.sh:7432-7434` holds **eight** paths (`common.sh`,
   `escalation-label.sh`, `factory.sh`, `triage.sh`, `selftest.sh`, `AGENTS.md`, `docs/factory.md`,
   `SKILL.md`); the leg's behaviour is right and its prose count is one short.
 
@@ -6293,7 +6293,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `.opencode/skills/factory/SKILL.md:402` is now blank (the never-invent-a-name rule sits at `:434`), `docs/factory.md:394` no
   longer spells a name but names the reader, and two still land -- `factory/factory.sh:725` is still
   the pull-request-side label sentence with `${FACTORY_ESCALATION_LABEL}` where the word was, and
-  `factory/selftest.sh:6216` is still the `case "$arm"` line, whose arm `H-0140` repinned from
+  `factory/selftest.sh:7318` is still the `case "$arm"` line, whose arm `H-0140` repinned from
   `*needs-human*)` to `*FACTORY_ESCALATION_LABEL*)` at `:6217` and whose failure sentence moved to
   `:6219-6221`. Nothing legs those numbers: the legs match text, not offsets, and `esc_one_home`'s
   census deliberately excludes both decision logs -- which is what lets main's entry spell the old name
@@ -6595,7 +6595,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `factory/factory.sh` and `factory/common.sh` shifted them, e.g. `factory/common.sh:923` now at 941),
   21 belong to main's (`H-0139` ×11, `H-0142` ×10 -- this branch's +12 lines in `SKILL.md`, +71 in
   `docs/factory.md` and +480 in `factory/selftest.sh` shifted them, e.g. `.opencode/skills/factory/SKILL.md:225` now at 237,
-  `docs/factory.md:961` now at 1027, `factory/selftest.sh:6330` now at 6485). Same instrument, whole
+  `docs/factory.md:961` now at 1027, `factory/selftest.sh:7432` now at 6485). Same instrument, whole
   tree: the merged tree carries 329 citations, 286 on this branch's parent and 320 on main's, and
   **none on any of the three points past the end of the file it names** -- the merge moves lines, it
   does not delete targets. That is the extent of what a mechanical check can say; whether a moved line
@@ -7626,7 +7626,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   - Placement, not count, is the driver: two synthetic files of that same size with that same 487 characters cost **207.96 s scattered and 9.29 s clustered** at byte 1000. An ASCII-only projection of the same 441 KB -- same size, no multibyte at all -- still took **6.914 s**, so the expansion is already expensive and scatter multiplies it. That last number is what refutes the fourth option: replacing the class with an ASCII bracket set `[ $'\t' $'\n' $'\v' $'\r' $'\f' ]` measured **263.11 s** on the same file (that one under load, and the load cannot explain three orders of magnitude). It is the whole-value substitution that is wrong, whatever is inside its brackets.
   - Blast radius, both corpora: over the 218 archived logs, 44 needed more than the 25 s a probe was willing to wait and 14 more needed over a second -- 27 %. Over the 114 logs in the directory the timer actually writes, `/home/rodney/prj/parental-lockout/factory/log`, **60 exceeded 25 s and 98 (86 %) exceeded one second**, so the median live log is already in the band; logs written the day this was measured include a 641,708-byte one past the bound and a 193 KB one at 23.886 s.
   - Why this arm and not a slow-but-harmless one: the marker call is `d9465d6:factory/factory.sh:876`, inside `factory_tick` (:632) in the **supervisor's own shell**. The `timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT"` at `d9465d6:factory/factory.sh:809` bounds the `opencode run` child and nothing after it, so by the time this expansion runs the 2700 s ceiling is already spent. Nothing else covers it either: the pass budget is "spent before opening a tick, never during one" (`d9465d6:factory/factory.sh:1040-1043`) and the whole activation runs under `flock -n 9` (`d9465d6:factory/factory.sh:1302`), so a stall here is not one unit waiting, it is the queue waiting, and a stray-process reaper cannot help because the slow process is the supervisor itself.
-  - Why a here-string rather than the pipe: this file's entry points all run `set -euo pipefail` (`factory/factory.sh:37` "set -euo pipefail", declared at `common.sh:4` "Sourced, never executed."), and `grep -q` exits at its first match, so a `printf` still writing 441 KB into that pipe can die of `SIGPIPE` and answer for a pipeline that had already found its byte. A here-string leaves one command in the pipeline position and its status is `grep`'s alone. Both were measured, not assumed: on content-early, content-only-at-the-end and whitespace-only fixtures, with `pipefail` on, the pipe gave rc 0/0/1, the here-string 0/0/1, and the shipped expansion 1/1/0 -- equivalent verdicts, and the cost difference between them is zero (0.01 s either way, 0.00 s for the process-substitution form).
+  - Why a here-string rather than the pipe: this file's entry points all run `set -euo pipefail` (`factory/factory.sh:41` "set -euo pipefail", declared at `common.sh:4` "Sourced, never executed."), and `grep -q` exits at its first match, so a `printf` still writing 441 KB into that pipe can die of `SIGPIPE` and answer for a pipeline that had already found its byte. A here-string leaves one command in the pipeline position and its status is `grep`'s alone. Both were measured, not assumed: on content-early, content-only-at-the-end and whitespace-only fixtures, with `pipefail` on, the pipe gave rc 0/0/1, the here-string 0/0/1, and the shipped expansion 1/1/0 -- equivalent verdicts, and the cost difference between them is zero (0.01 s either way, 0.00 s for the process-substitution form).
   - What lost. The third option is the fastest of the four sound ones (0.00 s) and went second to last: not building `$clean` for this test is a real saving, but `$clean` is what the rest of the function already reads, so the choice would have been between two variables holding the same 441 KB or a `tr` run twice per tick, to save nothing measurable. The fifth is not slow, it is **unsound** -- a log that opens with 200 KB of blanks and ends in prose would be reported as a session that wrote nothing at all, which is a different defect with the same journal line. The sixth trades a correct verdict for a wrong one at the same cost: a `timeout` on the arm turns 163 s into "the stop reason is unknown" *and* still spends the seconds. And every option here pays one fork (~7 ms) against the forks this function already makes -- `tr` plus the existing tail read is 0.01 s on the same file -- which is the price of a verdict that does not depend on where the dashes fell.
   - Tie-breaks, in order. 1 silent: nothing here touches `go.mod`; `check-deps` says `stdlib only`. 2 is the whole choice: one line replaced, and the wrong outcome becomes unreachable rather than merely bounded. 3: the verdict is the contract of this function, so the option that keeps it byte-for-byte wins over the one that answers faster and differently. 4: a fork per tick against a queue-stopping stall. 5: `git revert` reaches one line and one section. 6 is what the chosen option follows: the file already streams its other reads through `grep` and `awk`, so this is the house shape, not a new one.
 - Checkpoint: a6895403e255450fdb2189f5ad55d65da46d001a
@@ -7811,9 +7811,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   check performed at the cited revision therefore passes the exact class of failure the issue was filed
   about, and refuses only entries that were false the day they were written -- a weaker question, asked of
   a tree nobody is reading. It also needs git, and this log already refuses that: `gate_reads_no_refs`
-  `factory/selftest.sh:12100` "0 when that gate asks git for nothing but object lookups" exists so CI, the
+  `factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups" exists so CI, the
   review loop and the merge commit answer identically, and its refusal is
-  `factory/selftest.sh:12109` "the gate asks git for a subcommand that is not cat-file" (H-0056). Checking
+  `factory/selftest.sh:14358` "the gate asks git for a subcommand that is not cat-file" (H-0056). Checking
   the tree is the only place left where the drift class is visible, and it is hermetic. Dropping the number
   entirely keeps the truth and loses the affordance that makes an entry re-runnable in ten seconds; 517
   pointers would still say nothing about themselves. What lost: those 517 old citations are refused
@@ -7860,12 +7860,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   on this branch before the merge and 17 that arrived with `origin/main` in `faf4590`, 10 of them one bare
   `README.md` because `main` grew a fifth file with that name. That is also why the constant moved from 378
   to 517 in this commit instead of falling. The rule is written into the three documents that govern an
-  entry: `docs/factory.md:1971` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
+  entry: `docs/factory.md:2121` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
    sits in the bullet that now shows the form, and the last hazard in the factory skill is
   this one. Each placement was decided before the edit by `--citations <path>` -- the highest cited line
   was 50 in `AGENTS.md`, 1083 in `docs/factory.md` and 434 in the skill, so every insertion went below it
   -- and `faf4590` then moved two of those three, which is the rule's thesis stated about its own entry.
-  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:2023` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
+  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:2173` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
   six checked against the tree and five naming the revision they were read at -- and the gate refused it
   three times on the way in, which is the only proof here that the rule bites: an anchor split by a line
   wrap is no anchor, a bare `5be86e5`-style coordinate is what a revision-qualified citation says instead
@@ -8377,7 +8377,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   resolved against each tree -- so `STATE_PROPS:1040` and `2026-11-10T23:51` are out, and the totals
   are not comparable with `H-0161`'s 482/494, which used a wider net. The fresh record first: every
   citation on lines THIS BRANCH added since the base is 3 rows over 3 unique probes, and each got its
-  own verdict against the merged tree. `factory/factory.sh:37` "set -euo pipefail" **holds** -- still `set -euo pipefail`.
+  own verdict against the merged tree. `factory/factory.sh:41` "set -euo pipefail" **holds** -- still `set -euo pipefail`.
   `d9465d6:factory/factory.sh:876` **moved**: that is the `TICK-UNDELIVERED` marker call, at `d9465d6:factory/factory.sh:876` on the
   base and this branch and at **`:919`** on `main` and merged, because `main` shifted everything from
   `factory_tick` down by 43 (`:632` to `:665`). `54a7cf7:common.sh:4` **never resolved on any tree**: a bare
@@ -8436,7 +8436,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 
 - Refers: H-0142, H-0143, H-0144, H-0155, H-0159, H-0161
 
-- Why: Option 3 is not a move a unit has and not one this repository survives: force-push is denied to a tick by `.opencode/opencode.jsonc`, and `AGENTS.md` records that `allow_squash_merge` and `allow_rebase_merge` are both false here, so the only merge available is a merge commit whose history is permanent. A conflict therefore has to be resolved forward, and the whole question is what the resolution is and how it is proved. Option 1 is refused on the standing ground -- a conflict hunk is git's guess about alignment (`H-0142`'s cut, kept by `H-0145`, `H-0152`, `H-0161`) -- and the guess was measured here rather than quoted: git put this branch's whole 18-line `H-0155` block on one side of `main`'s five-entry block (`H-0154`, `H-0157`, `H-0158`, `H-0159`, `H-0161`, 422 lines) in ONE hunk at line 7281, which offers exactly two orders and calls neither of them a verdict. The order is the gate's: `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it); the log is a history" refuses an entry whose number sits below its predecessor's, so `H-0155` fits in one place only, between `H-0154` (`main`'s heading 7281) and `H-0157` (7331). Both orders were run, not asserted: the splice below answers `155 entries across 1 log(s)` and exit 0, while the same bytes with this branch's block appended after `main`'s last heading answer `:7736: H-0155 is out of order (H-0161 came before it); the log is a history and a history that jumps around cannot be bisected` and exit 1. Option 4 is refused by tie-break 3 -- a refusal to proceed on input that is missing beats a quieter file -- applied to a merge, where the missing input is somebody else's sentence. It is also wrong on its own facts: the paragraph is where `triage.sh --help` explains the `detail` column, `main`'s sentence explains the two marks that do NOT change the class and this branch's explains the one class whose detail names the label it read, they qualify different values of the same column, and the paragraph carries both. Option 5 is refused because `H-0143` and `H-0144` measured it twice already: rewriting coordinates in place deletes lines the other side wrote, which poisons the zero-deletion census that is the only evidence a splice kept both intents, and it re-dates a measurement in place -- a coordinate is a measurement at a head. What option 5 would have cost here, measured with the throwaway instrument in `/tmp/opencode/cite-instrument.py` (precedent `H-0145`, `H-0152`, `H-0161`; #318 still owns the shipped checker): of this branch's citations, 163 rows over 101 unique probes aim at a file this merge changes and 62 of those probes now land on different text; of `main`'s, 151 rows over 95 probes with 73 moved; **none of the 135 lost its target text**, and 11 and 16 of them respectively name text that occurs more than once and so cannot be re-pointed by text at all -- exactly what `H-0145` found. Tie-breaks, in order. 1 silent: nothing here touches `go.mod`. 2 (`*bool` ambiguity) does not apply to harness prose. 3 decides option 4, above. 4 (fewest files): the splice touches the two files that collided; option 5 touches both logs and 135 probes. 5 (reversible by `git revert`) separates nothing -- every option here is one merge commit. 6 (convention) is the blob cut the last five conflicts used. What it cost, stated plainly. **(a)** This is the first collision on this hazard where a line diff cannot be the evidence, because both sides wrote into the same paragraph: the merged text keeps `main`'s words in order with only its last line extended by this branch's sentence, and keeps this branch's sentence verbatim re-wrapped across two lines, so `diff` reports one modified line where two pure additions would read better to a reviewer. The replacement evidence is the word walk quoted in the `Effect:`. **(b)** Fresh coordinates: every one of the 24 rows / 18 unique probes written on a line added since the base belongs to `main` -- this branch's added lines carry no qualified `path:line` at all, so nothing this unit wrote can be moved by this merge. Of `main`'s 18, 3 unchanged, 13 moved with their text still in the file, 1 (`aac8218:docs/factory.md:1027`) moved off a line that was ALREADY blank in `main`'s own tree, and 1 (the `README.md` row naming line 588) pointed past the end of its file where it was written -- the known `README.md` family. Whole-tree, the four logs carry 425 tokens / 8 past EOF on the base and on this branch and 449 / 11 on `main`; the merged tree reads 449 / 11 with this entry not yet written and 452 / 11 with it -- the merge itself adds neither a token nor a broken pointer, the three tokens this entry mints all resolve against the tree that ships them, and `main`'s three broken ones arrived with `main`. **(c)** A leg of `factory/selftest.sh` cannot pass while a conflict is unresolved, and its message contradicts itself when it fires: `index_exec_problems` (`factory/selftest.sh:14282-14289` "the names git does not hold at 100755") reads the mode with `git ls-files -s -- factory/$f | awk '{print $1}'`, an unmerged path has three stage entries and no stage 0, so `$mode` is the three-line string `100755\n100755\n100755`, the `[ "$mode" = "100755" ]` test fails, and the leg prints `not 100755 in the index: triage.sh(100755`. Measured on the two runs of one identical tree (`/tmp/selftest-merged.log`, whose `FAIL` row runs 817-819 because the mode string breaks its own `%-40s` column and glues the explanation to the third row, summary at 861): `630 passed, 1 failed` with the conflict still in the index, `631 passed, 0 failed` after `git add` (`/tmp/selftest-merged2.log`), the file's mode never having been anything but 0755. Reproduced independently of that tree, in a throwaway clone at `aac8218` with a synthetic one-line conflict in `factory/triage.sh` and the predicate sourced straight out of the file (there the function sits at line 13254): `RESULT[triage.sh(100755$ 100755$ 100755)]` under `cat -A`. So the first thing a conflict-resolution tick meets is a red line it did not cause, worded as a claim about a mode that is correct. This is the THIRD recorded sighting of it and the first to be filed: `H-0090` left it as "a trap for whoever next merges into a conflicted tree… the gate has to be run after `git add`", and `H-0111` recorded `407 passed, 1 failed` on the same leg for the same reason; both treated it as procedure, neither as a defect, which is why a leg that is red when the tree is clean has now cost three conflict ticks. Filed as #368 -- read back `OPEN` with this title and a 4814-byte body one trailing newline from the source -- rather than repaired inside a conflict commit; the repair is one stage-0 read plus an `unmerged` verdict word. **(d)** Nothing was re-pointed, so the record both sides wrote is now internally wrong in the way (b) measures, by decision and not by oversight.
+- Why: Option 3 is not a move a unit has and not one this repository survives: force-push is denied to a tick by `.opencode/opencode.jsonc`, and `AGENTS.md` records that `allow_squash_merge` and `allow_rebase_merge` are both false here, so the only merge available is a merge commit whose history is permanent. A conflict therefore has to be resolved forward, and the whole question is what the resolution is and how it is proved. Option 1 is refused on the standing ground -- a conflict hunk is git's guess about alignment (`H-0142`'s cut, kept by `H-0145`, `H-0152`, `H-0161`) -- and the guess was measured here rather than quoted: git put this branch's whole 18-line `H-0155` block on one side of `main`'s five-entry block (`H-0154`, `H-0157`, `H-0158`, `H-0159`, `H-0161`, 422 lines) in ONE hunk at line 7281, which offers exactly two orders and calls neither of them a verdict. The order is the gate's: `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it); the log is a history" refuses an entry whose number sits below its predecessor's, so `H-0155` fits in one place only, between `H-0154` (`main`'s heading 7281) and `H-0157` (7331). Both orders were run, not asserted: the splice below answers `155 entries across 1 log(s)` and exit 0, while the same bytes with this branch's block appended after `main`'s last heading answer `:7736: H-0155 is out of order (H-0161 came before it); the log is a history and a history that jumps around cannot be bisected` and exit 1. Option 4 is refused by tie-break 3 -- a refusal to proceed on input that is missing beats a quieter file -- applied to a merge, where the missing input is somebody else's sentence. It is also wrong on its own facts: the paragraph is where `triage.sh --help` explains the `detail` column, `main`'s sentence explains the two marks that do NOT change the class and this branch's explains the one class whose detail names the label it read, they qualify different values of the same column, and the paragraph carries both. Option 5 is refused because `H-0143` and `H-0144` measured it twice already: rewriting coordinates in place deletes lines the other side wrote, which poisons the zero-deletion census that is the only evidence a splice kept both intents, and it re-dates a measurement in place -- a coordinate is a measurement at a head. What option 5 would have cost here, measured with the throwaway instrument in `/tmp/opencode/cite-instrument.py` (precedent `H-0145`, `H-0152`, `H-0161`; #318 still owns the shipped checker): of this branch's citations, 163 rows over 101 unique probes aim at a file this merge changes and 62 of those probes now land on different text; of `main`'s, 151 rows over 95 probes with 73 moved; **none of the 135 lost its target text**, and 11 and 16 of them respectively name text that occurs more than once and so cannot be re-pointed by text at all -- exactly what `H-0145` found. Tie-breaks, in order. 1 silent: nothing here touches `go.mod`. 2 (`*bool` ambiguity) does not apply to harness prose. 3 decides option 4, above. 4 (fewest files): the splice touches the two files that collided; option 5 touches both logs and 135 probes. 5 (reversible by `git revert`) separates nothing -- every option here is one merge commit. 6 (convention) is the blob cut the last five conflicts used. What it cost, stated plainly. **(a)** This is the first collision on this hazard where a line diff cannot be the evidence, because both sides wrote into the same paragraph: the merged text keeps `main`'s words in order with only its last line extended by this branch's sentence, and keeps this branch's sentence verbatim re-wrapped across two lines, so `diff` reports one modified line where two pure additions would read better to a reviewer. The replacement evidence is the word walk quoted in the `Effect:`. **(b)** Fresh coordinates: every one of the 24 rows / 18 unique probes written on a line added since the base belongs to `main` -- this branch's added lines carry no qualified `path:line` at all, so nothing this unit wrote can be moved by this merge. Of `main`'s 18, 3 unchanged, 13 moved with their text still in the file, 1 (`aac8218:docs/factory.md:1027`) moved off a line that was ALREADY blank in `main`'s own tree, and 1 (the `README.md` row naming line 588) pointed past the end of its file where it was written -- the known `README.md` family. Whole-tree, the four logs carry 425 tokens / 8 past EOF on the base and on this branch and 449 / 11 on `main`; the merged tree reads 449 / 11 with this entry not yet written and 452 / 11 with it -- the merge itself adds neither a token nor a broken pointer, the three tokens this entry mints all resolve against the tree that ships them, and `main`'s three broken ones arrived with `main`. **(c)** A leg of `factory/selftest.sh` cannot pass while a conflict is unresolved, and its message contradicts itself when it fires: `index_exec_problems` (`factory/selftest.sh:17917-17924` "the names git does not hold at 100755") reads the mode with `git ls-files -s -- factory/$f | awk '{print $1}'`, an unmerged path has three stage entries and no stage 0, so `$mode` is the three-line string `100755\n100755\n100755`, the `[ "$mode" = "100755" ]` test fails, and the leg prints `not 100755 in the index: triage.sh(100755`. Measured on the two runs of one identical tree (`/tmp/selftest-merged.log`, whose `FAIL` row runs 817-819 because the mode string breaks its own `%-40s` column and glues the explanation to the third row, summary at 861): `630 passed, 1 failed` with the conflict still in the index, `631 passed, 0 failed` after `git add` (`/tmp/selftest-merged2.log`), the file's mode never having been anything but 0755. Reproduced independently of that tree, in a throwaway clone at `aac8218` with a synthetic one-line conflict in `factory/triage.sh` and the predicate sourced straight out of the file (there the function sits at line 13254): `RESULT[triage.sh(100755$ 100755$ 100755)]` under `cat -A`. So the first thing a conflict-resolution tick meets is a red line it did not cause, worded as a claim about a mode that is correct. This is the THIRD recorded sighting of it and the first to be filed: `H-0090` left it as "a trap for whoever next merges into a conflicted tree… the gate has to be run after `git add`", and `H-0111` recorded `407 passed, 1 failed` on the same leg for the same reason; both treated it as procedure, neither as a defect, which is why a leg that is red when the tree is clean has now cost three conflict ticks. Filed as #368 -- read back `OPEN` with this title and a 4814-byte body one trailing newline from the source -- rather than repaired inside a conflict commit; the repair is one stage-0 read plus an `unmerged` verdict word. **(d)** Nothing was re-pointed, so the record both sides wrote is now internally wrong in the way (b) measures, by decision and not by oversight.
 
 - Checkpoint: 0b1e5e931a7aeeedba4392a8cfdd8a04b1f8ef18
 
@@ -8444,15 +8444,15 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 
 ## H-0169 · The ranking key reads the clock once per row, so a second boundary between two reads calls the later stamp the older one and dispatches the young unit first
 
-- Id: this entered the harness log as `H-0157` on `issue-302`, allocated by `factory/next-decision-id.sh` at `7f3edbd`, 2026-11-13T19:26:33-05:00. That number is published on `main` as *A ref with no pull request is refused by its name and by its bytes, and neither judgement is allowed to invent a class*, written on `issue-284` at `9ef0645` (2026-11-13T19:44:07-05:00, seventeen minutes and thirty-four seconds after this entry's allocator ran) and merged by #358 at `aac8218`. A merged entry's id never moves -- `allow_squash_merge` and `allow_rebase_merge` are both off, so that entry's ancestors are permanent history and moving it would be a force-push, denied here -- so this one, unmerged, is the one that can yield, and `docs/factory.md` (*When two branches take the same number, the side that has not merged yields*) keys the rule on merge status rather than on who was first. This side holds the EARLIER allocation and yields anyway, and that is the rule working: #358 merged and #356 has not. It took `H-0169`, the answer the allocator printed on the merged tree: `H-0167` is carried by `issue-344` and `H-0168` by `issue-313`, both local and remote, so 169 is the first id free on every ref this clone can see. The two decisions share nothing but the digit -- this one is *The ranking key reads the clock once per row, so a second boundary between two reads calls the later stamp the older one and dispatches the young unit first* -- and neither cites the other, so nothing but the heading had to move. Seven citations of the retired number moved with it, and the coordinates here are the merged tree's, not the pre-merge ones the checkpoint named: `docs/factory.md:198`, `factory/common.sh:990`, `factory/factory.sh:1517`, `factory/selftest.sh:3818`, `factory/selftest.sh:3887`, `factory/selftest.sh:3955`, `factory/selftest.sh:4087`. `main`'s own `H-0157` heading, and every citation of it in `H-0161`, `H-0163` and `H-0166`, is untouched, because those point at the other decision -- which is why the renumber is a search on this branch's five files and not a sweep over the tree. What the renumber cannot reach is this branch's own history: `7f3edbd`'s subject still reads `pre-H-0157` and `6ff3287` still carries `Decision: H-0157`, because rewriting a pushed branch is the denied force-push, and this pull request's body carried the old number until it was rewritten at this push. A reader who greps the history for `H-0157` therefore finds two entries, and this paragraph is the reason they are not the same one.
+- Id: this entered the harness log as `H-0157` on `issue-302`, allocated by `factory/next-decision-id.sh` at `7f3edbd`, 2026-11-13T19:26:33-05:00. That number is published on `main` as *A ref with no pull request is refused by its name and by its bytes, and neither judgement is allowed to invent a class*, written on `issue-284` at `9ef0645` (2026-11-13T19:44:07-05:00, seventeen minutes and thirty-four seconds after this entry's allocator ran) and merged by #358 at `aac8218`. A merged entry's id never moves -- `allow_squash_merge` and `allow_rebase_merge` are both off, so that entry's ancestors are permanent history and moving it would be a force-push, denied here -- so this one, unmerged, is the one that can yield, and `docs/factory.md` (*When two branches take the same number, the side that has not merged yields*) keys the rule on merge status rather than on who was first. This side holds the EARLIER allocation and yields anyway, and that is the rule working: #358 merged and #356 has not. It took `H-0169`, the answer the allocator printed on the merged tree: `H-0167` is carried by `issue-344` and `H-0168` by `issue-313`, both local and remote, so 169 is the first id free on every ref this clone can see. The two decisions share nothing but the digit -- this one is *The ranking key reads the clock once per row, so a second boundary between two reads calls the later stamp the older one and dispatches the young unit first* -- and neither cites the other, so nothing but the heading had to move. Seven citations of the retired number moved with it, and the coordinates here are the merged tree's, not the pre-merge ones the checkpoint named: `docs/factory.md:198`, `factory/common.sh:990`, `factory/factory.sh:1517`, `factory/selftest.sh:4920`, `factory/selftest.sh:4989`, `factory/selftest.sh:5057`, `factory/selftest.sh:5189`. `main`'s own `H-0157` heading, and every citation of it in `H-0161`, `H-0163` and `H-0166`, is untouched, because those point at the other decision -- which is why the renumber is a search on this branch's five files and not a sweep over the tree. What the renumber cannot reach is this branch's own history: `7f3edbd`'s subject still reads `pre-H-0157` and `6ff3287` still carries `Decision: H-0157`, because rewriting a pushed branch is the denied force-push, and this pull request's body carried the old number until it was rewritten at this push. A reader who greps the history for `H-0157` therefore finds two entries, and this paragraph is the reason they are not the same one.
 - Question: `…then starts a tick for unit B` went red on PR #356's verify job (CI run 43532152285, 14 Nov, `factory/selftest.sh: 563 passed, 1 failed`) printing `quarantine at line 14, tick at line 10` -- the fixture's clean unit B was dispatched BEFORE the quarantined unit A, so the leg's own premise could not hold. The same leg was red on CI run 43105189339 (11 Nov, `520 passed, 1 failed`, `quarantine at line 12, tick at line 8`), and #335 measured the identical inversion twice on one commit on a loaded box (`551 passed, 1 failed`, then `552 passed, 0 failed`). `H-0135` fixed the direction of this key eight days ago and planted both polarities, so why does a fixture with planted ages still land on its head, and what is the smallest change that makes the order a property of `first-seen` rather than of the wall clock?
 - Options: plant `first-seen` in the legs that do not plant it, as #335 proposed | make the affected assertions order-independent -- require that the pass stops after the dirty unit wherever it sorted | give the ranking pass one clock reading and measure every age against it, then pin the site | escalated: #335 owns this mechanism and is open, so post the measurement there and change nothing
 - Chose: give the ranking pass one clock reading and measure every age against it, then pin the site
-- Why: the mechanism first, because both written accounts of it are wrong and the wrong one is load-bearing. `docs/factory.md` said the boundary fell between the two `first-seen` STAMPS -- "stamped 900, did the worktree lookup and the `gh` shims, and stamped 901 in the next second" -- and #335's body says 901's stamp "landed a whole second before 900's". Neither can invert the queue: the stamping loop at `factory/factory.sh:1112-1114` runs to completion before the ranking loop at `:1241-1247` reads a single age, so a stamp written a second later is a second YOUNGER at every read, which is the order `H-0007` wants. The boundary is between the two READS. `factory_age` called `date -u +%s` inside itself and the ranking loop called it once per row, so for two stamps inside one second the first row answered `0s` and the second `1s` whenever a boundary fell in the interval between the calls, and the sort at `:1304` then ranked the younger unit first. #335's own journal is that arithmetic verbatim: `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900 age=0s`, for a pair its body confirms was stamped 900-then-901 in one pass, both at 22:05:16Z. The interval that carries the boundary is measured in the fixture comment added with the #307 fix -- the two reads plus the shipped rank and re-serialise, 10.5ms a trial, with 2 ties in 300 trials at a 2s/1s pair and 0 in 300 at 3s/1s (`factory/selftest.sh:3533-3546`) -- which is the ~1-in-200 the dispatcher comment quotes ("0 of 40 unseeded fixture runs on this box crossed it; that CI run did"), and consistent with the four standalone `bash factory/selftest.sh` runs in this session -- one on the unrepaired tree, three after the repair -- every one of them reading 0 failed. That comment calls the same exposure a fairness problem; for two stamps in one second it is a correctness one, because a straddle is not a tie, it is a REVERSAL.
+- Why: the mechanism first, because both written accounts of it are wrong and the wrong one is load-bearing. `docs/factory.md` said the boundary fell between the two `first-seen` STAMPS -- "stamped 900, did the worktree lookup and the `gh` shims, and stamped 901 in the next second" -- and #335's body says 901's stamp "landed a whole second before 900's". Neither can invert the queue: the stamping loop at `factory/factory.sh:1112-1114` runs to completion before the ranking loop at `:1241-1247` reads a single age, so a stamp written a second later is a second YOUNGER at every read, which is the order `H-0007` wants. The boundary is between the two READS. `factory_age` called `date -u +%s` inside itself and the ranking loop called it once per row, so for two stamps inside one second the first row answered `0s` and the second `1s` whenever a boundary fell in the interval between the calls, and the sort at `:1304` then ranked the younger unit first. #335's own journal is that arithmetic verbatim: `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900 age=0s`, for a pair its body confirms was stamped 900-then-901 in one pass, both at 22:05:16Z. The interval that carries the boundary is measured in the fixture comment added with the #307 fix -- the two reads plus the shipped rank and re-serialise, 10.5ms a trial, with 2 ties in 300 trials at a 2s/1s pair and 0 in 300 at 3s/1s (`factory/selftest.sh:4635-4648`) -- which is the ~1-in-200 the dispatcher comment quotes ("0 of 40 unseeded fixture runs on this box crossed it; that CI run did"), and consistent with the four standalone `bash factory/selftest.sh` runs in this session -- one on the unrepaired tree, three after the repair -- every one of them reading 0 failed. That comment calls the same exposure a fairness problem; for two stamps in one second it is a correctness one, because a straddle is not a tie, it is a REVERSAL.
 -
 - The third option is the only one that removes the interval. `factory_age_at` (`factory/common.sh:968`) now takes the reading as its first argument and refuses a missing or non-numeric one -- falling back to `date` inside the primitive would put the per-row read back where the bug was -- and `factory_age` stays as the threshold form, `factory_age_at "$(date -u +%s)" "$1" "$2"` (`:984`), for the call sites that ask whether one stamp is older than a bound (`last-poke`, `stuck-since`, `conflict-at`, `last-ask-note`, `halt-notice`); a straddled reading cannot reorder anything there because nothing sorts on those answers. The ranking loop takes `rank_now=$(date -u +%s)` once, after the stamping loop, and every `age2` is measured against it -- which is what the comment above that sort has promised since `H-0007` ("rows with the same age tie on the age key and the number decides"), a sentence the per-row read made false whenever the two stamps shared a second. Taken BEFORE the stamping loop the snapshot would clamp this pass's own new stamps to 0 and throw a real age gap away, so its position is part of the repair and the second cell of the first leg pins it.
 -
-- Options 1, 2 and 4 each leave the interval in place. Planting ages (#335's proposal 1) cannot help a leg that does not plant: `…then starts a tick for unit B` and #335's guard control (`proc_guard_is_the_difference`, `factory/selftest.sh:4300` here and `:4061` when that issue was filed) both read the unstamped fixture, so both stay coin flips -- which is what run 43532152285 proves, three days after `H-0135` planted the polarities. Option 2 was refused on what the assertion is for: "A ticked whenever A got quarantined, wherever it sorted" is true of the broken order too, and run 43532152285 is precisely the run where that would have printed an ok over a pass that dispatched the clean unit first; the leg exists to pin "the quarantine stopped the pass before the healthy unit", and the run's own journal says why -- `…and gives the rescued unit its turn` PASSED beside it, so A did tick after line 14 and only B's position moved. Option 4 held the measurement for two `gh` reads and then went: #335 reserves a diagnosis ("the second boundary between them is a coin toss under CPU load"), not a repair, and none of the four reserved classes is anywhere in this. Nor is this branch's diff implicated: `git diff --name-only origin/main...HEAD` at the red head is `DECISIONS.md` plus seven `testing/capture` and `scripts/attack-capture-self-test.py` paths, no `factory/` file and no `.go` file -- `check-mutations` printed an empty name list and `grep -l` over `scripts/mutations/*.json` for `common.sh`, `factory.sh` and `selftest.sh` answers nothing, so the pre-existing flake had to be fixed where it lives. Tie-break 1 is silent (no `go.mod` change, stdlib only, #856); tie-break 2 does not apply -- nothing here decides a lockout, and the sentinel's direction is untouched (an unstamped unit still answers 999999999, still first, still what that comment has always promised); tie-break 3 is the refusal kept inside `factory_age_at` rather than a silent default; tie-break 4 is what chose the argument over hoisting `date` into the loop body -- three files plus the guide, against a new shared helper and the threshold call sites it would drag in. Tie-break 6 is the house pattern, read before writing: `q_halt_now=$(date -u +%s)` at `factory/selftest.sh:4735` takes one reading and computes both of a leg's offsets against it precisely so the leg cannot straddle, and `factory.sh:1257` and `:1303` re-read `now` per iteration on purpose because a pass *budget* is supposed to notice the clock moving -- this harness already separates an instant that must track the clock from one that must not, and the ranking was the site that had not been told which one it was.
+- Options 1, 2 and 4 each leave the interval in place. Planting ages (#335's proposal 1) cannot help a leg that does not plant: `…then starts a tick for unit B` and #335's guard control (`proc_guard_is_the_difference`, `factory/selftest.sh:5402` here and `:4061` when that issue was filed) both read the unstamped fixture, so both stay coin flips -- which is what run 43532152285 proves, three days after `H-0135` planted the polarities. Option 2 was refused on what the assertion is for: "A ticked whenever A got quarantined, wherever it sorted" is true of the broken order too, and run 43532152285 is precisely the run where that would have printed an ok over a pass that dispatched the clean unit first; the leg exists to pin "the quarantine stopped the pass before the healthy unit", and the run's own journal says why -- `…and gives the rescued unit its turn` PASSED beside it, so A did tick after line 14 and only B's position moved. Option 4 held the measurement for two `gh` reads and then went: #335 reserves a diagnosis ("the second boundary between them is a coin toss under CPU load"), not a repair, and none of the four reserved classes is anywhere in this. Nor is this branch's diff implicated: `git diff --name-only origin/main...HEAD` at the red head is `DECISIONS.md` plus seven `testing/capture` and `scripts/attack-capture-self-test.py` paths, no `factory/` file and no `.go` file -- `check-mutations` printed an empty name list and `grep -l` over `scripts/mutations/*.json` for `common.sh`, `factory.sh` and `selftest.sh` answers nothing, so the pre-existing flake had to be fixed where it lives. Tie-break 1 is silent (no `go.mod` change, stdlib only, #856); tie-break 2 does not apply -- nothing here decides a lockout, and the sentinel's direction is untouched (an unstamped unit still answers 999999999, still first, still what that comment has always promised); tie-break 3 is the refusal kept inside `factory_age_at` rather than a silent default; tie-break 4 is what chose the argument over hoisting `date` into the loop body -- three files plus the guide, against a new shared helper and the threshold call sites it would drag in. Tie-break 6 is the house pattern, read before writing: `q_halt_now=$(date -u +%s)` at `factory/selftest.sh:5837` takes one reading and computes both of a leg's offsets against it precisely so the leg cannot straddle, and `factory.sh:1257` and `:1303` re-read `now` per iteration on purpose because a pass *budget* is supposed to notice the clock moving -- this harness already separates an instant that must track the clock from one that must not, and the ranking was the site that had not been told which one it was.
 -
 - What it cost, stated plainly. **(a)** The new legs do not execute the shipped ranking loop; they execute the shipped `first-seen` arithmetic in `factory_age_at` and the shipped `sort` flags, retyped in `proc_clock_first`. `proc_mutate_sort` above them keeps those flags honest -- it refuses a `factory.sh` that does not carry `-k2,2nr -k3,3n)` exactly once, so the flags cannot drift from the dispatcher without a leg going red -- but the loop's own plumbing (row serialisation, `factory_slug`, the class rank) is not run here. The end-to-end path stays what it was: a boundary landing about once in 200 passes, now with a leg that schedules one on purpose. **(b)** The clock-stub legs are sensitive to the tick COUNT, which already produced one misleading failure and cost its own assertion: measured under a probe build that read the clock twice per row, the per-row pair came back `1s` and `3s`, and a control demanding exactly `+1` reddened for arithmetic while pointing at the one file that was correct. The control now requires only a positive separation plus the inversion -- the hazard is that two equal stamps stopped being equal, not how far apart they went -- and the monotone cell's message names both readings of a broken delta (a stale snapshot, or a reader consulting the clock itself). **(c)** The text census refuses a `factory_age` call whose first argument is the row variable, so a per-row call spelled another way (a helper `age2=$(row_age "$unit2")`, or the call moved into the row-building printf) would read as clean. The behavioural legs cover the primitive and the site's shape, not every spelling. **(d)** No leg proves the live queue is now stable -- the live supervisor stamps and reads whatever clock the host has, and `next-decision-id.sh`'s own 300s REFRESH bound is measured against the same seconds. What is pinned is that the order of two rows read in one ranking pass is decided by their stamps and nothing else.
 - Checkpoint: 7f3edbdf67569457ebf3f72947d9490400c0bdcc
@@ -8494,7 +8494,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   sentence changes. Option three was refused on its own measurement: this tree's `.gitignore` is 8 lines
   and lists `.cortexkit/`, `plock`, `*.test.txt` and four capture artefacts, none of them a vendored tree,
   so honouring it stops the reviewer's *untracked* scratch tree no better than today while making the
-  verdict read a file the walk was written not to read -- and `gate_reads_no_refs` (`factory/selftest.sh:12100` "0 when that gate asks git for nothing but object lookups") exists precisely so the walk
+  verdict read a file the walk was written not to read -- and `gate_reads_no_refs` (`factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups") exists precisely so the walk
   stays dumb. Widening `ANCHOR_AFTER` to what `NEAR_QUOTE` matches was measured and refused too: it
   reclassifies 3 pointers in other units' entries (0.6% of a debt of 535) and buys a rule that accepts a
   quotation belonging to the neighbouring sentence, which is the failure mode the 3-character budget was
@@ -8566,7 +8566,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   sentences that are true on their own terms, so the limit stays and a must-pass leg now pins it --
   `orphan-continuation-still-a-limit` fails the self-test if a future widening swallows it. Option two is
   the best available test and this rule may not use it: `gate_reads_no_refs`
-  (`factory/selftest.sh:12100` "0 when that gate asks git for nothing but object lookups") refuses a gate
+  (`factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups") refuses a gate
   that reads refs so CI, the review loop and the merge commit return one verdict, and a name-that-was-tracked
   check would make the verdict depend on the ref store. The weaker test is the price of that, and it is paid
   in the open rather than in a comment that overstates the code -- which is the defect the reviewer filed.
@@ -8760,7 +8760,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   shadow the other's -- and the pass total, not the census, is the verdict:
   `bash factory/selftest.sh` 649 passed, 0 failed. `main`'s disclosed duplicate definitions
   `branch_err_lacks()` and `emit()` are still exactly two each on the base, here, on `main` and
-  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'" in a
+  merged: no third shadow. This branch's streamed blank test sits at `factory/common.sh:3947` "if ! grep -q '[^[:space:]]'" in a
   file whose ONLY `main` hunk enters 22 lines at `:975` (file 3152 -> 3174).
   What is new since this branch was cut, and it changes the merge message rather than the splice:
   `H-0166` shipped `scripts/check-commit-verbs.sh`, and `make verify` now runs it over every message
@@ -8784,10 +8784,10 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0143`/`H-0144` settled and `H-0161` and `H-0167` repeated -- an in-place rewrite deletes lines
   the other side wrote and so poisons the zero-deletion census that is the only evidence a splice
   kept both intents, and a coordinate is a measurement at a head: `H-0167`'s
-  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3016` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
-  call `H-0167` followed from `:876` to `:919` is at merged `factory/factory.sh:1189` "factory_stop_marker TICK-UNDELIVERED", because
+  `54a7cf7:factory/common.sh:2987` is the streamed test at merged `factory/common.sh:3947` "if ! grep -q '[^[:space:]]'"; the `TICK-UNDELIVERED` marker
+  call `H-0167` followed from `:876` to `:919` is at merged `factory/factory.sh:1332` "factory_stop_marker TICK-UNDELIVERED", because
   `main` moved `factory_tick` again; `H-0167`'s `54a7cf7:factory/selftest.sh:12887`, this branch's dense-log
-  leg, is at merged `factory/selftest.sh:13855` "a dense log is read, not mulled over". `main`'s 15 fresh probes: 13 land, 2 name no file
+  leg, is at merged `factory/selftest.sh:16724` "a dense log is read, not mulled over". `main`'s 15 fresh probes: 13 land, 2 name no file
   (`8437eea:factory.sh:1257`, `8437eea:gitlayout.md:7290`), inherited whole and belonging to their own entries.
 - Checkpoint: b02a4d93883d4a88d862e50407376932637047a1
 - Effect: `factory/DECISIONS.md` alone for the splice -- `main`'s five entries, a separator at
@@ -8846,7 +8846,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 
 - Refers: H-0155, H-0174, #313, #311, #360
 
-- Why: The reviewer's severity is a statement about the merge gate, not about whether the gap is real, and the gap is: the `delivered` paragraph directly above says "one comment on the issue puts it back in the queue for a tick" while the `parked` paragraph describes a read and four refusals and never says what ends one. A person who finds a `PARKED` row in the supervisor log has to infer the write, and the thing they must not have to infer is the one line that makes the class escapable -- the same reason `delivered`'s override is spelled where it is. So option 1 is refused: `docs/factory.md` is the only artefact a human reads when the queue surprises them, the fix is 13 lines of prose in the paragraph the finding names, and a ticket is not the place to decide which of the asks on it to skip. Option 4 is refused by the shipped leg, not by taste: `esc_one_home` (`factory/selftest.sh:7469` "the name is spelled once, and that once is common.sh") greps the literal name out of eight files -- `factory/common.sh`, `factory/escalation-label.sh`, `factory/factory.sh`, `factory/triage.sh`, `factory/selftest.sh`, `AGENTS.md`, `docs/factory.md`, `.opencode/skills/factory/SKILL.md` -- and fails if any file but `common.sh` contains it, because a spelling elsewhere is a place to go stale when #311 moves the name. `docs/factory.md` is in that list, so the new paragraph says `<the name the row printed>` and points at `factory/escalation-label.sh` instead of copying what it prints. #360 is the same census's known blind spot (a ninth file could spell it and nothing sees), which is a further reason not to add a spelling here. Option 3 is refused by tie-break 2 -- ambiguity resolves toward the escalation staying visible, and a window on `parked` silences the only machine-visible sign that a reserved decision has sat unanswered for a week; it is also a behaviour change brought by a doc finding, in a unit whose blocking item was a merge. Option 2 is refused because the table row is already the longest row and its job is the class and its precedence, not the procedure; the reviewer's own comparison is to the `delivered` paragraph, and a fix goes where the model it is being held to lives. Tie-break 4 (fewest files): one file, one paragraph, no leg and no classifier line touched. 5 (reversibility): one `git revert`. 6 (convention): the paragraph the finding quotes. What it cost: `delivered` gets its quiet for free from a window and `parked` gets it only from a person, and the paragraph now says that out loud, which is a promise the harness does not enforce -- there is no leg that fails if `PARKED` never stops printing, because the point of the class is that it must not stop. If the noise ever matters, the answer is the release, not a window, and the paragraph says so.
+- Why: The reviewer's severity is a statement about the merge gate, not about whether the gap is real, and the gap is: the `delivered` paragraph directly above says "one comment on the issue puts it back in the queue for a tick" while the `parked` paragraph describes a read and four refusals and never says what ends one. A person who finds a `PARKED` row in the supervisor log has to infer the write, and the thing they must not have to infer is the one line that makes the class escapable -- the same reason `delivered`'s override is spelled where it is. So option 1 is refused: `docs/factory.md` is the only artefact a human reads when the queue surprises them, the fix is 13 lines of prose in the paragraph the finding names, and a ticket is not the place to decide which of the asks on it to skip. Option 4 is refused by the shipped leg, not by taste: `esc_one_home` (`factory/selftest.sh:9342` "the name is spelled once, and that once is common.sh") greps the literal name out of eight files -- `factory/common.sh`, `factory/escalation-label.sh`, `factory/factory.sh`, `factory/triage.sh`, `factory/selftest.sh`, `AGENTS.md`, `docs/factory.md`, `.opencode/skills/factory/SKILL.md` -- and fails if any file but `common.sh` contains it, because a spelling elsewhere is a place to go stale when #311 moves the name. `docs/factory.md` is in that list, so the new paragraph says `<the name the row printed>` and points at `factory/escalation-label.sh` instead of copying what it prints. #360 is the same census's known blind spot (a ninth file could spell it and nothing sees), which is a further reason not to add a spelling here. Option 3 is refused by tie-break 2 -- ambiguity resolves toward the escalation staying visible, and a window on `parked` silences the only machine-visible sign that a reserved decision has sat unanswered for a week; it is also a behaviour change brought by a doc finding, in a unit whose blocking item was a merge. Option 2 is refused because the table row is already the longest row and its job is the class and its precedence, not the procedure; the reviewer's own comparison is to the `delivered` paragraph, and a fix goes where the model it is being held to lives. Tie-break 4 (fewest files): one file, one paragraph, no leg and no classifier line touched. 5 (reversibility): one `git revert`. 6 (convention): the paragraph the finding quotes. What it cost: `delivered` gets its quiet for free from a window and `parked` gets it only from a person, and the paragraph now says that out loud, which is a promise the harness does not enforce -- there is no leg that fails if `PARKED` never stops printing, because the point of the class is that it must not stop. If the noise ever matters, the answer is the release, not a window, and the paragraph says so.
 
 - Checkpoint: 1b5fb94
 
@@ -9007,11 +9007,11 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 
 - Refers: H-0142, H-0143, H-0144, H-0145, H-0152, H-0159, H-0161, H-0162, H-0168, H-0170, H-0174
 
-- Why: The hunk's order is not a verdict, and the gate that says so is `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it); the log is a history" -- both orders were run rather than asserted: the same 8532 bytes with this branch's two entries placed above `main`'s three answer 3 refusals, H-0170 is out of order (H-0175 came before it), and exit 1, while the order this commit ships answers exit 0. Fifth collision on this hazard, fifth time the placement is read off the gate instead of off the diff. The rule the other four options each break, stated because `H-0168` and `H-0174` left it implicit and every later collision inherits whatever this one says: a coordinate whose anchor text travels with it is a POINTER, and the merge that moves the ground under it owns the repair; a coordinate that is the subject of a measurement sentence is part of the CLAIM, and no merge may re-aim it. The test is per citation and asks no judgement -- change the number only, and if the sentence is true of the file today it was a pointer, while if the sentence changes what it asserts it was a claim. Six of the ten are pointers and each carried the anchor that proves it, because the gate itself named the new line for every one; that is precisely the capability `H-0168` did not have when it refused option 5, whose refusal is measured over 135 unanchored probes, 27 of them naming text that occurs more than once and so not re-pointable by text at all. Option 5 refused a guess; this commit makes none. Option 4 was the tempting one -- the pinned spelling is exempt and states which tree to open -- and it is refused for a pointer whose whole job is to be opened today: `factory/selftest.sh:12100` "0 when that gate asks git for nothing but object lookups" is the leg that keeps this rule reading the working tree and no revision, so exempting every drifted pointer would trade six refusals for six promises a reader cannot open and leave a log describing a tree nobody has. One of the ten is a claim, and it is the case the rule exists for: `H-0168` reads "1 (`aac8218:docs/factory.md:1027`) moved off a line that was ALREADY blank in `main`'s own tree", where the assertion IS that line 1027 was blank -- re-aiming it at a line that has words would make the sentence false, so the repair is to name the tree the measurement was taken in. Verified rather than assumed: at aac8218 that line is blank, at the base 8437eea it is a fence, and in the merged tree it is prose. Option 3 is refused by the entry that invented the arm it reaches for: H-0170's whole subject is a tree that both invented a defect and ordered the one edit that disarms the ratchet, and the count here went UP by four citations this branch wrote, so the owed verb is to anchor them -- 539 is back to the recorded number with the constant untouched. Option 6 is refused by tie-break 3, refuse rather than proceed when the missing input is somebody else's record: folding two published entries into one narrative deletes both, and neither side's `Checkpoint:` would name a commit the merged tree still holds. Tie-breaks, in order: 1 silent, no `go.mod` line, stdlib only (#856); 2 does not apply, nothing here decides a lockout; 3 decides options 3 and 6, above; 4 (fewest files) is this choice -- one file, the one that collided, ten coordinates inside lines that already existed, file length unchanged; 5 (reversible by `git revert`) separates nothing, every option here is one merge commit; 6 (convention) is the blob cut the last four conflicts used, and `main`'s own precedent, because `scripts/check-decisions.py:576` "The merge also moved four anchored pointers in this branch's own" is #367 recording that it performed this very repair on `H-0162` at a merge -- which is the rule this entry promotes out of a one-off. What it cost, stated plainly. **(a)** Six edits to lines this unit did not write, and the same coordinate now has two correct answers in two trees: 11823 is right on `main` at 9f7a8d8 and 12100 is right here, which is not drift but the price of a rule that reads the tree and no refs, and a future merge from a `main` that moved those lines again will re-pay it. **(b)** The stamp is a permanent fork in the record: that one coordinate is now unverifiable without git, while the six re-pointed ones are unverifiable against any other tree. **(c)** The four that this branch wrote sat in the debt for the whole review and told nobody anything; they surfaced only because the ratchet refuses a RISE. An anchor is what makes a move visible, and an unanchored pointer that drifts stays silently wrong forever -- 539 of them still do. **(d)** Nothing here touches the hazard underneath: an open branch whose base keeps moving pays one collision per merge, this is the fifth on one pull request, and the only real cures (merge fast, or rebase) are both outside a unit.
+- Why: The hunk's order is not a verdict, and the gate that says so is `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it); the log is a history" -- both orders were run rather than asserted: the same 8532 bytes with this branch's two entries placed above `main`'s three answer 3 refusals, H-0170 is out of order (H-0175 came before it), and exit 1, while the order this commit ships answers exit 0. Fifth collision on this hazard, fifth time the placement is read off the gate instead of off the diff. The rule the other four options each break, stated because `H-0168` and `H-0174` left it implicit and every later collision inherits whatever this one says: a coordinate whose anchor text travels with it is a POINTER, and the merge that moves the ground under it owns the repair; a coordinate that is the subject of a measurement sentence is part of the CLAIM, and no merge may re-aim it. The test is per citation and asks no judgement -- change the number only, and if the sentence is true of the file today it was a pointer, while if the sentence changes what it asserts it was a claim. Six of the ten are pointers and each carried the anchor that proves it, because the gate itself named the new line for every one; that is precisely the capability `H-0168` did not have when it refused option 5, whose refusal is measured over 135 unanchored probes, 27 of them naming text that occurs more than once and so not re-pointable by text at all. Option 5 refused a guess; this commit makes none. Option 4 was the tempting one -- the pinned spelling is exempt and states which tree to open -- and it is refused for a pointer whose whole job is to be opened today: `factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups" is the leg that keeps this rule reading the working tree and no revision, so exempting every drifted pointer would trade six refusals for six promises a reader cannot open and leave a log describing a tree nobody has. One of the ten is a claim, and it is the case the rule exists for: `H-0168` reads "1 (`aac8218:docs/factory.md:1027`) moved off a line that was ALREADY blank in `main`'s own tree", where the assertion IS that line 1027 was blank -- re-aiming it at a line that has words would make the sentence false, so the repair is to name the tree the measurement was taken in. Verified rather than assumed: at aac8218 that line is blank, at the base 8437eea it is a fence, and in the merged tree it is prose. Option 3 is refused by the entry that invented the arm it reaches for: H-0170's whole subject is a tree that both invented a defect and ordered the one edit that disarms the ratchet, and the count here went UP by four citations this branch wrote, so the owed verb is to anchor them -- 539 is back to the recorded number with the constant untouched. Option 6 is refused by tie-break 3, refuse rather than proceed when the missing input is somebody else's record: folding two published entries into one narrative deletes both, and neither side's `Checkpoint:` would name a commit the merged tree still holds. Tie-breaks, in order: 1 silent, no `go.mod` line, stdlib only (#856); 2 does not apply, nothing here decides a lockout; 3 decides options 3 and 6, above; 4 (fewest files) is this choice -- one file, the one that collided, ten coordinates inside lines that already existed, file length unchanged; 5 (reversible by `git revert`) separates nothing, every option here is one merge commit; 6 (convention) is the blob cut the last four conflicts used, and `main`'s own precedent, because `scripts/check-decisions.py:576` "The merge also moved four anchored pointers in this branch's own" is #367 recording that it performed this very repair on `H-0162` at a merge -- which is the rule this entry promotes out of a one-off. What it cost, stated plainly. **(a)** Six edits to lines this unit did not write, and the same coordinate now has two correct answers in two trees: 11823 is right on `main` at 9f7a8d8 and 12100 is right here, which is not drift but the price of a rule that reads the tree and no refs, and a future merge from a `main` that moved those lines again will re-pay it. **(b)** The stamp is a permanent fork in the record: that one coordinate is now unverifiable without git, while the six re-pointed ones are unverifiable against any other tree. **(c)** The four that this branch wrote sat in the debt for the whole review and told nobody anything; they surfaced only because the ratchet refuses a RISE. An anchor is what makes a move visible, and an unanchored pointer that drifts stays silently wrong forever -- 539 of them still do. **(d)** Nothing here touches the hazard underneath: an open branch whose base keeps moving pays one collision per merge, this is the fifth on one pull request, and the only real cures (merge fast, or rebase) are both outside a unit.
 
 - Checkpoint: ec366a074b6ca48de414a16c63f7bbdd7413f9b7
 
-- Effect: `factory/DECISIONS.md` alone; nothing else in this merge needed a hand. Splice geometry, run before any edit, from the two parent blobs and never the conflicted file (`git show origin/main:factory/DECISIONS.md` = 8460 lines, `git show HEAD:factory/DECISIONS.md` = 8185): merged 8532 = git's own auto-merged prefix of 8288 lines, which conflicted nowhere, then `main`'s 8252..8460 (H-0170, H-0171, H-0172, 209 lines), then this branch's 8151..8185 (H-0174, H-0175, 35 lines). Both blocks proved byte-identical to their parent afterwards -- `diff` of `main`'s range against merged 8289..8497 is 2 changed lines, the two factory/selftest.sh:11823 to 12100 coordinates at merged 8325 and 8397, and `diff` of this branch's range against merged 8498..8532 is 1 changed line, the esc_one_home anchor at merged 8528 -- so the two repairs are the whole difference. Neither side lost a line: by line multiset every line of `main`'s blob is in the merged log (0 absent), 35 lines of this branch's blob are absent and every one of them is a line `main` itself rewrote in #367's bare-name repair -- SKILL.md:93 became .opencode/skills/factory/SKILL.md:93, README.md:588 became ./README.md:588 -- each paired to `main`'s replacement at difflib ratio 0.885 or better, and none of them base-and-HEAD-and-dropped-by-the-merge; 0 lines in the merged log are in neither parent; the H sequence ascends 166, 168, 169, 170, 171, 172, 174, 175 and the three conflict markers count 0. Then the ten coordinate edits, each asserted to hit its own line exactly once, digits and an anchor only, no re-wrap, file length 8532 to 8532: 7798, 7800, 7847, 7852 in `H-0162`, 8267 three times in `H-0168`, 8325 and 8397 in `H-0170` and `H-0171`, 8528 in `H-0175`. Gate on those bytes with this entry not yet written: `python3 scripts/check-decisions.py` answers 229 entries across 2 log(s) and 569 path:line citations read, 539 owing an anchor and 0 pointing somewhere a reader cannot open, exit 0 -- before the repairs the same command answered exit 1 with 6 anchored citations pointing at text that is not there and a count of 543, and on that run the ratchet is deliberately not judged, which is why POINTER_DEBT was never edited. The review measured 568 citations read where this tree reads 569, and the one row is the docs/factory.md:1027 coordinate: its recipe writes it out of the citation grammar, this entry stamps it instead, so it stays read and stays exempt. Leg census over `factory/selftest.sh`, same instrument as `H-0168`'s: 451 on the base, 478 on this branch, 451 on `main`, 478 merged = 451 + 27 + 0, so no leg was lost and #367 brought none. This entry mints five anchored citations and two revision-qualified ones and moves the debt by nothing. `index_exec_problems` (`factory/selftest.sh:14282-14289` "the names git does not hold at 100755") is #368 and still reddens the exec-bit leg while any path is unmerged, so `git add` runs before the suite and not after: `make verify`, which runs `bash factory/selftest.sh` and `python3 scripts/check-decisions.py` inside it, was run on the resolved tree with this entry in it and before this commit, and the tally and the last line it printed are quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Refs #313 for the ticket this branch was cut to deliver; the merge is the work, and merging stays the supervisor's action.
+- Effect: `factory/DECISIONS.md` alone; nothing else in this merge needed a hand. Splice geometry, run before any edit, from the two parent blobs and never the conflicted file (`git show origin/main:factory/DECISIONS.md` = 8460 lines, `git show HEAD:factory/DECISIONS.md` = 8185): merged 8532 = git's own auto-merged prefix of 8288 lines, which conflicted nowhere, then `main`'s 8252..8460 (H-0170, H-0171, H-0172, 209 lines), then this branch's 8151..8185 (H-0174, H-0175, 35 lines). Both blocks proved byte-identical to their parent afterwards -- `diff` of `main`'s range against merged 8289..8497 is 2 changed lines, the two factory/selftest.sh:11823 to 12100 coordinates at merged 8325 and 8397, and `diff` of this branch's range against merged 8498..8532 is 1 changed line, the esc_one_home anchor at merged 8528 -- so the two repairs are the whole difference. Neither side lost a line: by line multiset every line of `main`'s blob is in the merged log (0 absent), 35 lines of this branch's blob are absent and every one of them is a line `main` itself rewrote in #367's bare-name repair -- SKILL.md:93 became .opencode/skills/factory/SKILL.md:93, README.md:588 became ./README.md:588 -- each paired to `main`'s replacement at difflib ratio 0.885 or better, and none of them base-and-HEAD-and-dropped-by-the-merge; 0 lines in the merged log are in neither parent; the H sequence ascends 166, 168, 169, 170, 171, 172, 174, 175 and the three conflict markers count 0. Then the ten coordinate edits, each asserted to hit its own line exactly once, digits and an anchor only, no re-wrap, file length 8532 to 8532: 7798, 7800, 7847, 7852 in `H-0162`, 8267 three times in `H-0168`, 8325 and 8397 in `H-0170` and `H-0171`, 8528 in `H-0175`. Gate on those bytes with this entry not yet written: `python3 scripts/check-decisions.py` answers 229 entries across 2 log(s) and 569 path:line citations read, 539 owing an anchor and 0 pointing somewhere a reader cannot open, exit 0 -- before the repairs the same command answered exit 1 with 6 anchored citations pointing at text that is not there and a count of 543, and on that run the ratchet is deliberately not judged, which is why POINTER_DEBT was never edited. The review measured 568 citations read where this tree reads 569, and the one row is the docs/factory.md:1027 coordinate: its recipe writes it out of the citation grammar, this entry stamps it instead, so it stays read and stays exempt. Leg census over `factory/selftest.sh`, same instrument as `H-0168`'s: 451 on the base, 478 on this branch, 451 on `main`, 478 merged = 451 + 27 + 0, so no leg was lost and #367 brought none. This entry mints five anchored citations and two revision-qualified ones and moves the debt by nothing. `index_exec_problems` (`factory/selftest.sh:17917-17924` "the names git does not hold at 100755") is #368 and still reddens the exec-bit leg while any path is unmerged, so `git add` runs before the suite and not after: `make verify`, which runs `bash factory/selftest.sh` and `python3 scripts/check-decisions.py` inside it, was run on the resolved tree with this entry in it and before this commit, and the tally and the last line it printed are quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Refs #313 for the ticket this branch was cut to deliver; the merge is the work, and merging stays the supervisor's action.
 ## H-0178 · The coverage arm asked whether the fetch refspec contained a star, so a destination-side wildcard read clean beside a taken id -- and the fetch that verdict tells a session to run cannot widen the clone
 
 - Question: #309, reproduced against the shipped script at the checkpoint. A clone whose only
@@ -9088,7 +9088,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `2026-11-14T13:41:48Z`, so at this head the label the ticket withholds is read by the classifier
   (`factory/triage.sh:230` "park_json=$(printf '%s'" reads it into the queue read, and
   `is_parked` asks the same map at the row emit) and honoured by the dispatcher
-  (`factory/factory.sh:1501` "a stop that no later pass can read is not a stop": the `parked` arm logs
+  (`factory/factory.sh:1657` "a stop that no later pass can read is not a stop": the `parked` arm logs
   `PARKED` and starts no tick). Does a unit create the label, rename
   the one home at `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}",
   or stop?
@@ -9128,7 +9128,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   (`plock-awaiting-a-human`, invented for the probe) is **674 passed, 0 failed**, rc 0, 37s, so
   `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}" really is the one line `common.sh` claims it is; `blocked` is **673 passed, 1
   failed**, rc 1, 36s, sole failure `esc_one_home`, because that leg greps the name as a bare substring
-  across eight live files and finds three spellings outside the home — `factory/selftest.sh:15569` "the pass blocked instead of refusing",
+  across eight live files and finds three spellings outside the home — `factory/selftest.sh:19204` "the pass blocked instead of refusing",
   `.opencode/skills/factory/SKILL.md:280` "has not yet said what the name" and
   `.opencode/skills/factory/SKILL.md:296` "exited 0 and read back". The first is not a
   label at all: it is the English word in an unrelated leg's message ("the pass blocked instead of
@@ -9136,7 +9136,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   to do with labels, and `blocked` — the option `H-0139` weighed on its description alone — is the
   expensive one for a reason no entry had. Tie-break 6 reads the same way: every name this harness has
   ever used for the marker is distinctive (`needs-human`, the fixture's `plock-awaiting-a-person` at
-  `factory/selftest.sh:6865` "FACTORY_ESCALATION_LABEL=plock-awaiting-a-person").
+  `factory/selftest.sh:8738` "FACTORY_ESCALATION_LABEL=plock-awaiting-a-person").
 
   What settles it is #311's own last paragraph, unchanged since 12 Nov: either repair is a person's
   call. Creating the label stays the most tempting option to argue into scope — additive, not a
@@ -9207,18 +9207,18 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `main`'s published entries and the sentence around each was a pointer at text, so a digit was the whole
   repair. Here the four are the coordinates carrying the only measurement this pull request sells:
   `H-0179` prices the escalation name by reading three spellings off the tree, and the leg it prices is
-  `factory/selftest.sh:7469` "the name is spelled once, and that once is common.sh" -- `esc_one_home`. A
+  `factory/selftest.sh:9342` "the name is spelled once, and that once is common.sh" -- `esc_one_home`. A
   re-pointed citation is openable; it is not true. So the merge re-ran the pricing on the merged tree,
   and the first re-run was a null measurement of a kind no entry here had filed: `bash factory/selftest.sh`
   with `FACTORY_ESCALATION_LABEL=blocked` in the environment printed `679 passed, 0 failed`, rc 0 -- the
-  shipped name's tally exactly -- because `factory/selftest.sh:5811` "FACTORY_ESCALATION_LABEL=''" -- the
+  shipped name's tally exactly -- because `factory/selftest.sh:7684` "FACTORY_ESCALATION_LABEL=''" -- the
   `claim_reset` reset, whose fixture legs run long before this one -- blanks the inherited value in the
   suite's own shell, and `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}"
   then answers with its own default.
   An env-var counterfactual aimed at that leg measures the shipped name and reports it green. The verb
   that reaches the leg writes the one home, and v1 of that write was the second trap: replacing
   `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}" with a bare
-  assignment costs the line its `${VAR:-default}` shape, which `factory/selftest.sh:7532` "-F':-|}' '/^FACTORY_ESCALATION_LABEL=/{print $2}"
+  assignment costs the line its `${VAR:-default}` shape, which `factory/selftest.sh:9405` "-F':-|}' '/^FACTORY_ESCALATION_LABEL=/{print $2}"
   reads the default out of -- so v1 reported five failures for `blocked` and four for a name nothing
   spells in prose, and was measuring its own edit. v2 changes the name inside the default and nothing
   else, at a probe merge of `c5217e8` and `cead89c` carrying this same splice, in throwaway clones, never
@@ -9234,7 +9234,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0179` counted at the base. The merge moved those lines and added none.
 
   The one line both sides wrote with different contents is `H-0177`'s `Effect:`, which reads
-  `0592233:factory/selftest.sh:13786-13793` on this branch and `factory/selftest.sh:14282-14289` "the names git does not hold at 100755" on `main` -- neither written by this branch's commit; `main` repaired it in #376. Decided by reading the tree, not by side: every one of the five auto-merged paths is
+  `0592233:factory/selftest.sh:13786-13793` on this branch and `factory/selftest.sh:17917-17924` "the names git does not hold at 100755" on `main` -- neither written by this branch's commit; `main` repaired it in #376. Decided by reading the tree, not by side: every one of the five auto-merged paths is
   byte-identical to `origin/main` (`git diff --quiet origin/main -- <path>`, five times rc 0) and this
   log is the only path where the merged tree differs from `main` at all, by the 91 lines of `H-0179`, so
   the merged `factory/selftest.sh` IS `main`'s and `main`'s number is the one a reader can open today.
@@ -9299,8 +9299,8 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 
 - Question: PR #385 is `OPEN` and `BLOCKED` because CI runs `make verify` on the merge surface against
   `origin/main`, not on the branch alone. On that surface the log's own gate says two anchors moved:
-  H-0179 reads `factory/selftest.sh:15569` "the pass blocked instead of refusing", and H-0180 reads
-  `factory/selftest.sh:14282-14289` "the names git does not hold at 100755". Both old coordinates were
+  H-0179 reads `factory/selftest.sh:19204` "the pass blocked instead of refusing", and H-0180 reads
+  `factory/selftest.sh:17917-17924` "the names git does not hold at 100755". Both old coordinates were
   true when written, this branch's product diff does not touch this log, and the drift arrived from the
   trunk. What does this branch owe?
 - Options: repair only the digits inside the two published entries and file this erratum in the same
@@ -9396,6 +9396,1271 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   contract; and the clock-bound flake above stays unrepaired for whoever prices it next. No GitHub
   write, no label, no merge, no governing file edited by this decision.
 
+## H-0183 · A tree left mid-merge is reproducible from four commands, so the quarantine mirrors the index and aborts the merge instead of asking `git stash`, which refuses to touch it
+
+- Question: issue #328 measured 54 consecutive `HALTED` activations from `2026-11-12T04:22:36Z` to
+  `14:36:08Z` -- 10 h 13 min 32 s, 37 units queued throughout, among them an `APPROVED / CLEAN` pull
+  request with 5/5 checks green and an `APPROVED / DIRTY` one waiting for its conflict -- because
+  `factory_tree_quarantine`'s only rescue verb is `git stash push -u` and git refuses a tree with
+  unmerged index entries: the journal's own reason is `quarantine refused: git stash failed :: error:
+  could not write index factory/DECISIONS.md: needs merge`. Which mid-merge shapes may a supervisor
+  clear by itself, what must the mirror carry for that to be reversible rather than a deletion, and what
+  does this log owe the pointers the change's own insertions move?
+- Options: mirror the index and the worktree, abort the merge, and keep halting for every other
+  sequencer state | abort the merge with no mirror, because `HEAD` and `MERGE_HEAD` are enough to
+  rebuild the merge if nobody objects | clear the unmerged entries and let the operator re-resolve from
+  the journal line alone | one arm for every sequencer state, so merge, cherry-pick, revert and rebase
+  all abort and mirror | keep halting and put the four-command recipe in the halt's message so a person
+  does it
+- Chose: mirror the index and the worktree, abort the merge, and keep halting for every other sequencer state
+- Why: the refusal is real and the rescue is real, and both were re-run rather than reasoned about. On a
+  tree planted the way the ticket plants one -- `merge --no-commit --no-ff` against a branch that
+  conflicts, one file resolved and deliberately never `git add`ed -- `git stash push -u` exits non-zero
+  with `needs merge` and leaves `MERGE_HEAD` standing, which is the outage; the same tree through the new
+  arm comes back rc 1 with the tree clean, `MERGE_HEAD` gone, and a directory in `$FACTORY_AT_RISK`.
+  Detection cannot use the markers: that tree holds a written resolution and no markers at all, so
+  `grep -c '^<<<<<<<'` answers 0 while `git ls-files -u | wc -l` answers 3, which is why the shipped
+  read is `$(git rev-parse --absolute-git-dir)/MERGE_HEAD` inside `factory_tree_unmerged`, never a
+  literal `$tree/.git/MERGE_HEAD` -- in a linked worktree `.git` is a 66-byte FILE naming the real
+  admin directory, and the literal path looks for `MERGE_HEAD` beside it and finds nothing: measured
+  in a linked worktree mid-merge, `--absolute-git-dir` resolves to `…/repo/.git/worktrees/tree` and
+  `MERGE_HEAD` IS there, while `$tree/.git/MERGE_HEAD` answers NO (the review of #398, at `11bd8c1`,
+  re-measured here the same way). Erratum on these two clauses, taken from that review: as published
+  this bullet named `$(git rev-parse --git-dir)/MERGE_HEAD` and called `--absolute-git-dir` the form
+  that finds nothing -- exactly inverted from the code the same commit shipped, which taught a reader
+  to replace the working read with the broken one; the block of `factory/common.sh` above
+  `factory_tree_unmerged` already said the absolute form is the read that resolves in both shapes. The mirror is the index, not the working tree, and that split had to be measured
+  twice: `git diff --diff-filter=U` renders a conflicted path as the 32-byte notice `* Unmerged path`
+  and nothing else (31 bytes in the index-vs-worktree form), and `git apply` skips a notice line, so the
+  output is non-empty AND restores nothing -- which is the exact shape of the ticket's own detection
+  suggestion, sound for deciding and useless for carrying. Plain `git diff HEAD` is the one render that
+  carries the conflicted bytes including the markers, `git diff --cached --diff-filter=U` prints the same
+  notice so the staged half IS restorable, and `git ls-files -u` plus a byte copy per stage is what makes
+  stage 1/2/3 survive a delete/update conflict, where the file is absent from the worktree and a worktree
+  mirror would have carried nothing. Halting stays for cherry-pick, revert and rebase on the ticket's own
+  test -- is the state reproducible: `sequencer/` outlives `cherry-pick --quit` (measured, two files left
+  behind), and a rebase writes tracked by-products into the tree, so an abort there can destroy work the
+  mirror never captured; those legs assert the index and the directories are byte-unchanged after the
+  refusal. The ticket asked for the control by name and it is the leg that matters most: a copy of
+  `factory/common.sh` with the `merge)` case label substituted away is sourced by a fresh shell, and the
+  same planted tree then returns rc 2 with the stash's own sentence and `MERGE_HEAD` still standing --
+  the outage, on demand. That control asserts its own premise (one matching label in the shipped file,
+  zero in the copy), because a `sed` that quietly matches nothing leaves the arm in place and reports a
+  green control that retired nothing. Tie-break 1: no `require` line, git and the shell only, the
+  zero-dependency rule untouched, exactly as the ticket states it. Tie-break 2: nothing here moves
+  lockout semantics. Tie-break 3: every figure above was produced in a fixture on this tree and is
+  re-runnable. Tie-break 4: two files of behaviour and nine legs, and one log. Tie-break 5: `git revert`
+  of this entry's commit retires the arm and leaves the queue exactly as #328 found it. Tie-break 6:
+  options 2 and 3 are the same act as deleting the work, which the ticket's closing sentence refuses --
+  nothing was discarded without a mirror in either hand-clearing -- and option 4 destroys the
+  distinction between a state reproducible from four commands and a state that is not.
+- Checkpoint: cca9526a1138fe6442facbbee0790433e48dde1e
+- Effect: `factory_tree_quarantine` now decides before it reaches for `stash`, and its journal line
+  carries the rescue: `kind=merge merge=<sha> stash=<sha|none> mirror=<path>` -- `stash=` names
+  the quarantine stash's own commit when the post-abort stash took (`stash=1ad1f4f93` in the review
+  run; `none` when there was nothing left to take), with `mirror=` last because the
+  caller reads it with `${line##*mirror=}` and any field after the path is captured with it. Nine legs in
+  this suite's `mm_leg` section, and the whole file reads 690 passed, 0 failed on a 681-leg base --
+  re-measure with the section selector
+  `bash factory/selftest.sh 2>&1 | grep -E 'detector names a mid-merge|stash still refuses this
+  tree|quarantine clears the merge|holds all three stages|mirror restores the tree exactly|recipe [12] runs'`
+  rather than trusting this sentence -- the published `grep midmerge` matched nothing: no leg label
+  contains that word (measured: `midmerge` occurs once in `factory/selftest.sh`, at the fixture-root
+  assignment `mm=$work/midmerge`, and in no `mm_leg` label).
+  Erratum, and it is this branch's own damage: the two inserts moved 35 coordinates in this log, 19 of
+  them anchored rows the gate named by refusing, 16 of them unanchored rows the gate cannot see and did
+  not report. All 35 were re-pointed by content, not arithmetic -- the HEAD text of each old coordinate
+  compared byte-equal against the worktree at the new one -- and the log's own line count did not change,
+  so nothing inside it moved. `POINTER_DEBT` stays 539 and `python3 scripts/check-decisions.py` reads 0
+  pointers a reader cannot open; the re-point was taken from a tree with the two `__pycache__`
+  directories `make verify` leaves behind removed, because a stray directory moves pointers out of the
+  debt and into the unopenable list and a number measured against such a tree says nothing about the
+  logs. One measurement belongs to the suite rather than the fix and is recorded here because it hid: the
+  journal-line assertion was written with `[ "$path" = "$dir"/* ]`, and inside `[ ]` that word is
+  glob-expanded by the shell before `test` sees it -- with only the mirror in the box it expands to one
+  word and the comparison passes, with the earlier legs' mirrors in the box it hands `test` too many
+  arguments and fails. So the leg was green run alone and red in the suite. `case` matches a pattern
+  instead of expanding one, and the three box states are these: the mirror alone in the directory, where
+  the glob collapses to that one path and the two sides compare equal; that same mirror with one
+  unrelated file beside it, where `test` is handed four arguments and refuses; and the suite's own state,
+  two earlier mirrors standing, which is the red run. Only the first passes, and it passes on the count
+  rather than on the property. What lost: cherry-pick, revert and rebase trees still halt and
+  still stop the queue, which is a choice and not an oversight; a mirrored restore returns a tree that is
+  conflicted again, by design, because the mirror carries the markers; and the 35 re-pointed coordinates
+  resolve at this merge, so a reader on an older checkout follows numbers that only line up from here.
+
+## H-0184 · The mirror #328 exists to trust could name a directory it never wrote, and filed a conflicted file's bytes under a filename that is not that file
+
+- Question: `factory_tree_mirror_merge` chooses its own directory from the tree's basename and a
+  second-resolution clock, then calls whatever is standing there the rescue; and it reads the unmerged
+  stage table in git's default rendering. What does `mv -f` actually do when the name it chose already
+  exists as a directory, what does that rendering do to a conflicted path holding a `"`, a space or a
+  newline, and what is the MANIFEST therefore allowed to promise an operator running it by hand at the
+  hour the halt woke them?
+- Options: name the directory after tree, clock and unit, refuse a name that exists, read back that the
+  MANIFEST names the directory it opened, carry every path NUL-delimited end to end, and print the
+  restore as two numbered recipes the operator runs instead of re-derives | keep the newline stage table
+  and set `core.quotePath=false` on every git call so the quotes stop | take the conflicted paths from
+  `git diff HEAD --name-only` instead of the index and shell-quote each one inside the recipe | append a
+  random suffix to the directory name and leave the path reads alone, so two runs can never want the same
+  directory
+- Chose: name the directory after tree, clock and unit, refuse a name that exists, read back that the
+  MANIFEST names the directory it opened, carry every path NUL-delimited end to end, and print the
+  restore as two numbered recipes the operator runs instead of re-derives
+- Why: three measurements, each re-run for this entry, and the first one is the reason the directory has
+  to refuse. `mv -f A B` with B an existing directory exits 0 and puts A INSIDE B -- re-run here, `find`
+  after it reads `B/A/inside.txt` beside an untouched `B/MANIFEST` -- so a colliding mirror name does not
+  fail, it nests, and the read-back the arm already does (`[ -f "$dir/MANIFEST" ]`) is satisfied by the
+  OLDER run's MANIFEST: the journal line then names a directory whose contents are a different
+  quarantining's. Two runs can want the same name because neither half of it is unique -- `basename` of
+  the tree repeats across roots, and the clock repeats inside a second -- so the unit goes in the name
+  with its punctuation flattened to dashes, which is why the mirror this entry's probe took for an
+  unclaimed issue ends `…-unclaimed-328`: a colon is a legal filename and a hostile glob. Second measurement, the one that turns a mirror into a lie: this branch's own baseline (HEAD,
+  the arm as H-0183 shipped it) was run against a planted conflict containing a file whose real name is
+  `we"ird.txt`, and the mirror it produced holds `unmerged/1/"we\"ird.txt"`, `unmerged/2/"we\"ird.txt"`
+  and `unmerged/3/"we\"ird.txt"` -- three stage copies under a name carrying git's own quotes and
+  backslash, so the bytes are filed somewhere that is not the path they came from -- plus
+  `worktree/"we\"ird.txt".ABSENT`, a note asserting the file was GONE from the tree while it stood there
+  holding the typed-in resolution. The same probe through this entry's function writes
+  `unmerged/2/we"ird.txt` and `worktree/we"ird.txt`. `core.quotePath=false` is not the fix and was
+  measured as not-the-fix: it governs non-ASCII only, so the `"` is still escaped; the fix is `-z`, and
+  then every read of that file has to be NUL-delimited, which is also what kills the second half of the
+  bug -- the shipped MANIFEST told the operator `cut -f2 "$M/ls-files-u" | sort -u | tr '\n' ' ' | xargs
+  -I{} cp ...`, and a path with a space becomes two arguments before `cp` ever sees it. The list of
+  conflicted paths is therefore written once, NUL-terminated, into `unmerged.paths`, the deleted ones into
+  `absent.list`, and both recipes walk those with `read -r -d ''`; the `--exclude` arguments are built
+  into an array and expanded as `${args[@]+"${args[@]}"}`, so a mirror with no conflicted path passes zero
+  arguments rather than the literal text of an unbound expansion. Third measurement, that both guards are
+  load-bearing and not one of them decoration: with only the existence test retired, the run exits 2 and
+  its stderr says `does not name this directory` -- the identity read catching what the test would have
+  waved through -- and with BOTH retired it exits 0, prints the decoy's path as the rescue, and buries its
+  own copy one level inside, at which point the buried MANIFEST's `mirror:` line names a directory it
+  cannot be. Tie-break 1: no `require` line, git and bash only, the zero-dependency rule untouched.
+  Tie-break 2: nothing here moves lockout semantics. Tie-break 3: the seven legs are
+  `a quoted path stays one path`, `the mirror names itself`, `recipe 2 runs and returns it`, `recipe 1
+  runs on those paths`, `a second run cannot reuse the name`, `retire the test, the name refuses`,
+  `retire both, it reports a lie`, and six of the seven were run against HEAD's implementation in a
+  detached copy of HEAD carrying only this file's new legs, where each failed with the sentence above it:
+  stage 2 not MAIN, no `mirror:` line, the clean edit and the staged half missing after recipe 2, and the
+  second run SUCCEEDING on a frozen name and printing it anyway. The seventh passes at HEAD and is
+  recorded as passing there rather than counted as a repair: recipe 1 was already able to restore this
+  fixture. The two guard controls assert their own premise and that is why they are worth the page -- when
+  run against HEAD, which has neither guard, they refuse with `the shipped file holds 0 copy of the guard
+  this control retires` instead of reporting a green that retired nothing, which is the H-0183 lesson kept
+  honest. Tie-break 4: one function, one fixture family, seven legs, one log. Tie-break 5: `git revert` of
+  this entry's commit returns the mirror to H-0183's shape and leaves the arm working as #328 found it.
+  Tie-break 6: option 2 is the measurement that says it does not work; option 3 rebuilds the same table
+  out of the render H-0183 already proved cannot carry a conflicted path at all; option 4 fixes the
+  collision and leaves a mirror that files bytes under the wrong name and asserts a live file is absent.
+- Checkpoint: febfdfe77c6cb73b4c13607c56d9aeaf90e51235
+- Effect: `factory_tree_mirror_merge` now refuses a name that exists (exit 2, naming the directory), puts
+  the sanitized unit slug in the name, writes `unmerged.paths` and `absent.list` beside
+  `ls-files-u`, prints its own absolute path in the MANIFEST under `mirror:`, checks after the rename
+  that the MANIFEST it opened names that directory, and ends the MANIFEST with two numbered recipes --
+  recipe 1 the tracked work, recipe 2 the conflict on top of it -- where the second is the one that
+  survives a deleted conflicted path. `factory_tree_quarantine` is its only caller: the name appears in
+  the definition, at that one call site, and in this suite, in both trees. Seven `mm_leg`s added, the
+  file reading 697 passed, 0 failed on a 690-leg base -- re-measure with
+  `bash factory/selftest.sh | grep midmerge` rather than trusting this sentence. Erratum, and it is this
+  entry's own tooling: the change moves 35 coordinates in this log, 33 in `factory/selftest.sh` by +526
+  and 2 in `factory/common.sh` by +93, and the first version of the repair replaced the whole backticked
+  span instead of the digits in it, so every one of the 35 lost its file name -- a pointer reduced to a
+  bare number where it had named the file and the line within it, and prose beside it quoting that number
+  as if it were a path. That took the log's unanchored count from 539 to 519 and the gate answered by refusing to
+  believe it: `the decision logs now hold 519 citations that owe an anchor, below the recorded debt of
+  539 -- pay it down`, which is a ratchet being offered a paydown bought by shredding the promises, and
+  the only thing that caught it is that the ratchet refuses a fall it did not earn. The log was rebuilt
+  from HEAD's blob and the repair re-run editing only the coordinate's digits, then verified structurally
+  rather than by eye: all 31 changed lines are digit-only once every digit is masked, the citation count
+  on those lines is 55 before and 55 after, and the seven path-less follow-on citations the house style
+  already uses are still seven. Each new coordinate was found by content -- a unique match of the recorded
+  block, else a unique match of a widening context window with the recorded bytes required to sit at the
+  offset it predicts -- and the arithmetic was used only as the cross-check it is: 33 at +526, 2 at +93,
+  no third offset. `python3 scripts/check-decisions.py` then reads 641 citations, 539 owing an anchor and
+  0 a reader cannot open, and judges the debt -- the same three numbers the same gate reads at HEAD in a
+  freshly added detached tree, which is the check that says no stray directory hid anything. What lost: a
+  collision still HALTS the unit (exit 2) rather than waiting out the second, so a same-second double
+  quarantine costs one unit its tick; the directory name gained a field, so anything that read it by field
+  position now reads four where it read three; a MANIFEST written before this change has no `mirror:`
+  line, so an audit that demands one will refuse older mirrors -- the right verdict, but a change in what
+  an old mirror can prove; `absent.list` exists only when something was deleted, so a hand-written recipe
+  that reads it unguarded fails on a conflict where nothing was; the stage-list walk needs bash's
+  `local -A`, and the only thing that has ever sourced this file outside the suite is the quarantine arm
+  running under the same bash; and a mirror taken with the OLD code still holds quoted names, so the two
+  generations of MANIFEST are not interchangeable -- a rescue run against a pre-H-0184 mirror must use
+  that mirror's own instructions.
+
+## H-0185 · The review ran the MANIFEST's own two recipes on the two mirror shapes the arm really writes and each recipe died on one of them, so the patch guard asks for a header, the conflict block prints only when there is a conflict, and both path lists exist on every mirror
+
+- Question: H-0183's mirror prints two restore blocks and promises they are "A SCRIPT, not prose"
+  that `factory/selftest.sh` runs verbatim; the `CHANGES_REQUESTED` review of #398 (row 5908993504,
+  04:18:45Z against a head committed 02:50:32Z) extracted those blocks and ran them on the two mirror
+  shapes `factory_tree_mirror_merge` produces when no fixture stages a clean path beside the conflict
+  -- which is every fixture's blind spot. On the zero-conflict mirror (`MERGE_HEAD` standing, every
+  resolution `git add`ed, `git ls-files -u` empty, quarantined rc 0 end to end) `unmerged.paths` was
+  never created, so recipe 2 died at `done <"$M/unmerged.paths"`, `No such file or directory`, rc 1.
+  On the pure-conflict shape #328 itself was filed in, `diff-cached.patch` is the 22-byte notice
+  `* Unmerged path k.txt`, the `-s` guard calls it non-empty, and `git apply --cached` refuses the
+  whole input with `No valid patches in input (allow with "--allow-empty")`, rc 128. What does a
+  promised script owe the tree it refuses to run, does a zero-conflict mirror owe a re-merge line at
+  all, and which of the review's three non-blocking notes ride along?
+- Options: the reviewer's minimal fix -- write both lists unconditionally and wrap recipe 2's loops in
+  `[ -s ]` guards so they simply do not iterate | a content guard on both patch lines, a recipe-2 block
+  printed only when the mirror captured a conflict, and both lists written unconditionally anyway |
+  print both recipes always and pass `--allow-empty` to `git apply --cached` so the notice file is
+  accepted | retire the promise -- rewrite the MANIFEST as prose and stop claiming the suite runs it
+  verbatim
+- Chose: a content guard on both patch lines, a recipe-2 block printed only when the mirror captured a
+  conflict, and both lists written unconditionally anyway
+- Why: both failures were re-run before anything was edited, on a scratch repo with one conflicted
+  path and no staged file (shape P below, the shape #328 was filed in) and the same tree with the
+  resolution `git add`ed (shape Z), bash 5 / git 2.53.0; the two shapes are what the four new legs
+  plant today, so the whole measurement is re-runnable from the suite. Shape P quarantines rc 0 and its mirror's `diff-cached.patch` measures
+  exactly 22 bytes, `[* Unmerged path k.txt|]`; the bare apply answers rc 128 with the review's error
+  line word for word. Shape Z quarantines rc 0 holding `MANIFEST diff-HEAD.patch diff-cached.patch
+  ls-files-u` and nothing else -- the two path lists absent, because both were first-appended inside
+  loops that ran zero times. After the fix the same probe: shape P runs both extracted recipes rc 0
+  (the `CONFLICT` lines on stderr are the re-merge speaking, which is what recipe 2 is for) and the
+  conflict comes back whole; shape Z now carries both lists (`unmerged.paths` 0 bytes), prints ONE
+  block, and its `diff-cached.patch` is a real 117-byte hunk the guarded apply takes rc 0. Option 1
+  lost on the second shape's MANIFEST text, not on rc codes: an `[ -s ]`-guarded recipe 2 still prints
+  `git merge <side>` onto a resolved mirror, and an operator who ran the printed script would REOPEN a
+  merge somebody had closed -- the one harm this mirror exists to prevent -- while the tail paragraph
+  still promised "recipe 2 above reproduces it" about a conflict that mirror does not hold. Option 3
+  lost because `--allow-empty` silences the only signal that separates "this tree staged nothing" from
+  "the patch I needed did not apply"; the header guard answers that question before the apply, and an
+  empty file fails the grep too, so `--allow-empty` never comes up. Option 4 lost because the verbatim
+  legs are what make the promise testable, which is exactly why H-0183 chose a script; the fix is to
+  make the script true on every shape the arm writes. Three non-blocking notes came along: `M=%q`
+  replaces `M=%s` in both blocks because one space in `$FACTORY_AT_RISK` or the tree basename broke
+  line 1 of a script promised verbatim; the temporary directory is now
+  `factory/common.sh:2232` "tmp=$(mktemp -d --" with a random suffix rather than `$dir.tmp.$$`
+  under
+  `mkdir -p` -- a run killed mid-write leaves its `.tmp.<pid>` standing (measured to survive `kill
+  -9`), and while truncating the two lists at factory/common.sh:2150 `if ! : >"$tmp/unmerged.paths"
+  || ! : >"$tmp/absent.list"; then` fixes the lists, the stage bytes under `unmerged/` and the copies
+  under `worktree/` are governed by no list at all; and the block above `factory_tree_unmerged` now
+  says out loud that `git merge --squash` and a sequencer emptied by `--quit` still answer `none` and
+  halt with a journal sentence that blames a stash which was never the problem there. Tie-breaks:
+  git and the shell only, the zero-dependency rule untouched; no lockout semantics move; every figure
+  here is re-runnable from the four new legs, which plant both shapes; `git revert` of this commit restores the
+  old MANIFEST and leaves the arm otherwise standing.
+- Checkpoint: 33557635e5fbd8b92525b8efd3a582e3ae075f9f
+- Effect: two files and the log. `factory_tree_mirror_merge` now creates both lists before any loop
+  can skip them, prints its conflict block conditionally on `unmerged.paths` being non-empty with a
+  paragraph that explains a one-block MANIFEST as a fact about the tree, and guards both patch applies
+  by header -- `factory/common.sh:2389` "2>/dev/null; then git apply --cached "
+  (the same guarded line again inside recipe 2). Four new `mm_leg` legs: `factory/selftest.sh:4932` "mm_leg 'recipe 1 runs conflict-only'" and
+  its recipe-2 twin at 4582 run each extracted block verbatim on the pure-conflict mirror and assert
+  rc 0, markers back and `UU` restored -- and the control this log always wants,
+  `factory/selftest.sh:5097` "mm_leg 'retire the guard, the notice errors'", which retires the grep
+  guard in a copy of the shipped function, feeds it the same mirror, and demands the review's exact
+  rc 128, its premise counted first. `factory/selftest.sh` reads 702 passed, 0 failed on the 698
+  checkpoint base -- re-measure with the H-0183 section selector, which matches 10 legs on this tree.
+  Same commit carries the review's second blocking ask, an erratum on H-0183 rather than a new entry:
+  its `Why:` named `$(git rev-parse --git-dir)/MERGE_HEAD` as the shipped read and deprecated
+  `--absolute-git-dir`, which is inverted from the code the same merge shipped -- `factory_tree_unmerged`
+  uses the absolute form and the review measured it resolving to `…/repo/.git/worktrees/tree` with
+  `MERGE_HEAD` there and absent at `$tree/.git/MERGE_HEAD`; its `Effect:` claimed the journal carries
+  `stash=none` while the arm emits `stash=<sha|none>` (the review's run stashed `1ad1f4f93`); and its
+  re-measure selector `grep midmerge` matched no leg label. In-place clauses with an erratum sentence
+  beat a new entry because the code never was what the entry said -- a second entry would make the log
+  claim twice what it claims once. What lost: a resolved mirror no longer prints any way to resume the
+  merge -- a person who wants that merge redoes it from the side commit the text names, by decision,
+  in a clean tree; `git merge --squash` and post-`--quit` trees still halt with that mis-blaming
+  journal sentence, documented and not fixed; a rescue against a pre-H-0184 mirror still has to follow
+  that older mirror's own instructions, since the generations are not interchangeable; and 702 is
+  this box's count -- the reviewer's box read 696/1 and 694/3 on the same heads, so CI's verdict, not
+  this sentence, is what settles the ladder.
+
+## H-0186 · The age-clock fixture sampled the real clock once per stamp, so a boundary between its two writes re-minted the per-row defect inside the fixture that exists to retire it -- the stamps are now one anchor's arithmetic
+
+- Question: PR #400's `verify` went red on CI run 43673767085 (15 Nov) with
+  `FAIL  control: a per-row reading inverts that pair` and the diagnostic
+  `the ticking clock answered 0s and 0s` -- the control's own "stub skipped" refusal,
+  printed while the stub was wired and the snapshot leg above it read ok at
+  `03:45:55.9977200Z` and the control failed at `03:45:56.0145857Z`, straddling the
+  whole-second flip at `56.000`. H-0182 had already recorded this leg reddening
+  "once in three full runs" and filed it "for whoever prices it next". The mechanism
+  is not the stub: `proc_clock_stamp` asked `date -u -d "-N seconds"` per call, and
+  that form SAMPLES the clock, so the leg's premise -- two stamps written in the same
+  second -- was luck of the execution instant. A boundary between the two writes makes
+  stamp 901 one second newer BEFORE any reader sees it; the ticking stub then cancels
+  the difference exactly and both ages clamp to 0. Deterministically forced by pausing
+  between the two stamp writes on the pre-repair tree: control rc=1 with CI's exact
+  sentence, snapshot leg rc=1 with `stamps 2s apart came back 1s and 0s`. Both windows
+  are the leg's own stamping loop re-sampling the clock -- the per-row defect H-0169
+  retired at the ranking site, alive one level up. What does this tree owe?
+- Options: anchor every stamp to the leg's one clock sample and make `proc_clock_stamp`
+  a conversion of `anchor - offset` | retry the leg on failure until a second boundary
+  misses it | have `proc_clock_stamp` detect the second moving under it and re-derive |
+  widen the control to accept `0s and 0s` as a provoked-enough state | align the leg
+  inside a second with a sleep to the next boundary before stamping
+- Chose: anchor every stamp to the leg's one clock sample and make `proc_clock_stamp`
+  a conversion of `anchor - offset`
+- Why: the anchor is `$proc_clock_now`, the leg's single `date -u +%s`, and the stamp
+  formats `date -u -d "@$((proc_clock_now - offset))"` -- a conversion, never a
+  sampling -- with the no-anchor path refusing outright rather than falling back.
+  Retry (2) is the shape this file's own section comment already refuses -- "a leg
+  that has to wait for luck is a leg that reports ok for weeks while the key is broken"
+  -- and pays CI the runtime; accepting `0s and 0s` (4) deletes the control's premise,
+  since equal ages are exactly what that leg exists to refuse; (3) keeps a per-call
+  sampling and adds a verdict on top of it -- the class, plus a new bug surface; (5)
+  still samples twice and merely picks a safer window, so it lowers the rate without
+  closing the window. The anchor samples once and derives everything arithmetically,
+  and a conversion of an epoch holds no interval for a boundary to fall into -- the
+  same repair H-0169 made at the ranking site, mirrored here, which is tie-break 6
+  (surrounding code: `factory_age_at` already takes the clock as an argument, and the
+  stub itself delegates parsing and formatting to the real date and ticks only on
+  sampling). Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here
+  decides when a lockout starts or ends. Tie-break 3: the no-anchor path refuses and
+  says `refusing to sample the clock` rather than silently falling back to one.
+  Tie-break 4: one fixture function, its section comment, and digit-only repairs in
+  this log; no shipped harness behavior changes. Tie-break 5: `git revert` of the
+  effect commit restores the sampling version whole.
+- Checkpoint: 4e4fa89b8df80e6fc8cf34f38c0124032b3b602f
+- Effect: `proc_clock_stamp` in `factory/selftest.sh` anchored, with its
+  `printf '%s\n' "$(date -u -d "@$((proc_clock_now - $2))"` line the only clock-reading
+  call left in the fixture, whose text a reader can go and look at; the section comment
+  now carries the anchor rule and the run number; and seventeen digit-only pointer
+  repairs in this log that the +21-line insertion itself caused -- the pre-commit
+  `check-decisions.py` pass listed them (H-0162 twice, H-0168, H-0170, H-0171, H-0173,
+  H-0175, H-0177 twice, H-0179 twice, H-0180 four, H-0181 twice), every one verified to
+  carry its quote at the new line before the digits moved, all substitutions
+  same-length, `POINTER_DEBT` unchanged at 539. The refusal the repair answers is
+  `factory/selftest.sh:5909` "the ticking clock answered %ss and %ss, so no boundary fell between the" --
+  printed, on the forced-straddle driver, by the pre-repair tree and absent from the
+  post-repair one, the driver's snapshot leg flipping from `stamps 2s apart came back 1s
+  and 0s` (see `factory/selftest.sh:5877` "stamps 2s apart came back %ss and %ss, so the pair was not measured at one")
+  to silent. The driver forces the boundary by sleeping to just past the next whole
+  second between the two stamp writes -- destructive to the premise on purpose; the
+  post-repair fixture passes it both legs, and the whole suite reads
+  `682 passed, 0 failed`. What lost: the occurrence rate is the section comment's own
+  ~1-in-200 stamp-gap estimate, not a fresh measurement -- CI offered one specimen
+  across four runs; the stub-skipped mode is still only witnessed through the same
+  refusal arm, unchanged; and the driver lives in /tmp, its method recorded here rather
+  than shipped as a leg -- forcing a boundary from inside the suite would mean editing
+  the fixture the leg measures. `make verify` on the exact bytes this entry ships is
+  quoted with its last line in the commit message that carries this entry and in the
+  pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+  Rollback: `git revert` of the effect commit retires the anchor, the comment and the
+  seventeen digits together. No GitHub write, no label, no merge, no governing file
+  edited by this decision.
+
+## H-0187 · Two of #334's three fixes delete the operator's audit trail and one only measures it, so the unit ships the measurement and escalates the deletion
+
+- Question: nothing bounds `factory/log/` -- no code in the tree rotates, truncates or prunes
+  (re-grepped at this head: nothing). #334 measured **20 MB across 100 files** at filing
+  (2026-11-12T22:05Z, `du -sh`); re-measured from this branch on 15 Nov: 36,073,727 bytes across
+  171 files (`du -sb`; `du -sh` reads 35M), journal `supervisor.log` 995,814 B, oldest file still
+  the harness's first day (`20261110T134828Z.unclaimed:213.log`, mtime 2026-11-10) -- +16 MB and
+  +71 files since filing, and the ticket prices asking the question at "150 lines of grep". Its
+  own sentence: "Any of the three is a retention decision about the operator's audit trail, so it
+  is filed rather than decided by a unit." Deleting data is one of the four classes AGENTS.md
+  reserves to a human. What does this unit deliver without choosing a number?
+- Options: escalate all three and ship no code | ship fix 3 -- the footprint read in `--status` --
+  and escalate fixes 1 and 2 as one escalation naming the numbers owed | ship an inert rotator
+  whose numbers default to unset and let the operator fill the env | choose the numbers here and
+  ship a rotator
+- Chose: ship fix 3 -- the footprint read in `--status` -- and escalate fixes 1 and 2 as one
+  escalation naming the numbers owed
+- Why: the three fixes are not one kind of action. 1 and 2 delete the operator's records and cannot
+  be written without choosing keep-N, keep-D-days or a byte bound -- the choosing is the withheld
+  class. Fix 3 deletes nothing: it stats the directory the ticket measured and prints it where the
+  person already stands, in `--status` -- the ticket's own sentence for it, "#260 made for LOG-AT:
+  a record whose location and size are invisible is found by archaeology". Escalating all three
+  fails that sentence: an operator willing to answer owes a reading they cannot currently get,
+  and the answer H-0188 asks for is cheap to give once the size is legible. The inert rotator is
+  not neutral as it looks: keep-N and keep-D-days are different code paths, and shipping a
+  mechanism before the policy exists pre-picks the mechanism, its idle default becoming the
+  answer by mere existence -- a second decision to unmake. Choosing the numbers here is refused
+  twice over, by the ticket's sentence and by AGENTS.md. Tie-break 3: the numbers are missing
+  input, and inventing them is proceeding without it; the report needs no numbers and works while
+  waiting. Tie-break 5: reporting keeps every retention option open and is one `git revert` from
+  unmade. What lost: the growth stays unbounded until a human answers H-0188 -- that is the
+  disclosed loss, now visible on a line the operator reads, and #334 itself grows the journal 37
+  lines a pass on top.
+- Checkpoint: 80a5ad4b47c5026992e3c4496618459e799d7fa8
+- Effect: `factory_log_footprint` appended at the EOF of `factory/common.sh` (function-append at
+  EOF is shift-zero by construction); `factory/factory.sh`'s `--status` arm swaps the `journal:`
+  printf for a call one-for-one, 1683 lines before and after, so no `path:line` pointer in either
+  log moves; `factory/selftest.sh` gains three legs (controls uncounted by convention) inserted
+  above the tally block at line 16302, below every citation aimed at that file -- the highest line
+  the tool itself reports cited is 15569 -- and `python3 scripts/check-decisions.py` re-run after
+  the edits: 641 citations, 0 pointing where a reader cannot open, rc 0. Suite read-back:
+  `bash factory/selftest.sh` -> 685 passed, 0 failed, exit 0, against the 682 baseline the branch
+  carried; the planted leg reads back its plant (`journal 250 B; 3 files, 750 B`, the oldest
+  named with a days-shaped age, and flipping that transcript's mtime changes which file is named
+  -- the minimum is measured, not asserted; a single-file directory reads "1 file"; and a planted
+  `sub/` holding a bigger file named `supervisor.log` must not move one printed number, which is
+  the plant that pins `-maxdepth 1`), and the wired leg anchors its predicate on the call shape
+  -- a preceding-line check included, so a continuation carrying the name as somebody else's
+  argument is not a call -- and carries two planted controls with a landed-guard apiece: `cmp`
+  proves the delete deleted, a marker `grep` proves the comment landed. The comment plant is the
+  mutation the first version read as wired; both survivors were found by the pre-PR adversarial
+  rounds (H-0043's rule). Live
+  read-back against the real log directory: `--status` printed
+  `log:     journal 995814 B; 171 files, 36074649 B under .../factory/log; oldest 20261110T134828Z.unclaimed:213.log 4d16h`.
+  This decision deletes and rotates nothing; the deletion is H-0188 and it awaits a human.
+- Refers: #334 (this ticket), H-0043 (a presence check must prove it could see the absence),
+  H-0141 and H-0179 (escalate-with-record, and the disclosed stand-in when the marker itself is
+  refused), AGENTS.md "Four classes of decision are not an agent's to make"
+
+## H-0188 · The only bound on `factory/log` is a deletion of the operator's audit trail, which is a reserved class, so H-0187 ships the reading and this entry asks for the numbers
+
+- Question: H-0187 shipped the footprint read. The two bounds -- #334's fixes 1 and 2, pruning
+  transcripts and rotating `supervisor.log` -- each require a policy and its numbers chosen
+  (keep-N vs keep-D-days vs a directory byte-cap; rotation size and generations), and the ticket's
+  own premise that no reader needs the oldest content is a fact about today's readers,
+  falsifiable only by the person who owns the records. What ends this ticket?
+- Options: transcripts keep the last D days, journal rotates at S bytes keeping 1 generation
+  (recommended there as D = 14 days, S = 16 MiB, from the measured ~29 transcripts/day at
+  ~375 KB/day) | transcripts keep N per unit, bounded per unit but not per day | a directory-wide
+  byte cap evicting oldest-first, which can silently evict the night of an incident | report only,
+  leave it unbounded with H-0187's line as the whole visible control
+- Chose: escalated
+- Why: deleting data is one of the four classes AGENTS.md reserves to a human, and this deletion
+  is exactly what the ticket itself calls a retention decision about the operator's audit trail:
+  "Any of the three is a retention decision about the operator's audit trail, so it is filed
+  rather than decided by a unit." Shipping the mechanism while waiting was refused in H-0187 --
+  keep-N and keep-D-days are different code paths, and an idle rotator pre-picks the mechanism and
+  makes its inert default the answer by existence. The menu, each option's cost and the exact
+  command to proceed are on the #334 comment, with the recommendation stated there; stating it
+  here as a choice would make the record a fait accompli. Tie-break 3: proceeding needs human
+  input that does not exist, so the unit stops with the ask named. Tie-break 5: nothing is
+  deleted and nothing irreversible is added by this entry. The marker is the same owed-by-#311
+  debt every escalation inherits; the step runs as shipped, name read from its one home --
+  `gh issue edit 334 --add-label "$(factory/escalation-label.sh)"` -- after this commit lands,
+  and the name it prints is not among the repository's labels -- `'needs-human' not found` for rc 1
+  is measured on this box by H-0139 and re-measured by H-0179, and H-0141 measured that a refusal
+  of that shape applies nothing half-way -- so the expected end state is a reported
+  refusal, the read-back, and the disclosed `blocked` stand-in per the H-0139/H-0179 precedent --
+  undo `gh issue edit 334 --remove-label blocked` -- because a ticket whose remaining half is a
+  one-line human answer must not re-queue a full dispatch every cycle, the loop H-0179 priced at
+  2700 s a dispatch.
+- Checkpoint: n/a
+- Awaiting: the operator, in one comment on #334, naming the retention policy and its numbers (the
+  proceed command is in the escalation comment) or answering `retention: option 4`. The answer is
+  the deletion authorization; the next unit implements exactly what is answered and nothing more.
+  #311 still owns the marker name that would replace the stand-in.
+- Effect: this entry and nothing else in the tree. On the tracker: the escalation comment with the
+  menu and the proceed command, then -- after this commit -- the marker attempt, its read-back,
+  the stand-in and a follow-up comment carrying the raw transcripts, each read back in the same
+  breath as claimed (#1180).
+- Refers: #334 (the ticket), H-0187 (the split this entry escalates beyond), H-0141 (the step's
+  order and the refusal-as-result), H-0179 and H-0139 (the disclosed stand-in and the
+  re-dispatch loop), memory #1180 (read artifacts back; an effect line is not an effect)
+
+## H-0189 · `NEXT.md` was a hand-off no code read and a gate no ref ever had, so the contract, the file and the check land in one commit -- and the check refused its own author's hand-off on the first run
+
+- Question: every dispatch in this loop restates a queue contract the repository does not contain. The one
+  that ran today says `scripts/check-next-md.sh` is the gate the loop tells you about, that it runs only
+  when `NEXT.md` is in the diff, and that its verdict belongs in the pull-request body. Measured on `main`
+  at `7c0a3e5` by the report and re-measured here at `80dd8bf`: `bash scripts/check-next-md.sh` answers
+  rc=127, a repo-wide grep for `check-next-md` answers 0 hits, the all-ref pickaxe for the string answers
+  nothing, and `grep -n 'NEXT' Makefile` answers nothing -- so the file is tracked, ticks write it, and
+  nothing reads it. Which half is the defect: retire `NEXT.md` and the sentences with it, or write the
+  named gate and give the file a reader? And if the latter, whose shape -- the `# Next work` heading the
+  report proposes, or one that names the unit which wrote it? Measured before choosing, because the report
+  does not say which shape the file carries: `git log --format=%h -- NEXT.md` names five commits, and the
+  first line of the file in each is the generic `# Next work for the factory on this branch` in four of
+  them and `# NEXT — issue-325 unit` in the newest, which is the text on `main` today.
+- Options: write the gate and the missing contract sentence, requiring the heading to name the unit that wrote it | write
+  the gate but gate the proposed generic `# Next work` heading instead | retire the practice honestly -- delete
+  `NEXT.md`, strip both sentences from the dispatch, record that here | gate staleness against the live
+  API so a hand-off naming merged work reddens | add the reader as a CI-only leg and leave `verify:` alone
+- Chose: write the gate and the missing contract sentence, requiring the heading to name the unit that wrote it
+- Why: one cause, three symptoms, one sentence fixes all three -- the obligation lived only in a dispatch,
+  the artifact had no reader, and the check existed only as a name. Retiring the file removes the loop's
+  only instrument for "a unit is in flight here", and the price of not having one is measurable in this
+  branch's own history instead of only in the report: the all-ref pickaxe `git log --all -S '#296' --
+  NEXT.md` answers two commits, the line in at `89c2298` and out at `af848f4`, and the second is not a
+  merge -- it is the next unit writing its own hand-off over the file, 58 lines to 42. The report blames a
+  merge conflict resolution and that is wrong here; `git show f369a98:NEXT.md` holds no `#296` at all. So
+  the measured loss is what a rewrite does to a line it did not write, which is why the contract says
+  overwrite AND carry forward, and why `NEXT.md` owed item 3 names the rule no tree-only gate can
+  enforce. A gate nobody can see running is what this harness keeps being written about, so the contract
+  now says what the code enforces rather than the reverse: the skill subsection names the file, the run
+  command and the four parts it must hold, and it hangs off
+  `.opencode/skills/factory/SKILL.md:10` "Everything you must hand over lives in a file"
+  -- the page has promised a hand-off file since before this unit and never said which one. The two
+  clauses are `Makefile:123` "bash scripts/check-next-md.sh --self-test"
+  and `Makefile:124` "bash scripts/check-next-md.sh;": the fixture suite and the tree, the same pair
+  `check-decisions.py` runs, because a step can never witness its own deletion. Tie-break 1: no third-party
+  dependency -- bash, awk, and `git ls-files` only, `go.mod` untouched. Tie-break 2: no lockout or
+  tamper-resistance property moves; no daemon file is in this commit. Tie-break 4: five artifacts, and the
+  smallest of them that makes a written contract true. Tie-break 5: `git revert` of this commit retires the
+  two clauses, the script, the subsection and this entry together, and `NEXT.md` returns to the `issue-325`
+  text -- which is also why the new file carries that text's owed items forward instead of replacing them:
+  the rollback then cannot re-drop a line. Tie-break 6: `H-0139`'s rule that a pointer must carry its
+  sentence is why the two clauses went below line 116 rather than into the `verify:` comment block. Tie-break
+  7, and the deviation the report will read as the biggest one: the heading must name the unit, so the gate
+  refuses the generic `# Next work for the factory on this branch` that four of the five commits used and
+  the report proposes verbatim. A hand-off that does not say who is speaking is indistinguishable from a
+  stale one, and staleness is this ticket's loss -- `89c2298` wrote a live `#296` warning and `af848f4`
+  overwrote the file without it. The blast radius of refusing the old heading is measured, not assumed:
+  `git show origin/<head>:NEXT.md` for every open pull request -- #401, #400, #398 -- prints
+  `# NEXT — issue-325 unit`, the accepted form, so nothing in flight reddens at its merge; and the shape is
+  now written in the skill, which is the agreement the report asked for whichever heading was chosen.
+- What the report asked for and this does NOT ship, with the measurement that decided it: a leg refusing a
+  hand-off line that names a pull request which has since merged or been refused. That question has no
+  answer inside the tree -- it is a GitHub read -- and this repository already refuses gates whose verdict
+  changes with the refs they can see, so an API leg would trade a gate that answers the same in CI as at
+  the merge for one that needs a token and a network. It is written into `NEXT.md` as owed item 1 with
+  `check-denies.py` named as the skip-loudly precedent rather than left out.
+- The witness, and the self-refusal, are both measured. `#391` is the reason 17 of the 18 cases are
+  fixtures and the 18th asks the Makefile this file ships in: a deleted step leaves its own `--self-test`
+  line behind and the recipe prints OK over a gate that runs nothing, so the surviving clause is the only
+  witness and it lives inside this script; its controls are the two fixture cases that delete both clauses
+  and delete only the plain one. And this unit's first `NEXT.md` named the harness decision log with its
+  trailing letter missing -- a true sentence about a path that is not in the tree -- and the phantom-path
+  leg reddened the hand-off for it, offering the repair the refusal names: describe the tool in words.
+  That is the discriminating evidence for the leg, because the same file with the same sentence in prose
+  reads OK.
+- What lost: a well-formed hand-off about work `main` finished last week still passes, because shape is all
+  a tree-only gate can see. The phantom-path leg reads three files, so an invented tool named in
+  `docs/factory.md` is still unchecked -- and it was scoped there deliberately: measured here, four
+  instruction-adjacent pages already name paths that are not in the tree and are telling the truth about
+  them (the harness log with its trailing letter missing in three, a per-run capture manifest under the
+  fixture runs directory in `testing/capture/cdp.py`), so a wider leg has to explain those four before it
+  can catch anything. No check distinguishes a carried-forward owed line from a deleted one, so the drop
+  this ticket is about stays a rule and not a gate. The `verify:` comment block grew no prose, because
+  five `Makefile:` pointers in this log sit between 90 and 116 and any line added there moves them; the
+  reason the clauses exist lives in the script's header instead of beside them.
+- Checkpoint: 63cfe50
+- Effect: 5 artifacts in one commit -- `scripts/check-next-md.sh` new at mode 100755, two `verify:`
+  clauses in `Makefile`, one subsection in `.opencode/skills/factory/SKILL.md`, `NEXT.md` rewritten with
+  the previous unit's owed items carried forward, and this entry. Measured in this tree before the commit:
+  the new gate on the real tree was RED with exactly 2 problems before the two edits (the skill never
+  mentioning the file, and nothing under `verify:` running the step) and prints 3 ok lines at rc 0 after;
+  its self-test prints 18 case(s), every refusal raised for the sentence named, both null variants
+  accepted, the shipped step witnessed; `shellcheck -x` over it exits 0 with the file-level SC2016
+  directive, 10 findings without it. `make verify`, which now contains both clauses, is run on this tree
+  with this entry in it and before this commit, and its verdict is quoted from the read-back in the
+  pull-request body rather than written here (#1180: an `Effect:` written before the gate runs is a
+  prophecy). Refs #337 for the report this unit was cut from; no pull request here closes anything.
+
+## H-0190 · #402 came back CONFLICTING/DIRTY with one conflicted file and five silent merges, so the union is ordered by id and the half git merged by itself is measured by running it
+
+- Question: this branch's pull request read `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY` against
+  `origin/main` at `6db0b13` while its review request had already gone to the reviewer team, and
+  `git merge-tree --write-tree HEAD origin/main` answers exactly ONE conflicted path, `factory/DECISIONS.md`,
+  in exactly one hunk: both sides appended at the same offset, `main`'s `H-0182` (67 lines, the allocator's
+  two stderr notes) against this branch's `H-0189` (88 lines, the hand-off gate). Five files merged with no
+  textual conflict -- `Makefile`, `DECISIONS.md` (+119), `factory/selftest.sh` (+254),
+  `scripts/attack-capture-self-test.py`, and `scripts/attack-manifest-self-test.py` arriving whole -- and
+  `D-0083`, which resolved the identically-shaped collision in the sibling log eleven minutes earlier,
+  names the hazard as not layout but asserted invariants: a union that merges textually can still break
+  either side's claim. Here both sides claim a `verify:` recipe, `main` by inserting a step and this branch
+  by inserting two clauses into the same shell continuation. Which block leads, and what gets measured
+  rather than diffed?
+- Options: take `main`'s side whole and re-apply `H-0189` as a later commit | keep this branch's block
+  whole above `main`'s | trim entries off one side until the tails agree | keep both blocks whole as one
+  ascending-id union -- `main`'s `H-0182`, then `H-0189` -- byte-exact on each side, and measure the
+  auto-merged files by running them
+- Chose: keep both blocks whole as one ascending-id union -- `main`'s `H-0182`, then `H-0189` -- byte-exact
+  on each side, and measure the auto-merged files by running them
+- Why: the order is forced by the gate, measured rather than read. Writing the same two bytes-exact blocks
+  ours-first and running the checker exits 1 with `H-0182 is out of order (H-0189 came before it); the log
+  is a history and a history that jumps around cannot be bisected`, and restoring the theirs-first union
+  byte-exact reads clean again. So the only whole-both-sides order is `main`'s block first. Trimming is
+  refused by what the entries are: published measurements of shipped behavior that cannot be re-derived
+  from the code they describe. Re-applying `H-0189` later splits the entry from the merge that cites it --
+  the same-commit rule -- and opens a window where a published entry is missing from the tip. The union is
+  the third resolution of this collision in two logs, after `D-0078` and `D-0083`, and reversibility holds
+  the same way: `git revert -m 1` of this one merge commit retires both sides' resolution together. A
+  rebase is not available at all: the branch is published and history here is never rewritten. Then the
+  silently-merged half was run, because `D-0083`'s named risk is precisely this merge. The claim worth
+  naming is the recipe both sides edited, since neither side's text is the other's neighbour any more: the
+  merged `Makefile` puts this branch's `Makefile:123` "bash scripts/check-next-md.sh --self-test" ten lines
+  above `main`'s `Makefile:133` "python3 scripts/attack-manifest-self-test.py", and each side's own witness
+  still counts only its own clause -- this branch's self-test prints `18 case(s)` and
+  `1 step(s) and 1 self-test step(s) in `make verify``, while `main`'s two attack suites print
+  `VERDICT: 73 attacks, 0 problem(s)` and `VERDICT: 31 attacks, 0 problem(s)` over the same file with their
+  own regexes. Neither witness widened, which is what a silent merge of two recipes should look like.
+- What lost: append order loses to resolvability for the third time across the two logs -- `H-0189` was
+  allocated before `H-0182` reached `main` and lands below it regardless of commit order. Nothing here
+  proves the merged recipe is right by inspection of the merge; it is proved by `make verify` running on
+  the merged tree, and this entry quotes that verdict only from the read-back in the merge commit message.
+  No witness spans the two recipes -- if a later unit deletes one side's clause, only that side's own
+  witness refuses, and the other stays green, which is the same floor `#391` records rather than a new one.
+  `factory/selftest.sh` grew a leg from `main` (681 passed at this branch's pre-merge tip, 682 on the
+  merged tree), so a count pinned against the pre-merge number is not a claim this entry makes.
+- Checkpoint: d23354c
+- Effect: one file resolved by hand, five merged silently, measured on the merged tree before this commit
+  was written: `testing/capture/manifest.py --self-test` prints `54 rules hold` at rc 0;
+  `scripts/attack-manifest-self-test.py` prints `VERDICT: 31 attacks, 0 problem(s), 7 hole class(es),
+  7 hole row(s)` at rc 0; `scripts/attack-capture-self-test.py` prints `VERDICT: 73 attacks,
+  0 problem(s), 3 hole class(es), 11 hole row(s)` at rc 0; this branch's gate prints `18 case(s)` at rc 0
+  and `check-next-md: OK` at rc 0; `check-decisions --self-test` prints 65 failing and 31 passing cases at
+  rc 0; `factory/selftest.sh` prints `682 passed, 0 failed`; `make check-shell` lints 31 files (28 tracked
+  `*.sh` plus the 3 maintainer scripts under `deploy/packaging/deb/`) at rc 0. `check-decisions` reads this
+  entry's own union at 249 entries and 646 citations, `0 pointing somewhere a reader cannot open`, and the
+  anchor debt UNCHANGED at 539 -- so `POINTER_DEBT` did not move and nothing was raised to cover this
+  merge. `make verify` runs on this merged tree with this entry in it, and its verdict is quoted from the
+  read-back in the merge commit message rather than written here (#1180). Refs #402 and #337 for the work
+  this merge carries; no pull request here ends anything.
+
+## H-0191 · A halted activation wrote one HALTED line into a file that never said which file it was, so the four self-report loops move ahead of the halt check -- and the hoist lands outside the pass's lock, which is the judgement, not an oversight
+
+- Question: #331 says the activation stopped by `factory/HALT` -- the one exit that exists precisely
+  so a human can stop the queue -- journals its halt without ever naming the directory it wrote that
+  line into, because all four self-report loops (`UNIT-AT`, `LOG-AT`, the reap read, `SUPERVISOR-AT`)
+  opened `factory_body`, which the halt check exits ahead of. Measured on this box before the repair:
+  a halt fixture on shipped `HEAD` (`6db0b13`) wrote exactly one line --
+  `2026-11-15T08:41:27Z HALTED cause recorded 0s ago...` -- and nothing naming the file it had just
+  appended it to. `LOG-AT`'s own contract names that hunt ("a pass that never reaches the queue still
+  says where its own record is") and withheld itself on the one exit that never reaches the queue at
+  all; #328 says the halted pass is the state an operator hunts hardest (a tree left mid-merge halted
+  the queue for 10h13m), and `docs/factory.md`'s dead tail is a lone `HALTED` line. Where does the
+  reporting move, and what does the move owe the lock?
+- Options: hoist the four loops whole into one function called between preflight and the halt check,
+  outside `flock -n 9` | move the halt check inside `factory_body`, behind the lock, so the reporting
+  stays locked | print `LOG-AT` alone ahead of the halt check and leave the other three in the body |
+  fold the journal directory into the `HALTED` sentence itself | repair the documentation and record
+  the dead tail as a permanent property of the halt path
+- Chose: hoist the four loops whole into one function called between preflight and the halt check, outside `flock -n 9`
+- Why: the hoist is `factory_self_report` at `factory/factory.sh:226` "factory_self_report() {",
+  called at `factory/factory.sh:279` "factory_self_report", directly ahead of the halt check at
+  `factory/factory.sh:281` "if factory_halted; then", which is 1486 lines ahead of the lock at
+  `factory/factory.sh:1833` "if ! flock -n 9; then". `PASS` does not move: it reports what triage returned, and a halted activation never asks triage anything.
+  `SUPERVISOR-AT` moves with the loops: the code under test is a fact about the pass, not about the
+  queue, and a halted pass that announced no tree is how a stale checkout stops a queue for a shift
+  silently. `factory_preflight` stays ahead of the hoist: the preflight refusal is the one activation
+  still journal-less, a boundary pre-existing, named by the #330 review, and untouched here.
+
+  The second option fails on the halt path's own purpose. The halt marker exists so a human can
+  stop a queue that is misbehaving RIGHT NOW, and a misbehaving queue is often a pass holding
+  `factory/run/lock` past its deadline -- this fixture box journaled one such hold,
+  `REAP-HELD hold=60s how=deadline ended`. With the halt check behind `flock -n 9`, every activation
+  that overlaps the stuck pass takes the loss path (`exit 7`, "another supervisor holds
+  ... nothing was done") and the marker is never reported for the whole duration of the hold it was
+  planted to stop; on this box's shipped shape the report is unconditional and lands on every
+  activation. The third option keeps three of the four blind: the tail left by #328's ten-hour halt
+  would have said WHERE and still not WHICH checkout the timer execs nor WHICH code it was running,
+  and the four loops cost one function and one call together. The fourth splits one fact across two
+  composers -- `HALTED` is composed by `factory_halt_report` alone (#237) and the location already has
+  a line shaped for grepping (#260) -- and a reader searching `LOG-AT` would find nothing in the very
+  journal that needs it. The fifth is a documentation answer to a measured 10h13m; and the shipped
+  docs actively taught the defect ("a pass stopped by a `factory/HALT` marker writes none of the
+  self-report lines"), so they moved in the same commit (`docs/factory.md` at 1070 and at 1236, plus
+  the `factory_log_move_lines` contract at `factory/common.sh:3760` "factory_log_move_lines() {",
+  which now reads the other way).
+  What the hoist owes, stated rather than buried: it runs outside `flock -n 9`, and three of the four
+  loops are pure reads (the installed unit file, systemd's journal twice, git), but `factory_log_move_lines`
+  carries one write -- the `LOG-MOVED ... copy=old-journal` append into the journal being left. That
+  append now happens unlocked on the halt path. It was already unlocked there: on shipped code
+  `HALTED` itself is written 1451 lines before the lock is taken, so the hoist adds a second unlocked
+  write beside an existing one on a path whose journal is by construction at most two lines deep
+  before it stops; with two overlapping halted activations the worst case is a duplicated sentence in
+  a dead tail, and the append's own path guards (H-0148/H-0149, symlink and regular-file refusals)
+  still judge the file before touching it. Losing activations (`exit 7`) now print the self-report
+  lines before reporting the loss: they did start a pass, and #260's rule -- the first thing able to
+  write a sentence writes it -- was already owed to them.
+  The leg is `factory/selftest.sh:6322` "the halted pass says where its record is", and it
+  was falsified before it was trusted: run against the shipped-`HEAD` fixture journal it fails
+  ("a halted pass wrote no LOG-AT line ... the #331 defect, still open"), run against the repaired
+  tree's journal it passes; it pins `LOG-AT` naming the activation's own directory and a
+  `SUPERVISOR-` line both ABOVE the `HALTED` line, and the absence of any `PASS`, so the boundary is
+  pinned in both directions.
+- Tie-breaks: (1) no `go.mod` line, no `require`, stdlib only -- this commit touches no Go file.
+  (2) Nothing here decides when a lockout starts or ends; this is the delivery harness's own journal.
+  (3) Fewest files among the winning-shape options: the hoist alone would have been one, but the
+  shipped prose taught the old boundary in three places, so the honest unit is five files and a
+  silence about any of them is the next unit's false map. (4) Reversible by `git revert` of the one
+  effect commit; the rollback target is `git revert`d as a whole because a half-hoist (code hoisted,
+  contract still saying `NOT`) recreates exactly the doc-versus-code split #260's #331 citation was
+  filed from. (5) Convention: #260's "the first thing that exists able to write the sentence writes
+  it", and H-0036's rule that a halt is a decision, which a decision must be able to announce.
+  (6) `scripts/check-decisions.py --citations` was run before the edit and after: 23 anchored
+  pointers this commit's line moves had their digits repaired in this same commit, and every new
+  referent was verified byte-identical to `HEAD`'s before a single digit changed -- the diff of
+  `git show HEAD:<file>` at the old coordinate against the working tree at the new one is empty for
+  all 23, so no pointer was re-pointed at a neighbour that merely matches.
+- Checkpoint: ec0067241340f17cd914f7e0f855f32ca9f32d30
+- Effect: the gate on the exact bytes this entry ships is quoted with its tally and the last line it
+  printed in the commit that carries this entry and in the pull-request body (#1180: an `Effect:`
+  written before the gate runs is a prophecy). Census arithmetic, read off `git diff --numstat`:
+  `factory/factory.sh` 82 added 45 removed, `factory/common.sh` 8/4, `docs/factory.md` 13/9,
+  `factory/selftest.sh` 72/0 -- one `proc_leg` registration and its predicate, nothing else, so the
+  suite's 683 passed legs are the head's 682 plus this leg. No governing file was edited, no label created or deleted, no
+  GitHub write made, no branch force-pushed, nothing merged by this commit. What lost, stated as the
+  cost of the choice: a `LOG-MOVED` copy can now be written by an activation that never took the lock,
+  so two overlapping halted activations can each say "this pass writes where the pass before it did
+  not" about the same move, and the dead tail can carry the sentence twice; the preflight refusal
+  still journals nothing at all -- #331's fix stops where the lock's absence is provably harmless and
+  does not pretend to cover the refusal; and a halt fixture run against a real checkout appends its
+  guarded copy into that checkout's real journal by #260 design, which this unit hit with its own
+  demo box and undid line-for-line.
+
+## H-0192 · The tick instruction interpolated the escalation label's VALUE, which no file census can see and the one leg that read that arm required as its acceptance token, so the repair owes a render-based discriminator and a widened scan
+
+- Question: #340: the `address_review` arm's transport-failure branch ended (bytes before this
+  branch's edit, verbatim from its diff) `ask, mark it with the escalation label --
+  ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull request you already have. Take the name
+  from its one home rather than typing it` — and the arm assembles `id_line` as a double-quoted
+  string, so the SUPERVISOR's own expansion at prompt-build time put the label's VALUE into the tick
+  instruction while the very next clause said to read it from its one home. The value was the live
+  wrong word: `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}"
+  names a label this repository does not have — `factory/common.sh:240` "one of eighteen labels" —
+  and the skill forbids exactly that reach:
+  `.opencode/skills/factory/SKILL.md:301` "Never invent a label name." and
+  `.opencode/skills/factory/SKILL.md:305` "Nothing outside that script's output may reach"
+  toward `--add-label`.
+  The reader-call rule had a home (`factory/common.sh:227` "rather than sourcing the 2,850 lines of")
+  and a precedent (#315, whose record at `factory/DECISIONS.md:7271` "the artifact is a pull request"
+  prescribed naming the working verb), yet the file census stayed green and the leg that read
+  this arm stayed green *because* of the copy. What did the guards miss, and what do they become?
+- Options: delete the interpolation, widen `ask_prompt_assembles_it`'s accept clause to admit the
+  reader call, and add a leg that renders the expansion and refuses any literal name in it | keep the
+  prose and teach the file census to scan rendered prompts | leave the accept clause as it was | a
+  prose warning in the arm's comment
+- Chose: delete the interpolation, widen `ask_prompt_assembles_it`'s accept clause to admit the
+  reader call, and add a leg that renders the expansion and refuses any literal name in it
+- Why: option 2 keeps the defect while pretending coverage — the census asks *who writes the name*,
+  which is a question about files; a prompt is not a file, the source legitimately holds
+  `escalation-label.sh`, and may hold the variable name again, so no file scan can discriminate this
+  shape. The discriminator therefore reads the EXPANSION: extract the arm's `if [ -n "$ask" ]` block
+  and `eval` it in a subshell shaped like the supervisor's (common.sh sourced, `key`/`ask`/`id_line`
+  set, sentinel `PROMPT-SENTINEL`), with two preconditions measured before the refusal — the rendering
+  starts from the id_line it was handed, and it still carries the reader call — so an expansion that
+  lost the prose cannot pass vacuously green. The extraction boundary is measured, not assumed: the
+  shipped arm holds exactly one such block closed by exactly one `fi` (`... | grep -c 'fi$'` on the
+  arm answers 1); an arm that grows a second shape makes the leg refuse (rc 1) rather than render the
+  wrong prose. Option 3 is the measured cause of the drift, so it is widened, not kept: the leg
+  accepted the arm only under `*FACTORY_ESCALATION_LABEL*`, which meant any repair dropping the token
+  turned the suite red and punished the correct fix — the copy survived by test, not by choice. The
+  widened clause `*FACTORY_ESCALATION_LABEL*|*escalation-label.sh*` is the weaker scan and is named
+  as such beside the new leg. Tie-break 1: no dependency, no `go.mod` line, stdlib and shell only.
+  Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 4: `factory/factory.sh`
+  and `factory/selftest.sh` and this log only; the shipped change removes one interpolated value from
+  prose, and no enforcement behavior moves. Tie-break 5: `git revert` of the effect commit restores
+  the interpolation and retires the leg together; the checkpoint pre-dates both. Tie-break 6: the
+  house one-control-per-hazard rule — `ask_prompt_rendered_control` re-plants the deleted
+  interpolation as the VARIABLE (`$FACTORY_ESCALATION_LABEL`, so a #311 rename follows the plant
+  instead of vacuating it) inside the empty-ask branch of a copy outside the repository, measures that
+  the plant landed and that the copy still renders the escalation branch, and FAILs if the leg passes
+  a rendered name anyway; the control is uncounted and prints its ok line by the `alloc_control`
+  convention.
+- Checkpoint: 92ada93c1c5a3d24cf3fc8699aff78f7d827accb
+- Effect: the deleted sentence rewritten in `factory/factory.sh`'s empty-ask arm (2 lines out, 2 in),
+  which is now `factory/factory.sh:1157` "ask, mark it with the escalation label, and stop there" —
+  the words the deletion removed are not in it; `ask_prompt_assembles_it` widened and its failure
+  sentence re-worded; `ask_prompt_render`, `ask_prompt_carries_no_name` (one counted leg) and
+  `ask_prompt_rendered_control` at the tail of `factory/selftest.sh`. Read-back:
+  `bash factory/selftest.sh` → 683 passed, 0 failed, exit 0, where the baseline at the checkpoint read
+  682 — one counted leg added, the control uncounted by convention; and the mutant run both ways on
+  the shipped tree: restoring the interpolation in place turns exactly one leg red (682 passed, 1
+  failed, FAIL count 1, `the rendered tick prompt carries no escalation name`), restoring the fix
+  returns 683/0. `scripts/check-shell.sh`'s shellcheck is clean, with two house-inline disables —
+  SC2034 for `key`/`ask`, read only by the eval'd block, and SC1091 for the `common.sh` source — each
+  carrying the reason in words. `make verify` on the exact bytes this entry ships is quoted with its
+  tally and last line in the commit message that carries this entry (#1180: an `Effect:` written
+  before the gate runs is a prophecy). What lost: the widened source scan admits an arm that carries
+  only the reader call, so a future interpolation of some *other* literal can pass that leg — only
+  the render leg sees name-bearing prose now, which is why it is the counted one and the scan is
+  documented as the weaker guard; the render leg is bound to the arm's current single-block shape and
+  refuses rather than adapts if that shape moves; and #311 stays where it stood — the name still
+  resolves to none of the eighteen, and this change only guarantees it is the reader's word at read
+  time, never a baked one. No GitHub write, no label, no merge, no governing file edited by this
+  decision.
+
+## H-0193 · The streak halt is written one second after its own quarantine has already removed the evidence it cites, so the named condition is false from the marker's birth -- the tree owes a re-ask each activation with a bounded self-release, not a scope change nor a parked commit
+
+- Question: #341: the quarantine streak halts the whole queue, and nothing ever re-probes the halt,
+  so one unit that stops short of delivery twice stops every unit until a person runs `rm`. Measured
+  13-14 Nov: `TREE-STREAK unclaimed:302` at 23:40:30Z, `HALTED` the same second, and the marker
+  stood 14h34m across 77 activations and 34 idle units while its tree was clean from the second it
+  was written -- `factory_tree_halt` runs one second AFTER `TREE-QUARANTINED` stashed and mirrored
+  the very work the marker's sentence names, and every activation since printed "and not re-probed
+  since", a sentence the code had made permanently true. The issue carries five demands. What does
+  this tree owe?
+- Options: re-ask the marker's own target every activation, with a bounded per-unit self-release
+  budget | demand 3's scope change: an attempt>=2 unit skips dispatch and `factory/HALT` becomes
+  reserved for unmirrable dirt | demand 5's park: the harness commits undelivered work to the
+  branch so the streak cannot arm | a TTL that removes any old marker | `--status` reporting only
+- Chose: re-ask the marker's own target every activation, with a bounded per-unit self-release budget
+- Why: the outage is not the halt, it is the marker outliving its cause, and only the re-ask touches
+  that: the target is on disk when the cause is recorded, so "we could not tell then" can die. The
+  release is bounded by demand 2's own number (`FACTORY_HALT_RELEASES=2`) because the re-ask trades
+  a hung halt for a flapping one -- a unit whose work keeps getting quarantined re-arms after each
+  release and spends the third halt into `HALT-STUBBORN`, two ticks of re-dispatch priced against
+  the 15h57m #248 counted read by nobody. Demand 4 rides along: the halt-write notice for a
+  mirrored halt now names the stash and mirror and says plainly that removing the marker loses
+  nothing, because for that shape it does not. Demand 3 is refused because it rewrites what HALT
+  means -- queue-scope to unit-scope -- while preserve-and-continue (#248) already routes clean
+  units around dirty ones; two overlapping scope changes in one branch is two judgements, not one.
+  Demand 5 is refused because it makes the harness a committer of model output to a branch: the
+  skill's commit discipline (tests green, `Decision:` trailers) is the tick's, and a parked commit
+  inherits none of it -- that is publishing-adjacent and escalation class, the user's call, not a
+  justification in a PR body. A TTL is refused with the issue: it removes correct halts on a timer
+  and is blind to cause. `--status` alone reports the hole and does not close it. Tie-break 1: no
+  `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends.
+  Tie-break 4: `factory/common.sh`, `factory/factory.sh`, `factory/selftest.sh`, `docs/factory.md`
+  and this log; the hand-written marker's rule -- nothing but its author removes it -- is unchanged
+  and pinned. Tie-break 5: `git revert` of the effect commit retires the re-probe, the stamp tail,
+  the legs and this entry together; the checkpoint pre-dates all of it. Tie-break 6: one control per
+  hazard, the ticket's own -- `MUTANT-341A` makes the guard trust the marker's word and the
+  clean-tree leg goes red; the planted-control refusal prints and fails rather than passing blind.
+- Checkpoint: f8af615b59fcd439744bd3831931cd054945a4ea
+- Effect: `factory_tree_halt` stamps its machine fields as a tail of the one marker line
+  (`:: halt-target: unit=…|cause=…|mirror=…|tree=…`) -- one line remains the invariant #237's legs
+  pin; `factory_halt_target` and `factory_halt_reprobe` at the tail of `factory/common.sh` ask the
+  named tree the content question plus the two #323 state questions (`MERGE_HEAD`, unmerged index
+  entries) and return release / hold / unreadable; the activation guard in `factory/factory.sh`
+  releases (`HALT-RELEASED`, marker and streak counter cleared, pass proceeds), holds with the
+  asking clause (`re-probed this pass without release:`), or says the budget is spent
+  (`HALT-STUBBORN`); releases are earned back only by a tick that delivered (the delivered-clears
+  arm of `factory_tree_quarantine` zeroes the counter), so two halts may self-clear between real
+  deliveries -- the bound demand 2 prices. Seven `proc_leg`s walk the shipped `factory.sh` to the
+  streak halt and drive activations 4 past it (stamp, release, control, bound, dirty hold,
+  half-merged hold, human-marker hold), on a new `PROC_DIRTY` arm of the tick stub that reproduces
+  the #302 shape: exit 0 with finished uncommitted work. `docs/factory.md` gains the knob row and
+  the re-ask section; nineteen `path:line` pointers this shift moved are re-pointed in the same
+  commit by `check-decisions.py`'s own verdicts. Rollback: `git revert` of the effect commit; the
+  checkpoint pre-dates the whole change. What lost: demand 3's scope change and demand 5's park --
+  both stay open on the issue, the latter named escalation class above; the release never re-checks
+  that the tree is the SAME work the quarantine took (a clean tree after a force-push also releases,
+  and the mirror is the named backstop for that); and `HALT-NOTICED` stays the write moment's, so a
+  halt that stands for days re-issues no second comment -- #319's throttle, not this entry's scope.
+
+## H-0194 · `SUPERVISOR-STALE` printed 92 activations with nothing downstream of the line acting, so the loop ran 38 commits behind `origin/main` including five executable harness files, and the one instant acting was safe is the instant the line prints
+
+- Question: the guard #260 shipped reads the tree the installed unit names, and it works -- but on
+  13 Nov `grep -c SUPERVISOR-STALE` over `factory/log/supervisor.log` answered 92 across 13h20m of a
+  ten-minute cadence (the file rotates, so the window is a lower bound), `factory.sh --status`
+  answered `IDLE` beside every one of them, and the pass kept triaging, allocating decision ids and
+  halting on code 38 commits behind `origin/main`, five of those commits executable harness files
+  the running pass would not use. May a pass fast-forward the tree the installed unit `ExecStart`s,
+  and stop itself so the next activation runs the merged code?
+- Options: keep reporting only, the #260 bargain unchanged | raise a `factory/HALT` and freeze the
+  queue for a human | fast-forward when every condition holds of that tree at one instant, exit a
+  dedicated code the unit lists as success, and let `OnUnitInactiveSec=` hand the queue to the merged
+  code | escalated to a maintainer
+- Chose: fast-forward when every condition holds of that tree at one instant, exit a dedicated code
+  the unit lists as success, and let `OnUnitInactiveSec=` hand the queue to the merged code
+- Why: the line prints at the only instant acting is safe -- `factory/run/lock` held, triage
+  read-only, no tick dispatched, the tree clean by the same #228 content reads that named the state;
+  after it a tick runs and the window shuts until a human, and 92 activations of an unheld line are
+  the measurement that no human is reading it. #260's objection (bash reads a script incrementally,
+  so moving the tree mid-pass runs a mix of old and new code) condemns *continuing* after the move,
+  not moving-then-stopping: exit-and-restart keeps its whole promise and closes the one gap it left,
+  which was never that the move was unsafe but that nothing did it. The stop is exit 9, a decision
+  code not a failure, joining 8 in the generated unit's `SuccessExitStatus=` -- H-0182's exact lesson
+  (an unlisted deliberate stop journals as `Failed with result 'exit-code'` and points away from the
+  line that explains it), and H-0097's `OnUnitInactiveSec=30s` already makes the re-exec cost
+  seconds. What lost: *keep reporting only* lost with its own number attached, 92 and 38; *raise a
+  HALT* freezes the whole queue -- every other unit's delivery -- for a repair with no ambiguity,
+  and a halt nobody reads is this outage with a louder banner; *escalated* is not engaged, the
+  #240 classes name third-party dependencies, security or tamper-resistance semantics, publishing
+  and deleting data, and this writes nothing outside the operator's own checkout when that checkout
+  is clean, pure-descendant and uncontended -- #249's quarantine still owns every dirty tree, and a
+  dirty or forked tree is refused by condition before git is ever asked. The re-exec stop also
+  settles what the pass may NOT do with the moved tree: nothing -- no triage, no id, no tick --
+  because the allocation budget was computed against the allocator this pass no longer runs.
+- Checkpoint: f6689abd9ba3b0050476e716ed4c823a1271703b
+- Effect: `factory/common.sh` (`FACTORY_EXIT_RERUN=9`, `FACTORY_STALE_ESCALATE`, the sixth field of
+  `factory_supervisor_position` and the `main=`/`behind=` pair on the `SUPERVISOR-AT` line,
+  `factory_supervisor_repair`, `factory_stale_tally`/`factory_stale_reset`, the fifth verdict word
+  `STALE` in `factory_verdict`, which asks `STALLED` first because every repair sentence is written
+  into `supervisor.log`), `factory/factory.sh` (the repair step between the supervisor lines and
+  triage, the harness-tree fetch, the exit-code list), `factory/install-timer.sh`
+  (`SuccessExitStatus=@HALT_EXIT@,@RERUN_EXIT@`), `docs/factory.md`, `factory/selftest.sh` (the
+  repair legs, the refusal-by-condition legs, the streak and verdict legs, and the unit-file leg
+  that pins both codes rendered). The tallies of `make verify` and `bash factory/selftest.sh` are
+  quoted from the run that shipped these exact bytes, in the commit message carrying this entry and
+  in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+  Rollback: `git revert` of the effect commit retires the repair, the verdict word, the unit-file
+  code and this entry together; the checkpoint pre-dates all of them, and with them gone the loop
+  returns exactly to reporting every ten minutes forever. No GitHub write, no label, no merge, no
+  governing file edited by this decision.
+  H-0212, same branch, same review, annotates two clauses of this Effect. The `install-timer.sh` half
+  shipped a comma between the two codes, and systemd ignores a comma-separated `SuccessExitStatus=`
+  whole, so as rendered the unit listed neither 9 nor 8 and the `docs/factory.md` sentence above was
+  false in effect; and the "unit-file leg that pins both codes rendered" is a grep of the rendered
+  text, which passes on the comma -- the pin this Effect promised is the leg H-0212 adds, which asks
+  systemd to load the rendering and plants the comma to prove the question was asked.
+
+## H-0195 · #345: the allocator's answer lived only on stdout, so an id taken by eye was indistinguishable from an earned one -- every answer given to a unit is journalled, and every tick reports headings it carried with no answer behind them
+
+- Question: #345 measured that neither side of the `D-0058` collision ran `factory/next-decision-id.sh`
+  -- 4 of 52 checkpoint-creating ticks executed it, 5 known cases took the id from memory -- and after
+  the collision every check that ran saw two well-formed headings sharing one id with nothing anywhere
+  saying which side had earned it: the allocator's answer exists as stdout for the moment it prints
+  and is then gone. What mechanism makes an id attributable after the fact, in the supervisor's own
+  record, without rendering verdicts on ids the mechanism cannot see?
+- Options: allocator-side journal line plus an end-of-tick UNEARNED comparison attributed by the
+  dispatch's unit/branch exports | allocator-side journalling only | dispensing ids at claim time so
+  the unit never numbers | a gate-level refusal -- `make verify` fails a duplicated id | making the
+  end-of-tick verdict fatal (halt the unit that carried an unearned id) | ledger-only provenance
+- Chose: allocator-side journal line plus an end-of-tick UNEARNED comparison attributed by the
+  dispatch's unit/branch exports
+- Why: claim-time dispensing loses to measurement, not taste: a claim happens before the unit knows
+  it will write an entry, and one id per unit is wrong for both directions -- a tick that never
+  decides holds an id nothing cites, a tick that decides twice after a re-claim has one id for two
+  entries. A gate-level refusal arrives at merge, on the wrong branch's bytes, and says `duplicate`
+  where the question is `whose`; the duplicate also may never meet in one tree at all -- the sibling
+  can live unpushed, which is the incompleteness `H-0143` already prices into the allocator's answer.
+  Allocator-only journals every earning and still says nothing about the ticket's own units, because
+  they never ran the allocator -- the by-eye half is exactly what the journal would be silent on, so
+  UNEARNED is load-bearing and the allocator alone is not a fix for #345. A fatal verdict makes the
+  harness wrong in public: an unearned id is often harmless prose (the entry itself may be perfectly
+  numbered), the human's verb is a renumber, and a false halt stops every other unit over a heading
+  nobody is harmed by -- so the arm reports, on the TICK-UNDELIVERED pattern of recording, not
+  deciding. Ledger-only loses the record a stalled operator actually reads: the ledger is keyed state
+  with no order and no timestamps, and a collision diagnosis is a question about a sequence. The
+  unreadable base gets `UNCHECKED`, not a verdict, per `TICK-UNCHECKED` doctrine: `origin/main`
+  missing is a failed read, and a failed read that printed UNEARNED for every new heading would bury
+  the true reports in exactly the noise #345 says must stay readable -- and it would read CLEAN for
+  any consumer greping only UNEARNED lines. Attribution is exported, never inferred: the allocator
+  already re-derives a branch from HEAD, but HEAD drifts to `main` when a tick ends detached, and a
+  journalled line naming the wrong branch turns an earned id into a false UNEARNED -- the dispatch's
+  own `$bbranch` is the only true source of what tree the session was pointed at. Tie-break 1: no
+  `go.mod` line, stdlib and shell only. Tie-break 2: nothing here decides when a lockout starts or
+  ends. Tie-break 4: `factory/next-decision-id.sh`, `factory/common.sh`, `factory/factory.sh`,
+  `factory/selftest.sh`, `docs/factory.md`, and this log. Tie-break 5: `git revert` of the effect
+  commit retires the write, the comparison, the exports and the legs together; the journal format is
+  additive, so no reader of old journals breaks across the revert. Tie-break 6: one control per
+  hazard, and every control here is measured, not asserted -- nulled write keeps the id and loses the
+  line; widened guard litters on a bare run; blinded scan silences UNEARNED; corrupted earned-set
+  reports the earned id rather than looking clean; blinded UNCHECKED arm lets the failed read pass in
+  silence; nulled `FACTORY_TICK_UNIT` turns an honestly earned id into UNEARNED, which is the export
+  being the difference and not the fixture's mood.
+- Checkpoint: 634f25f3f2f6a019f0b9d21c832304dbe34ccae3
+- Effect: the journalling arm in `factory/next-decision-id.sh` (unit-gated, `|| jrn_rc=0` -- a failed
+  write never eats the id it should accompany); `factory_earned_decision_ids` and
+  `factory_decision_provenance` in `factory/common.sh` with the tick-end call in the dispatcher, and
+  the two exports in `factory_tick`, in `factory/factory.sh`; `factory/selftest.sh` grows twelve legs
+  with six controls, a `PROC_TICK_ALLOC` arm on the session stub (unset elsewhere in the file, so the
+  shipped stub stays shipped for every other leg), and the process trunk gains `DECISIONS.md` plus
+  the allocator itself because the wiring legs run the real command inside a real tick tree -- a fake
+  call there would prove nothing about a real export. The two wiring controls and the ticket-shaped
+  leg run whole supervisor activations against the `gh`/`opencode` shims. Read-back before this entry
+  existed: `bash factory/selftest.sh` -> 694 passed, 0 failed, exit 0, against the pre-section
+  baseline of 682 -- twelve counted legs and six uncounted controls; the first run of the new section
+  failed three legs for fixture bugs (a bare init pointing HEAD at `master` so the unit clone checked
+  out an empty tree; a mutant referencing an unset var; a one-line mutant that ate the opener of a
+  two-line command), and each FAIL is what caught it. The insertion itself moved 23 published
+  pointers -- 17 in `factory/selftest.sh` (plus 20 lines above the session stub, plus 640 below the
+  new section), 2 in `factory/common.sh`, 2 in `factory/factory.sh` and 2 in `docs/factory.md` (plus
+  27 below the new subsection) -- caught by the gate's pointer pass and re-pointed by digits only,
+  every substitution same-length and each quoted
+  sentence verified standing at its new line first, published prose otherwise untouched; this entry
+  deliberately spells no new coordinates, and the gate read-back on these bytes is 248 entries, 641
+  citations, 0 pointing somewhere a reader cannot open, debt unchanged at 539. `make verify` on the exact bytes this entry
+  ships is quoted with its tally in the commit message that carries this entry and in the pull-request
+  body (#1180: an `Effect:` written before the gate runs is a prophecy). What lost: the claim-time
+  dispenser, the gate refusal, allocator-only journalling, a fatal verdict and ledger-only provenance,
+  each for the reason above; and the report deliberately does NOT say a unit must run the allocator --
+  a decision numbered without it can be perfectly correct, the entry only owes its provenance, and
+  pinning the behavior instead of the attribution would make an honest by-eye repair on an old branch
+  a violation. No GitHub write, no label, no merge, no governing file edited by this decision.
+
+## H-0196 · #407: the mutant that got planted was not the mutant the leg described -- gawk 5.2.1 ate the trailing backslash of the `awk -v` value, so a mutation channel is `ENVIRON`, never `-v`
+
+- Question: the same bytes were green on the unit's machine and red on the runner -- `factory/selftest.sh:
+  693 passed, 1 failed`, the FAIL `a decision taken by eye is UNEARNED`, its stderr `the mutant anchor
+  occurs 0 time(s) in factory/factory.sh` beside the anchor `FACTORY_TICK_UNIT="$unit" \`. That anchor
+  stands once in the shipped file. Why did the counting pass not see it, and what must a mutation
+  helper do so a leg's verdict stops depending on which awk the machine happens to carry?
+- Options: anchor and line travel through `ENVIRON` | through `-v` with backslashes doubled | on stdin
+  beside the file argument | through `sed "s/$anchor/$repl/"` | through `python3` argv, which is how
+  `claim_mutate_text` already plants | the leg picks an anchor with no backslash | the section refuses
+  to run unless `awk --version` names mawk
+- Chose: anchor and line travel through `ENVIRON`
+- Why: measured with `printf 'x\n' | awk -v l='TAIL\' '{print "["l"]"}'` -- mawk 1.3.4, the unit's
+  `/usr/bin/awk`, prints `[TAIL\]`; GNU Awk 5.2.1, the runner's awk read out of run 43718345241's own
+  log rather than assumed, prints `[TAIL]`. gawk resolves escape sequences inside an `-v` value, so a
+  value whose last byte is `\` arrives with that byte gone, and both the anchor and the replacement
+  were `-v` values: the anchor arrived as `FACTORY_TICK_UNIT="$unit" ` -- trailing space, no
+  continuation -- matching nothing, because the shipped line is the first half of a two-line command.
+  The plant guard then did exactly its job: a control whose mutant cannot be written refuses instead of
+  passing, which is why this surfaced as a red check and not as a leg that quietly tested shipped code.
+  `ENVIRON` resolves nothing -- both binaries print `[TAIL\]` -- and it is already this file's channel
+  wherever a mutant's text is load-bearing: `proc_mutate_last`'s `PROC_MUT_LINE` and `dpn_mut`'s
+  `DPN_ANCHOR`/`DPN_LINE` were reading `ENVIRON` before this decision. Doubling the backslash loses on
+  the same measurement in the other direction: it plants `\\` under mawk, trading one implementation's
+  lie for the other's. stdin loses because the file being mutated is already the file argument. python
+  argv is byte-faithful and would serve, at the price of an interpreter per plant plus a quoting layer
+  for the tab every mutant line opens with, for what `ENVIRON` does in one word. `sed` is what
+  `claim_mutate_triage` still uses and it is the worse channel -- there the anchor is a regex, `/`, `&`
+  and `\` included -- but nothing in that helper failed at this head, so rewriting its substitution is a
+  second decision with its own controls, and it is named here rather than touched. The anchor with no
+  backslash is the repair that would have turned CI green, and it is what lost: the leg exists to corrupt
+  the export line as it is actually written, and choosing an anchor that keeps the channel invisible
+  leaves the channel lossy for the next unit's plant -- the same red on a different branch, with the
+  diagnosis paid for twice. A guard that refuses to run under gawk is a leg that does not run on CI,
+  which is the condition that let this ship while looking green.
+- Checkpoint: 5076faec5ea7447ea2f2a4fa68b86f022e18304e
+- Effect: in `factory/selftest.sh`, `proc_mutate` and `proc_mutate_factory` carry anchor and line as
+  `PMUT_ANCHOR`/`PMUT_LINE` and read them out of `ENVIRON`, and `proc_mutate_last`'s needle and
+  `dpn_mut`'s anchor count travel the same way. Ten lines changed; the file's line count did not --
+  16962 before, 16962 after -- so no published pointer aimed at this file moved, and this entry spells
+  no new coordinates. Gate read-back on these bytes: 248 entries, 641 citations, 0 pointing somewhere a
+  reader cannot open, debt unchanged at 539. Selftest read-back: under gawk 5.2.1 forced onto PATH, 694
+  passed, 0 failed, exit 0, against 693 passed, 1 failed on the pre-fix bytes with the awk binary the
+  only variable; `make verify` under the machine's own mawk, 694 passed, 0 failed, last line `verify:
+  OK`, exit 0. What lost: the backslash-free anchor, doubled backslashes, stdin, python argv, the
+  version-asserting guard, and the claim that a local `make verify` reproduces the runner -- the two
+  awks disagree, so a selftest verdict is only worth the awk it was read under, and this unit read it
+  under both. No GitHub write, no label, no merge, no governing file edited by this decision.
+
+## H-0197 · #346 measured a deleted tracked file surviving 101 activations in the one tree the pass never read, so the tree owes a classification that restores only what git already holds and refuses to own the operator's bytes
+
+- Question: the activation pass quarantines, mirrors and cleans every tree it hands to a
+  tick, and reads none of the tree it runs its own git commands in: measured 13 Nov, the
+  primary checkout of this repository sat ` D .cortexkit/.gitignore` across 101 activations
+  with all 14 worktrees clean and nothing in the journal (issue #346). A tracked file that
+  HEAD still holds had been deleted under the pass and no component noticed, so the queue
+  kept dispatching work into a checkout whose own files disagreed with its commits. What
+  does that tree owe -- and where is the line between repairing it and the harness eating
+  the operator's work?
+- Options: mirror-and-clean it the way per-unit trees are quarantined | re-clone or
+  hard-reset the main checkout at activation | classify read-only, restore only the committed
+  deletions git already holds every byte of, refuse modified, untracked and staged content
+  untouched, and halt nothing | journal the dirt and write nothing
+- Chose: classify read-only, restore only the committed deletions git already holds every byte
+  of, refuse modified, untracked and staged content untouched, and halt nothing
+- Why: option 1 is refused by ownership, not taste: the quarantine pass can stash a unit
+  tree because the harness made that tree and the mirror is the only copy of work the tick
+  died with; the main checkout is the operator's working tree and live index, and stashing
+  its in-flight edit into `at-risk/` takes custody of bytes the pass never created. Option 2
+  is the arbitrary-delete primitive `#1686` already priced from the other direction -- a root
+  daemon that rewrites a path it did not create -- and it also drops the local-only refstate
+  every `factory_refresh_origin` fetch writes into that checkout. Option 4 is contradicted by
+  the ticket's own measurement: 101 activations of watchful silence is what option 4 already
+  is, and the tree rotted anyway; a verdict nobody can act on is what the ticket filed. The
+  one shape where a write is safe is a tracked file missing while HEAD holds every byte of
+  it: the restore creates nothing the harness invented, which is the same rule the quarantine
+  pass runs in reverse -- it refuses to clean what no mirror holds, and here nothing can hold
+  the operator's unstaged bytes, so nothing is written for them. Exit 0 always, because a
+  halting verdict on this tree would gate every unit behind one dirty checkout, the #248
+  outage shape (15h57m), and the dirty state is being repaired, not adjudicated. The call
+  site sits once per activation, beside `factory_refresh_origin` and before triage, so the
+  journal carries one verdict per pass regardless of queue length. Tie-break 1: no `go.mod`
+  line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends.
+  Tie-break 4: `factory/` plus this log; tick behavior and the per-unit quarantine pass are
+  untouched. Tie-break 5: `git revert` of the effect commit retires function, call site,
+  legs and entry together. Tie-break 6: the house rule of a control per hazard -- both
+  controls print without a `pass` increment, and the inert-site plant is measured silent
+  rather than asserted silent.
+- Checkpoint: 7f69e08cfea025e9595197d39545eb4181d468e1
+- Effect: `factory_main_tree_inspect` and the `factory_main_tree_check` wrapper appended at
+  the tail of `factory/common.sh` below line 3016, the last line any log anchors, so no
+  existing pointer moves; one call site in `_factory_main` (`factory/factory.sh`) between
+  the origin refresh and the triage read, which shifts this
+  log's own pointers by the three lines above it -- `H-0179`'s pointer at line 1501 re-pointed
+  to `factory/factory.sh:1657` "a stop that no later pass can read is not a stop" in this
+  commit, the quoted sentence verified at the new line before the digits moved; and a new section in `factory/selftest.sh` placed above only the tally so
+  every anchored pointer in that file stays put -- twelve counted legs over every polarity
+  (clean, restoral with byte-identity to HEAD, refusal each for modified, untracked and
+  staged content, two mixed trees pinning that a refusal never half-restores, no-tree and
+  unreadable UNKNOWNs planted by shadowing `factory_tree_dirt` inside subshells, and the
+  DRY_RUN rehearsal), two process legs running the shipped supervisor so the call site
+  itself is pinned, and two uncounted controls: the blind verdict that must draw no restoral
+  line, and the inert call site under which the planted deletion must survive. The suite
+  read-back after the edit: `bash factory/selftest.sh` -> 694 passed, 0 failed, exit 0, the
+  trunk's 682 plus exactly the twelve legs. `make verify` on the exact bytes this entry
+  ships is quoted with its tally and last line in the commit message that carries this entry
+  and in the pull-request body (#1180: an `Effect:` written before the gate runs is a
+  prophecy). Rollback: `git revert` of the effect commit retires function, call site, legs
+  and this entry together; the checkpoint pre-dates all four. What lost: modified, untracked
+  and staged content in the main checkout gets a journalled refusal and no repair -- by
+  design, because the pass has no safe verb for bytes that exist nowhere else, but a human
+  reading `MAIN-CHECKOUT-REFUSED` at 3 a.m. still has to act; the verdict is advisory, so a
+  tree the pass refuses to touch keeps dispatching ticks until someone reads the journal;
+  and the inspection runs once per activation, not per unit, so within one pass the tree can
+  be dirtied again unseen. No GitHub write, no label, no merge, no governing file edited by
+  this decision. What lost: the three race arms the code carries -- `late-clean`,
+  `checkout-refused` and the two `RESTORE-INCOMPLETE` wordings -- have journalled sentences and
+  no planted leg; a shadowed `git` could plant them and nobody has priced that fixture yet, so
+  their exact wording is pinned by nothing but the source.
+
+## H-0198 · Issue 328's mid-merge rescue exists only as a 991-line uncommitted diff in a tree every activation reports DELIVERED, so adopting it here is the only verb that puts it in the object database, and its stranded pointer re-anchors to this entry
+
+- Question: #347: the repair that lets `factory_tree_quarantine` refuse a tree caught mid
+  merge instead of destroying 262 lines with `git merge --abort` (issue 328, PR #331) exists at
+  dispatch time in exactly one place — an uncommitted `git diff` in `/home/rodney/prj/wt/issue-248`
+  (` M factory/common.sh` +262, ` M factory/selftest.sh` +558, plus 694 untracked lines in that
+  tree's own `LOG.md`). No blob, no ref, no stash: `git cat-file` answers `invalid object` for both
+  `git hash-object` values, and the foreign tree has no `origin/issue-248` remote ref. Its branch
+  reads `delivered` — PR #303 merged — and the `delivered)` arm only reports: at
+  `factory/factory.sh:1637` "reported, not worked: nothing is dispatched and nothing is closed"
+  — the tree is never opened, so no row kind names what sits in it and the repair is one
+  `git checkout` from nonexistence. The ticket instructs adopting the diff before the rule that
+  made this invisible. What does this tree owe for provenance?
+- Options: adopt the bytes as they stand, edits limited to what the gate's own failures demanded |
+  adopt rewritten, the orphan's measurement prose replaced by freshly authored comment | re-derive
+  from scratch on this branch | escalate — authorship of a third party's uncommitted work is not
+  the adopter's to record
+- Chose: adopt the bytes as they stand, edits limited to what the gate's own failures demanded
+- Why: the orphan's comments carry measurements re-derivation could not reproduce —
+  `factory/common.sh:2652` "the file is the fact and the rev-parse is the" names the
+  `rev-parse --verify` rule the shipped quarantine arm reads `refs/stash` by (the H-0224 adoption
+  lands on `factory_tree_unmerged`/`factory_tree_mirror_merge`, which carry the orphan's stage-copy
+  and abort-after-copy measurements rather than its first-cut refusal predicate — its `AUTO_MERGE`
+  discrimination note was overtaken by the shipped arm's marker-file verdict and no longer has a
+  line to name); `git revert` of the single adopt
+  commit retires the whole adoption without rewriting history (tie-break 5). The pointer inside
+  the orphan's quarantine comment re-anchors rather than dies: `H-0147` was claimed here by an
+  unrelated allocator-stderr entry (measured at dispatch: seven lines carry it on trunk), and the
+  refuse-don't-rescue decision it pointed at — what cherry-picking, reverting or rebasing the 262
+  lines costs and does not buy — is decided by this entry, which is the entry whose id was
+  available when the comment was written. That option holds on measurement, not taste: the 262
+  lines sit between `MERGE_HEAD` b358e27 and HEAD 6610316 in a tree whose branch merged a
+  different tip, so no revert has a target and no cherry-pick has a commit — there is nothing in
+  the object database to operate on, measured above. Re-derivation is refused for the reason
+  option 2 is: measurement prose lost in transcription is a cost this repository has paid once.
+  Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout
+  starts or ends. Tie-break 4: `factory/common.sh`, `factory/selftest.sh` and this log; the
+  quarantine arm's call sites do not move. Tie-break 6: no new hazard, so no new control — the
+  adopted legs carry their own controls, measured on this branch below.
+- Checkpoint: 850ffef3c57f84f98994775be2d903a4093f795f
+- Effect: the orphan's 991 diff lines plus this log, adopted into `factory/common.sh`
+  (`factory_tree_in_progress`, `factory_tree_mirror_merge`, `factory_tree_unmerge`, and the
+  in-progress arm of `factory_tree_quarantine`) and `factory/selftest.sh` (its in-progress
+  quarantine section). Four edits the adoption itself owed: the stranded pointer re-anchored to
+  this id; 19 digits-only repairs to decision-log pointers the 558-line selftest insertion slid
+  (the first red gate was this drift, not a leg — ten coordinate pairs moved, each verified
+  against its quoted anchor before its number was, ending `0 pointing somewhere a reader cannot
+  open` with the ratchet held at 539); an unused `ukind` dropped from the adopted local list; and
+  two escaped backticks in the adopted `merge_names_cannot_collide` failure string — inside
+  that double-quoted string the backticks were live command substitution, so the leg
+  written to diagnose a nested-mirror collision would itself have executed `mv dir dir` every
+  time it fired, a real defect in the adopted bytes caught by shellcheck and fixed with the
+  wording kept. The shipped lineage refuses that shape in the bytes instead of testing for it:
+  `factory/common.sh:2222` "already exists, and writing a second mirror into the first" is the
+  adopted family's collision claim as a refusal, witnessed by `mm_mirror_collision_refused`.
+  H-0224 retires the first-cut legs that carried the escaped-backtick fix; the defect they
+  recorded stays recorded here.
+  Measured after all four: `bash factory/selftest.sh: 706 passed, 0 failed`
+  (baseline at the checkpoint 682, so the adopted legs are +24 green as-is, zero assertions
+  edited) and `make verify: OK` rc 0. What lost: authorship — the orphan names no author, blame
+  starts at this commit, and the provenance comments are the only record; this commit does not
+  carry the foreign tree's 694-line session `LOG.md`; and `wt/issue-248` still holds its copy —
+  the adoption makes the repair no longer single-copy, it neither touches nor rescues that tree,
+  which is work the rule this ticket pairs with goes on to refuse silently. No GitHub write, no
+  label, no merge.
+
+## H-0199 · The DELIVERED line was a verdict about the trunk heard as one about the tree, so the delivered arm now opens the tree its row names and reports what it finds — report-only, guarded by the tree's own HEAD
+
+- Question: #347's rule half, taken after H-0198 put the stranded repair in the object database:
+  every activation had logged `DELIVERED` for the branch whose tree held those 991 lines, because
+  the worktree its row named. What makes the next stranded tree visible without making the class
+  into something it is not?
+- Options: a second, report-only journal line from inside the `delivered` arm, read with the same
+  dirtiness reader a dispatch halt uses and attributed by the tree's own checked-out branch | make
+  a dirty tree stop classifying as delivered, so the row itself changes | preserve or bundle the
+  dirty delivered tree the way unpushed commits get a safety bundle | re-offer the dirty delivered
+  tree as work
+- Chose: a second, report-only journal line from inside the `delivered` arm, read with the same
+  dirtiness reader a dispatch halt uses and attributed by the tree's own checked-out branch
+- Why: the three alternatives each buy visibility by making the class do a verb it was written not
+  to do. Re-burying the row as unclaimed re-opens a unit whose named work demonstrably merged —
+  #235 created this class precisely so a delivery is never handed out again — and it then sends a
+  tick at a tree whose uncommitted content belongs to someone else, which is the state
+  `factory_tree_quarantine` exists to refuse on arrival: the hazard #347 measured was one tick from
+  becoming the loss. Bundling is the harness writing into a person's uncommitted work on the
+  strength of a classification, and the verbs that touch trees — stash, abort, prune — are what
+  issue 328 nearly died of; `factory_preserve_unpushed` guards what the harness itself did to a
+  tree, and a delivered tree has been touched by nobody here. Making the class depend on the tree
+  would split one queue into one verdict per machine: the rows are verdicts read from GitHub and
+  `origin` (#291), and a `delivered` that means something different on the box that still holds the
+  worktree is the report nobody can reconcile. Report-only repeats every pass for the reason the
+  `DELIVERED` line does — a queue that reports a thing once and goes quiet is a queue nobody can
+  audit. The attribution guard takes the quarantine lesson —
+  `factory/common.sh:1931` "The branch guard is the whole attribution" — the directory is named for a
+  branch, and only a HEAD with the
+  same name makes what sits in it that delivery's leftover; a moved tree reports nothing, because
+  naming someone else's work as a delivered leftover is misattribution in the quiet direction —
+  and the guard's silence is pinned, not assumed: the control that makes HEAD always agree with the
+  row turns the detached dirty tree into a misreport, measured by the leg beside it
+  (`factory/selftest.sh:10995` "the detached dirty issue-905 is silent"). Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when
+  a lockout starts or ends. Tie-break 4: one helper, one arm, one doc paragraph — no new class, no
+  new file, no ledger field. Tie-break 5: `git revert` of the effect commit retires the lines and
+  the legs together, and the journal between has only gained sentences. Tie-break 6: one hazard,
+  one control (the mutated guard), with the clean tree, the moved tree and the pr unit as the null
+  variants so the line cannot pass by always firing.
+- Checkpoint: a1080117ef2b1fd711316d1b19782ea6d4f06de8
+- Effect: `factory_delivered_inspect` in `factory/common.sh`, the arm's call beside the existing
+  line at `factory/factory.sh:1642` "the class exists to start nothing", and the journal pair it
+  writes —
+  `factory/common.sh:1957` "the row says delivered and the tree holds work" names the dirty tree's
+  path and every dirty or untracked file with it, and `DELIVERED-TREE-UNREADABLE` names the
+  directory that cannot answer what branch it is on, which is #232's stale entry. The call covers
+  `issue` and `branch` rows only; the issue-row branch fallback (`-` derives `issue-<key>`) is
+  pinned at the helper, the pr unit derives nothing. Eight legs on a fixture whose merged pull
+  requests sit on four trees — dirty, clean, detached-with-work, stale — plus the fallback, the
+  silent pr unit, the unchanged `DELIVERED` sentence, and the guard control. Measured:
+  `bash factory/selftest.sh: 714 passed, 0 failed` (baseline 706, +8, no existing assertion
+  edited) and `make verify` ending `verify: OK` at rc 0. Ten decision-log pointers the three insertions
+  slid were re-anchored digits-only in this commit, ratchet held at 539 with
+  `0 pointing somewhere a reader cannot open`. `docs/factory.md` gains the paragraph. What lost:
+  the line names but touches nothing — no ledger row, no label, no escalation — so a dirty
+  delivered tree keeps reporting every pass until a person retires it, which is the same fate as
+  the `DELIVERED` line itself and the price of report-only; a directory whose HEAD names another
+  branch stays silent by design, and the only end-to-end coverage of the fallback is the branch-row
+  shape plus a helper-level leg, not a live `issue delivered` row through the supervisor. No GitHub
+  write, no label, no merge.
+
+## H-0201 · The one-home census omitted `NEXT.md` by accident rather than by rule, and a ninth file spelling the label was invisible to the leg built to catch exactly that, so the exemption boundary becomes written text and the drift control plants in every census file
+
+- Question: #360 says the one-home census is a fixed eight-file list that omits `NEXT.md`, so a ninth
+  live file spelling the escalation label has no leg able to see it. Re-measured at `6db0b13` with the
+  leg functions lifted verbatim: the census copy as it stands passes (rc 0), the same copy plus a
+  planted `NEXT.md` mention still passes (rc 0, blind), and the identical plant in `docs/factory.md`
+  is refused (rc 1) — the leg bites; `NEXT.md` is a file it never opens. What moved since the ticket
+  was filed: commit `af848f4` rewrote `NEXT.md` whole and deleted with it the one live
+  sentence that spelled `needs-human` (line 55 of that file at `9d15457`), so the ticket's specific
+  stale sentence is gone — swept by an unrelated hand-off, not by any leg, which is the finding
+  standing on its head. The list is eight: `factory/selftest.sh:9320` "the files whose mentions are instructions"
+  and the leg's hand-copied twin array under its header at
+  `factory/selftest.sh:9342` "the name is spelled once, and that once is common.sh"; the exemption
+  comment names only the two decision logs and never mentions `NEXT.md`; the leg's own failure text
+  still counted "the other six". Is `NEXT.md` a fossil or an instruction, and what does the tree owe
+  either way?
+- Options: `NEXT.md` joins both census lists, the exemption comment states the sole boundary, and the
+  drift control plants once per census file | `NEXT.md` is recorded as a third fossil beside the two
+  logs, with the invariant sentence in `factory/common.sh` gaining the same exemption | the census is
+  widened to every tracked file | the hand-off file alone is re-pointed at the reader by name instead
+  of the value | `esc_one_home`'s array is derived from `esc_live` so the twin lists cannot drift
+- Chose: `NEXT.md` joins both census lists, the exemption comment states the sole boundary, and the
+  drift control plants once per census file
+- Why: the fossil exemption rests on one fact — an entry records what was believed when it was written,
+  and editing history to chase a renamed label turns every citation in it into a lie. That fact does
+  not extend to `NEXT.md`: it is rewritten whole by every unit (measured — `af848f4` replaced the file
+  and its line-55 sentence in one stroke, with no leg consulted), so it protects no history,
+  and it is read forward by the next unit, so a name in it is an instruction that gets carried. Tie-break
+  3 decides what remains: the chosen shape makes the leg refuse where the fossil shape would pass in
+  silence. Option 4 was measured moot — there is no sentence left to re-point (rc-0 row above; the file
+  as it stands holds no occurrence). Option 5 is the true root of the twin lists and was still refused:
+  it changes `esc_one_home`'s behavior beyond the requirement, and the per-file control now witnesses
+  every member from `esc_live` against the leg's own array, so a list that parts from the other fails
+  the gate rather than the census. Option 3 is refused by the ticket's own measurement: it reddens on
+  the decision logs, whose citations are this repository's evidence, and the only green it can reach is
+  rewritten history. Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when
+  a lockout starts or ends. Tie-break 4: one file, `factory/selftest.sh`, held at net-zero physical
+  lines (32 insertions, 32 deletions) so none of the 64 pointers aimed at that file moved — `grep -n`
+  still answers 7469 for the leg header. Tie-break 5: `git revert` of the effect commit retires the
+  whole change. Tie-break 6: this is how the family already treats a hazard — one control per plant,
+  membership never accepted as witness.
+- Checkpoint: 5a4179e37764387bbcf5055d52374f374981cc7a
+- Effect: `factory/selftest.sh` only. `NEXT.md` joined `esc_live` and the leg's files array; the
+  exemption comment now states that the two decision logs are the only exemption and names this entry;
+  the leg's stale "other six" reads "the rest of the census"; control 1 of `esc_controls` plants the
+  name in every non-home census file and demands the leg refuse each, naming the file and the phase on
+  failure. Read back after the gate ran: `bash factory/selftest.sh` -> 682 passed, 0 failed (the
+  ticket's 564 was the count at `9d15457`; the census has grown on `main` since), and `make verify` and
+  its last line are quoted in the commit message and the pull-request body, never here as a
+  prophecy. Rollback: `git revert` of the effect commit retires the fix and this entry together; the
+  checkpoint above is the target. What lost, stated as the cost of the choice: the leg's array is still
+  a hand-copy of `esc_live` (option 5's single source was refused), so the two lists remain two and
+  only the control keeps them honest; `esc_pr_verb` keeps its own eight-file census — the identical
+  ninth-file blindness applies there to hand-offs prescribing the dead `pr` verb, and #360's scope
+  named only the one-home leg; and a future hand-off that quotes a measured label value now goes red
+  by design and must name the reader instead of the value, which is friction this entry accepts. No
+  GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
+
 ## H-0202 · The first review of PR #411 read the tree and found the log contradicting it — the #355 shape-guard was written and wired while D-0085's What lost still swore no guard script was written — so the guard owes its own entry and D-0085 owes an amendment
 
 - Question: PR #411 (#355) ships `scripts/check-fixture-window.sh` — refusing the
@@ -9439,3 +10704,1417 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   words — entry count, citation counts and `verify: OK` — are quoted in the pull-request
   thread with their exit statuses, not here, because an `Effect:` written before a gate
   runs is a prophecy (#1180).
+
+## H-0204 · PR #400's base sync has exactly one legal splice, and this branch's own +21 fixture lines moved two pointers main published fresh, so the markers come out, the seam keeps one blank, and the digits move -- with the erratum riding the merge commit as H-0181 set the shape
+
+- Question: PR #400 reads `CONFLICTING`/`DIRTY` against main with all five checks green (read back
+  15 Nov: mergeable=CONFLICTING, mergeStateStatus=DIRTY, reviewDecision empty). `git merge origin/main`
+  conflicts in one file, factory/DECISIONS.md: the merge base `6db0b13` ends at H-0182, this branch
+  appended H-0186, main appended H-0201 (main holds no H-0183..H-0200 -- those ids went to sibling
+  entries off-trunk -- and an id-keyed union does not care: ascending is ascending). Measured on the
+  splice: main adds 58 lines to the log and removes none, the merged file takes exactly 56 non-blank
+  lines from main with zero deletions of ours, the seam keeps the one blank line both precedent
+  double-appends left (8d2682b, 73dbd91), and the only interior difference from the base is this
+  branch's own seventeen digit repairs. The reversed order was run rather than asserted: the gate
+  refuses it with "H-0186 is out of order (H-0201 came before it)". The citation gate then refused two
+  pointers that only the merge surface breaks: `factory/selftest.sh:9320` "the files whose mentions are instructions"
+  and `factory/selftest.sh:9342` "the name is spelled once, and that once is common.sh" -- this branch's
+  H-0186 fixture inserts 21 lines above them (hunks `@@ -3975,6 +3975,13 @@` and `@@ -3993,8 +4000,22 @@`,
+  both above line 4021), while main's H-0201 change holds net-zero physical lines (32 insertions, 32
+  deletions, lowest touched line 7447). So the drift is ours and lands on main's fresh pointers, and CI
+  runs `make verify` on the merge surface, not on the branch alone. What does the merge owe?
+- Options: repair only the two digits inside main's published entry and file this erratum in the same
+  merge that carries the splice | ship the conflict-clearing merge with a log the gate refuses, leaving
+  two pointers for whoever edits main next | order the union main-first, which the gate was run and
+  refuses as quoted above | raise POINTER_DEBT by two and call the drifted pointers grandfathered |
+  leave the branch conflicting and park it for a trunk-side repair
+- Chose: repair only the two digits inside main's published entry and file this erratum in the same
+  merge that carries the splice
+- Why: H-0181 measured this split from the other side -- the trunk moving under published pointers --
+  and repaired it with same-length digit moves plus an erratum, because a coordinate is a pointer at
+  text the current tree still holds, so the digits move with the text while the measurements around
+  them stay stamped at the tree they were taken on. These two coordinates were true on main and read
+  false only on this merge surface; the digits are repaired, no surrounding sentence re-asserted.
+  Option 2 ships exactly what H-0176 had to pay: clearing CONFLICTING is worthless if CI refuses the
+  surface it lands on. Option 3 was run, not asserted, and quoted above. Option 4 is what the gate's
+  own closing line tells the unit that tries it -- "a pointer a reader cannot open is a defect, not a
+  grandfathered promise" -- and the ratchet moves one way only. Tie-break 1: no `go.mod` line, stdlib
+  only. Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 3: the chosen shape
+  refuses to ship a log with two pointers a reader cannot open. Tie-break 4: one log, two same-length
+  numeric substitutions, and this entry; no product diff moves. Tie-break 5: `git revert -m 1` of the
+  merge retires the whole base sync; a later `git revert` retires this erratum alone. Tie-break 6:
+  H-0173, H-0174, H-0176, H-0177, H-0180 and H-0181 all carry their base-sync erratum on the merge
+  commit; this is the family's own shape.
+- Checkpoint: bf0bfabfdf9a6a73e053ced9758a1d536c64dc3c
+- Effect: the ascending union (56 non-blank lines taken from main, zero deletions of ours, one blank at
+  the seam, the reversed order measured refused) and two same-length digit repairs inside H-0201,
+  carried by the merge commit that records this decision. `factory/selftest.sh` auto-merged and both
+  suites are run on the merged tree rather than read. The gate runs are read back after they finish
+  and quoted in the commit message and the pull-request body, never written here as prophecy.
+  Rollback: `git revert` of this entry's commit retires the erratum and the two digits together;
+  `git revert -m 1` of the merge retires the whole update. What lost: the repaired digits re-stamp
+  main's published coordinates at this tree with no renumbering; the ids H-0183..H-0200 stay
+  off-trunk, a gap in main's history this merge neither authored nor can close; and the two drifted
+  pointers remain specimen evidence that the merge surface can redden a green branch's log, which is
+  the exposure #370's title prices. No GitHub write, no label, no pull-request merge, no governing
+  file edited by this decision.
+
+## H-0205 · #401's base sync is the family splice with zero digit repair, and the zero has a measured cause -- this branch's one `selftest.sh` write lands below every coordinate main's new entries mint
+
+- Question: PR #401 reads `CONFLICTING`/`DIRTY` against `main` with every check green -- read back
+  15 Nov at head `812b0c3`: state OPEN, base `main`, `reviewDecision APPROVED`, and `verify`,
+  `shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)` all `SUCCESS`.
+  `git merge origin/main` (main at `e4c7d74`, re-read live over HTTPS before the merge -- ssh port 22
+  is dead on this box, so every remote contact here goes through the HTTPS transport) conflicts in
+  one file, factory/DECISIONS.md. The merge base `6db0b13` ends the log at `H-0185`'s tail; this
+  branch appended `H-0187` and `H-0188` there (the log's diff against the base: +104, zero
+  deletions), and `main` appended `H-0186`, `H-0201` and `H-0204` to the same seam while rewriting
+  published lines earlier in the file (+203/-17, every deletion inside auto-merged regions). The
+  same collision shape as `H-0204`: append against append at the end of a log that is a history, so
+  the union must run by id, ascending -- `H-0186`, `H-0187`, `H-0188`, `H-0201`, `H-0204`.
+- Options: splice the ascending-id union | append this branch's two entries at the new end | keep
+  both sides at the hunk boundary (ours above main's `H-0186`) | take `--ours` or `--theirs` whole |
+  rebase or force-push the branch onto main
+- Chose: splice the ascending-id union
+- Why: the splice takes main's `H-0186`, then this branch's `H-0187` and `H-0188`, then main's
+  `H-0201` and `H-0204`, one blank line at each seam, the markers out. The two wrong orders were
+  run, not argued. Appending ours at the new end answers
+  `2 decision-log problem(s)` -- `H-0187 is out of order (H-0204 came before it)`, and the same
+  sentence for `H-0188`. Keeping both at the hunk boundary answers `1 decision-log problem(s)` --
+  `H-0186 is out of order (H-0188 came before it)`. Both are git's alignment guess read as if it
+  were a verdict, and both are histories that cannot be bisected; `H-0168` measured the identical
+  refusals for the identical arms. `--ours` deletes three entries `main` published, `--theirs`
+  deletes both escalations this branch carries: tie-break 3, refuse rather than proceed on input
+  that is missing. Rebase and force-push are not moves a unit has, and not moves this repository
+  survives (`allow_squash_merge` and `allow_rebase_merge` are both false, so every merge is
+  permanent history). The ascending union is the family shape: `H-0173`, `H-0174`, `H-0176`,
+  `H-0177`, `H-0180`, `H-0181` and `H-0204` each carry their base sync on the merge commit itself.
+  Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout
+  starts or ends. Tie-break 4: one file of the two the merge touched conflicted and only that file
+  is spliced; `factory/selftest.sh` auto-merged and is re-run, not read. Tie-break 5:
+  `git revert -m 1` of the merge retires the whole base sync.
+- Checkpoint: 6fd6cccbdb731995aa92e8a038e4e7739404b5c8
+- Effect: the splice is proved against the parent blobs, not the markers. `git diff --no-index
+  --numstat` from main's blob answers `104 0` -- the merged file is `main`'s exact blob plus this
+  branch's block, zero of main's lines deleted; from ours it answers `203 17`, byte-identical to
+  the delta `main` itself wrote against the base, so nothing of ours moved either. Non-blank
+  added-lines census against the base (multiset, `difflib` against each parent blob): this branch
+  100 added / 0 absent from merged, `main` 197 / 0. Exact conflict markers answer 0. The leg
+  census closes: `factory/selftest.sh` carries 486 `*_leg` call lines at the base, 489 on this
+  branch (+3), 486 on `main` (+0), and 489 merged = 486 + 3 + 0. `python3 scripts/check-decisions.py`
+  on the merged tree before this entry: `253 entries across 2 log(s)`, 650 coordinate tokens,
+  `0 pointing somewhere a reader cannot open`, exit 0; re-run with this entry in the tree and the
+  whole `make verify` run on the bytes this commit ships are quoted in the merge-commit message and
+  the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+  Zero digit repairs were owed, and the zero has a cause rather than being luck: the fourteen
+  `factory/selftest.sh` coordinates `main`'s new entries mint -- read off the `+` side of its log
+  diff -- none aims below line 15590, while this branch's only write to that file is the hunk
+  `@@ -16303,0 +16304,173 @@` of a 16322-line base, a pure tail append. Nothing lands above main's
+  fresh pointers, so its self-consistent digits (kept self-consistent by `H-0204`'s two same-length
+  repairs, which rode into `main` on that merge) keep pointing at the same text on this surface.
+  `H-0204` owed its two repairs precisely because that branch's +21 fixture lines landed above two
+  live pointers; this branch cannot repeat that failure by construction, which is the first
+  base sync in the family that says so before shipping rather than after the refusal.
+  Rollback: `git revert -m 1` of the merge retires the base sync and this entry together -- the
+  erratum rides the merge commit as `H-0181` set the shape. What lost: the merge re-stamps nothing,
+  so `main`'s published coordinates ride unchanged and a reader on this tree gets `main`'s numbers
+  -- safe only under the tail-append property measured above, not because splices are safe by
+  default; the one blank at each seam is convention carried, not newly measured; and this push
+  spends the `APPROVED` read back at `812b0c3` (measured on #269 that a base-sync push dismisses
+  reviews without touching any exit status), so the pull request returns to review when this
+  lands -- the dismissal line goes on the pull request, the re-ask stays the supervisor's poke,
+  and neither is reported here as done before the read-back says it. No label was written or
+  changed, no merge, no governing file edited by this decision.
+
+## H-0206 · The sixth collision on issue-328 carries both families at once -- thirteen double-written digit hunks, a tail double-append, and six pointers INSIDE main's fresh entries that git auto-merged past any conflict -- so the union is one ascending cut, the digits are the twenty-three the gate names, and the erratum rides the merge commit
+
+- Question: read back before anything was touched, with the field that answers only for a pull request:
+  PR #398 was `OPEN`, base `main`, head `issue-328` at `7ec6829` (= local HEAD), `reviewDecision`
+  APPROVED, `mergeable` CONFLICTING, `mergeStateStatus` DIRTY, checks green. `git merge origin/main`
+  halted on ONE file, `factory/DECISIONS.md` UU; the base `6db0b13` log ends at H-0182 (9397 lines),
+  this branch appended H-0183/H-0184/H-0185 (blob 9674), `main` appended H-0186/H-0201/H-0204
+  (blob 9583). The conflict read as fourteen hunks, and a digit-normalized comparison of both sides
+  of every hunk separated two families: thirteen hunks whose two sides are the SAME sentence carrying
+  different `factory/selftest.sh` digits -- the base values 12100, 13855, 7469, 15569, 6865, 5811,
+  7532 and 14282-14289 had each drifted twice, +1395 lines on this branch (H-0183..185 add 20 legs)
+  and +21 on `main` (H-0186's fixtures) -- plus one tail double-append. Both sides had obeyed the
+  same rule (`H-0174`): re-anchor the drifted pointers in their own tree. What does the merge owe?
+- Options: take one side per hunk wholesale, since each side is internally consistent | splice the
+  ascending union and repair only the thirteen hunk coordinates | splice the ascending union and
+  re-point EVERY coordinate whose sentence stays true of the merged tree, leave revision-pinned
+  coordinates and measurement claims stamped, and file this erratum on the merge commit | re-aim even
+  the claim coordinates so the log is self-consistent at the merge commit | ship a red merge surface
+  and leave the pointers for a trunk repair, or park the branch
+- Chose: splice the ascending union and re-point EVERY coordinate whose sentence stays true of the
+  merged tree, leave revision-pinned coordinates and measurement claims stamped, and file this
+  erratum on the merge commit
+- Why: the merge surface is what CI reads, so option 5 ships what H-0176 had to pay for -- clearing
+  CONFLICTING is worthless if `make verify` refuses the surface it lands on. Option 1 loses a side:
+  both sides' digits are true in their own tree and false in the merged one, and the branch tip
+  passed `verify` at `13475`/`15657`-family numbers that `main`'s +21 had already moved again. The
+  per-citation test is `H-0174`'s: change the digits only, and if the sentence is true of the file
+  today it was a pointer. `scripts/check-decisions.py:195` "%s: %s is out of order" placed the
+  union, and the reversed order was run, not asserted -- with `main`'s block first the gate answers
+  3 problems, "H-0183 is out of order (H-0204 came before it)".
+  Git's silence is not a verdict, so the census is: HEAD loses ZERO lines of its 9674; `main` loses
+  31 of 9584 and every one is a digit-variant of a surviving line or the one seam blank; zero merged
+  lines are in neither parent. `factory/selftest.sh` auto-merged and was read, not trusted: 17717 +
+  21 = 17738 merged lines, and the leg census 486 base / 506 branch / 486 main / **506 merged =
+  486 + 20 + 0**, so no leg died on either side. Then the shipped gate enumerated the repairs: 23
+  anchored pointers read false on the merged tree -- 17 inside the double-written hunks and 6 the
+  auto-merge had smuggled: `main`'s own fresh entries carry digits true on `main`'s selftest.sh
+  (H-0186 two, H-0201 two, H-0204 two, at 4097/4129/7468/7490) landed under this branch's +1395.
+  Option 3 stops exactly where option 4 begins: `H-0180` keeps `0592233:factory/selftest.sh:13786-13793`
+  because a pinned coordinate names its own tree, and `H-0181` keeps "(`aac8218:docs/factory.md:1027`)
+  moved off a line that was ALREADY blank" because the assertion IS about that tree. The coordinate
+  `factory/selftest.sh:8738` "FACTORY_ESCALATION_LABEL=plock-awaiting-a-person" names the first of
+  the anchor's two merged occurrences (8281, 8289) -- this branch's fixture line moved +21. Each of the 23 edits was asserted
+  to hit its own line exactly once, digits and nothing else, no re-wrap. Tie-breaks: 1 silent, no
+  `go.mod` line, stdlib only; 2 nothing here decides a lockout; 3 refuses options 4 and 5 -- a
+  pointer a reader cannot open is a defect, not a grandfathered promise; 4 is this choice -- one
+  conflicted file, 23 single-line digit edits, this entry, every other path byte-identical to the
+  auto-merge; 5 one `git revert -m 1`; 6 the family shape H-0173, H-0174, H-0176, H-0177, H-0180,
+  H-0181 and H-0204 all carry: the erratum rides the merge commit.
+- Checkpoint: addc9502565ace34216b431c0af431be7cee672f
+- Effect: the ascending union puts `main`'s 185 tail lines after this branch's with the one seam
+  blank H-0204 records -- merged log 9674 + 185 + 1 = 9860 lines before this entry, three conflict
+  markers counting 0, headings ascending through 185, 186, 201, 204 -- and the 23 digit repairs at
+  merged lines 7814, 7816, 8439, 8497, 8569, 8790, 8849, 9010, 9014, 9131, 9139, 9210, 9214, 9221,
+  9237, 9302, 9303, 9731, 9734, 9760, 9762, 9820, 9821. Gate runs on the resolved tree with this
+  entry in it, read back after they finished and never written here as prophecy: `python3
+  scripts/check-decisions.py` -> 255 entries across 2 log(s), every one with its question, options,
+  choice, reason and checkpoint; the `path:line` census reads 658 citations, 539 owing an anchor --
+  the recorded number, constant untouched -- and 0 pointing somewhere a reader cannot open; `bash
+  factory/selftest.sh` -> 702 passed, 0 failed, rc 0, run after `git add` per H-0168(c);
+  `make verify` -> verify: OK, exit 0. What lost: the 23 re-pointed digits re-stamp published
+  coordinates at this tree -- openable here, unverifiable against any other tree, which is (a) and
+  (b) of H-0174's cost re-paid a sixth time; the auto-merge carried 18 more single-sided digit lines
+  unanchored, where drift stays invisible and the ratchet cannot see them; this push spends the
+  APPROVED review per the #269 precedent, read back after the push and said on the pull request;
+  and an open branch whose base keeps moving pays one collision per merge -- the 35-tick, 14.16 h
+  price #381 prices, and this merge took no step toward paying it down. Rollback: `git revert -m 1`
+  of this merge retires the sync, the union, the 23 digits and this entry together. No GitHub write
+  beyond read-backs, no label, nothing merged by this commit. Refs #328, #313, #318, #381.
+
+## H-0207 · PR #402's second base sync cannot splice either side whole because main's own fresh entries bracket ours this time, so the union interleaves and the gate refuses both whole-tail orders as run
+
+- Question: PR #402 read `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY` again with
+  `reviewDecision=APPROVED` at head `5408b41` -- the pushed tip of the first union, whose own entry is
+  H-0190 -- 11 commits of main having landed past the merge base since that merge, two of them merges
+  that carried this same repair family. `git merge-tree --write-tree` again answered exactly ONE
+  conflicted path, `factory/DECISIONS.md`, at the one tail offset: ours appended `H-0189`+`H-0190`
+  (150 lines), theirs appended `H-0186`+`H-0201`+`H-0204` (186 lines) plus eleven digit-repair erratum
+  hunks above the append point that auto-merged clean. This collision is not H-0190's: main's fresh ids
+  straddle ours, so an ascending union keeps NEITHER side's appended run contiguous -- `H-0186` must
+  land above `H-0189`, and `H-0201`+`H-0204` below `H-0190`. Which splice, and what gets measured
+  rather than diffed?
+- Options: take main's appended run whole and re-apply ours as later commits | concatenate main's whole
+  tail above ours | concatenate ours above main's whole tail | trim entries off one side until the tails
+  agree | keep all five blocks whole as one interleaved ascending-id union -- `H-0186`, `H-0189`,
+  `H-0190`, `H-0201`, `H-0204` -- byte-exact on each side, measured by running the merged tree
+- Chose: keep all five blocks whole as one interleaved ascending-id union -- `H-0186`, `H-0189`,
+  `H-0190`, `H-0201`, `H-0204` -- byte-exact on each side, measured by running the merged tree
+- Why: the order is forced by the gate, measured rather than read. Writing the main-first concatenation
+  and running the checker exits 1 with `H-0189 is out of order (H-0204 came before it); the log is a
+  history and a history that jumps around cannot be bisected`, repeating at `H-0190`, and the ours-first
+  concatenation is the refusal H-0190 itself recorded and quoted. Re-applying our entries later splits
+  each from the merge that cites it -- the same-commit rule -- and opens a window with a published entry
+  missing from the tip; trimming destroys published measurements of shipped behavior, refused for the
+  same reason in H-0190. Only the interleaved union satisfies the checker with every block whole, and
+  whole it was kept: each side's bytes were asserted substrings of the resolved file exactly once, and
+  every seam was asserted to hold exactly one blank line, the invariant the double-append precedents
+  left. Because our 150 lines land ABOVE `H-0201`+`H-0204`, every `path:line` pointer aimed at those
+  blocks -- or at anything else the merge moved -- had to be re-opened on the merged tree: measured by
+  running `check-decisions`, which reads this entry's own union at 254 entries, 655 citations,
+  539 of them owing an anchor and 0 pointing somewhere a reader cannot open, so the splice drifted no
+  digits, owes no erratum, and raised no debt -- the same 539 H-0190 left. Tie-break 1: no `go.mod`
+  line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 3: the
+  chosen shape refuses to ship a log the checker cannot open. Tie-break 4: one log, this entry, one
+  hand-off state line; no product diff moves. Tie-break 5: `git revert -m 1` of this merge retires the
+  whole second base sync; a later `git revert` retires this entry alone. Tie-break 6: H-0173, H-0174,
+  H-0176, H-0177, H-0180, H-0181, H-0190 and H-0204 all carry their base-sync union in one family's
+  shape; this is that shape, plus the interleave this collision is the first to force.
+- What lost: append order loses to resolvability for the fourth time across the two logs, and for the
+  first time the loss is contiguity, not order: each side published its append as one contiguous run,
+  and the union cuts both runs to keep ids ascending, so no bisector can read either side's merge as a
+  single log write. Nothing here proves the merged tree right by inspecting the merge; it is proved by
+  `make verify` running on the merged tree, and this entry quotes that verdict only from the read-back
+  in the merge commit message. And nothing here stops a third collision: main's log keeps moving under
+  open branches while #381's id-keyed union arm stays unshipped, which this merge re-prices rather
+  than pays.
+- Checkpoint: ae1047edda6c860c6f9f1e9d4ae7d01b53afbdeb
+- Effect: one file resolved by hand as the interleaved union (both sides' bytes asserted substrings
+  exactly once, one blank line at each seam, the main-first concatenation measured refused at rc 1 and
+  the restored union read back byte-exact against its /tmp copy), five files merged with no textual
+  conflict -- the product log, three `cmd/plock` test files carrying main's `D-0084` stop-contract
+  change, and `factory/selftest.sh` -- and were measured by running them, not diffed:
+  `factory/selftest.sh` prints `682 passed, 0 failed`; this branch's hand-off gate and main's census
+  leg that counts `NEXT.md` coexist, `check-next-md self-test: 18 case(s)` at rc 0 and
+  `check-next-md: OK`; the three attack batteries print `VERDICT: 40 attacks, 0 problem(s)`,
+  `VERDICT: 73 attacks, 0 problem(s)` and `VERDICT: 31 attacks, 0 problem(s)`; the capture manifest
+  prints `54 rules hold`; `go test -race` runs the three test files main moved un-cached to `ok`.
+  `make verify` then runs on this tree with this entry in it, and its verdict is quoted from the
+  read-back in the merge commit message rather than written here as prophecy (#1180), as is the
+  allocator's answer: `H-0207` with its `REFRESH` line, re-read after a full `git fetch --prune origin`
+  before this entry was written. Refs #402 and #337 for the work this merge carries; no pull request
+  here ends anything.
+
+## H-0208 · What the #403 union owes a reader when both sides re-pointed the same `selftest.sh` anchors
+
+- Question: PR #403 read `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY` with every check green
+  while the review that approved it still named head `b6914c6` -- the shape #381 predicted: "every
+  merge re-conflicts every branch on the decision logs". `git merge origin/main` conflicted in ONE
+  file, `factory/DECISIONS.md`, in fourteen hunks. Thirteen are pure digit drift: both sides ship the
+  identical sentences pointing at `selftest.sh` lines, and each side's digits were true only of its own
+  tree. The fourteenth is the tail double-append where both sides appended, and ours (`H-0191`) sorts
+  inside their run. What resolution can a reader of this file live with?
+- Options: take one side's file whole (`-X ours` / `-X theirs`) -- entries vanish from the log and from
+  `check-decisions`' count | concatenate the whole tail in either order | revision-qualify every
+  drifted pointer, a form the reading rule permits -- legal, and it turns every pointer this branch
+  minted into a footnote | keep both sides whole as one interleaved ascending-id union -- `H-0191`
+  spliced into main's run at its id, byte-exact on each side except digits, and every drifted pointer
+  moved to its referent in the tree this commit ships | rebase and force-push -- not a unit's move
+  (`.opencode/opencode.jsonc` denies force-pushes outright) and the review lives on the head it
+  approved.
+- Chose: keep both sides whole as one interleaved ascending-id union -- `H-0191` spliced into main's run at its id, byte-exact on each side except digits, and every drifted pointer moved to its referent in the tree this commit ships
+- Why: the order is forced by the gate and was measured, not read: both whole-tail orders were RUN
+  against these bytes in a throwaway clone and both die at
+  `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it)",
+  ours-first naming `H-0186`, main-first naming `H-0207`, while the interleaved splice passes. And the
+  rule -- "a lost pointer is worse than a stale digit, and a stale digit is a defect" -- makes the
+  thirteen drift hunks ONE line each whose digits are true of the merged tree. Every move is a pointer
+  repair, never a claim repair: each quoted sentence still lands on live
+  code, `factory/selftest.sh:9342` "the name is spelled once, and that once is common.sh"
+  being where `esc_one_home` lives now -- so no entry's verdict changed and
+  `H-0175`'s erratum arm covers the digits. Five of the moved pointers sit OUTSIDE any conflict hunk,
+  inside main's own fresh entries and this branch's `H-0191`: the coordinates those entries published
+  were true on the head that wrote them, and the merge alone broke them -- which is why the repair
+  rides in this commit and why the gate, not the hunk list, is the census.
+- Tie-breaks: (1) no `go.mod` line, no `require`, stdlib only -- this commit touches no Go file.
+  (2) `make verify`'s `reap: the live journal, if there is one` leg is red here, and it is red on BOTH
+  parents under this box's current journal tail -- control runs: `b6914c6` 682/1, `620bcb1` 681/1, this
+  merge 682/1, one and the same leg `reap_leg_live`. The live tail holds a `0 deadline 1660 1` read:
+  the 04:43:09Z activation killed at its RuntimeMaxSec deadline, whose `Main process exited` lands
+  23 µs before the terminal line, so the hold measures against the kill itself -- the `H-0124` shape
+  through the arm #331's `#283` work never saw. #418 carries the diagnosis; this merge inherits
+  nothing from it.
+- Checkpoint: 66c98e922ca224dd34173d57a3b2069bf576f866
+- Effect: the checkpoint was taken BEFORE the merge was (re-)run: the first attempt started without it,
+  so the merge was aborted and replayed scripted -- a checkpoint taken afterwards records the state the
+  decision produced, which is the thing you already have. `factory/DECISIONS.md` alone needed a hand;
+  everything else merged clean. Splice geometry: main's blob 9796 lines, ours 9489, merged 9888; zero
+  markers; 185 entries, ascending (main's 184 plus this one); leg census `factory/selftest.sh` 486
+  base, 487 ours, 486 main, 487 merged. No-loss census as line multisets against `6db0b13`: ours added
+  115 lines, main added 416, and every line absent from the merged blob (18 ours, 21 theirs) has a
+  digit-normalized twin that is present -- zero orphan lines either side, so nothing was reworded, only
+  re-pointed. Read-back of the gate on the exact bytes this entry ships is quoted in the pull-request
+  body from its run on the pushed head, never from here (#1180); the same run on these bytes before
+  push answered `check-decisions: 255 entries across 2 log(s), every one with its question, options,
+  choice, reason and checkpoint` with 661 citations, 539 owing an anchor and 0 a reader cannot open --
+  `POINTER_DEBT` held at 539, it grew by nothing: this entry mints two bare pointers, both anchored and
+  landing, and every other coordinate it mentions names no path. Roll back with `git revert -m 1`;
+  force-push stays denied, so the union can only be retired forward.
+
+## H-0209 · PR #398's seventh base sync is the first in this family where this branch's fresh id sorts BELOW main's fresh id, so the tail union is ours-above-theirs and the main-first splice the family's own entries habitually take is the refused one
+
+- Question: read back before anything was touched, with the field that answers only for a pull request:
+  `gh pr view 398 --json headRefName` answers `issue-328` -- the type test, because a bare `number`
+  answers for an issue too -- and the same read gives `OPEN`, base `main`, `reviewDecision` APPROVED,
+  `mergeable` CONFLICTING, `mergeStateStatus` DIRTY, five checks SUCCESS, head `3963b81`. `git merge
+  origin/main` halted on ONE file, `factory/DECISIONS.md`, and this time on ONE hunk of it. The base
+  `e4c7d74` log ends at H-0204 (9583 lines); `main` moved 9 commits past it, appending H-0207 (62 lines)
+  at the tail and inserting H-0189 and H-0190 BETWEEN H-0186 and H-0201, and this branch appended
+  H-0206 (69 lines) at the tail. main's blob is 9796 lines, ours 9930. Only the tail collided, and it
+  collided in an order this family has never had to choose: this branch's fresh id is the LOWER one.
+  Which side goes above, and what does the merged tree owe in coordinates?
+- Options: take main's tail whole and re-apply H-0206 as a later commit | concatenate main's tail above
+  ours, the placement the family's earlier syncs happen to have used | concatenate ours above main's,
+  both blocks whole -- one ascending-id union, byte-exact on each side, one blank at the seam |
+  renumber this branch's entry above H-0207 | ship the red surface and leave the markers for the merge
+- Chose: concatenate ours above main's, both blocks whole -- one ascending-id union, byte-exact on each
+  side, one blank at the seam
+- Why: the order is settled by running the other one, not by reasoning about it. The main-first
+  concatenation was written into the log and the shipped gate answers `1 decision-log problem(s)` at
+  rc 1, naming H-0206 with "is out of order (H-0207 came before it); the log is a history and a history
+  that jumps around cannot be bisected"; the file was then restored from a /tmp copy with `cp` (never
+  `git restore`, which would have taken the whole uncommitted resolution with it), read back
+  byte-identical, and the gate exits 0 over 258 entries with 663 coordinate citations, 539 of them owing
+  an anchor and 0 pointing somewhere a reader cannot open. Re-applying H-0206 as a later commit splits
+  an entry from the merge that cites it, which the same-commit rule forbids, and leaves a published
+  entry off the tip in between; renumbering moves an id that is already a durable citation on this
+  branch's pushed commits and buys nothing, because the allocator's answer for the entry you are reading
+  is the next free id either way (it answers H-0209 on a fetch-then-read 0 s old); trimming destroys
+  published measurements, refused for that reason in H-0190. The coordinates were asked, not assumed:
+  main's three fresh entries carry ONE coordinate between them, at a skill page this branch does not
+  touch, and `factory/selftest.sh` is byte-identical to this branch's because main added ZERO lines to
+  it since the base -- so the auto-merge could not smuggle a fresh-but-false pointer the way the sixth
+  sync's did, and the gate's 0 above is the audit of that claim rather than an assumption of it.
+  Census: HEAD loses ZERO lines of its 9930; main loses 37 of its 9796 and every one is a base-era row
+  this branch re-pointed at the sixth sync, which is exactly why the auto-merge took ours; all 207 lines
+  main added over the base survive, its three fresh blocks appear byte-exact in the resolved file exactly
+  once each, ours exactly once, and ZERO resolved lines are in neither parent; the merged log is 10143
+  lines -- ours plus main's 213 -- with 0 conflict markers, 188 `H-` headings ascending, and exactly one
+  blank at the seam. The four other paths are whole files from one side each, read back identical to the
+  parent they came from rather than trusted: this branch's `factory/common.sh` and
+  `factory/selftest.sh`, and main's hand-off gate, its two new `verify` steps, its hand-off file and its
+  skill page. Tie-breaks: 1 silent, no `go.mod` line, stdlib only; 2 nothing here decides when a lockout
+  starts or ends; 3 the chosen shape refuses to ship a log the checker cannot open, which is precisely
+  what the refused order would have shipped into main's `make verify`; 4 one conflicted file, zero
+  hand-edited coordinates, this entry; 5 one `git revert -m 1` retires the whole sync; 6 the family
+  shape H-0173, H-0174, H-0176, H-0177, H-0180, H-0181, H-0190, H-0204, H-0206 and H-0207 all carry --
+  union ordered by id, erratum only when a coordinate moved.
+- What lost: append order loses to resolvability again, and for the first time the loser is THIS branch's
+  placement -- every earlier sync in the family put main's run above the branch's, so the habit that
+  main's tail goes first is now a measured defect rather than a shortcut, and a bisector still cannot
+  read either side's merge as one log write. Nothing here proves the merged tree right by inspecting the
+  merge: it is proved by `make verify` and `bash factory/selftest.sh` run on this tree with this entry in
+  it, and those verdicts are quoted from the read-back in the merge commit message and the pull-request
+  body, never written here as prophecy (#1180). And nothing here stops an eighth collision: main's log
+  keeps moving under open branches while #381's id-keyed union arm stays unshipped, so this merge
+  re-prices the 35-tick, 14.16 h number #381 carries rather than paying any of it down.
+- Checkpoint: aea4dedc88472c5064863a4dd24d5790a29e68c6
+- Effect: one file resolved by hand as the ascending union (both sides' blocks asserted byte-exact
+  substrings of the resolved file exactly once, the seam asserted to hold exactly one blank line, the
+  refused order written, measured at rc 1 and undone by `cp` from /tmp and re-measured at rc 0), four
+  paths merged whole, and this entry; no coordinate in either log was edited, so `POINTER_DEBT` is
+  untouched at 539 by construction and by the gate's read. Gate runs on the resolved tree with this entry
+  in it, read back after they finished and never written here before the run: `python3
+  scripts/check-decisions.py`, `bash factory/selftest.sh` after `git add` per H-0168(c), and
+  `make verify` -- all three quoted in the merge commit message. This push spends the APPROVED review per
+  the #269 precedent, read back after the push and said on the pull request. Rollback: `git revert -m 1`
+  of this merge retires the sync, the union and this entry together; a later `git revert` retires this
+  entry alone. No GitHub write beyond read-backs, no label, nothing merged by this commit. Refs #328 and
+  #381.
+
+## H-0210 · The #405 union splices one entry inside main's run, where the two-block splice fails both ways
+
+- Question: PR #405 read `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY` with every check green,
+  the shape #381 predicted -- "every merge re-conflicts every branch on the decision logs". `git merge
+  origin/main` conflicted in ONE file, `factory/DECISIONS.md`, in sixteen hunks. Fifteen are pure
+  coordinate drift; the sixteenth is the tail double-append, and there main's side is eight whole
+  entries (`H-0186` .. `H-0208`) while ours is one (`H-0193`) whose id falls strictly INSIDE main's run.
+  Both `#362` and `#376` tell a unit to take the tail as each side's block whole, ordered by id -- two
+  blocks. What is left when the ids do not split into two blocks?
+- Options: the two-block splice in either order -- with the tail cut at its real entry boundary here,
+  keep-theirs-then-ours files `H-0193` after `H-0208` and keep-ours-then-theirs files `H-0201` before
+  `H-0193`, and `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it)" refuses
+  either | one side's file whole (`--ours`, `--theirs`, or stripping the markers) -- loses an entire
+  entry: ours, or main's eight | rebase and force-push -- denied outright here, and the approval lives
+  on the head it approved | splice the single entry at its own id, three cuts where the family used
+  two, and re-point every drifted coordinate to the tree this commit ships | rewrite `NEXT.md` as this
+  unit's hand-off -- refused: a union that rewrites another unit's hand-off destroys exactly the carried
+  items that file exists to protect (`H-0208`).
+- Chose: splice the single entry at its own id, three cuts where the family used two, and re-point every drifted coordinate to the tree this commit ships
+- Why: the union is `H-0186 < H-0189 < H-0190 < H-0191 < H-0193 < H-0201 < H-0204 < H-0207 < H-0208`,
+  byte-exact on each side except digits, with the fifteen drift hunks at main's coordinates and all 32
+  drifted pointers re-pointed in this same commit. Three cuts is not taste, it is the only surviving
+  shape -- and it is what this file already
+  contains twice, `H-0190` splicing `H-0191` into main's run and `H-0208` splicing one entry into
+  another's, neither of which recorded it as the rule, which is why the two-block recipe stayed
+  reachable. The drift hunks were taken to main's digits only AFTER both sides were compared
+  digit-normalised line by line, because a reworded sentence hiding inside a "drift" hunk would have
+  been resolved to main's prose silently and would also have poisoned the no-loss census, which is the
+  only evidence a splice kept both intents; all fifteen were coordinates and none a measurement, so no
+  stamped number moved. `POINTER_DEBT` held at 539 because every pointer this entry mints carries its
+  anchor on its own line.
+- Tie-breaks: (1) three of the 32 came back with TWO candidate lines, and taking the first hit would
+  have produced exactly what `H-0179` and `H-0181` warn about -- a pointer that is openable and false.
+  Each was decided by its entry's own sentence: the fixture pointer is the earlier of two
+  byte-identical lines, `factory/selftest.sh:8738` "FACTORY_ESCALATION_LABEL=plock-awaiting-a-person claim_rows", which main already had twice; and `H-0191`'s pair was read against what it measured --
+  its `:263` is the bare CALL of `factory_self_report` and not the definition, its `:265` the halt
+  check beside that call and not the `--status` arm's. (2) `make verify`'s `reap: the live journal, if
+  there is one` leg is GREEN on this merge, measured rather than inherited: this box's live tail answers
+  `0 clean 1239 1`, a `clean` verdict, so the `0 deadline` shape #418 carries is absent from this host
+  right now and nothing in this commit changed that -- the leg reads a journal, not a file, so its
+  colour belongs to the box. (3) No escalation class is touched: no `require` line -- `check-deps:
+  stdlib only` -- and no security, tamper, publishing or deletion decision. The one behaviour defect
+  this unit found is NOT taken here; it is #420.
+- Checkpoint: 2d300546b6e5bdc364950867cbbcec5550f7c941
+- Effect: one file spliced out of the two parent blobs, nothing else hand-written. Arithmetic first,
+  because it is the cheapest proof a union lost nothing: main's blob 9944 lines / 186 entries, ours
+  9456 / 179, the merge base 9397 / 178, merged 10003 / 187 with the two parents' entries only and
+  10071 / 188 at `dc448fe`, the commit that first ships this one -- ours plus main's delta exactly.
+  No-loss
+  census as digit-normalised line multisets against BOTH parents: no line of either parent is absent
+  from the merge, and no line of the merge lacks a parent twin, so the splice authored no prose of its
+  own. The auto-merged `factory/selftest.sh` was measured the same way rather than diffed -- leg
+  registrations 450 at the base, 457 ours, 451 main, 458 merged: both sides' legs survived. `python3
+  scripts/check-decisions.py` answers 257 entries, 663 citations, 539 owing an anchor and 0 pointing
+  where a reader cannot open; `make verify` is OK across 27 clauses with `factory/selftest.sh` at 690
+  passed, 0 failed. 32 pointers re-pointed, all same-length: +6 in `selftest.sh` x21, +33 in
+  `docs/factory.md` x2, +63 in `common.sh` x3, +35 and +5 in `factory.sh` x6. Two disclosures owed to a
+  reader of `H-0193`, which this commit edits in one word: its `Effect` said "Six `proc_leg`s" and
+  seven ship, and the arm it left implied is stated here plainly -- the `diff --diff-filter=U` arm is
+  unlegged defense-in-depth behind `MERGE_HEAD`, whose only planted shape is `factory/selftest.sh:20344` "one-line marker carrying :: halt-target: unit|cause=quarantined". `NEXT.md` is
+  byte-identical to main's. Filed rather than folded in, with receipts on #420: `factory_verdict` still
+  prints the pre-#341 clause unconditionally -- `factory/common.sh:559` "asked='and not re-probed since'" is the default arm and only the `halt:` line applies the `factory_halt_target` test -- so one
+  guarded marker prints both asking clauses in a single `--status` run, and the hand-written shape
+  agrees with itself, which is why no leg sees it. The hazard this unit worked under is recorded because
+  it is a supervisor defect and not a merge one: the timer dispatched a SECOND unit for `conflict:405`
+  into this same tree (`TICK-START` 07:51:35Z, pid 1591696, child `opencode run --auto --agent factory`
+  pid 1610455) while this session was mid-merge in it, so `git status --short` was re-read before every
+  `git add` as `AGENTS.md` requires and the resolution was committed to be published fast rather than
+  held. Roll back with `git revert -m 1`; force-push stays denied, so the union retires forward.
+
+## H-0211 · #406's next sync collides on two files, not one: the trunk hoisted the very print this branch's fetch pin was written against, and fourteen log hunks are digits plus one tail
+
+- Question: `pulls/406` reads `CONFLICTING / DIRTY` against `535e80c`, and `git merge-tree
+  --write-tree` names two files. `factory/DECISIONS.md` conflicts in fourteen hunks -- thirteen of six
+  to thirteen lines, which are the same pointers both sides re-pointed at their own merges, and one of
+  367 lines holding both appended blocks: ours H-0194, theirs H-0186, H-0189, H-0190, H-0191, H-0201,
+  H-0204, H-0207 and H-0208. `factory/factory.sh` conflicts in two hunks that are not digits: #331
+  (H-0191) hoisted all four self-report loops out of `factory_body` to ahead of the halt check, the
+  lock and triage, while this branch edited the supervisor-lines loop where it stood and put the
+  harness-tree fetch ahead of it -- and the leg `stale_fetch_precedes_read` pins that order literally.
+  Neither side can win a hunk: main's moves the read out of the fetch's reach, ours re-inserts the
+  pre-flight print #331 exists to remove. Does the merged tree still owe fetch-before-compare, and to
+  which read?
+- Options: take main's side of both files and re-apply this branch's sentences afterwards | take ours
+  and let a later sync carry #331 | interleave the logs ascending, re-point every drifted pointer, and
+  re-aim the fetch pin at the read that acts | escalate the resolution as a merge a machine should not
+  settle
+- Chose: interleave the logs ascending, re-point every drifted pointer, and re-aim the fetch pin at the
+  read that acts
+- Why: measured before anything was edited, because both halves of this have a wrong answer that looks
+  like a resolution. `git merge-tree --write-tree` answers 14 and 2 and `grep -c '^<<<<<<<'` over the
+  two conflicted blobs agrees. Appending both tails is refused by the gate in words: writing our block
+  first and their seven after it leaves 19 decision-log problems, four of them
+  `H-0186 is out of order (H-0194 came before it); the log is a history and a history that jumps around
+  cannot be bisected` (and the same for H-0189, H-0190, H-0191), with the remaining fifteen citations
+  the reordering itself broke; the interleaved union -- our 51-line block landing between H-0191 and
+  H-0201 -- leaves no ordering refusal at all, and the merged heading order reads H-0186, H-0189,
+  H-0190, H-0191, H-0194, H-0201, H-0204, H-0207, H-0208. H-0207 set this shape for the same reason
+  and H-0177 the digit rule, which is a read and not a guess: the checker quotes the anchor text it
+  could not find, and `grep -Fn` says where that text sits now. Twenty-one citations moved here, every
+  one of them a pointer whose target file one of the two sides had edited above it, and one of the
+  twenty-one was not a moved line but a hunk main resolved wrongly -- H-0177's continuation for
+  `docs/factory.md`, line 156, arrived in #403 without its `factory/` prefix, so the checker was
+  opening a `docs/DECISIONS.md` that does not exist; the repair keeps main's digits and restores this
+  branch's file. `--citations` was run against `factory/selftest.sh`, `docs/factory.md` and the root
+  `DECISIONS.md` before editing any of them, as the repository rule asks. The leg the hoist broke
+  cannot keep its literal promise: the fetch is a network round trip, which is the cost #331 moved four
+  prints out of the pre-flight path to protect (issue #419 is the open ticket for a hung fetch eating a
+  whole 5400s activation), so making the fetch precede a *printed* line buys back the hang #331 was
+  merged to stop. What this branch needs is that no verdict be computed against a stale ref, and that
+  verdict's read is `factory_supervisor_repair`, which asks git again after the fetch -- which is what
+  this branch's own comment said before the merge moved the print away from it. So
+  `stale_fetch_precedes_read` now pins `fetch < factory_supervisor_repair`;
+  `stale_fetch_position_control` moves with it to `fetch < fetch_self_report_position`, which keeps it
+  a live plant rather than a leg passing on a needle that no longer exists, and now refuses twice over
+  if the fetch slides; `stale_pass_fetches`, which asks only that the pass fetch at all, needed no
+  change. What lost: *main's side* withdraws the mechanism under review, fetch included; *ours* re-adds
+  the pre-flight print and retires H-0191 on a branch whose review asked only for the usual next-sync;
+  *escalate* is not engaged -- the #240 classes are third-party dependencies, security or
+  tamper-resistance semantics, publishing and deleting data, and a base sync the reviewer itself called
+  "expected by this repo's own convention" is none of them. The residual is recorded where a reader can
+  weigh it: the fetch-before-compare property survives only because `no_fetch_in_the_verdict` keeps its
+  ban and the pinned comparison moved with the read that acts, so anyone who later wants a fresh AT
+  line must price that fetch openly rather than inherit the choice from this conflict.
+- Checkpoint: bbba77412dab60ca073fe043e3fb1df8f8442899
+- Effect: `factory/DECISIONS.md` (the interleaved union, the twenty-one re-pointed citations, the
+  restored `factory/` prefix on H-0177's continuation, and this entry), `factory/factory.sh` (both
+  hunks: the self-report stays hoisted, the fetch stays before triage, and the sentence between them
+  names the read the fetch is before), and `factory/selftest.sh` (the two fetch pins re-aimed as
+  above). The tallies of `make verify` and `bash factory/selftest.sh`, and `POINTER_DEBT` as the
+  checker reports it, are quoted from the run that shipped these exact bytes in the pull-request body
+  (#1180: an `Effect:` written before the gate runs is a prophecy). Rollback: `git revert -m 1` of this
+  merge retires the union and the re-aimed pins together and returns both files to the two sides this
+  merge joined; the checkpoint pre-dates the merge, so the resolution can be redone from the same
+  conflicted bytes. No GitHub write beyond the pull request this branch already has, no label, no merge,
+  no governing file edited by this decision.
+
+## H-0212 · `SuccessExitStatus=` takes spaces: the comma this branch rendered un-listed the halt code along with the new one, and the leg H-0194 promised could see that was a grep, which read the comma as a pass
+
+- Question: #406's review calls item 1 a regression rather than a gap -- `factory/install-timer.sh`
+  renders `SuccessExitStatus=@HALT_EXIT@,@RERUN_EXIT@`, `systemd.service(5)` separates statuses with
+  spaces, and a comma does not skip one element, it discards the assignment, so the re-rendered unit
+  lists neither this branch's 9 nor the halt's 8 that works today. Reproduced on this box before a line
+  was changed, against the generator's own rendering of the shipped template: `SuccessExitStatus=8,9`
+  prints `unit.service:57: Failed to parse value, ignoring: 8,9` and `systemd-analyze verify` exits
+  **0**; `SuccessExitStatus=8 9` prints nothing and also exits 0. H-0194's `Effect:` claims "the
+  unit-file leg that pins both codes rendered", and that leg greps the rendered text, so it passes on
+  the comma. Does the fix stop at the separator, and does a gate that asks systemd to load the unit
+  belong in a suite that runs on boxes without systemd?
+- Options: change the separator and leave the grep leg as the only pin | change the separator and add a
+  leg that runs `systemd-analyze verify` on the rendering when the binary exists, saying plainly when it
+  does not | replace the rendered-text legs with the parser | escalate as behaviour that depends on the
+  host's systemd
+- Chose: change the separator and add a leg that runs `systemd-analyze verify` on the rendering when
+  the binary exists, saying plainly when it does not
+- Why: the reproduction says the gate has to be built twice over. First, the verdict is the text and
+  never the exit status -- a leg that ran `systemd-analyze verify` and believed rc 0 would have called
+  the broken unit fine, which is how this shipped past 691 green legs; so the leg captures stdout and
+  stderr together and greps for `Failed to parse value`. Second, the probe is tested against its own
+  subject in the same run: the leg renders through the shipped generator into a throwaway repo (the
+  generator refuses to write outside a git root, and the file must be named `*.service` or
+  `systemd-analyze verify` will not load it), then asks systemd to load both that rendering and a
+  comma-planted copy of it, and refuses if the planted copy loads silently -- a fixture that cannot
+  fail here would turn every future ok into a claim about a parser nobody asked, and this failure mode
+  is silent in both directions. The codes themselves are read out of `common.sh`'s
+  `FACTORY_EXIT_HALT` and `FACTORY_EXIT_RERUN` rather than written again in the suite, so the leg pins
+  the unit against the harness's own numbers, and a non-numeric token in the list is refused as the
+  same ignore-the-whole-value path. Where `systemd-analyze` is not on PATH the leg prints that the
+  parser was not asked and passes on what it could check -- the separator and both codes -- so a box
+  without systemd gets neither a false green about the parser nor a false red about its absence. The
+  residual is the wording: the arm matches systemd's phrase `Failed to parse value`, so an upstream
+  re-word makes the plant stop complaining, and the leg then refuses as `the fixture, not the unit`
+  rather than passing -- loud in the safe direction. Item 2 is the same file's other miss.
+  `factory_supervisor_position` grew a sixth field in H-0194 and `install-timer.sh` is the consumer
+  nobody updated: `read` hands the last variable the rest of the line, so on this tree's live row
+  `674d0de⇥issue-342⇥25⇥2⇥0⇥535e80c` the variable that should read `0` read `0⇥535e80c`, and
+  `[ "$pos_dirty" = "0" ]` called a clean tree dirty. Both reads now take the sixth field into the void
+  (`_`), the shape every other consumer already uses, and the blast radius is the prose, not the
+  guards: the refusal sentence printed `..., 0 535e80c uncommitted` about a clean tree, the
+  `TIMER-FORCED` journal line put a tab beside a U+001F-delimited field, and `describe_installed`
+  misclaimed the same for the installed tree -- while `pos_behind` and `pos_ahead`, fields 3 and 4,
+  stayed aligned, which is precisely why no leg reddened: the two decisions were right and only the
+  sentences about them were wrong. The answer is the two reads plus a leg, because the diagnosis was
+  that nothing pinned the sentences: `readers_take_every_field` counts the names on every
+  `IFS=$'\t' read -r` in that file against the field count read out of `common.sh`'s own three printf
+  arms, so a consumer left behind by a field that grew reddens at the commit that grows it instead of in
+  a review ten thousand activations later. Three plants check the pin: delete the sixth name (the shipped
+  defect, replanted), add a seventh, and remove the idiom so the leg is blind -- each must refuse, and
+  the blind copy is the one that would otherwise pass green. The leg's first draft refused the CLEAN
+  file, because `[ -z "${names//[0-9]/}" ]` is true of `6`: the same inverted polarity the reviewer
+  praised this branch for fixing elsewhere, caught by running the predicate against the shipped tree
+  before the gate, which is the only control that can find it. Verification of this branch's own merge then found a third item, and it was worse than either.
+  `bash factory/selftest.sh` was run at the merge commit in a scratch worktree and came back
+  `RUN INCOMPLETE -- died with exit 1 after 609 ok and 0 FAIL, before any verdict`, the last leg named
+  being `the pass fetches the harness tree before it compares` -- so the death is in the control called
+  on the following line, and the merge commit that carries this branch's re-aim is red. Reproduced
+  standalone in seconds against the shipped `factory.sh`: the trace stops at `lf=`, because the control
+  plants the fetch with `s#^\tsup_repair=$(factory_supervisor_repair)$#...` while the shipped line reads
+  `sup_repair=$(factory_supervisor_repair) || sup_repair_rc=$?`, so the delete half of the sed ran and
+  the insert half matched nothing -- the copy had no fetch to be behind the repair. That should have
+  been the control's own FAIL, which is what its `[ -z "$lf" ]` guard is for, and the guard is
+  unreachable: line 69 runs `set -euo pipefail`, so a `=$(grep ... | head -n 1 | cut -d: -f1)` over an
+  absent needle exits 1 through the pipeline and the assignment, and the run dies before any printf. The
+  same reachability hole swallows the predicate's refusal messages, so a factory.sh that never fetches
+  would kill the suite instead of printing the sentence written for it. Fixed three ways, each measured
+  on a harness that runs the two functions outside the suite: the plant matches the line by prefix
+  instead of to its end, the five reads go through `first_match_line`, which returns empty rather than
+  exiting, and the landing check is split into three named refusals (no fetch on the copy, no repair to
+  be behind, fetch still ahead). The harness then shows the shipped file accepted, both plants printing
+  their ok, and a fetch-deleted and a renamed-repair copy each refused with its message printed and the
+  harness alive to report it. Disclosed rather than smoothed: the merge commit is red at the suite and
+  stays red -- history here is never rewritten and force-push is denied -- so this commit fixes forward,
+  and the branch head is what `make verify` gates. The blast radius of the idiom is named without a
+  coordinate on purpose, since POINTER_DEBT may only fall: five sites in the two functions this branch
+  owns are fixed here, and the same `=$(grep | head | cut)` shape exists once on main inside
+  `pass_one_fetch_per_activation`, whose `[ -z ... ]` guard is unreachable the same way -- left for
+  another unit, because it is not this review's file and not this branch's line. What lost: *separator alone* leaves the gate blind to the exact class
+  of failure that just reached a reviewed head on the one line whose purpose is not to fail silently,
+  and leaves H-0194's `Effect:` asserting a pin the suite cannot deliver; *parser instead of greps*
+  retires the legs that bite where systemd is absent -- both codes present, `@RERUN_EXIT@` substituted
+  -- and skips on most boxes; *escalate* is not engaged, the #240 classes being third-party
+  dependencies, security or tamper-resistance semantics, publishing and deleting data: both fixes are
+  the reviewer's named items and the judgement is the gate's shape, which is what this entry is for.
+- Checkpoint: 712c30e99e7311b9677347dfc6ac060418d928cf
+- Effect: `factory/install-timer.sh` (one separator, two reads; and the comment above the render names
+  the separator as part of the mechanism), `factory/selftest.sh` (the `unit_deadlines` section gains
+  `exit_code_of`, `leg_success_exit_status_parses` and `unit_exit_status_codes`, with the comma plant
+  `the two codes comma-separated` beside it; `first_match_line`, guarding the five `=$(grep | head |
+  cut)` reads in the two fetch functions; and `supervisor_row_fields`,
+  `leg_readers_take_every_field` and `readers_take_every_field` beside the unit leg),
+  `docs/factory.md` (the exit-code paragraph now says the separator is part of the mechanism and quotes
+  both probe results), and `factory/DECISIONS.md` (this entry and the annotation on H-0194's `Effect:`
+  that retires its two over-claims). `make verify` and `bash factory/selftest.sh` tallies, and
+  `POINTER_DEBT` as the checker reports it, are quoted from the run that shipped these exact bytes in
+  the pull-request body (#1180). Rollback: `git revert` of this commit restores the comma, restores the
+  two five-name reads and retires the parser leg and this entry together -- which re-creates the halt
+  regression deliberately, so it is a rollback to be read, not one to run. No GitHub write beyond the
+  pull request this branch already has, no label, no merge, no governing file edited by this decision.
+
+## H-0213 · The eighth issue-328 base sync is seventeen hunks -- sixteen pure digit drift where both parents re-pointed the same anchors and one tail double-append -- so the drift side splices ours' words and takes the digits the gate names from the merged tree, and the tail union is ascending again
+
+- Question: read back from the API before anything was touched: `gh pr view 398` answered `OPEN`, base `main`, `reviewDecision` APPROVED, `mergeable` CONFLICTING, `mergeStateStatus` DIRTY, head `48e6f47`, `reviewRequests` empty -- a merge-commit resolution is the only move here, force-push denied and squash and rebase merge both disabled on this repository. `main` had moved 5 commits past merge base `620bcb1` (PR #403 merged: fresh H-0191 inserted between H-0190 and H-0201, fresh H-0208 appended after H-0207) while this branch appended H-0209 after H-0207. `git merge-tree --write-tree` named exactly one conflicted file, factory/DECISIONS.md, and the real merge put seventeen hunks in it. Every hunk was classified by a word-level audit before resolution: sixteen differ only by replacements of equal shape under digit-to-# normalization -- both parents re-pointed the same `path:line` anchors, each against its own tree -- and one is the tail double-append: ours 70 lines holding the H-0209 block, theirs 55 holding H-0208.
+- Options: take main's tail whole and re-append ours above it | splice ours above main's, the order sync seven took | splice the ascending union -- H-0208 above H-0209, one blank at the seam -- and repair the digits from the merged tree | take one parent's digits as true across the sixteen drift hunks.
+- Chose: splice the ascending union -- H-0208 above H-0209, one blank at the seam -- and repair the digits from the merged tree
+- Why: the repair set was exactly the twenty-eight anchored citations the gate names -- 25 of ours' rows and 3 of main's -- and no others. The order is settled by running the refused one, not by reasoning about it: with the tail written H-0209 above H-0208 the gate answers rc 1 naming `H-0208 is out of order (H-0209 came before it); the log is a history and a history that jumps around cannot be bisected`; the ascending bytes came back from a /tmp copy with cp, `cmp` byte-identical, gate rc 0 again. Sync seven refused the main-first splice; this sync refuses the ours-first one -- the two refusals are the same rule, the ascending-id union, landing on opposite sides because the fresh ids swapped sides. And neither parent's digits are true in the merged tree, which is what makes option four false on its own facts rather than merely refused: every ours-side selftest.sh citation lands at exactly +72 in the merged tree (main's net to that file), while main's fresh entries' citations land at +1395 in selftest.sh and +521 in common.sh (this branch's net to each) -- both sides' numbers were true only in their own tree, and exactly one set is true in the tree this commit ships, which is the set the gate prints. Tie-breaks: 1 and 2 silent, no `go.mod`, no config; 3 favors the resolution the gate can verify over either side's silent claim; 4 touches one file; 5 is one `git revert -m 1`; 6 is the blob cut every sync in this family has used.
+- What lost: the append order loses again, for the second sync running the loser is this branch's own habit -- sync six's entries took ours-first, H-0209 refused main-first, this entry refuses ours-first, so what is inherited is the rule and not a side. And the repair moves history on twenty-eight rows: twenty-five of ours' lines and three of main's (two inside its fresh H-0191, one inside H-0208); a coordinate is a measurement at a head, and what keeps the row re-runnable is the quoted text beside it, which every hunk on both sides kept word for word.
+- Checkpoint: 2b3ca21aed42e72de3bef32be5fa271dc5e5c6f2
+- Effect: one file resolved by hand: sixteen drift hunks spliced from ours, tail = theirs' 55-line H-0208 block, one blank, ours' 70-line H-0209 block; zero conflict markers; 192 H- headings ascending, two more than the seventh sync shipped (H-0191 and H-0208 arrive) and one from this entry. Zero-deletion census measured on the resolved bytes before this entry (10362 lines = ours' 10214 + main's 148 net over the base, additive; 10372 as shipped): against HEAD exactly 28 non-blank rows are absent and against origin/main exactly 40, and every one of the 68 survives as a digit variant of a merged row -- digit-normalized multiset match leaves ZERO unexplained on both sides. The 28 are this tick's 25 digit repairs plus 3 base-era rows main re-pointed and git auto-merged, verified open at main's coordinates (docs/factory.md 1975 and 2027, factory.sh 1538); the 40 are 26 rows this tick repaired and 14 rows this branch re-pointed at the sixth sync, each anchor-paired to its merged row with digits as the only difference. Git's silence on the auto-merged files is not a verdict, so both intents were read for: factory.sh, docs/factory.md and NEXT.md are whole files from main (this branch changed none of them since the base), and common.sh and selftest.sh carry both families -- all eight of main's fresh common.sh comment lines read present, ours' quarantine-mirror code present, and the leg census is additive: 486 at the base, 506 ours, 487 main, 507 merged = 486 + 20 + 1. Allocator read H-0213 with its REFRESH line 0 s old after a fresh full `git fetch --prune origin`, re-read immediately before this entry. Gates on the merged tree with this entry in it, read back after they finished:
+`make verify`: OK. `factory/selftest.sh`: 703 passed, 0 failed -- mains
+702
+plus
+ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`: 262 entries, 671 tokens, 539 debt, 0 unopenable, rc 0 with this entry in the file.
+
+## H-0214 · PR #404's tail double-append seats our H-0192 inside main's fresh run, so the splice interleaves; both whole-tail orders were RUN and both refused, and the merge alone moved one published pointer
+
+- Question: `gh pr view 404` read back before anything was touched: `OPEN`, base `main`,
+  `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, `reviewDecision=APPROVED` -- green checks and an
+  approval naming the head it approved, the shape #381 predicted ("every merge re-conflicts every open
+  branch on the decision logs"). `git merge origin/main` conflicted in ONE file, `factory/DECISIONS.md`,
+  in ONE hunk: the tail double-append. Ours appended `H-0192`; main appended eight fresh entries
+  (`H-0186`, `H-0189`, `H-0190`, `H-0191`, `H-0201`, `H-0204`, `H-0207`, `H-0208`), and our id sorts
+  inside their run, between `H-0191` and `H-0201`. What resolution can a reader of this file live with?
+- Options: take one side's file whole (`-X ours` / `-X theirs`) -- entries vanish from the log and from
+  `check-decisions`' count | concatenate the whole tail in either order | keep both sides whole as one
+  interleaved ascending-id union -- `H-0192` seated at its id, byte-exact to its parent, and the one
+  pointer the merge moved re-anchored | rebase and force-push -- not a unit's move
+  (`.opencode/opencode.jsonc` denies force-pushes outright) and the review lives on the head it approved.
+- Chose: keep both sides whole as one interleaved ascending-id union -- `H-0192` seated at its id,
+  byte-exact to its parent, and the one pointer the merge moved re-anchored
+- Why: the order is forced by the gate and was measured, not read: both whole-tail orders were RUN
+  against these bytes (`--log` over a re-spliced variant each) and both refused -- ours-first naming
+  `H-0186 is out of order (H-0192 came before it)`, main-first naming
+  `H-0192 is out of order (H-0208 came before it)` -- while the interleaved splice passes
+  `scripts/check-decisions.py:195` "%s: %s is out of order (%s came before it)". The id census says the
+  splice lost nothing: the merged heading list sorted is exactly the sorted union of the two parents'
+  lists (187 ids, 0 duplicates, strict ascending), and each of the nine entries unique to one side is
+  byte-identical to its parent blob -- the only diff anywhere is the one separator blank `H-0192` gains
+  by no longer being its file's last line. The one pointer repair the merge owed: `H-0192`'s entry
+  published that pointer at line 1031 on the head that wrote it, main grew that file 1683 to 1720 lines,
+  and the merge alone broke the pointer OUTSIDE any conflict hunk; it now reads
+  `factory/factory.sh:1157` "ask, mark it with the escalation label, and stop there", the same sentence
+  landing on live code. A pointer repair, never a claim repair -- the erratum rides this commit as
+  `H-0181` set the shape.
+- Tie-breaks: (1) no `go.mod` line, no `require`, stdlib only -- this merge edits no Go file; main's
+  `cmd/plock` test edits arrive exactly as main committed them. (2) no config decode is touched; the
+  enforcement semantics are untouched by construction. (3) the resolution refuses rather than trusts:
+  git's silence on the eleven auto-merged files is not a verdict, so the splice was staged only after
+  four independent censuses (id union, per-entry byte identity against the parent blobs, whole-tree
+  line multisets, leg counts) all said nothing was lost.
+- Checkpoint: 5b8219a6c2e93cfe7997882e57ff62f22c840e15
+- Effect: the checkpoint was taken BEFORE the merge was (re-)run: the first merge started without one,
+  so it was aborted and replayed with the resolution scripted -- a checkpoint taken afterwards records
+  the state the decision produced, which is the thing you already have. Splice geometry:
+  `factory/DECISIONS.md` base 9397 lines, ours 9469 (+72), main 9944 (+547), merged 10016 =
+  9397 + 72 + 547 exactly; zero live markers (the anchored marker grep answers nothing; the nine
+  unanchored hits are quoted marker prose inside older entries); 187 entries ascending, 188 with this
+  one. No-loss census over EVERY merged file, digit-normalized non-blank line multisets against the
+  merge base: this branch's 238 added lines (DECISIONS.md 70, factory.sh 2, selftest.sh 166) absent
+  from the merged tree: 0; main's 1661 added lines across thirteen files (including new
+  `scripts/check-next-md.sh`, staged 0755) absent: 0. Leg census over `factory/selftest.sh` at the four
+  revisions: 486 base, 487 ours, 487 main, 488 merged = 486 + 1 + 1, no leg lost either side. Both
+  intents read for in the merged `factory/factory.sh`: the de-interpolated arm renders the no-name
+  instruction sentence, and the file's only escalation-label reference left is the reader call at
+  `factory/factory.sh:1163` "gh issue edit $key --add-label". The allocator read `H-0214` twice, both
+  with a clean `REFRESH` (union 74 s old, then 186 s), no `PENDING`, and the re-read immediately before
+  this entry still answered `H-0214`. `python3 scripts/check-decisions.py` on the resolved tree before
+  this entry: 257 entries, 670 citations, 539 owing an anchor, 0 a reader cannot open; with this entry
+  in the tree the full `make verify` on these exact bytes is quoted in the pull-request body (#1180: an
+  `Effect:` written before the gate runs is a prophecy). `POINTER_DEBT` held at 539, it grew by nothing:
+  this entry mints three bare pointers, all anchored and landing, and every other coordinate it mentions
+  names no path. Roll back with `git revert -m 1`; force-push stays denied, so the union can only be
+  retired forward.
+
+## H-0215 · #401's second base sync is a DOUBLE double-append -- main's `H-0207`/`H-0208` landed past this branch's `H-0205` -- and the zero digit repair is proved by a census over the pointers the gate cannot read, because `main`'s write this time is a mid-file insertion, not a tail append
+
+- Question: PR #401 reads `CONFLICTING`/`DIRTY` against `main` with every check green -- read back
+  16 Nov at head `b046c44`: state OPEN, base `main`, `reviewDecision APPROVED`, `reviewRequests` empty,
+  and `verify`, `shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)` all `SUCCESS`.
+  `git merge-tree --write-tree` says what will happen before the tree is touched: one conflicted file,
+  factory/DECISIONS.md, with `factory/common.sh`, `factory/factory.sh` and `factory/selftest.sh`
+  auto-merging. `git merge origin/main` (main at `535e80c`) agrees. The log now collides at TWO seams,
+  not one: ours `H-0187`+`H-0188` against main's `H-0189`+`H-0190`+`H-0191`, and ours `H-0205` against
+  main's `H-0207`+`H-0208` -- `H-0205` closed this branch's log while `main` published two entries past
+  it, so both of this branch's blocks are bracketed by `main`'s ids and neither side is a whole tail.
+  Against the base `e4c7d74` the log deltas are ours +171/-0 and main's +388/-27.
+- Options: splice both seams as the ascending-id union | put main's block above ours inside the seam |
+  put this branch's block at the new end of the log | take `--ours` or `--theirs` whole | rebase or
+  force-push the branch onto main | hand-repair every coordinate in the merged log
+- Chose: splice both seams as the ascending-id union
+- Why: the splice takes ours then main's inside each seam, one blank at each seam, the markers out, so
+  the log reads `H-0186`, `H-0187`, `H-0188`, `H-0189`, `H-0190`, `H-0191`, `H-0201`, `H-0204`,
+  `H-0205`, `H-0207`, `H-0208`. Both wrong orders were run on this tree, not argued. Putting main's
+  block above ours inside the first seam answers `2 decision-log problem(s)` -- `H-0187 is out of order
+  (H-0191 came before it)`, and the same sentence for `H-0188`; moving this branch's block to the new
+  end answers `2 decision-log problem(s)` too, naming `H-0208` as what came before. Both files restored
+  with `cp` from a `/tmp/opencode` backup and proved byte-identical, and the gate green again.
+  `--theirs` is measured as a census rather than run: it drops the 171 lines this branch added, which
+  are `H-0187`, `H-0188` and `H-0205` entire -- three published records, one of them the escalation
+  `H-0188` -- and `--ours` drops main's five; tie-break 3, refuse rather than proceed on input that is
+  missing. Rebase and force-push are not moves a unit has and not moves this repository survives
+  (`allow_squash_merge` and `allow_rebase_merge` are both false). Hand-repairing coordinates is refused
+  by the measurement below: nothing moved, so there is nothing to repair, and digits edited to suit a
+  tree that does not need them are the drift `H-0204` and `H-0208` had to pay for. Tie-break 1: no
+  `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends.
+  Tie-break 4: one of the four files the merge touched conflicted and only that file is spliced.
+  Tie-break 5: `git revert -m 1` of the merge retires the whole base sync.
+- Checkpoint: 990ec860b455660ba02eaf90ec41a86367839d44
+- Effect: the splice is proved against the parent blobs. `git diff --no-index --numstat` from main's
+  blob answers `171 0` -- the merged file is main's exact blob plus this branch's lines, zero of main's
+  deleted; from ours it answers `388 27`, byte-identical to the delta main itself wrote against the
+  base, so nothing of ours moved either; base to merged answers `559 27`, the sum. Added-lines multiset
+  census against the base: this branch 171 added / 0 absent from merged, main 388 / 0. Exact conflict
+  markers 0; 189 `H-` headings, all unique, none out of order; the leg census closes at
+  497 base + 3 ours + 1 main = 501 merged `*_leg` call lines in `factory/selftest.sh`.
+  The new instrument, and why this sync needed one: `main`'s write to `factory/selftest.sh` is the hunk
+  `@@ -4472,0 +4473,72 @@` -- a mid-file insertion, not the tail append `H-0205` relied on -- so the
+  tail-append argument no longer covers the merged surface, and the 539 unanchored pointers are
+  invisible to the gate by construction. So the census is run over them: of the 217 unanchored pointers
+  that resolve into a file this merge touched, the line at the pointed number is byte-identical to
+  `main`'s tree in 217 of 217 -- drift authored by this splice: 0 -- and 62 of them differ from this
+  branch's pre-merge parent, which is `main`'s own repair riding in on shared entries, not movement.
+  The anchored arm was proved to have teeth rather than assumed, on a throwaway mutant: re-aiming one
+  merged coordinate at that same +72 -- reading
+  `factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups"
+  as 12193 plus 72 -- answers rc 1 and names four entries (`H-0162`, `H-0170`, `H-0171`, `H-0177`) with
+  `it is at line 12193 now, not 12265`. Restored byte-identical by `cp`, gate green again. That control
+  is also the proof that `main`'s digits are right on THIS surface: had its re-pointing not ridden in,
+  the gate would have named those four itself.
+  `python3 scripts/check-decisions.py` on the merged tree before this entry: `259 entries across 2
+  log(s)`, 663 citations, `POINTER_DEBT` held at 539, 0 pointing somewhere a reader cannot open, exit 0.
+  Re-run with this entry in the tree and the whole `make verify` run on the bytes this commit ships are
+  quoted in the pull-request body from their read-back (#1180: an `Effect:` written before the gate runs
+  is a prophecy). What lost: `main`'s published coordinates ride unchanged, which is safe only because
+  of the 217-of-217 census, not because splices are safe by default; the one blank at each seam is
+  convention carried, not newly measured; 62 numbers in shared entries are now `main`'s rather than
+  this branch's and none of them carries an anchor a reader can check, which is #374's debt, unchanged
+  here and still unpaid; and this push spends the `APPROVED` read back at `b046c44` (measured on #269
+  that a base-sync push dismisses reviews without touching any exit status), so the pull request returns
+  to review when this lands -- the dismissal line goes on the pull request, the re-ask stays the
+  supervisor's poke, and neither is reported here as done before the read-back says it. No label was
+  written or changed, no merge, no governing file edited by this decision.
+
+## H-0216 · PR #407's base sync -- the tail double-append again, ours splicing strictly INSIDE main's run for the second time in this family -- so the union is one ascending three-way cut, thirty-six digits come off the gate, and every absence pairs to a digits-only replacement
+
+- Question: PR #407 read back before anything was touched: `gh pr view 407` answers `OPEN`, base
+  `main`, `mergeable CONFLICTING`, `mergeStateStatus DIRTY`, head `a3ffd4d` equal to local and
+  remote. `git merge-tree` named six files changed on both sides; `git merge origin/main` conflicted
+  in one, `factory/DECISIONS.md`, in eighteen hunks: seventeen of pure digit drift -- same line,
+  different digits, both parents having re-pointed the same `selftest.sh`/`factory.sh`/`common.sh`
+  anchors at their own trees -- and the tail double-append, where this branch appended `H-0195` +
+  `H-0196` (123 lines) and `main` appended fourteen entries `H-0183..H-0213` (978 lines). Because
+  `H-0195` and `H-0196` are absent from main's fresh set (measured: the two id lists do not
+  intersect) nothing yields a number; the allocator re-run on the merged tree answered `H-0216`
+  with `REFRESH` and no `PENDING`, and the whole question was the splice order and the digits.
+
+- Options: the ascending three-way cut, `main`'s `H-0183..H-0191` then ours then `main`'s
+  `H-0201..H-0213`, with the drifted digits re-pointed from the merged tree | keep both sides at the
+  hunk boundary as the conflict printed them, ours-first | append ours whole after `main`'s tail |
+  renumber our two entries above `H-0213` | stamp the drifted pointers with their old revision
+  instead of re-pointing | take `--theirs` for the whole file
+
+
+- Chose: the ascending three-way cut, `main`'s `H-0183..H-0191` then ours then `main`'s
+  `H-0201..H-0213`, with the drifted digits re-pointed from the merged tree
+
+- Why: Options 2 and 3 were run, not asserted. Ours-after-`main`'s whole tail answers `2 decision-log
+  problem(s)`, exit 1: `:10378: H-0195 is out of order (H-0213 came before it)` and the same for
+  `H-0196`; ours-before-all-of-`main`'s-fresh-tail answers `7 decision-log problem(s)`, exit 1,
+  naming the seven entries `H-0183`..`H-0191` as out of order against `H-0196`. The rule is the
+  gate's own -- `scripts/check-decisions.py:195` "is out of order (%s came before it)" -- and it
+  leaves exactly one legal placement: `H-0195` and `H-0196` fit strictly inside `main`'s run,
+  between `H-0191` and `H-0201`, the bracketing shape `H-0207` measured. Option 4 is not a move a
+  unit has: our two ids already sit on `origin/issue-345` and the PR, force-push is denied, and both
+  merges here are permanent -- `docs/factory.md:1690` "Provenance: which id the journal watched being earned" is the arm that journals which side earned which id, and renumbering to dodge an
+  order refusal would move an id off its own journalled answer. Option 5 is refused by the rule
+  `H-0177` stated and `H-0213` re-measured: a coordinate whose anchor text travels with it is a
+  pointer, and the merge that moved the ground owns the repair -- all thirty-six drifted rows carry
+  their anchor and the gate named the new line for every one. Option 6 deletes this branch's two
+  entries, the thing the union exists to prevent. Tie-breaks: 1 silent, no `go.mod` line and no Go
+  file in the conflict; 2 does not apply, harness prose decides no lockout; 3 refuses 6 -- missing
+  input is somebody else's entry; 4 (fewest files) is this -- one file, the one that collided,
+  digits and seam cuts only; 5 (reversible) separates nothing, every option is one merge commit;
+  6 (convention) is the ascending-id union this log's own entries have shipped repeatedly.
+
+- Checkpoint: cb561b7399b346d8b6b6c8a30dce287343432ad1
+
+- Effect: one file resolved; the twelve auto-merged paths carry both intents with zero absent lines
+  (multiset census over all thirteen changed paths: `main`'s 3,982 added non-blank lines absent `0`,
+  this branch's 914 absent `0`, outside the colliding file). Splice geometry, read off the merged
+  file after the cut: `## H-0191` sits at `factory/DECISIONS.md:10004` "## H-0191 · A halted activation wrote one HALTED line", our two entries at `factory/DECISIONS.md:10284` "## H-0195 · #345: the allocator's answer" and `factory/DECISIONS.md:10359` "## H-0196 · #407: the mutant that got", then `factory/DECISIONS.md:10606` "## H-0201 · The one-home census omitted" and the run ends at `factory/DECISIONS.md:11328` "## H-0213 · The eighth issue-328 base sync". Byte proof from the
+  parent blobs (never the conflicted file), measured on the resolved file after the splice and the 36
+  repairs and before this entry was appended: `git diff --no-index --numstat` of `main`'s blob to
+  merged is `160/36` -- 123 ours-block lines + one seam blank + the 36 repair rewrites, and nothing
+  else -- and of this branch's blob to merged is `1014/35`, main's 978-line fresh run + 36 repairs,
+  minus the 35 drifted lines. Absence census inside the log: `main` 985 added / 36 absent, this
+  branch 143 added / 23 absent, and every one of the 59 pairs with a merged line at difflib ratio
+  0.941..1.000 whose only difference is digits -- zero sentences lost either way, zero re-wraps,
+  which is the digit-drift family's signature and not the paragraph-collision shape of `H-0155`.
+  Thirty-six anchored citations re-pointed from the merged tree, digits only, one hit per line
+  asserted before each replace: 23 rows sit on lines this branch wrote (its own drift hunks), 13 on
+  `main`'s fresh entries and older shared ones; two name text occurring on two lines and point at
+  the first occurrence, which the gate accepts. Leg census over `factory/selftest.sh`: 486 `*_leg`
+  call lines on the base, 498 on this branch (+12), 507 on `main` (+21), **519 merged = 486+12+21**,
+  nothing lost. Both intents read for, not assumed: `factory_decision_provenance` ships in
+  `factory/common.sh:2939` "factory_decision_provenance() {" and is called by the tick-end pass at
+  `factory/factory.sh:1284` "factory_decision_provenance" (`H-0195`'s half);
+  the `ENVIRON` mutant channel survives at `factory/selftest.sh:3643` "PMUT_ANCHOR=$anchor awk"
+  (11 occurrences, `H-0196`'s half); `main`'s halves read back too -- `D-0084` in `DECISIONS.md`,
+  `scripts/check-next-md.sh` added, `Makefile:122` "python3 scripts/check-decisions.py" still wiring
+  the log gate into `verify`, and `docs/factory.md:1690` "Provenance: which id the journal watched"
+  beside `main`'s hoisted self-report sections. Gate on the resolved bytes with this entry in the
+  file and before this commit: `python3 scripts/check-decisions.py` exit 0, 0 unopenable, debt
+  unchanged at 539 (before the entry: 264 entries, 671 citations read) -- the entry's own tally is
+  what the closing line prints, quoted in the pull-request body together with `make verify`'s last
+  line (#1180: an `Effect:` written before the gate runs is a prophecy). Rollback is `git revert` of
+  this merge alone onto `cb561b7`. No id yielded -- the allocator ran before the checkpoint and on
+  the merged tree before the entry, both answering `H-0216`, and
+  `factory/next-decision-id.sh:556` "DECISION-ID %s unit=%s branch=%s" journalled both answers for
+  this branch. Refs #345 for the ticket this branch was cut to deliver; merging stays the
+  supervisor's action.
+
+## H-0217 · #401's third base sync is TWO whole-entry seams -- ours' `H-0205`/`H-0215` against main's `H-0206`/`H-0209`/`H-0213` -- and the merge carries exactly ONE digit repair, inside this branch's own published entry, because main's PR #398 inserted its 1395 `selftest.sh` lines below every coordinate this branch mints and above the one its own last entry published
+
+- Question: PR #401 reads `CONFLICTING`/`DIRTY` against `main` with every check green -- read back
+  16 Nov at head `ca8f541` (= `origin/issue-334`): state OPEN, base `main`, `reviewDecision APPROVED`,
+  `reviewRequests` empty, and `verify`, `shellcheck`, `mutation sets`, `packages (amd64)`,
+  `packages (arm64)` all SUCCESS. `git merge-tree --write-tree` says what will happen before the tree
+  is touched: exactly ONE conflicted file, `factory/DECISIONS.md`, while `factory/common.sh` and
+  `factory/selftest.sh` auto-merge. The merge base is `535e80c`; main's window is PR #398
+  (`issue-328`) alone, publishing six headings -- `H-0183`, `H-0184`, `H-0185`, `H-0206`, `H-0209`,
+  `H-0213`, 472 lines added and 40 deleted -- past this branch's four on that base (240 added, 0
+  deleted). The conflict is TWO seams, each a whole-entry insertion: mid-file, ours' `H-0205` against
+  main's `H-0206` landing between `H-0204` and `H-0207`; tail, ours' `H-0215` against main's
+  `H-0209`+`H-0213`. What does this merge owe?
+- Options: splice the ascending union keyed by id and make the one digit repair the gate names -- in
+  this branch's own published entry -- with the erratum riding the merge, the shape H-0181 and H-0204
+  set | ship the union without the repair and let the gate refuse the surface CI lands on | splice
+  either side's block first at the seams | call the drifted anchor grandfathered debt | leave the
+  branch CONFLICTING and wait for #381 to make the union mechanical
+- Chose: splice the ascending union keyed by id and make the one digit repair the gate names -- in
+  this branch's own published entry -- with the erratum riding the merge, the shape H-0181 and H-0204
+  set
+- Why: both seams are whole entries inserted at the same place, so one ascending cut per seam is the
+  only reader-legal order, and the refused orders were run, not asserted: main's `H-0206` placed above
+  ours' `H-0205` answers rc 1, "H-0205 is out of order (H-0206 came before it); the log is a history
+  and a history that jumps around cannot be bisected", and the restored tree is green again. The
+  repair itself is H-0181's class -- the trunk moving under a published pointer -- aimed at our own
+  text: the coordinate `H-0215` published was true on its own sync's surface, and main's #398 then
+  inserted 1395 lines into `factory/selftest.sh` above the anchored function, sliding the quoted
+  sentence down by 1395 -- main's exact net to that file (16415 to 17810 lines) -- landing it at 13588
+  on the merged tree. The digit moves with the sentence; no sentence around it was re-asserted, and
+  the measurements beside it stay stamped on the tree they were taken on. Two refusals were run rather
+  than argued, both naming `H-0215` at rc 1: the null variant keeps the repaired line number and
+  corrupts the quote -- "nowhere in factory/selftest.sh"; the aim variant keeps the quote and re-aims
+  one line high -- the same verdict. The gate therefore CAN read this class on this surface, so option
+  4 is a refusal, not an exemption; both mutants restored byte-identical by `cp`, gate green again.
+  Option 2 ships what `make verify` refuses on the merge surface; option 3 is quoted above; option 5
+  leaves every open branch paying #381's price instead of paying this branch's share now. Tie-break 1:
+  no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends.
+  Tie-break 4: one file, zero code hunks -- both code families arrived by auto-merge, additive.
+  Tie-break 5: `git revert -m 1` of this merge retires the sync, the union, the digit and this entry
+  together. Tie-break 6: the family already treats a merge-surface drift exactly this way.
+- Checkpoint: ed1954eed85db13e78ebca8c93a14ebd03b2fa88
+- Effect: one file resolved by hand; two seams; zero conflict markers; 196 `H-` headings, all unique,
+  none out of order. The union is proved against the parent blobs, not the markers: base to merged is
+  712 lines added and 40 deleted, exactly the addends (main 472/40, ours 240/0); every row main
+  published survives (0 absent), and the 40 rows of ours absent from the merged file are each a digit
+  variant of a merged row -- main's 40 deletions are its own re-pointings of shared rows, the merged
+  file carries main's digits, and the digit-normalized multiset parts zero against both parents. The
+  code side is read, not assumed: the line census is additive -- `factory/selftest.sh` 17983 = 17810
+  (main) + 173 (ours), `factory/common.sh` 3765 = 3706 + 59 -- ours' footprint function survives at
+  its one call site, and all 1395 lines main added to `factory/selftest.sh` in this window read
+  present. The one repair is the whole merge's digit bill, and zero drift is proved to be ours rather
+  than argued: over all 368 resolved citations in the merged log, nine rows differ from main, all of
+  them the `README.md` `:588`/`:725`/`:1005` family that is dead on the base as well (a 349-line
+  README, and this merge's own log text already records them as pre-existing and unowned), while the
+  63 further differences from base are main's own digit rows riding in -- so this splice authored
+  ZERO drift, with a measured cause in H-0215's shape: this branch's 173-line `factory/selftest.sh`
+  insertion lands at line 16394, below every coordinate any entry cites, and all 66 citations into
+  that file are byte-identical to the merged tree. Read back after the gate ran, with this entry in
+  the file: 672 citations, 539 owing an anchor -- flat, this entry mints no bare `path:line` token --
+  and 0 pointing somewhere a reader cannot open, rc 0. The instrument H-0215 sketched for the
+  unanchored half ran by hand here and produced those counts; it still has no gate leg, and #381 still
+  owns the price this sync is one instance of. This push spends the `APPROVED` read back at `ca8f541`
+  (measured on #269 that a base-sync push dismisses reviews without touching any exit status), so the
+  pull request returns to review when this lands -- the dismissal line goes on the pull request, the
+  re-ask stays the supervisor's poke, and neither is reported done before the read-back says it. No
+  label was written or changed, nothing was merged, and no governing file was edited by this decision.
+  Refs #334, #381.
+
+## H-0218 · PR #404's second base sync conflicts in TWO places because a fresh entry seats at its ascending position, so the union splices twice, `main`'s own fresh row publishes four coordinates this merge moves by +72, and the heading's blank line is invisible to every instrument this family has
+
+- Question: read back before anything was written: `gh pr view 404` answers `mergeable` CONFLICTING and
+  `mergeStateStatus` DIRTY on a branch whose five checks -- verify, shellcheck, mutation sets, packages
+  amd64, packages arm64 -- all read COMPLETED/SUCCESS, with `reviewDecision` APPROVED and
+  `reviewRequests` empty, so the supervisor's poke still owes the reviewer ask and nothing here posts
+  one. `headRefOid` equals `origin/issue-340` at `499e0ae`, and against the merge base `535e80c` the
+  count of `git rev-list --left-right --count` answers 23 behind and 5 ahead. Is the union geometrically
+  forced again, and does THIS merge move a published coordinate?
+- Options: take `main`'s tail whole and re-append ours' two entries below it, the habit that editing at
+  the markers falls into | splice ours' two entries as one block above `main`'s fresh run, which is what
+  `H-0214` shipped on this branch for the one-seam shape | splice the ascending union twice -- `H-0192`
+  above `H-0195` at the first seam, `H-0214` between `H-0213` and `H-0216` at the second -- one blank at
+  each seam, and take from the merged tree the digits the gate names | yield the sync to the supervisor
+  and park the branch until #381 gives the decision logs an automatic union
+- Chose: splice the ascending union twice -- `H-0192` above `H-0195` at the first seam, `H-0214` between
+  `H-0213` and `H-0216` at the second -- one blank at each seam, and take from the merged tree the
+  digits the gate names
+- Why: the shape came from the three blobs into a scratch copy, never the conflicted file. A
+  `git merge-file -p --diff3` of base `535e80c`, ours `499e0ae` and `origin/main` `6ca61c3` writes TWO
+  hunks, markers at 9992, 10065, 10066, 10191 and again at 10492, 10553, 10554, 10719 -- and the first
+  one is not the tail at all. `H-0192` sits in ours' blob at 9715, immediately above the shared `H-0201`
+  that sits at 9715 of the base, and `main` put its `H-0195` and `H-0196` at that same point: a fresh
+  entry goes at its ascending position, not at the end, so two branches writing near each other collide
+  in the MIDDLE of the log. The second hunk is the end of the file, ours' `H-0214` against `main`'s
+  `H-0209`, `H-0213` and `H-0216`, and `main`'s `H-0206` arrived auto-merged between the shared `H-0204`
+  and `H-0207`. So the family's name for this shape -- "the tail double-append", the words in `H-0216`'s
+  own heading -- describes one of the two seams, and a unit that resolves this file looking for one tail
+  conflict leaves the other for the next sync.
+  The union is then not a preference: ascending order fixes both splices uniquely -- `H-0192` below
+  `H-0195`, `H-0214` between `H-0213` and `H-0216` -- and both whole-block orders were RUN rather than
+  argued. A block model of the resolved tail (four whole entry blocks plus the pre-tail) reproduced the
+  shipped bytes under `cmp`, so a variant differs from what shipped by block order and nothing else;
+  `python3 scripts/check-decisions.py` answered rc 1 on each whole-block order and rc 0 on the interleave,
+  and that rc pattern reproduces today over the three saved variant files with the gate's own single-file
+  form. ours-first refused twice on order -- `H-0209 is out of order (H-0214 came before it)` at 10549,
+  `H-0213 is out of order (H-0214 came before it)` at 10620 -- and then, in the mode that judges
+  citations, refused again on the pointer in `H-0216`'s row at the heading line of `H-0213`, whose anchor
+  text had moved off it. main-first refused once, `H-0214 is out of order (H-0216 came before it)`. That
+  extra refusal is the finding: order and digits are ONE decision, so an order adopted after the digits
+  are taken breaks them -- which is why the repair runs between the splice and any commit.
+  The coordinates: every backticked pointer in either log that points INTO a decision log was tested by
+  comparing the line it selects in the blob it was written against with the same line of the merged
+  tree. Four moved, all four anchored, all four in one row of `main`'s freshest entry --
+  `factory/DECISIONS.md:11518` "our two entries at" -- which reads `H-0195` at 9992, `H-0196` at 10067,
+  `H-0201` at 10116 and `H-0213` at 10488 -- true in
+  `main`'s blob, four rows of prose the merge pushed down. Each moved by exactly +72, the length of our
+  own `H-0192` block: heading 9715, next heading 9787. They are re-pointed from the merged tree,
+  ascending, digits and anchors only, no re-wrap and no word changed -- 9992 to 10064, 10067 to 10139,
+  10116 to 10188, 10488 to 10560. The re-pointed digits sit inside the other parent's freshest entry,
+  which is not the shape any precedent in this log describes: `H-0177` re-pointed digits in `main`'s
+  already-published entries, `H-0180`'s four sat inside its own branch's fresh entry, and `H-0213`'s
+  sixteen drift hunks were settled by taking a side's splice rather than by editing a fresh entry's
+  digits. Whether some earlier sync elsewhere edited the other side's new digits is not claimed either
+  way here; what is claimed is only that THIS merge's four all belong to `H-0216`, written by the other
+  parent hours earlier. The anchor is what made them visible: a bare pointer moved by the same merge
+  would have been invisible to the sweep, to `--citations`, and to the gate alike. The
+  anchor travels with its coordinate or it is worth nothing, and that is a rule about physical lines,
+  not prose: an anchor only counts when the quote begins on the same line as the closing backtick, so
+  wrapping between the two silently sells the promise -- this entry's first draft answered rc 1 with the
+  debt one point above the recorded number for exactly that wrap, and nothing else.
+  The blank line: ours' tail block ends at its own newline, not at a blank, so seating it between
+  `H-0213` and `H-0216` left TWO blanks above `H-0214` and ZERO above `H-0216` -- a heading glued to the
+  last row of the entry before it. Nothing refuses that shape: the anchored marker grep answers nothing,
+  the id census ascends, `check-decisions.py` does not read blank lines, and the additive arithmetic
+  cannot see the repair because it is net-zero, 10711 lines before it and after. The instrument is a
+  per-heading census -- above each `## H-` heading the line must be blank -- and over this file it
+  reports 157 entries with one blank -- 158 counting this one -- 33 with two or more, and 7 with none
+  (at 2315, 3737, 4907, 6936,
+  8670, 8998 and 9015, every one older than this merge). So the zero was the seam's own geometry rather
+  than a defect the gate should already have caught, and one blank at each seam is the neighbourhood's
+  shape, which the census now shows for both seams.
+  What the sweep found that this commit does NOT touch: one sentence of `H-0169`'s row sends a reader to
+  "the stamping loop at" factory/factory.sh lines 1112 to 1114 and "the ranking loop at" lines 1241 to
+  1247, and in the merged tree those ten lines are three lines of the `address_review` empty-ask prompt
+  and seven lines of a comment about what a tick's exit status means; the stamping loop is at line 1489
+  and the ranking read at line 1632. Six of `H-0169`'s pointers into that file are bare, so
+  `--citations factory/factory.sh` shows all six as unanchored and nothing judges them; they were already
+  off in both parents and this merge moved none of them. Those stale numbers are written here as plain
+  numbers on purpose: a backticked coordinate is a promise a reader can open and these are not, a
+  seventh bare pointer to report a stale one would raise the debt the ratchet guards, and the two lines
+  that would anchor them are made of double quotes, so no sixteen-character anchor lifts off them
+  either. Owed to #374 and #381, not repaired inside a merge commit that is not about `H-0169`.
+  What lost: the append order loses, and the interleaved cut loses the tidy story -- a reader of this
+  tail must find TWO splice points where `H-0214` advertised one, and the shape's name in `H-0216` is
+  now known to be half a description. A coordinate is a measurement at a head, and this merge rewrote
+  four of `main`'s fresh ones; only the quoted anchors kept that auditable, so the words beside them were
+  left whole. The blank-line repair is invisible in every number this family quotes, which is why it has
+  its own paragraph rather than a clause. `H-0169`'s stale ranges stay stale and unanchored, so the log
+  still contains sentences a reader cannot open. And pushing this merge spends the APPROVED review the
+  branch carried, the cost of syncing at all while #381 is unshipped.
+- Checkpoint: 496dfb3b40a039b86c2565f7ff2a19c7700d5903
+- Effect: the resolution's bytes, measured before any commit and before this entry joined the file. Zero
+  live conflict markers (the anchored
+  grep answers nothing); 197 `## H-` headings unique and strictly ascending, 198 counting this entry, tail
+  H-0207, H-0208, H-0209,
+  H-0213, H-0214, H-0216, one blank above each of the two seams. Additive and zero-deletion both ways:
+  10711 resolved lines = ours' 10076 + `main`'s 635 fresh = `main`'s 10579 + ours' 132 fresh; every
+  non-blank row of `main`'s blob is in the resolved file and every non-blank row of ours is too (0 absent
+  each way, digit-normalized), the resolved file's rows absent digit-normalized from ours are 611 counted
+  as row instances and 609 counted as distinct rows, and from `main` 126 either way (this row's first draft
+  said 128, a number no counting basis present reproduces, so it is restated from the measurement rather
+  than defended); every one of those rows is the other side's fresh entry. 10 of the 11 fresh entries are
+  byte-identical to their own parent's blob, and the eleventh is `H-0216`'s -- the one row this sync
+  re-pointed, one row changed and its text identical apart from the digits. The same both-intents sweep
+  over the eight files in the union (`main` changed seven of them, ours four) reports 0 rows lost outright
+  and exactly 1 row present only in digit-repaired form, that same row. Leg census over
+  `factory/selftest.sh` with `grep -cE '^[[:space:]]*[a-z0-9_]*_leg[[:space:]]'`: 487 on the base, 488 on
+  ours, 519 on `main`, 520 merged, so 487+1+32 = 520 exactly -- `main`'s thirty-two arrived, ours' one
+  arrived, none died. Corrected here rather than carried: this entry first quoted 52/52/55/55 from
+  `^[[:space:]]*(check|proc_leg) `, a broken alternation that reads `check` or `proc_leg` and so counts 52
+  of the file's 488 leg invocations -- it agrees on the direction but cannot see `claim_leg`, and it is
+  exactly why it reported that ours brought no leg when ours brought one. The three order variants: ours-first rc 1, main-first rc 1, interleaved rc 0, and the interleaved
+  variant is byte-identical to the shipped file under `cmp`, which is what makes the two refusals about
+  order alone. Then the shipped gate on the resolved bytes, this entry in the file:
+  `python3 scripts/check-decisions.py` answers 268 entries across 2 log(s), 697 `path:line` citations
+  read, 539 owing an anchor and 0 pointing somewhere a reader cannot open, exit 0; before the four
+  repairs the same command answered exit 1, naming those four anchors as pointing at text that is not
+  there -- 9992, 10067, 10116 and 10488 against the merged tree -- and on a refused run the ratchet is
+  deliberately not judged, which is why POINTER_DEBT was never edited. The four repaired digits were then
+  read back off the live file with this entry appended, because an append below them cannot move them:
+  10064, 10139, 10188 and 10560 open on `## H-0195`, `## H-0196`, `## H-0201` and `## H-0213`. `factory/next-decision-id.sh factory/DECISIONS.md` was read twice, once before the
+  checkpoint and once immediately before this entry, and both times answered `H-0218` carrying "REFRESH
+  the union behind" the id: `H-0217` is live on `issue-334` at `20ee66d`, which is why the answer skips
+  it. `make verify`, which runs `bash factory/selftest.sh` and this gate inside it, was run twice on the
+  resolved tree with this entry in it and before this commit, and it is NOT green on this box for a reason
+  that is not this merge: the first run ends `714 passed, 2 failed` and the second, over bytes that differ
+  only by this entry's coordinate sweep, ends `715 passed, 1 failed`, and `make` exits 2 on both. The
+  standing failure is
+  `reap_leg_live`, and that leg fails on `origin/main` here too -- `main`'s own `factory/common.sh`,
+  sourced in a clean `origin/main` tree, reads this box's journal as hold 0, verdict `deadline`, and the
+  refusal is `factory/selftest.sh:18570` "the live journal produced a deadline hold of 0s", while the
+  activation it reads was a start-timeout killed by SIGTERM at 13:25:09Z and the two lines the hold is
+  measured between are systemd's own, `Main process exited` at .250344 and `Failed to start` at .250582,
+  238 microseconds apart -- so the hold genuinely is 0s and it is the leg's invariant that is wrong.
+  It is red in a clean `origin/main` worktree as well, where the suite ends `714 passed, 1 failed` with
+  only this leg red. The first merged-tree run lost one more leg, `unit_call_sites`, and that one is now
+  measured four ways instead of declared a flake: green on `origin/main`, green in two of the three
+  merged-tree runs (standalone at 715, and the second `make verify`), and RED at the pre-merge head
+  `499e0ae` for a reason of its own -- 682 passed, 2 failed there, because `status_arm` extracts zero
+  lines from that revision's `factory/factory.sh` and the leg refuses with a different sentence, "has no
+  unreadable arm". So the branch this pull request carried was already red on this box before the sync
+  while the API reports the checks on that same head green, a difference this session can register and
+  not explain from here. The merged-tree occurrence carries the other message, "has no matched arm": in
+  that run the legs on either side of it, which read the same arm through the same helper, both passed, so
+  neither the file nor `awk` was broken for the run; the journal holds no OOM or kill record for the
+  window; and a second suite was running in this same tree at the time and finished two minutes after
+  `make` did. Cause undetermined, so the finding kept is the diagnostic gap -- `status_arm` pipes the file
+  through `awk` with `2>/dev/null` and never reads its exit status, and a stub `awk` that exits 1 on `PATH`
+  reproduces that refusal byte for byte, so a read that failed cannot be told from an arm that lacks the
+  clause. The class is already named in the section above that function, whose sentence ends at
+  `factory/selftest.sh:12374` "claims to check. The closing" -- "a scan that cannot see the thing it
+  claims to check", written there about the `;;` that stops the scan early, and this is the same defect on
+  the read rather than the scan. Roll back with `git revert -m 1`; force-push stays denied. No GitHub
+  write beyond read-backs, no label, nothing merged -- merging stays the supervisor's action. Refs #340
+  for the ticket this branch was cut to deliver.
+
+## H-0219 · #401's fourth base sync is ONE tail seam whose fresh ids INTERLEAVE -- ours bracket main's, 215 < 216 < 217 -- so both whole-side splices were run and refused and the only legal tail is ours, theirs, ours
+
+- Question: read back from the API before anything was touched: `gh pr view 401` answers `OPEN`, base
+  `main`, `reviewDecision APPROVED`, `mergeable CONFLICTING`, `mergeStateStatus DIRTY`, head `20ee66d`
+  equal to `origin/issue-334`, `reviewRequests` empty, and `verify`, `shellcheck`, `mutation sets`,
+  `packages (amd64)`, `packages (arm64)` all `SUCCESS`. The merge base is `4cb5277`; main moved 8
+  commits past it (PR #407, `issue-345`: the allocator's provenance journal and the `ENVIRON` mutant
+  channel, publishing `H-0195`, `H-0196` and `H-0216` -- 275 lines added and 49 deleted in this log)
+  while this branch's window past the base published one heading, `H-0217`. `git merge-tree
+  --write-tree` named exactly one conflicted file, `factory/DECISIONS.md`, and the real merge put ONE
+  hunk in it -- the smallest collision this family has shipped: a tail double-append of ours'
+  `H-0215`+`H-0217` against main's `H-0216`, with `factory/common.sh`, `factory/factory.sh` and
+  `factory/selftest.sh` auto-merging. Two questions: which splice order is legal, and whose digits are
+  true on the merged tree?
+- Options: splice the three-way ascending union -- `H-0215`, then `H-0216`, then `H-0217` -- and
+  re-point exactly the digits the gate names from the merged tree | leave the hunk in the order git
+  printed it, main's block above ours' | splice ours' whole two-entry block above main's tail | ship
+  the union and leave the six moved pointers as grandfathered debt | take one parent's digits as true
+  across the file | leave the branch CONFLICTING and wait for #381 to make the union mechanical
+- Chose: splice the three-way ascending union -- `H-0215`, then `H-0216`, then `H-0217` -- and
+  re-point exactly the digits the gate names from the merged tree
+- Why: this is the first sync in the family where the fresh ids interleave rather than stack, so both
+  whole-side orders are illegal, and both were run rather than reasoned about. Main's block first
+  answers rc 1 with `H-0215 is out of order (H-0216 came before it)`; ours' two entries first answers
+  rc 1 with `H-0216 is out of order (H-0217 came before it)`; each run was undone by `cp` from a /tmp
+  copy, byte-identical, and the gate read rc 0 again. The refused sentence is the rule -- "the log is a
+  history and a history that jumps around cannot be bisected" -- and it leaves exactly one placement,
+  which splits this branch's own tail in half. So the answer to the second question is neither parent's
+  file: five of the six drifted pointers are INSIDE main's fresh `H-0216` and point at the headings of
+  this same log, the one drift no splice order and no allocator can prevent, because the target is the
+  file the pointer lives in, and this branch's 309 lines above them moved them by
+  +104/+104/+104/+104/+171; the sixth is ours' own `H-0215` pointer into `factory/selftest.sh`, moved
+  +20, main's net above it. Each of the five came back with TWO candidate lines -- the heading, and the
+  citing line itself, which quotes the heading text -- and the first occurrence is the heading, the
+  same tie-break `H-0216`'s own Effect records and the gate accepts. That the six are load-bearing is
+  measured, not claimed: the run before the repair named all six at rc 1 and the run after reads rc 0.
+  Option 4 is refused by the rule `H-0177` stated and `H-0216` re-measured -- the merge that moved the
+  ground owns the repair, and every one of the six carries its anchor, which is what lets the gate name
+  the new line. Option 5 is false on its own facts for the reason `H-0213` wrote down: each side's
+  digits were true only in its own tree, and the set that is true here is the one the gate prints.
+  Option 6 leaves every open branch paying #381's price, and #422 is that price charged to the branch
+  that fixes it. Tie-breaks: 1 and 2 silent -- no `go.mod` line, no config, nothing that decides when a
+  lockout starts or ends; 3 favors the coordinate a gate can verify over either side's silent digits; 4
+  is one file, zero code hunks; 5 is one `git revert -m 1` retiring the sync, the union, the six digits
+  and this entry together; 6 is the blob cut every sync here has used.
+- What lost: main's fresh entry loses five of its own coordinates' digits and this branch's `H-0215`
+  loses one -- a coordinate is a measurement at a head, and what keeps the row re-runnable is the anchor
+  beside it, which every one of the six kept byte for byte. The ascending cut also costs this branch its
+  own contiguity: `H-0215` and `H-0217` are now separated by main's entry, so the tail reads ours,
+  theirs, ours. The union is keyed by id, not by author, and being the branch that appends twice is what
+  that costs. What the merge deliberately does NOT repair is on the record rather than silent: the
+  unanchored instrument `H-0217` left behind ran over the merged tree and found 24 such tokens on
+  nineteen rows of this branch's entries -- ten entries, `H-0099` to `H-0169` -- whose named lines sit
+  above main's insertions and so aim at different bytes than they aimed at when this branch wrote them.
+  Zero were edited, and that is a measured judgement, not an omission: three of the nineteen stamp the
+  tree their digits were taken on (`131b180` twice, and the sentence carried by `H-0147` that says in
+  terms "all three are coordinates in the tree the review was filed against"), so moving those digits
+  would falsify a deliberate historical stamp; and the other sixteen carry no anchor text to travel with
+  them, which is exactly the case `H-0177`'s obligation excludes -- `H-0169`'s three rows are the
+  strongest of those, because that entry says in terms "the coordinates here are the merged tree's", so
+  its digits are a debt the next sync owes rather than a stamp to preserve. The rows are listed in
+  `NEXT.md`, so the next tick inherits a list and not a guess.
+- Checkpoint: 5a69f3895d281dc7ee5ff91105a0445d01749cc4
+- Effect: one file resolved by hand, one seam, zero conflict markers, 200 `H-` headings unique and
+  ascending -- the auto-merge left exactly one order violation, `216` before `215`, and that violation
+  was the whole conflict. Splice proved against the parent blobs and never the markers: the `H-0215` and
+  `H-0217` blocks are verbatim substrings of `HEAD`'s log blob, and the `H-0216` block is a verbatim
+  substring of `origin/main`'s and absent from `HEAD`'s, so the union carries main's text rather than a
+  paraphrase of it. Additive by line count: 10888 = ours' 10685 + main's 203 net over the base (10579
+  over 10376). Zero-deletion census: 37 non-blank rows of ours, 1 of main and 36 of base are absent from
+  the merged file, and all 74 have a merged twin that differs ONLY inside digit runs
+  (`re.sub(r'\d+','N')` multiset test, 0 unexplained against each of the three trees), so no sentence
+  was lost on either side -- the 1 row of main is the repaired `H-0216` Effect line. Six anchored
+  citations re-pointed, digits only, one hit per line asserted before every replace, and no line added
+  or removed (10889 rows before the repair and after it): five on main's `H-0216` Effect line, one on
+  ours' `H-0215`. The code side was read for, not assumed: `factory/selftest.sh` 18623 lines = 17983 +
+  640 = 18450 + 173, `factory/common.sh` 3853 = 3765 + 88 = 3794 + 59, `factory/factory.sh` 1737 = 1720
+  + 17 with this branch's one-line `--status` change reading back as the only difference from main at
+  its call site; the leg census is additive, 507 at the base + 3 ours + 12 main = 522 merged. Both
+  intents read by name: main's `factory/common.sh:2939` "factory_decision_provenance() {" called from
+  `factory/factory.sh:1284` "factory_decision_provenance", and the `ENVIRON` mutant channel twice in
+  `factory/selftest.sh`; ours' `factory/common.sh:4135` "factory_log_footprint() {" with its legs from
+  `factory/selftest.sh:19939` "#334 -- the footprint line". Four paths came whole from one side and were
+  read as that: `NEXT.md` byte-identical to ours, and `DECISIONS.md`, `docs/factory.md` and
+  `factory/next-decision-id.sh` byte-identical to main. Allocator: `H-0219` was read before the
+  checkpoint, then again on the merged tree once blind (`REFRESH-BLIND 352s`) and once clean (`REFRESH
+  0s`) immediately before this entry -- the re-read is what the blind line commands, not a courtesy --
+  and main's own feature journalled both merged-tree answers at
+  `factory/next-decision-id.sh:556` "DECISION-ID %s unit=%s branch=%s", so the tick-end comparison has
+  the provenance for this heading.
+  Gates on the merged tree with this entry in the file, read back after they finished and never written
+  here before the run (GATELINE). This push spends the `APPROVED` read back at `20ee66d` (measured on
+  #269 that a base-sync push dismisses reviews without touching any exit status), so the pull request
+  returns to review -- the dismissal line goes on the pull request, the re-ask stays the supervisor's
+  poke, and neither is reported done before the read-back says it. No label was written or changed,
+  nothing was merged by this commit, and no governing file was edited by this decision. Refs #334, #381
+  and #422.
+
+## H-0220 · PR #405's second base sync conflicts in one file on coordinates and in a second file on fixture wiring for the first time in this family, so the union splices twice AND unions two env lists line by line, thirteen published pointers come off the gate, and one of them is decided by opening the blob its entry shipped at
+
+- Question: read back before anything was written: `gh pr view 405` answers `mergeable` CONFLICTING
+  and `mergeStateStatus` DIRTY on a branch whose five checks -- verify, shellcheck, mutation sets,
+  packages amd64, packages arm64 -- all read COMPLETED/SUCCESS, `reviewDecision` CHANGES_REQUESTED,
+  `headRefOid` `b27bfaf` equal to `origin/issue-341` and to local HEAD, the tree clean. Against the
+  merge base `535e80c` the count answers 11 behind `origin/main 0b5e5da` -- the `#404` merge -- and
+  12 ahead, and `git merge-tree` marks exactly two files conflicted: `factory/DECISIONS.md`, which
+  every entry of this series expects, and `factory/selftest.sh`, which the last three syncs did not
+  touch at the hunk level. Is the union still geometrically forced for the log, and what is the
+  correct resolution where the conflict is not coordinates at all but two arms extending the same
+  fixture-runner env list?
+- Options: take `main`'s tail whole and re-append ours' two entries below it | splice ours' two
+  entries as one contiguous block at `git`'s keep-both seam immediately before `main`'s fresh run,
+  the habit `H-0168` fell into | splice the ascending union -- `H-0193` seated inside `main`'s run
+  between `H-0192` and `H-0195`, `H-0210` between `H-0209` and `H-0213` -- re-point the thirteen
+  drifted pointers the gate names from the merged tree, and resolve each selftest hunk as the word
+  union of the env list, keeping both arms' semantics | `--ours` or `--theirs` whole | rebase the
+  branch onto `main` and force-push | yield the sync to the supervisor and park the branch until
+  #381 gives the decision logs an automatic union
+- Chose: splice the ascending union -- `H-0193` seated inside `main`'s run between `H-0192` and
+  `H-0195`, `H-0210` between `H-0209` and `H-0213` -- re-point the thirteen drifted pointers the
+  gate names from the merged tree, and resolve each selftest hunk as the word union of the env list,
+  keeping both arms' semantics
+- Why: both refused whole-orders were RUN, not argued, each in the worktree restored
+  byte-identical from the staged index afterwards (`cmp` against `git show :factory/DECISIONS.md`).
+  Ours-appended-at EOF is 11 decision-log problems, exit 1 -- `H-0193 is out of order (H-0218 came
+  before it)`, `H-0210 is out of order`, plus five anchored citations the shift broke.
+  Ours-contiguous-at-the-seam -- exactly git's keep-both -- is 6 problems, exit 1: `H-0193 is out
+  of order (H-0209 came before it)` and three citations of `H-0216`'s row. Neither placement is a
+  style preference: a log that jumps cannot be bisected, and `--ours`/`--theirs` deletes the other
+  side's entries outright, while rebase-and-force-push is not a move a unit has and this repository
+  does not survive (both merge styles false, every merge permanent history). Tie-break 4 (fewest
+  files) and 6 (the convention `H-0145`, `H-0152`, `H-0161`, `H-0168`, `H-0190`, `H-0207`, `H-0208`,
+  `H-0210`, `H-0214`, `H-0216` and `H-0218` all used) both pick the union; #381 remains the only
+  repair that ends the series, and it is not merged. **The second conflicted file is a new shape
+  for this hazard and the reason the hunk-level read is not skippable.** `git` aligned the selftest
+  conflict at the env list the two fixture legs share: `#404` (merged at `0b5e5da`) added
+  `PROC_DIRTY` to the stub runner's exports and its uncommitted-work arm, `#407` added
+  `PROC_TICK_ALLOC` and the in-tick allocation arm, and the first hunk also had `main` running past
+  a closed `if` because ours' arm ended with its own `fi` where `main`'s if-block was still open.
+  Both hunks resolved as word unions -- the list is now `PROC_TICK_FAILS`, `PROC_DIRTY`,
+  `PROC_TICK_ALLOC` on separate continuation lines with both arms intact -- and `bash -n` says the
+  outer file parses; the inner heredoc (extracted at its `PROCRT` fences, 36 lines) parses too.
+  **The thirteen re-points, and the one that needed a blob, not a diff.** The checker's
+  `--citations` list over the merged tree named 52 drifted rows / 39 unique (line, token) pairs with
+  no two rows wanting different replacements for one token; all 39 applied and every target line
+  verified to contain its anchor before writing -- 52 rows became 13, which is `H-0208`'s standing
+  count. The 13 left after that pass each name text occurring twice, and the rule that decided them
+  all is the blob the CITING entry shipped at, opened directly (finding it by pickaxe failed twice
+  here -- `git log -S` answers nothing for strings `git grep` finds fifteen times in the same blob
+  on the same ref, and the middle-dot in a heading defeats it -- so the binary search over
+  `git log -- <path>` commits is the instrument that answers). `8802950` is the merge `H-0216`
+  shipped at, and its line 3278 is the hit-line inside `proc_mutate` -- the
+  common.sh mutant census -- not the `proc_mutate_factory` twin, so 3278 re-points to 3285 and 6044
+  is refused: the two twins carry different targets, `$HERE/common.sh` versus `$HERE/factory.sh`, so
+  the citation would otherwise testify to a census of the wrong file. The eleven others follow the
+  same rule read off each sentence: the first of two byte-identical fixture lines (8373 to 8380,
+  three rows) because the citing sentences are `H-0206`'s and `H-0210`'s own "earlier of two
+  byte-identical lines" rule; recipe 1's guarded patch-apply (2258 to 2304) because the citing
+  sentence's own parenthetical names recipe 2 as the SECOND copy; the call site, not the comment
+  above it (263 to 268 and 265 to 270, whose pair the citing sentence pins as the bare call and the
+  halt check ahead of the lock); the heading, not a prose quote of the heading (H-0195, H-0196,
+  H-0213 at 10122, 10197, 10687, and `H-0218`'s pointer at 10808); and 1238 to 1273 for the same
+  call-not-comment reason.
+- Checkpoint: d3d8782
+- Effect: the checkpoint d3d8782 is empty and was cut against `6ca61c3`; the allocator re-read
+  after the sync's fetch re-confirmed `H-0220` free on a fresh union (`grep -c '^## H-0220'`
+  answers 0 in both logs on `origin/main`), and the `H-0219` gap was left untouched, minted or not.
+  Two files spliced out of the parent blobs and a third edited in place. Additivity,
+  digit-normalised line multisets over every conflicted file plus every file both sides touched:
+  ours added 129 lines to the log since base with 0 absent from the merge, `main` 924 with 0;
+  selftest ours 321 with ONE absent -- the one-line env list
+  `PROC_TICK_FAILS="${proc_tick_fails:-}" PROC_DIRTY="${proc_dirty:-}" \` whose words all survive
+  on the two split continuation lines `H-0210` refused to keep whole -- `main` 2215 with 0;
+  common.sh ours 179/0, main 618/0;
+  factory.sh 44/0 and 19/0; docs/factory.md 35/0 and 27/0. Leg census
+  (`grep -cE '^[[:space:]]*[a-z0-9_]*_leg[[:space:]]'`): 487 base, 494 ours (+7), 520 main (+33),
+  **527 merged = 487+7+33**, no leg lost either side. The heading census: every `## H-` heading
+  carries exactly one blank line above it after the splice -- the defect `H-0218` introduced the
+  census for is absent here because both entry blocks travelled whole. Gate on the resolved tree
+  BEFORE this entry: `python3 scripts/check-decisions.py` answers 270 entries across 2 log(s),
+  701 citations, **539 owing an anchor and 0 pointing somewhere a reader cannot open**, exit 0 --
+  debt unchanged from `origin/main 0b5e5da`; with this entry in the tree the same gate answers
+  **271 entries, 701 citations, 539 owing an anchor, 0 a reader cannot open**, exit 0 -- the entry
+  mints no new `path:line` at all, its historical coordinates written bare as the family's entries
+  do, so the ratchet number needs no re-measurement to stay true. The suite,
+  three runs on this host the same hour: the merged tree with `FACTORY_TICK_UNIT` and
+  `FACTORY_TICK_BRANCH` unset -- the CI shape, and the shape #425's own table reads green -- answers
+  **723 passed, 0 failed**, exit 0, and `723 - 690 = 33` is `main`'s net legs against this branch's
+  690 at `d3d8782` exactly; the merged tree bare, with the full supervisor export set
+  (`FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH`) exported, answers
+  **722 passed, 2 failed**, exit 1, and the two failures are #425's legs verbatim -- `FAIL control:
+  one note can suppress the other / the planted allocator answers D-0003 pend=yes blind=yes` and
+  `FAIL a bare run journals nothing` -- so the hazard is reproduced on these merged bytes, not
+  inherited unexamined; #425's
+  hazard is #425's to fix and this merge neither attempts it nor hides it -- the shipped
+  `make verify` ran sanitized for those two vars, disclosed here and in the pull-request body. The
+  control that was NOT one, recorded because it nearly shipped as one: the pre-merge tip `d3d8782`
+  was run bare as the #425 control and read 690 passed 0 failed -- and the green is vacuous:
+  `grep -c dpn_leg factory/selftest.sh` answers 0 on that tip even though its history contains
+  `569ec56`, `b7c975b` and `8802950`, so the legs #425 measures were ABSENT and ancestry is not
+  content; the grep is the check, and it is owed item 1 of `NEXT.md` for exactly this reason.
+  Citation standing after the re-points and this entry: 701 citations read, 539 owing an anchor, 0
+  pointing somewhere a reader cannot open -- every re-point replaced one drifted coordinate with a
+  live one and added none, and the one anchored citation this entry would have added was made bare
+  rather than paid for, because its coordinate describes a blob that is not this tree.
+
+## H-0221 · The fifth PR #401 base sync is the first with FOUR conflicted files, and the middle seam is a digit fight inside `main`'s own published `H-0216` -- ours had re-anchored the shared entry after `#407` published it
+
+- Question: PR #401 reads `CONFLICTING`/`DIRTY` against `origin/main 0865c57` with
+  `reviewDecision APPROVED` and five checks `SUCCESS` (each read back through `gh pr view --json`,
+  never inferred); the merge base is `6ca61c3` and `main` has moved 15 commits past it, merging
+  `#404` and `#405` and publishing six fresh ids -- `H-0192`, `H-0193`, `H-0210`, `H-0214`,
+  `H-0218`, `H-0220` -- while ours published `H-0215`, `H-0217`, `H-0219`. `git merge-tree` names
+  FOUR conflicted files for the first time in this series -- `NEXT.md`, `factory/DECISIONS.md`,
+  `factory/common.sh`, `factory/selftest.sh` -- the log carrying THREE seams, and the middle one a
+  single physical line whose two parents hold the same sentence with different coordinates: ours
+  re-anchored the shared `H-0216` during its fourth sync, after `#407` had published it, and
+  `main` holds the published row. What lands where, and what does a unit owe the hand-off file
+  when `main` rewrote it since the base?
+- Options: take `main`'s whole log and re-append ours' three fresh entries | take ours' whole tail
+  and drop `main`'s fresh run | splice the ascending-id union at all three seams, keep `main`'s
+  PUBLISHED row for the shared `H-0216` and let the gate re-anchor it from the merged tree like
+  every other drifted pointer, re-point the digits the checker names from the merged tree, resolve
+  `common.sh` and `selftest.sh` as the word unions their conflicts ask for, and overwrite `NEXT.md`
+  with this branch's hand-off carrying `main`'s still-true lines | `--ours` or `--theirs` whole |
+  rebase onto `main` and force-push | yield the sync to the supervisor and park the branch until
+  #381 gives the decision logs an automatic union
+- Chose: splice the ascending-id union at all three seams, keep `main`'s PUBLISHED row for the
+  shared `H-0216` and let the gate re-anchor it from the merged tree like every other drifted
+  pointer, re-point the digits the checker names from the merged tree, resolve `common.sh` and
+  `selftest.sh` as the word unions their conflicts ask for, and overwrite `NEXT.md` with this
+  branch's hand-off carrying `main`'s still-true lines
+- Why: the fresh ids interleave at BOTH ends -- seam one is ours' `H-0215` bracketed by `main`'s
+  fresh `H-0214` above and the shared `H-0216` below, seam three runs `H-0217 < H-0218 < H-0219 <
+  H-0220` with the two parents' entries alternating -- so both whole-side orders were RUN as
+  mutants in `/tmp/opencode/order-mutants` (never the gated tree, #1807) and each was refused at
+  exit 1 with 9 decision-log problems including two out-of-order refusals: ours-first is named
+  `H-0214 is out of order (H-0215 came before it)` and `H-0218 is out of order (H-0219 came before
+  it)`, main-first descends at `H-0217` and `H-0219` below `H-0220`. The union is the only
+  placement that bisects. Keeping `main`'s published `H-0216` row and letting the checker re-point
+  it is the family rule `H-0216` itself exists to state -- a coordinate re-anchored on a pre-merge
+  blob points into a tree that will not exist, so digits come off the merged tree -- and it makes
+  this sync the first of the series where five of the twelve re-points land INSIDE `main`'s own
+  published entry rather than in ours or in the inherited body. `NEXT.md` is not a log and does
+  not union: it is this branch's hand-off, and its own carried rule -- "Overwrite `NEXT.md`,
+  carrying every still-true line you did not write" -- decides, which is what happened: `main`'s
+  unit's shipped narrative stays on `main` and on `issue-341` where their blobs live (93 of the 96
+  lines `main` added to `NEXT.md` since the base are absent from our copy; the two hard-rule
+  bullets unique to it were carried in its own words, re-wrapped, so the digit-normalized matcher
+  pairs 3 of the 96 lines), and its two owed items ours lacked -- a control tree that must contain
+  the legs it controls, and `reap_leg_live` refusing a legitimately-zero hold -- were carried into
+  our owed list as items 15 and 16, the latter's single live coordinate re-measured on THIS tree
+  at `factory/selftest.sh:18570` "the live journal produced a deadline hold of 0s" (the same
+  number `H-0220` published, because our 172-line selftest block lands below it).
+  `--ours`/`--theirs` deletes one side's history outright; rebase-and-force-push is not a move a
+  unit has, and this repository makes every merge permanent history (`allow_squash_merge` and
+  `allow_rebase_merge` both false). The union is the convention `H-0190`, `H-0207`, `H-0208`,
+  `H-0210`, `H-0213`, `H-0214`, `H-0215`, `H-0216`, `H-0217`, `H-0218` and `H-0220` all used, and
+  #381 remains the only repair that ends the series.
+- Checkpoint: 83fb0acb44009d6ba7601c8fb563fb32385c0e32
+- Effect: the checkpoint named above -- `chore(checkpoint): pre-H-0221 PR #401 reads
+  CONFLICTING/DIRTY against 0865c57`, cut before the merge started -- is the pre-union state, and
+  rollback of the delivery is `git revert -m 1` on the merge commit this entry ships in, which is
+  the commit that consumes the conflicted merge. A first cut of that commit was made mid-flight
+  with the resolved files staged under a `pre-H-0221 ... union staged` message -- a checkpoint
+  recording the state the decision produced, the exact AGENTS.md hazard -- and it was amended,
+  before any push and while `origin/issue-334` still read `64c6580`, into the merge commit with
+  the `Decision:` trailer it should have carried. Four conflicted files resolved, zero markers left (all three marker patterns count 0 in
+  all four files); the factory log stands at 208 unique ascending `H-` headings once this entry
+  lands, which the checker enforces. Zero-loss census over digit-normalized non-blank line
+  multisets: of the 903 lines ours added since the base across the conflicted paths (279
+  `NEXT.md`, 395 `factory/DECISIONS.md`, 58 `factory/common.sh`, 170 `factory/selftest.sh`, plus
+  1 auto-merged line in `factory/factory.sh`), 0 are absent from the merged tree; of `main`'s 1330
+  added lines across the six paths that differ, the 93 absent are all the `NEXT.md` hand-off body
+  just scoped and 0 are absent from the other five. Proof per side, `git diff --no-index
+  --numstat` of each parent blob against the merged log: +570/-46 against ours, +409/-3 against
+  `main`. The 3 deletions against `main` are all digit repairs, each at its new coordinate:
+  `factory/selftest.sh:20344` "one-line marker carrying :: halt-target: unit|cause=quarantined"
+  (in `H-0210`), `factory/DECISIONS.md:10004` "## H-0191 · A halted activation wrote" (in
+  `H-0216`), `factory/DECISIONS.md:11518` "our two entries at" (in `H-0218`). Of the 46 deletions
+  against ours, only 6 are lines ours itself edited after the base -- the same digit-repair class
+  in `H-0215`, `H-0216` and `H-0219`, verified line-by-line against the base blob -- and the other
+  40 are `main`-only coordinate moves auto-merged out of ours' inherited text. Twelve anchored
+  citations re-pointed on eight physical lines, every one digit-only (each repaired line equals
+  its old line with digits stripped); the checker read 12 drifted pointers at exit 1 before the
+  repairs and 277 entries / 707 citations / 539 owing an anchor / 0 pointing where a reader cannot
+  open, exit 0, after them -- `POINTER_DEBT` flat, never re-raised. The three coordinates this
+  entry itself adds each carry their anchor on their own physical line, and the post-entry
+  read-back is quoted in the pull-request body, not here. `bash -n` passes on both shell files;
+  the repository's own lint stage, `bash scripts/check-shell.sh` -- shellcheck 0.10.0 over all 31
+  shipped scripts, the step `make verify` runs -- answers rc 0 on these bytes. `make verify` on
+  these bytes is green, `verify: OK` exit 0,
+  run as `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_LOG make verify` -- the
+  disclosed #425 sanitization: the journalling bare arm inherits a tick's own unit vars and the
+  two #425 legs then fail for every tick that exports them, so the sanitized invocation is what a
+  conflict tick can run at all, and this row says it rather than burying it.
+
+## H-0222 · PR #406's base sync weaves one `docs/factory.md` hunk whose two sides differ only in how one sentence is wrapped, and the union behind it moves digits on 45 lines -- every repaired pointer opened again on the merged tree
+
+- Question: PR #406 reads `CONFLICTING`/`DIRTY` against `main` with `reviewDecision=APPROVED` and five checks green (read back 16 Nov 14:31Z: mergeable=CONFLICTING, mergeStateStatus=DIRTY, head `7c819de`, base tip `c81274c`, 61 commits behind and 7 ahead, merge base `535e80c`; `gh pr checks` passes mutation sets, packages amd64 and arm64, shellcheck, verify). `git merge origin/main` conflicts in two files. `factory/DECISIONS.md` in seventeen hunks -- fifteen pure coordinate drift, both parents having re-pointed the same `selftest.sh`, `common.sh`, `factory.sh` and `docs/factory.md` anchors at their own syncs, one mid-file seam where this branch's fresh `H-0194` seats inside main's fresh run between `H-0193` and `H-0195`, one tail seam where `H-0211`/`H-0212` seat between main's `H-0210` and `H-0213`, as the checkpoint `86b0b62` measured before the merge -- and `docs/factory.md` in one hunk whose two sides open with the same sentence and differ only in how it is wrapped: ours documents #342's `verdict: STALE`, main's documents #341's per-activation halt re-probe. Fresh ids are disjoint -- ours `H-0194` `H-0211` `H-0212`, main's fresh twenty-two, and `grep -c '^## H-0194 '` on main's copy answers 0 for all three -- and the allocator, re-run after the `git fetch --prune origin` its own REFRESH-BLIND arm named (the first read was 469s old), answers `H-0222`. What does the merge owe?
+- Options: union both sides whole at both seams in id order, weave the shared-sentence hunk, and sweep the digits with every repaired pointer opened again on the merged tree | `git checkout --theirs`, the shape one standing review instruction on this pull request once asked for | `git checkout --ours` | splice the seams and leave the drifted digits for the next sync | renumber this branch's three fresh ids to sit past main's run
+- Chose: union both sides whole at both seams in id order, weave the shared-sentence hunk, and sweep the digits with every repaired pointer opened again on the merged tree
+- Why: the three cheap orders were run rather than asserted. `--theirs` answers 208 entries with `H-0194`, `H-0211` and `H-0212` absent, and the gate refuses it at rc 1 on 50 anchored pointers that open on a tree which is neither parent's; `--ours` answers 189 entries with main's fresh twenty-two absent and rc 1 on 36; keeping our tail block whole after main's run is refused in the checker's own words -- "H-0194 is out of order (H-0221 came before it); the log is a history and a history that jumps around cannot be bisected", and twice more for `H-0211` and `H-0212`. So the mid seam is an interleave and the tail runs 210, 211, 212, 213. Both intents were read for, not assumed, which is the family's own seam rule, and the `docs/factory.md` hunk is that shape exactly: spliced ours-then-theirs at the section boundary, so #342 keeps its `verdict:` paragraph and #341 keeps its heading, its machine line-tail and its own measurement. The digits are H-0181's rule -- a coordinate is a pointer at text the current tree still holds, so the digits move with the text while the measurement beside them stays stamped on the tree it was taken on -- and 45 lines carry it, every substitution same-length and digit-only: the merged log has the same 11830 lines as the file before the sweep and zero pairs differing in anything but a digit. Each repaired pointer was then opened again rather than trusted: `factory/factory.sh:226` "factory_self_report() {", `factory/selftest.sh:14349` "0 when that gate asks git for nothing but object lookups", `factory/selftest.sh:20344` "one-line marker carrying :: halt-target: unit|cause=quarantined", and the two self-citations this sweep moved, `factory/DECISIONS.md:11518` "our two entries at" and `factory/DECISIONS.md:11328` "The eighth issue-328 base sync is seventeen hunks". Census rather than trust for the union itself: 186 shared + 3 ours + 22 main = 211 entries with no duplicate id; every non-blank line either parent added is present once digits are normalised (220 ours, 1598 main); no line in the merged file was authored by neither parent; and each auto-merged file keeps base + ours' delta + main's delta exactly -- `factory/selftest.sh` 16415+1039+2692=20146, `factory/common.sh` 3185+204+834=4223, `factory/factory.sh` 1720+48+52=1820, `docs/factory.md` 2132+75+60=2267. Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 3: it is the only option that ships a log every citation of which a reader can open on this tree. Tie-break 4: two files, 45 lines of digits, one doc hunk and this entry; no product diff moves. Tie-break 5: `git revert -m 1` of the merge retires the whole base sync and a later `git revert` retires this erratum alone. Tie-break 6: H-0173, H-0174, H-0176, H-0177, H-0180 and H-0181 all carry their base-sync erratum on the merge commit and every base sync since has kept that shape.
+- Checkpoint: 86b0b6227942caad4060dad2eed8750f7cc4fdcf
+- Effect: two files spliced out of the two parent blobs. `factory/DECISIONS.md`: the interleaved mid seam, the ordered tail seam, 45 lines carrying 48 same-length digit substitutions -- one line carries four -- and this entry. `docs/factory.md`: one hunk, both sections intact. The three auto-merged files are held to the line-count census above rather than to git's silence. `POINTER_DEBT` is 539 on both parents and stays 539 here, because every citation this entry adds carries its quotation. The tallies of `bash factory/selftest.sh` and `make verify` are quoted from the run that ships these exact bytes, in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Rollback: `git revert` of this entry's commit retires the erratum and the digits together, `git revert -m 1` of the merge retires the whole update, and the checkpoint pre-dates the merge, so the resolution can be redone from the same conflicted bytes. What lost: 45 lines of *main's published entries* were edited here -- digits only, which is exactly the exposure the #370 title prices -- and the measurements beside those digits stay stamped on the trees they were taken on, so no re-read of that prose is implied by moving them. `factory/selftest.sh:16529` "triage=$(grep -n" is the last bare line-number grep inside `pass_one_fetch_per_activation`, the idiom the approving review named at a coordinate this merge had already moved, and it is left standing for the unit that owns that sweep; the suite's own comment at `factory/selftest.sh:17405` "is a way to kill this whole suite" already names the hazard. And `H-0197`..`H-0200`, `H-0202` and `H-0203` stay off-trunk, a gap in main's history this merge neither authored nor can close. No GitHub write beyond the pull request this branch already has, no label, no merge, no governing file edited by this decision.
+
+## H-0223 · PR #408's base sync meets an EOF double-append whose shared closer the diff had aligned as context, a fetch site main rebuilt underneath the call this branch adds, and a fresh id landing inside main's fresh run, so both parents are kept by measured position and both whole-side orders were run to watch them refused
+
+- Question: `issue-346` reads `CONFLICTING`/`DIRTY` against `origin/main` `7eb9632` with `reviewDecision=APPROVED`, `reviewRequests: []` and five checks green (read back at head `d25976d`), and `git merge-tree --write-tree` names three conflicted files. `factory/common.sh` conflicts in one hunk at the EOF anchor because *both* parents appended a self-contained block after `run_action` and the diff aligned the two blocks' trailing `return 0 }` as shared context; `factory/factory.sh` conflicts in one hunk that is not a tail, because #342 ask 5 replaced the single `factory_refresh_origin` call this branch's call site was written beside while #331 hoisted the four self-report loops out of it; and this log conflicts twice, once as citation drift over one quoted sentence and once as the tail seam where `H-0197` has to sit somewhere inside main's fresh run. Which resolution keeps both intents, and in what order do the two blocks go?
+- Options: take main's side of every hunk and re-apply this branch's three-line call afterwards | take this branch's side and re-apply main's split fetch and hoisted self-report afterwards | union the two parents per file, holding main's block at its measured absolute position and appending ours, seating `H-0197` at its ascending place in this log and re-anchoring on the merged tree every digit the union moved | close the pull request and re-open the feature from the new main
+- Chose: union the two parents per file, holding main's block at its measured absolute position and appending ours, seating `H-0197` at its ascending place in this log and re-anchoring on the merged tree every digit the union moved
+- Why: the block order is a citation's verdict rather than a preference -- main's own log points at `factory/common.sh:4135` "factory_log_footprint() {", which is *inside* main's appended block, so seating ours first would move a pointer another unit published; ours therefore lands last at `factory/common.sh:4332` "factory_main_tree_inspect() {" and is byte-identical to `HEAD:factory/common.sh`'s tail. Both sides were cut by their insertion range against the merge base and not by the conflict markers, because the shared `return 0 }` closes whichever block is placed last and a marker-only splice ships an unclosed function. The fetch hunk keeps main's shape verbatim and re-seats one call, `factory/factory.sh:1538` "factory_main_tree_check", whose argument is `factory_main_checkout`, after main's conditional main-checkout fetch, which leaves `git diff origin/main -- factory/factory.sh` at exactly three lines. Both whole-side orders were then run outside the gated tree: `--ours` on `common.sh` leaves the merged `factory.sh` calling five functions that file never defines -- a sourced probe reads `UNDEFINED` for `factory_decision_provenance`, `factory_halt_reprobe`, `factory_halt_target`, `factory_log_footprint` and `factory_supervisor_repair`, which are five of the nine functions `main` added to `factory/common.sh` since the base and the five the shipped `factory.sh` actually mentions, at `factory/factory.sh:1284` "factory_decision_provenance", `factory/factory.sh:297` "factory_halt_reprobe || halt_probe_rc=$?", `factory/factory.sh:90` "factory_halt_target >/dev/null 2>&1", `factory/factory.sh:169` "factory_log_footprint" and `factory/factory.sh:1565` "factory_supervisor_repair) || sup_repair_rc" -- while the same probe reads `function` for `factory_main_tree_check` and the control arm over the shipped `factory/common.sh` reads `function` for all six, so the refusal is the mutant's and not the probe's; and `--theirs` answers 0 occurrences of the call this branch exists to add. A false lead died in that run -- I predicted `--ours` on `factory.sh` would print main's four self-report lines twice, once hoisted and once inline, and the mutant prints them not at all, because taking our file whole *deletes* main's `factory_self_report` instead of duplicating the loops. In this log the fresh ids interleave, `H-0197` falling strictly inside main's `H-0196` to `H-0201` gap, so neither whole-side order is legal and both were put through the shipped checker to be measured rather than asserted: ours-first exits 1 with 14 problems beginning "H-0183 is out of order (H-0197 came before it)", main-first exits 1 with "H-0197 is out of order (H-0222 came before it)", and only the interleave passes. The refused orders are quoted here rather than cited, because a coordinate into a mutant tree promises a reader nothing. Digits were taken only from the merged tree and only where the checker named them: 8 replacements on 6 lines, every repaired line byte-equal to its old line with the digits stripped, and every repaired pointer opened again afterwards. One failure cost a cycle and belongs in the record: the first `make verify` after the splice failed `the timer's scripts are executable`, and the executable bit was a false lead -- the resolved files had been written but never staged, so `git ls-files -s` still answered stage 1, 2 and 3 rows and `index_exec_problems` at `factory/selftest.sh:17917` "the names git does not hold at 100755" compared three newline-joined modes against one string. Staging is the repair, and a mode failure in a conflicted tree is an index-state report first. Tie-break 1: no `go.mod` line, stdlib only. Tie-break 2: nothing here decides when a lockout starts or ends. Tie-break 3: it is the only option under which every citation in the merged tree opens. Tie-break 4: three files resolved and one hand-off rewritten, no product diff moves. Tie-break 5: `git revert -m 1` of the merge retires the whole sync and a later `git revert` retires this entry alone. Tie-break 6: `H-0173`, `H-0174`, `H-0176`, `H-0177`, `H-0180`, `H-0181`, `H-0221` and `H-0222` all carry their base-sync record on the merge commit and this keeps that shape.
+- Checkpoint: 2520d941e989de7d2c130d2f629d5206314b9f2c
+- Effect: the merge of `origin/main` (`7eb9632`) into `issue-346`, three files resolved by hand, one rewritten by this unit, one taken from git. `git diff --cached --numstat origin/main` on the resolved files, measured on the bytes this entry ships, is `factory/common.sh` +193 -0, `factory/factory.sh` +3 -0, `factory/selftest.sh` +325 -0 and this log +85 -6: main loses six lines and all six are pointer re-anchors, each verified same-length and identical with digits stripped; against `HEAD` the same census reads +1091 -49, +198 -61, +3923 -99 and +2487 -38. The fixture block lands last, at `factory/selftest.sh:20590` "#346 the main checkout's own tree", so every `selftest.sh` anchor main's fresh entries publish keeps its absolute line, and this log's seam is `factory/DECISIONS.md:10408` "## H-0197 · #346 measured a deleted tracked file" sitting above `factory/DECISIONS.md:10606` "## H-0201 · The one-home census omitted" with 192 shared headings behind it and 20 of main's fresh headings ahead. Zero-loss census over all 15 paths either parent touched, on the `+` lines of `git diff -U0 6db0b13 <rev>` digit-normalised into multisets and compared against the index copy of each path: of the 558 lines this branch added since the base, 0 are absent from the shipped tree; of the 8895 lines main added, 0 are absent except 325 lines in `NEXT.md` -- the hand-off body, which this file's own contract makes a per-branch rewrite, so every owed item those lines state is carried in the new hand-off and re-measured where it says so, while the `issue-334` unit's narrative stays where its blob lives at `origin/main:NEXT.md`. `POINTER_DEBT` is 539 on both parents and 539 on the pre-entry union, which held 283 entries and 719 citations with 0 pointing somewhere a reader cannot open; every citation this entry adds carries its own quotation. The tallies of `bash factory/selftest.sh` and `make verify` are quoted from the run that ships these exact bytes, in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Rollback: `git revert` of this entry's commit retires the record and the digits with it, `git revert -m 1` of the merge retires the whole update, and the checkpoint pre-dates the merge, so the resolution can be redone from the same conflicted bytes. What lost: the union proves both sides' *content* survives and no leg asserts their *combination* -- nothing plants a tree where `$FACTORY_HARNESS` differs from `factory_main_checkout`, so main's #342 conditional fetch and this branch's per-activation check remain untested together even though each side's own legs pass -- and the digits repaired inside other units' entries stay quotes of the trees they were taken on, so a reader who wants a pre-sync coordinate reads the parent blob. No GitHub write beyond the pull request this branch already has, no label, no merge, no governing file edited by this decision.
+
+## H-0224 · PR #409's base sync splices a four-hunk `common.sh` where BOTH sides appended arms to one quarantine neighbourhood, retires this branch's first-cut merge legs whose contract main replaced under it, and is the first sync where the repaired log moved on its own -- a 126-line block reseating cascade moved 46 more pointers and made 8 quotations ambiguous
+
+- Question: PR #409 reads `OPEN`/`CONFLICTING`/`DIRTY` with `reviewDecision=APPROVED` and five checks `SUCCESS` (read back 16 Nov: head `6db0b13`, base tip `7eb9632`; `git merge-tree --write-tree` conflicts in two files -- `factory/common.sh` in four hunks, both sides having appended new functions into the same quarantine neighbourhood (ours: `factory_delivered_inspect` and the half-done-merge rescue family; main's: the #341 halt re-probe and #342 `SUPERVISOR-STALE` additions), and `factory/DECISIONS.md` in ten hunks: digit drift plus the mid-file seam where this branch's fresh `H-0198`/`H-0199` seat between main's `H-0196` and `H-0201`; `docs/factory.md`, `factory/factory.sh`, `factory/selftest.sh` auto-merge; checkpoint `eaaf538` taken before the merge, allocator re-read after the `git fetch --prune origin` its own REFRESH-BLIND arm named answers `H-0224`, and no fetched ref carries `H-0224`). What does the merge owe -- and what happens to this branch's own selftest legs, whose first-cut contract (stash the merge, leave `MERGE_HEAD` behind) main's `H-0183` lineage replaced with mirror-and-abort while this branch was open?
+- Options: union both sides at every seam, re-anchor the branch's own legs to the shipped lineage, and sweep only the digits the gate names | union the seams and keep the first-cut legs | `git checkout --theirs` | `git checkout --ours` | splice and leave the drifted digits for the next sync
+- Chose: union both sides at every seam, re-anchor the branch's own legs to the shipped lineage, and sweep only the digits the gate names
+- Why: the `common.sh` union is mechanical once the seams are read -- both families' call sites live in `factory.sh` and `selftest.sh` and the auto-merged halves already call both, so refusing either side's functions would orphan a caller. The legs are the judgement: main's shipped merge arm aborts BEFORE stashing -- `factory/common.sh:2598` " the tree may be ended -- ", `--abort` and never `--quit`, with the merge arm's stash push running later at line 2614 -- so a draft's tracked half survives only inside the mirror's `diff-HEAD.patch`, not in any stash -- a leg asserting the first-cut stash shape would have been written against a contract this very merge retires. The re-anchored block therefore asserts the shipped contract end to end (`kind=merge`, the `merge=`/`stash=none`/`mirror=` field order, MANIFEST fields, the mirror's planted patches, the re-merge refusal, and abort-first ordering with named witnesses for what retired), and it found two facts no leg asserted before: the mirror is named to the second, so quarantining one tree twice inside one second collides, and the shipped guard refuses the second with `already exists` rather than nesting (`mm_mirror_collision_refused` witnesses the guard) -- a leg's verdict must not depend on how fast the previous leg ran, so the box is cleared as a leg precondition (`factory/selftest.sh:2246` "The mirror box is part of the starting state"). And the block's first cut died silently under `set -e` on a `case` arm ending in `[ -n "$mm" ] && bad=` -- returning 1 when `mm` is empty -- the exact class this file's own comment at the `ok`-print contract names as "a way to kill this whole suite"; the arm is an `if` now. The digits: the gate named 72 drifted pointers at the first post-splice run -- 70 pure drift, repaired from the gate's own re-derivation with every quote opened at its new line before the pointer moved, and 2 inside this branch's own `H-0198` citing first-cut code this merge replaces, which were REWRITTEN against the shipped lineage rather than laundered into fresh coordinates. Then the log moved on its own: reseating the 126-line `H-0198`/`H-0199` block to its ascending position between `H-0196` and `H-0201` shifted every line below it, cascading 46 more drifted pointers (taken from the gate the same way, quotes verified first) and making 8 quotations ambiguous -- each resolved by pointing at the occurrence its entry actually measured, keeping the sentence's quoted string true at its target rather than shortening the quote. `H-0216`'s census sentence is the honest case: its five self-citations AND the heading strings they quote were restated to the current tree, because after a +124 shift a pointer with a stale quotation is a pointer that opens the wrong sentence. Two allocator mis-reads on the road: running without the log path answered the ROOT log (`D-0086`), and `--prefix H` without the path walked into the wrong-path trap `H-0076` documents (`H-0001`); the journalled answer beside the fetched refs is `H-0224`, and `H-0223` stays off-trunk, a gap this merge neither authored nor can close.
+- Checkpoint: eaaf53840ca3d590bc6ed8d9b5b2c9041728afbc
+- Effect: `factory/common.sh` and `factory/DECISIONS.md` spliced out of the parent blobs; the auto-merges held to their census in the pull-request body. `factory/selftest.sh`: the first-cut merge legs replaced by legs against the shipped lineage (`q_mm_of` at `factory/selftest.sh:2225` "the mirror path the newest TREE-QUARANTINED line ends with", the box-clear precondition, the `if`-form case arm) plus this entry and the reseated block. The suite tallies and `make verify` are quoted from the run that ships these exact bytes, in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Two suite failures with `FACTORY_TICK_UNIT`/`FACTORY_TICK_BRANCH` exported were reproduced on a clean `origin/main` worktree -- pre-existing environment coupling this merge neither authored nor hides -- and the merged tree answers `760 passed, 0 failed` with those two vars unset. `POINTER_DEBT` is 539 and stays 539, with zero of the 725 citations pointing somewhere a reader cannot open. Rollback: `git revert -m 1` of the merge retires the whole sync; this entry rides the merge commit, so `git revert` of the merge retires the erratum with it; the checkpoint pre-dates the merge. What lost: the first-cut stash-contract legs are gone for good -- their contract shipped in no lineage that survives this merge -- and main's published entries again carry digits moved by this hand, digit-only, the measurements beside them staying stamped on the trees they were taken on. No GitHub write beyond the pull request this branch already has, no merge, no governing file edited by this decision.
+
+## H-0226 · PR #408's SECOND base sync conflicts in ONE file on SEVEN hunks because the previous sync's own re-anchors are exactly what the new main re-pointed -- so five hunks are pure digit drift, twenty pointers had to be re-derived from row identity rather than from a delta, and both whole-side orders were run to measure what each one deletes
+
+- Question: `issue-346` reads `CONFLICTING`/`DIRTY` against `origin/main` `580d722` with `reviewDecision=APPROVED`, `reviewRequests: []` and five checks green (read back at head `0c54ab7`), and this branch's first sync already took `7eb9632`, so the merge base IS `7eb9632` and main's only advance is PR #409 (`issue-347`: `H-0198`, `H-0199`, `H-0224`). `git merge-tree --write-tree` names ONE conflicted file, `factory/DECISIONS.md`, in SEVEN hunks: FIVE pure coordinate drift at 9091, 10030, 11484, 11633 and 12029, each one quoted sentence whose anchor in `factory/factory.sh`, `factory/selftest.sh` or this log each parent re-pointed at its own sync; ONE mid-file seam at 10416 where ours' `H-0197` and main's fresh `H-0198` and `H-0199` both seat between `H-0196` and `H-0201`; ONE tail seam at 12056 where `H-0222`'s Why, Checkpoint and Effect rows differ only by digits AND ours appends `H-0223` while main appends `H-0224`. Fresh ids are disjoint -- ours `H-0197` `H-0223` absent from `origin/main`, main's `H-0198` `H-0199` `H-0224` absent from `HEAD` -- and the allocator, after `git fetch --prune origin`, answers `H-0226` with `H-0225` held by `refs/heads/issue-348` and `refs/remotes/origin/issue-348`, so no renumber. Whose digits win where both parents re-pointed the same sentence, and which seam order keeps both parents?
+- Options: union the two logs at both seams -- `H-0197` at its ascending place with main's `H-0198` and `H-0199` after it, then ours' `H-0222` rows, `H-0223` and main's `H-0224` last -- and re-point every digit the union moved by opening the cited row in the parent blob that holds it verbatim, never by adding a delta | take main's side of all seven hunks and re-append this branch's `H-0223` afterwards | take this branch's side of all seven hunks and re-append main's three fresh entries afterwards | close the pull request and re-open the feature from the new main
+- Chose: union the two logs at both seams -- `H-0197` at its ascending place with main's `H-0198` and `H-0199` after it, then ours' `H-0222` rows, `H-0223` and main's `H-0224` last -- and re-point every digit the union moved by opening the cited row in the parent blob that holds it verbatim, never by adding a delta
+- Why: the five drift hunks are the residue of the LAST sync, and that is the cause: this branch re-anchored twenty pointers onto the tree it shipped at `0c54ab7`, and main's own sync re-anchored sentences in the same rows onto its tree, so each drift hunk is one row whose two sides are identical with digits stripped -- measured, 5 of 5 equal after digit-normalising the two sides -- and each side's numbers are true only of the tree its author shipped. Taking either side therefore leaves pointers aimed at lines that exist in one parent, so the digits are not won at the marker; they are re-derived from the merged tree afterwards, row by row, by opening what the number named in the row's own parent blob and finding that same row again here. Both whole-side orders were then run outside the gated tree on the parent blobs rather than asserted: ours deletes 129 rows main added since the base and loses `H-0198`, `H-0199` and `H-0224`; theirs deletes 76 rows this branch added and loses `H-0197` and `H-0223`; the union deletes neither. `H-0222`'s rows are decided by the same evidence rather than by preference -- all four pointers inside them open on `HEAD`'s own tree and not on main's, so this branch's side is the newer measurement and main's is the older one -- and the sweep moved them again with the rest, which is why the entry cites them by heading text as well as by number. The gate names this drift and does not cure it: re-run on the resolved-but-unrepaired file in a scratch tree it refuses at rc 1 with all 20 of them listed as pointing at text that is not there, and 7 of the 20 refusals print two, three or four candidate lines -- three are the shared phrase `our two entries at`, which sits on four rows of this log, so the refusal locates the damage and only row identity in the parent blob chooses the target -- while on the bytes this entry ships the same command reads rc 0.
+- Checkpoint: 760e42cf5797a09e69fa777886645e153dc0633f
+- Effect: the merge of `origin/main` (`580d722`) into `issue-346` with one file resolved by hand and five auto-merged, measured on the bytes this entry ships. Zero conflict markers and `git diff --cached --check` empty; `bash -n` passes on `factory/common.sh`, `factory/factory.sh` and `factory/selftest.sh`. Zero-loss census over all 6 paths either parent touched since the base (the `+` lines of `git diff -U0 7eb9632..<rev>` digit-normalised into multisets, against the index copy of each path): of the 664 lines this branch added, 0 absent; of main's 596, 0 absent. numstat against `origin/main` is NEXT.md +225 -331 (this unit rewrote the hand-off body; main added no line to it since the base, so nothing main wrote is lost), `factory/DECISIONS.md` +99 -8, `factory/common.sh` +193 -0, `factory/factory.sh` +3 -0, `factory/selftest.sh` +325 -0; against `HEAD` it is `docs/factory.md` +11 -0, this log +206 -59, `factory/common.sh` +51 -0, `factory/factory.sh` +16 -0, `factory/selftest.sh` +461 -0. The pointer sweep moved 20 coordinates on 12 rows: all 20 same-length and every repaired row byte-identical to its old self with digits stripped; 13 point into `factory/factory.sh`, `factory/selftest.sh` and `factory/common.sh` and were repaired where the quoted anchor has exactly one occurrence in the file, the sweep refusing any other count; the other 7 are self-citations, repaired by opening the cited row in the parent whose copy of the carrying row is verbatim -- 4 traced to `origin/main`, 3 to `HEAD`, one matched by digit-normalised identity alone. Control run first: all 20 inherited coordinates open on at least one parent's own tree (4 on main's, 9 on `HEAD`'s), so every one is drift this merge authored and none is a pre-existing lie. The mid-file seam lands as `factory/DECISIONS.md:10408` "## H-0197 · #346 measured a deleted tracked file" above `factory/DECISIONS.md:10479` "## H-0198 · Issue 328's mid-merge rescue exists", `factory/DECISIONS.md:10545` "## H-0199 · The DELIVERED line was a verdict" and `factory/DECISIONS.md:10606` "## H-0201 · The one-home census omitted "; the tail run is `factory/DECISIONS.md:12073` "## H-0222 · PR #406's base sync weaves one", `factory/DECISIONS.md:12082` "## H-0223 · PR #408's base sync meets an EOF double-append", `factory/DECISIONS.md:12091` "## H-0224 · PR #409's base sync splices a four-hunk" and this entry, one ascending order. Both junctions are blank-clean: headings with a non-blank line above fall from 8 in each parent to 7 here, and the 7 left sit at 2315, 3737, 4907, 6936, 8670, 8998 and 9015 in BOTH parents -- quoted headings inside wrapped prose, pre-existing and untouched by this merge. The candidate blob this entry was written into holds 217 entries in this log and 287 across the two logs, ids unique and ascending, and the checker on these bytes reads 288 entries across 2 logs, 748 `path:line` citations, 539 owing an anchor and 0 pointing somewhere a reader cannot open; the hand-off gate reads `check-next-md: OK` at 297 lines. `make verify`'s and `factory/selftest.sh`'s verdicts are quoted in the pull-request body from the run that ships them, never from here (#1180).
+- What lost: this entry decides only the second sync's resolution. `H-0223`'s verdicts were not re-run -- its fixture block and its three-line `factory/factory.sh` delta came through the auto-merge and were re-measured for presence, not for behaviour. The 7 pre-existing headings without a blank line above are left as they are in both parents: repairing them edits seven other units' rows for a rendering nit and would itself move a cascade of pointers. The nine code-file coordinates repaired here were moved by main's insertions, not by this unit's, so this entry repairs other units' prose and owns that: every one was opened on a parent first, and none of the nine was edited beyond its digits.
+
+
+
+## H-0229 · PR #411's base sync is TWO pure tail double-appends, ours' fresh `H-0202` seating strictly INSIDE main's fresh run, so the union splices once at that entry's heading and the nine coordinates it moved are nine of the thirty-four the citation gate can read and zero of the twenty-five it cannot
+
+- Question: PR #411 (`issue-355`) reads `CONFLICTING`/`DIRTY` against `origin/main` `5aaa9a7` with `reviewDecision=APPROVED`, `reviewRequests: []` and five checks all `COMPLETED/SUCCESS` (read back at head `d8aa547` before anything was claimed); 5 commits ahead, 109 behind, merge base `6db0b13` = this branch's own `HEAD~5`, so all five of its commits sit directly on the trunk. `git merge-tree --write-tree` names TWO conflicted files with ONE marker triple each. Stage-by-stage from the attempted merge: `DECISIONS.md` base 5023 lines / ours 5072 / theirs 5172 — ours is a pure +49 EOF append (that is `D-0085`, nothing else), theirs a +18 mid-file insert at 3394 (auto-merged, outside the hunk) plus a +132 EOF append (`D-0084`); `factory/DECISIONS.md` base 9397 / ours 9441 / theirs 12064 — ours a pure +44 EOF append (`H-0202`), theirs 33 single-line rewrites spread over 3868..9302 (the trunk's own coordinate drift, all auto-merged) plus a +2667 EOF append (`H-0183`..`H-0226`). Fresh ids disjoint: ours `D-0085` `H-0202` absent from `origin/main`, main's `D-0084` and `H-0183`..`H-0226` absent from `HEAD`; `H-0203` sits on 2 refs and `H-0225` on 2, so the two gaps the merged sequence shows are held by unmerged siblings, not lost. Ours' `H-0202` lands between `factory/DECISIONS.md:10606` "## H-0201 · The one-home census omitted" and `factory/DECISIONS.md:10708` "## H-0204 · PR #400's base sync has exactly one legal" — strictly inside main's fresh run. Whose block goes first at each seam, and what happens to every coordinate the splice moves?
+- Options: union both logs ascending by id -- `D-0084` then `D-0085` at the `DECISIONS.md` tail, and in this log `H-0201`, ours' `H-0202`, then main's `H-0204` onward -- and re-point every coordinate the union moved by opening the cited row in the parent blob that holds it | take main's side whole at both seams and re-append this branch's two entries last | take this branch's side whole at both seams and re-append main's fresh entries last | close the pull request and re-cut the feature from the new `main`
+- Chose: union both logs ascending by id -- `D-0084` then `D-0085` at the `DECISIONS.md` tail, and in this log `H-0201`, ours' `H-0202`, then main's `H-0204` onward -- and re-point every coordinate the union moved by opening the cited row in the parent blob that holds it
+- Why: the tie-break order separates these at step 4 and step 6 before it reaches anything debatable. Fewest files: the union edits the two logs and nothing else, while re-cutting from `main` throws away five commits of feature work (`cmd/plock/doctor.go`, `cmd/plock/doctor_checks.go`, `scripts/check-fixture-window.sh`) that no side of a conflict owns. Surrounding practice: the family's own record, `factory/DECISIONS.md:11018` "the tail union is ours-above-theirs", is exactly this shape measured -- a fresh id sorting below main's fresh ids makes the ours-last splice the refused one -- and the skill states the keying as prose rather than a coordinate. The two whole-side orders were then RUN against the parent blobs rather than asserted: ours-first-at-both-seams puts main's `H-0183`..`H-0226` (2667 lines, 44 entries) below this branch's `H-0202`, which is a descending sequence the gate refuses, and main's whole tail deletes this branch's `H-0202` and `D-0085` outright -- the two entries whose absence `H-0202` was written to record. Both orders therefore delete a parent; the union deletes neither, which the added-line census then proves rather than claims. Ids were not renumbered: the allocator, after a fresh `git fetch --prune origin` that moved nothing (`origin/main` was already `5aaa9a7`, fetched 17:14:13), answered `H-0229` with a `REFRESH` line -- union 67 s old, bound 300 s -- and no `PENDING` note, and was re-read immediately before this entry went in.
+- Checkpoint: ca5e47f1b5422d97fed217c27f83821cf65bea45
+- Effect: the merge of `origin/main` (`5aaa9a7`) into `issue-355`, two files resolved by hand and twenty other paths carried by `ort`, measured on the bytes this entry ships. Zero conflict markers in either log; ids unique and ascending across both -- `DECISIONS.md` 71 entries ending `D-0085`, this log 219 ending `H-0226` in the candidate blob this entry was written into, 220 after it. Junctions blank-clean: headings with a non-blank line above hold at 7 in this log (2315, 3737, 4907, 6936, 8670, 8998, 9015 -- the same seven quoted-heading rows both parents carry) and at 4 in `DECISIONS.md`; double-blank runs hold at 34 and 3, so this splice introduced neither. Zero-loss census over all 22 paths either parent touched since `6db0b13` (the `+` lines of `git diff -U0 6db0b13..<rev>` against the index copy of each path): **6** added lines are not byte-identical in the merged tree and **0** are absent with digits folded -- every difference is a coordinate, no content. Those 6 are the 1 row of `DECISIONS.md` whose Makefile pointer moved from line 150 to `Makefile:152` "fixture window guard" and the 5 rows of this log that carry the eight self-citations the splice moved by +44: `factory/DECISIONS.md:11328` "## H-0213 · The eighth issue-328 base sync is seventeen", `factory/DECISIONS.md:11518` "file after the cut:", `factory/DECISIONS.md:12073` "## H-0222 · PR #406's base sync weaves one", `factory/DECISIONS.md:12082` "## H-0223 · PR #408's base sync meets an EOF", `factory/DECISIONS.md:12091` "## H-0224 · PR #409's base sync splices a four-h", each repaired digits-only and each re-opened on the merged tree with its quoted anchor, having first been opened at its own number on `origin/main`'s blob (so the pointer was true on the tree that published it) and re-checked to be false at the old number here (so this merge authored the drift). The three rows that cite `our two entries at` -- the ambiguity `H-0226` warns of, five candidate lines -- were resolved by row identity, not by the offset: 11474 on `origin/main` is the `H-0216` row, which is 11518 here. Then the census the gate cannot do: all 34 citations of this log in the two logs, chased row-by-row parent→merged, are 26 above the splice with their numbers still true and 8 below it moved, and all 8 re-pointed -- so the gate-blind class, a bare `path:line` whose anchor the checker never opens, is **empty at this head**. `python3 scripts/check-decisions.py` on the resolved-but-unrepaired tree refused at rc 1 naming exactly those 9 (8 here, 1 in `DECISIONS.md`), and on these bytes reads rc 0; `POINTER_DEBT` stays 539, and the union restores the final newline `origin/main:DECISIONS.md` had lost -- its last byte is a full stop, this file's is a newline. One slip, disclosed: the first repair helper called its own read inside `open(path, "w")`, and `"w"` truncates before the argument is evaluated, so BOTH logs were written down to a single line. Nothing was lost: the union had been staged first, so both came back from the index blob byte-identically (`git diff` against the index empty, 72 and 220 headings, 0 markers) and the repair was re-run reading once and writing once. The one `git diff --cached --check` hit, `factory/selftest.sh:18909` "2026-11-12T10:00:01.000000+00:00 h factory.sh[1]", is a padded journal fixture that arrived from `main`, not a line this merge wrote, and was left as its author shipped it. `make verify` and `bash scripts/check-next-md.sh` are quoted with their exit statuses in the pull-request body from the run that ships these bytes, never here (#1180).
+- What lost: this entry decides only this sync. Nothing of main's 40 fresh entries was re-derived for behaviour -- `H-0216`, `H-0218`, `H-0221`, `H-0222` and `H-0226` had eight of their published coordinates rewritten by this hand, digit-only, and every one was opened on a parent first; that is a repair of another unit's prose and it is owned here. `D-0085`'s and `H-0202`'s own feature claims were not re-measured against the merged code -- `make verify` is the only verdict this merge has run over the combined `cmd/plock` tree, and the `+44` story is about coordinates, not about whether the doctor join still answers to one clock. The seven headings with no blank line above, the missing trailing newline in `origin/main:DECISIONS.md`'s own history, and the `Makefile` drift that moved `D-0085`'s `fixture window guard` pointer two lines down this merge are left as found: repairing the first edits seven other units' rows for a rendering nit and would itself cascade pointers. Rollback: `git revert -m 1` of the merge retires the whole sync, and this entry rides the merge commit, so the same revert retires the erratum with it; the checkpoint `ca5e47f1` pre-dates the merge. No GitHub write beyond the pull request this branch already has, no merge, no governing file edited by this decision.
