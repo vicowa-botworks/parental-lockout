@@ -3975,6 +3975,13 @@ proc_leg 'control: the retired key ranks youngest' \
 # journal, both stamps written in one pass with 900 first). The repair hands the ranking pass one
 # reading of the same clock; the leg below measures both readers against the same ticking clock and
 # the same two stamps, so the difference it reports is the readers and nothing else.
+#
+# The stamps are anchored on the same principle (H-0186): the leg samples the real clock ONCE into
+# $proc_clock_now and every proc_clock_stamp below is that instant minus an offset -- a conversion,
+# never a sampling -- because sampling per stamp let a real second boundary fall BETWEEN the two
+# writes and make the pair unequal before any reader saw them. CI run 43673767085 (15 Nov, PR #400)
+# hit exactly that: the control printed `the ticking clock answered 0s and 0s`, which is this
+# fixture re-minting, in its own stamping loop, the per-row defect H-0169 exists to retire.
 proc_clock=$proc_work/age-clock
 mkdir -p "$proc_clock/bin" "$proc_clock/ledger"
 printf '0\n' >"$proc_clock/tick"
@@ -3993,8 +4000,22 @@ exec /bin/date "$@"
 PROCDATE
 chmod +x "$proc_clock/bin/date"
 
-proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, on the REAL clock
-	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_clock/ledger/$1.first-seen"
+proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` derived from $proc_clock_now
+	# One clock reading for the whole pair. This call used to ask the real clock
+	# for "now" itself -- `date -u -d "-N seconds"` samples it -- so the stamps
+	# were same-second by LUCK, and a boundary between the two writes made them
+	# unequal before any reader saw them: CI run 43673767085 (15 Nov, PR #400,
+	# `55.9977200Z` ok / `56.0145857Z` FAIL) landed the flip exactly there, and
+	# the control printed `the ticking clock answered 0s and 0s` because the
+	# ticking stub cancelled the one-second-newer stamp 901 exactly. A conversion
+	# of an epoch cannot straddle anything: `date` formats an instant here and
+	# never samples one.
+	[ -n "${proc_clock_now:-}" ] || {
+		printf 'proc_clock_stamp: no anchor in $proc_clock_now, refusing to sample the clock\n' >&2
+		return 1
+	}
+	printf '%s\n' "$(date -u -d "@$((proc_clock_now - $2))" +%Y-%m-%dT%H:%M:%SZ)" \
+		>"$proc_clock/ledger/$1.first-seen"
 }
 
 # proc_clock_ages <snapshot|per-row> -> "<age900> <age901>", both rows read the way that reader reads
