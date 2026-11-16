@@ -32,6 +32,10 @@
 #   4  a tick failed -- a model run that did not finish inside its ceiling
 #   7  another supervisor holds the lock, so this one did nothing
 #   8  the halt file exists
+#   9  the tree the installed unit execs was fast-forwarded to the trunk, so this pass stopped
+#      before dispatching anything -- the merge replaced the bytes of the script bash is reading,
+#      and the next activation (seconds away) runs the merged code (#342). Like the halt code it is
+#      listed in the unit's `SuccessExitStatus=`: it is a decision, not a failure.
 #
 # usage: factory.sh [--dry-run] [--max-ticks N] [--budget SECS] [--once] [--status]
 set -euo pipefail
@@ -49,8 +53,8 @@ usage: factory.sh [--dry-run] [--max-ticks N] [--budget SECS] [--once] [--status
 --max-ticks N model ticks this pass may start (default FACTORY_MAX_TICKS=3).
 --budget S    stop opening new ticks after S seconds (default FACTORY_BUDGET=5400).
 --once        at most one tick; the same as --max-ticks 1.
---status      print one verdict -- WORKING, IDLE, HALTED or STALLED -- then the halt state and the
-              ledger, and exit without reading GitHub. The verdict is local state only: the halt of
+--status      print one verdict -- WORKING, IDLE, HALTED, STALE or STALLED -- then the halt state and
+              the ledger, and exit without reading GitHub. The verdict is local state only: the halt of
               9 Nov was exactly the moment a read of GitHub was not the useful one.
 
 A tick runs the `factory` agent in a per-unit worktree through
@@ -79,7 +83,12 @@ while [ $# -gt 0 ]; do
 		# and the answer used to require reading a journal timestamp and comparing it to `date`.
 		printf 'verdict: %s\n' "$(factory_verdict)"
 		if factory_halted; then
-			printf 'halt:    YES -- %s\n' "$(factory_halt_report)"
+			# Which sentence is true depends on whether the guard can re-ask this marker at all:
+			# machine-written markers carry a target and are re-probed every activation (#341);
+			# hand-written ones carry none, and only the person who wrote them may remove them.
+			halt_asking=''
+			factory_halt_target >/dev/null 2>&1 && halt_asking=guarded
+			printf 'halt:    YES -- %s\n' "$(factory_halt_report "$halt_asking")"
 		else
 			printf 'halt:    no\n'
 		fi
@@ -94,7 +103,10 @@ while [ $# -gt 0 ]; do
 		# looks like a version, so nobody asks which ref it names.
 		pos_rc=0
 		pos=$(factory_supervisor_position "$FACTORY_HARNESS") || pos_rc=$?
-		IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+		# The trunk short-sha field is read away, not named: `--status` prints the branch and the
+		# count, and the sha-paired AT line is the supervisor journal's sentence (ask 4) -- a sixth
+		# local here would be an unused variable shellcheck rightly refuses.
+		IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty _ <<EOF
 $pos
 EOF
 		pos_base=$(factory_supervisor_base)
@@ -154,7 +166,7 @@ EOF
 		# journal, the timer still said `active`, and nothing printed `SubState=stop-sigterm`.
 		printf 'reaping: %s\n' "$(factory_reap_line)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
-		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
+		factory_log_footprint
 		printf '\nledger:\n'
 		shopt -s nullglob
 		for f in "$FACTORY_LEDGER"/*; do
@@ -182,15 +194,129 @@ fi
 
 factory_preflight
 
+# --------------------------------------------------------------------------- the pass's own announcement
+#
+# The four loops that used to open `factory_body`, hoisted ahead of the halt check (#331). They are
+# the whole of what a pass says about itself -- `UNIT-AT`, `LOG-AT`, the reap read and
+# `SUPERVISOR-AT` -- and on the shipped code the halt exit preceded all of them: the activation that
+# writes `HALTED` wrote that one line and nothing naming the directory it had just written it into.
+# The dead tail `docs/factory.md` opens its #260 section with is exactly that single-line journal, and
+# #328 (a tree left mid-merge halting the queue for 10h13m) says the halted pass is the state an
+# operator is most likely to be hunting for. `LOG-AT` exists for that hunt ("a pass that never reaches
+# the queue still says where its own record is") and it was withheld on the one exit that never
+# reaches the queue at all.
+#
+# The hoist sits here, at top level, because bash defines functions as it reads them: the halt exit
+# below runs long before the function section at the bottom of this file is parsed.
+#
+# Ahead of `flock -n 9`, and that is the judgement `H-0191` records, not an oversight. Three of the
+# four loops are pure reads (the installed unit file, systemd's journal, git); the fourth carries the
+# one write, the `LOG-MOVED … copy=old-journal` append into the journal being left. On the halt path
+# an activation already writes `HALTED` unlocked today, so the append joins an existing class of
+# unlocked write rather than opening a new one; with two overlapping activations the worst case is a
+# duplicated sentence in the dead tail, and the append's own path guards (H-0148/H-0149) still judge
+# the file before touching it. A lost activation -- the one that reports 7 and leaves -- now prints
+# the self-report lines first: it did start a pass, and saying so was already owed to it.
+#
+# It sits AFTER `factory_preflight` so that the one activation still journal-less is the preflight
+# refusal, exactly as before: that boundary is pre-existing, named by the #330 review, and #331
+# leaves it alone. And `PASS` does not move with these loops: it reports what triage returned, and a
+# halted activation never asks triage anything. `SUPERVISOR-AT` moves ahead of it, because the code
+# under test is a fact about the pass, not a fact about the queue.
+factory_self_report() {
+	local unit_line log_line reap_line supervisor_line
+	# Which checkout the timer is armed to exec, and which one this pass is running from (#260). Read
+	# from the installed unit, because every other claim this harness made about the unit was composed
+	# from `$FACTORY_ROOT` and on 10 Nov was false: the installer refused a tree saying the unit execed
+	# it while the unit execed another checkout 38 commits behind, and the staleness line that would
+	# have said so printed zero times in that tree's 3,861-line journal. Before triage, not after --
+	# a pass that cannot reach GitHub is exactly the pass an operator goes looking for, and on 9 Nov
+	# the queue was unreachable for 3h13m.
+	while IFS= read -r unit_line; do
+		[ -n "$unit_line" ] || continue
+		log_event "$unit_line"
+	done < <(factory_unit_lines "$FACTORY_HARNESS")
+	# Which directory the journal is being written to, and whether this pass is the one that moved it
+	# (#260 ask 3). Same place and same reason as the loop above -- before the fetch and the triage, so
+	# a pass that never reaches the queue still says where its own record is -- and ahead of the halt
+	# check as well since #331, so the activation stopped by a `factory/HALT` marker names the file it
+	# writes `HALTED` into. It has to be ahead of the `PASS` line for a second reason: `LOG-AT` is what
+	# the NEXT pass reads back as this pass's answer, and a pass that halts at triage writes no `PASS`
+	# at all. On 10 Nov three reinstalls moved the journal between checkouts and neither file said so;
+	# the operator's tail went silent mid-sentence and the only account of it was a `TIMER-INSTALLED`
+	# line in whichever tree ran the installer.
+	while IFS= read -r log_line; do
+		[ -n "$log_line" ] || continue
+		log_event "$log_line"
+	done < <(factory_log_move_lines)
+	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
+	# the two loops above: before the fetch and the triage, because the pass an operator goes looking
+	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the
+	# queue about a minute each between 08:05 and 09:42, and every line those passes wrote to
+	# `supervisor.log` read `PASS`. A read of systemd's journal, never a manager call.
+	while IFS= read -r reap_line; do
+		[ -n "$reap_line" ] || continue
+		log_event "$reap_line"
+	done < <(factory_reap_journal_lines)
+	# The code under test belongs in the pass's own announcement (#249), and since #331 in the same
+	# breath as the other three lines rather than after the `PASS` line: `PASS units=0` from a tree 121
+	# commits behind the trunk is indistinguishable in the journal from a queue that is genuinely empty,
+	# and a halted activation writes no `PASS` at all, so on the shipped code it announced nothing about
+	# its own tree either. Three sentences at most, and the one that is always printed is the sha (see
+	# common.sh for the pair of trees that can both claim to be "the code under test", and for what the
+	# comparison is measured against). This loop reports and moves nothing: the step that moves a tree
+	# (#342) sits in the pass body, under `factory/run/lock`, and asks git again after the fetch. So
+	# the `behind=` printed here is read off this tree's own clock -- which is all a halted activation
+	# can be asked, since #331 hoisted the read ahead of the fetch on purpose and a verdict read may
+	# never make a network call (`no_fetch_in_the_verdict`) -- while the number that decides a merge is
+	# the one the repair re-reads.
+	while IFS= read -r supervisor_line; do
+		[ -n "$supervisor_line" ] || continue
+		log_event "$supervisor_line"
+	done < <(factory_supervisor_lines "$FACTORY_HARNESS")
+}
+
+factory_self_report
+
 if factory_halted; then
-	# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
-	# one cause, so without the age a halt that has stood for nine hours and one that is three
-	# seconds old are the same sentence. Measured on this branch: three passes over one
-	# eight-hour-old marker wrote three byte-identical `HALTED` lines.
-	log_event "HALTED $(factory_halt_report)"
-	# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
-	# something that broke. See H-0036 for why the difference is not cosmetic.
-	exit "$FACTORY_EXIT_HALT"
+	# #341: the marker used to be the whole of the answer. It is written at the instant a cause is
+	# seen, and a cause that was quarantined away in that same pass left the marker standing on a
+	# tree that had been clean ever since -- measured, 14h34m of `HALTED` lines on a clean tree.
+	# So the guard now re-asks the marker's own target before it refuses, and the refusal sentence
+	# says which of those happened. A dry run skips the asking entirely: a release is a write --
+	# the marker's removal and the release counter -- and dry runs write nothing, least of all to
+	# the real queue's halt switch.
+	halt_probe_rc=0
+	if [ "$DRY_RUN" = 1 ]; then
+		log_event "HALTED $(factory_halt_report)"
+		log_event "DRY-RUN HALT-REPROBE -- the marker was not re-asked and cannot be released by a dry run"
+		# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
+		# something that broke. See H-0036 for why the difference is not cosmetic.
+		exit "$FACTORY_EXIT_HALT"
+	fi
+	factory_halt_reprobe || halt_probe_rc=$?
+	if [ "$halt_probe_rc" = 0 ]; then
+		# Released: `factory_halt_reprobe` journaled the `HALT-RELEASED` line with the cause, the
+		# release count and where the mirror is, and this pass proceeds like any other -- triage,
+		# dispatch, the lot. The budget for that is `FACTORY_HALT_RELEASES`; past it the same clean
+		# tree holds with `HALT-STUBBORN` and the resume is a human.
+		:
+	else
+		# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
+		# one cause, so without the age a halt that has stood for nine hours and one that is three
+		# seconds old are the same sentence. Measured on this branch: three passes over one
+		# eight-hour-old marker wrote three byte-identical `HALTED` lines. rc 2 is the marker with no
+		# machine target -- a person wrote it, nobody re-probes it, and the sentence must not claim
+		# otherwise. rc 1 is this pass asking and the cause still standing.
+		if [ "$halt_probe_rc" = 2 ]; then
+			log_event "HALTED $(factory_halt_report)"
+		else
+			log_event "HALTED $(factory_halt_report probed)"
+		fi
+		# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
+		# something that broke. See H-0036 for why the difference is not cosmetic.
+		exit "$FACTORY_EXIT_HALT"
+	fi
 fi
 
 # `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and both
@@ -1028,8 +1154,8 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, mark it with the escalation label -- ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull
-request you already have. Take the name from its one home rather than typing it, and use the ISSUE verb
+ask, mark it with the escalation label, and stop there with the pull request you already have. This
+prompt carries no name to type: read it from its one home in the calls below, and use the ISSUE verb
 even though this artifact is a pull request: gh pr edit cannot label anything on this account -- it
 dies on the retired projectCards field before gh reads the name -- so the marker and its read-back are
 exactly these two calls:
@@ -1119,8 +1245,19 @@ Inventing the ask is the failure this repository has written up more often than 
 	# instead of the shared one -- so `opencode session list` in the tree no longer shows a tick's
 	# conversation. The per-tick log is the durable record either way, which is what `TICK-START`
 	# already names.
+	#
+	# The three `FACTORY_*` exports are the allocator's unit context (#345): a decision id is only
+	# as trustworthy as the evidence an allocator was running when it was handed out, and #345
+	# measured ticks taking ids by eye. With these set, every `factory/next-decision-id.sh` this
+	# session runs journals its answer against this unit and branch, and
+	# `factory_decision_provenance` below reads that journal at the end of the tick. A session that
+	# sanitises its own environment loses the journalling and gains an `UNEARNED` report -- the
+	# report is the point; the allocator answers exactly the same either way.
 	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
+		FACTORY_LOG="$FACTORY_LOG" \
+		FACTORY_TICK_UNIT="$unit" \
+		FACTORY_TICK_BRANCH="$branch" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
@@ -1139,6 +1276,12 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
 	# whatever it found: what the tick achieved remains the tick's own answer.
 	factory_quarantine_after_tick "$unit" "$tree"
+
+	# The journal's second end-of-tick read, beside the tree's: does every decision id this branch
+	# newly carries have a `DECISION-ID` allocation the allocator journalled for this branch (#345)?
+	# Same posture as the streak above -- reported, never fatal, above both exits below -- because an
+	# id whose provenance nobody saw is for a human to weigh, not for the pass to act on.
+	factory_decision_provenance "$unit" "$branch" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
@@ -1358,7 +1501,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0 unit_line log_line reap_line
+	local rows rc=0 started=0
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -1375,39 +1518,21 @@ factory_body() {
 	# answer. It runs inside `factory/run/lock` on purpose: `flock -n` means a second activation is
 	# never waiting here, it reports 7 and leaves, so the worst a parked fetch costs is one missed
 	# activation and one sentence in the journal.
-	# Which checkout the timer is armed to exec, and which one this pass is running from (#260). Read
-	# from the installed unit, because every other claim this harness made about the unit was composed
-	# from `$FACTORY_ROOT` and on 10 Nov was false: the installer refused a tree saying the unit execed
-	# it while the unit execed another checkout 38 commits behind, and the staleness line that would
-	# have said so printed zero times in that tree's 3,861-line journal. Before triage, not after --
-	# a pass that cannot reach GitHub is exactly the pass an operator goes looking for, and on 9 Nov
-	# the queue was unreachable for 3h13m.
-	while IFS= read -r unit_line; do
-		[ -n "$unit_line" ] || continue
-		log_event "$unit_line"
-	done < <(factory_unit_lines "$FACTORY_HARNESS")
-	# Which directory the journal is being written to, and whether this pass is the one that moved it
-	# (#260 ask 3). Same place and same reason as the two lines above -- before the fetch and the triage,
-	# so a pass that never reaches the queue still says where its own record is -- and it has to be ahead
-	# of the `PASS` line for a second reason: `LOG-AT` is what the NEXT pass reads back as this pass's
-	# answer, and a pass that halts at triage writes no `PASS` at all. On 10 Nov three reinstalls moved
-	# the journal between checkouts and neither file said so; the operator's tail went silent
-	# mid-sentence and the only account of it was a `TIMER-INSTALLED` line in whichever tree ran the
-	# installer.
-	while IFS= read -r log_line; do
-		[ -n "$log_line" ] || continue
-		log_event "$log_line"
-	done < <(factory_log_move_lines)
-	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
-	# the two lines above: before the fetch and the triage, because the pass an operator goes looking
-	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the
-	# queue about a minute each between 08:05 and 09:42, and every line those passes wrote to
-	# `supervisor.log` read `PASS`. A read of systemd's journal, never a manager call.
-	while IFS= read -r reap_line; do
-		[ -n "$reap_line" ] || continue
-		log_event "$reap_line"
-	done < <(factory_reap_journal_lines)
-	factory_refresh_origin "$(factory_main_checkout)"
+	# (#342 ask 5) The tree named above is the one that gets *compared and maybe repaired*, so the
+	# fetch starts there and not at the primary checkout: the pass was about to fast-forward
+	# `origin/main` read from whichever clock this tree last saw, and a 38-minute-old `origin/main`
+	# makes a stale tree look current -- the fail-open direction. `factory_refresh_origin` already
+	# fetches every branch, so no refspec widening is needed; when the harness IS the main checkout,
+	# one fetch covers both, because a second fetch of one tree buys nothing but a network call inside
+	# the pass's budget. The guard is what keeps H-0075's count at one fetch for the ordinary
+	# activation, and everything said above about the budget, the bound and the lock still holds for
+	# both fetches -- #331 hoisted the four self-report loops out of here, and the fetch stays put:
+	# a network call belongs inside the budget and inside the lock, and the position read itself may
+	# never fetch at all (`no_fetch_in_the_verdict`).
+	factory_refresh_origin "$FACTORY_HARNESS"
+	if [ "$FACTORY_HARNESS" != "$(factory_main_checkout)" ]; then
+		factory_refresh_origin "$(factory_main_checkout)"
+	fi
 	# #346: the tree these very git commands run in was the one tree the pass never read. Once per
 	# activation, beside the refresh; advisory always-0 by design (H-0197), so it cannot halt a pass.
 	factory_main_tree_check "$(factory_main_checkout)"
@@ -1420,19 +1545,31 @@ factory_body() {
 	# slide every column after it one place left.
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
-	# The code under test belongs in the pass's own announcement (#249). `PASS units=0` from a tree 121
-	# commits behind the trunk is indistinguishable in the journal from a queue that is genuinely empty,
-	# and nobody asks a timer a question -- which is why this is a journal line and not only `--status`.
-	# Three sentences at most, and the one that is always printed is the sha (see common.sh for the
-	# pair of trees that can both claim to be "the code under test", and for what the comparison is
-	# measured against). This reports and changes nothing: moving a tree the timer is executing from is
-	# editing a script while bash is reading it, so the move stays a human act.
-	while IFS= read -r supervisor_line; do
-		[ -n "$supervisor_line" ] || continue
-		log_event "$supervisor_line"
-	done < <(factory_supervisor_lines "$FACTORY_HARNESS")
+	# And now the step that was missing (#342): 92 activations journaled `SUPERVISOR-STALE` -- the
+	# guard #260 had fixed read the right tree at last -- and nothing downstream of the line did
+	# anything, so the loop triaged, allocated ids and ran ticks on code 38 commits behind the
+	# trunk. Reporting a divergence forever is not a repair. The `SUPERVISOR-AT` line this answers is
+	# no longer printed here: #331 hoisted it into `factory_self_report`, ahead of the lock and of the
+	# fetch above, so the pair it prints is that tree's own clock and the fresh read is this step's
+	# (`factory_supervisor_repair` asks git again, after the fetch, for the tree it may move). What
+	# makes this instant safe did not move with the line: the pass holds `factory/run/lock`, triage has
+	# only read the queue, and no tick has been dispatched -- and the tree is clean by the #228 content
+	# read. A clean pure-descendant tree is fast-forwarded to the trunk; every refusal is a named
+	# condition and a streaked ledger token, never an action. A pass that moved the tree stops here
+	# with exit FACTORY_EXIT_RERUN: the merge rewrote the bytes of the script bash reads
+	# incrementally -- #260's reason, which still holds for a pass that wants to CONTINUE -- and the
+	# timer's `OnUnitInactiveSec=` hands the queue to the merged code seconds later. Exit 8's
+	# precedent, unit-file and all, says the journal can carry a deliberate stop without reading as a
+	# crash.
+	sup_repair_rc=0
+	sup_repair=$(factory_supervisor_repair) || sup_repair_rc=$?
+	[ -n "$sup_repair" ] && log_event "$sup_repair"
+	if [ "$sup_repair_rc" -ne 0 ]; then
+		log_event "SUPERVISOR-RERUN the pass stops here with exit ${sup_repair_rc}: no triage, no id, no tick; the line above says what moved and the next activation runs it"
+		exit "$sup_repair_rc"
+	fi
 
-	local workable='' unit key class detail branch issue ask rc_tick rc_conflict supervisor_line
+	local workable='' unit key class detail branch issue ask rc_tick rc_conflict
 	while IFS=$'\037' read -r unit key class detail branch issue ask; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||
