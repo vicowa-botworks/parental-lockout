@@ -37,10 +37,13 @@ here (#1180).
   reflog puts `reset: moving to HEAD` at `14:31:36Z`, one second before the read, so the tree genuinely was
   clean when it was read. All four `TREE-CLEAN conflict:401` lines (`02:55:06Z`, `10:07:50Z`, `11:25:48Z`,
   `14:31:37Z`) sit outside the window. Nothing was filed against `factory_tree_dirt` and it is not broken
-  here. What survives is weaker and honest: **no probe in this family ever runs against a conflicted tree**,
-  so the `UU`-index case is untested, not proven. The fixture that would settle it is a throwaway worktree
-  under `/tmp/opencode` parked mid-merge and one call to `factory_tree_dirt` — with one tracked file
-  reddened in the same tree as the control that proves the fixture has the precondition it claims.
+  here. **And the gap this bullet put in the accusation's place was wrong too** — the fifth correction, and
+  the one worth remembering, because the coverage I called missing ran `ok` in the green `make verify` I had
+  read twenty minutes earlier: a conflicted index is probed in a linked worktree, the detector's word and
+  exit code are pinned, and there is an arm-retirement mutant. Item 14(e) carries the five legs with their
+  file:line and log line. What survives the whole affair is a reading error, not a coverage hole: the
+  mutation note at `factory/selftest.sh:277-280` says the *unmerged arm* is redundant **for the verdict**,
+  and "redundant arm" is not "untested tree".
 
 ## What this unit shipped
 
@@ -218,8 +221,9 @@ here (#1180).
     third sync's message: state census numbers with the stage they belong to, because the next unit reads a
     commit message as the shipped artifact.
 
-14. **Three claims in this head's own merge commit do not survive re-derivation, and a fourth was an
-    accusation that never had evidence — all corrected here rather than left for a later unit to inherit.** (a) It says `NEXT.md`
+14. **Five claims this unit made about its own work did not survive re-derivation — three numbers, one
+    accusation, and the wrong substitute offered in that accusation's place — all corrected here rather than
+    left for a later unit to inherit.** (a) It says `NEXT.md`
     came byte-identical from ours: **false**. `git diff --numstat 4cb5277 6ca61c3 -- NEXT.md` is **empty** —
     `main` never touched the hand-off over the base — and the merge blob is **186 lines**, 105 added and 39
     removed against ours' 120, because the merge commit also carries this unit's own hand-off rewrite. A
@@ -247,11 +251,28 @@ here (#1180).
     `14:33:31Z`, the merge commit `14:43:58Z`; `grep -cE '^2026-11-16T14:(3[3-9]|4[0-3]):.*TICK-START'
     $FACTORY_LOG/supervisor.log` answers **0**, so no tick ever probed this tree conflicted; and the reflog
     puts `reset: moving to HEAD` at `14:31:36Z`, one second before the read, so the tree was clean when it
-    was read and the verdict was right. Nothing was filed against `factory_tree_dirt`. The honest residue is
-    the untested case, not the broken one, and it is in the queue section above with the fixture and the
-    control that would settle it. The lesson is the one this item already teaches, aimed one level earlier:
-    a claim about *why* something was logged needs the clock of the thing it is compared against, and
-    `ORIG_HEAD`'s mtime is free.
+    was read and the verdict was right. Nothing was filed against `factory_tree_dirt`. (e) **The correction
+    of that correction failed too, and in the instructive direction.** What I put in the accusation's place
+    — "no probe in this family ever runs against a conflicted tree, so the `UU`-index case is untested" — is
+    false, and the proof is in the green `make verify` this tick read back at rc 0. `factory/selftest.sh:725`
+    and `:726` assert `expect "[$where] a conflicted index" "$tree" DIRTY "" unmerged:` and
+    `expect_halt … HALT unmerged:` for `[primary]` *and* `[worktree]`; the fixture `mm_repo_new` (`:3585`)
+    builds a repo "whose main AND side write the same two paths, so a merge conflicts" and `mm_merge`
+    (`:3615`) leaves it mid-merge; `mm_leg 'the detector names a mid-merge tree' 'merge, rc 0, from a gitdir
+    FILE' mm_detector_says_merge` (`:3676`) pins the detector's word *and* its exit code (0 clears, 2 halts);
+    `mm_leg 'quarantine clears the merge' 'kind=merge, tree clean at rc 1, no MERGE_HEAD'
+    mm_quarantine_clears` (`:3767`) pins the round trip; and a mutant retires an arm to prove the leg is
+    load-bearing. The run logs all of it `ok` at `/tmp/opencode/verify-final.log:72-73`, `:114-115`, `:263`,
+    `:264`, `:266` and `:271` (`ok retire the arm and it halts again — rc 2, the stash's own sentence, still
+    mid-merge`). So a tick that *had* probed this tree mid-merge would have read `DIRTY` naming `unmerged:`
+    and halted `kind=merge`: the accusation was wrong on its clock *and* on its mechanism, and the
+    substitute I offered in its place was wrong on the codebase. The two errors share one root — the
+    mutation note at `factory/selftest.sh:277-280` says deleting the *unmerged arm* changes no verdict, and
+    I read "an arm is redundant for the verdict" as "the case is unprobed". A claim about coverage has to be
+    taken from the legs and their asserted substrings, not from a comment about redundancy — and the log of
+    the run I had already read was the cheapest way to find out. The lesson this item already teaches, aimed
+    one level earlier still: a claim about *why* something was logged needs the clock of the thing it is
+    compared against, and `ORIG_HEAD`'s mtime is free.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers — fix on a later head, they will spend the approval again)
 
