@@ -4,6 +4,8 @@ State at push: branch `issue-337`, checkpoint `ae1047e`; the effect commit carri
 -- the second base-sync union for PR #402 (the first is `H-0190`, the hand-off gate is `H-0189`).
 Everything below is the hand-off `H-0189` shipped, plus the follow-ups PR #402's 15 Nov review raised.
 `make verify`'s verdict is quoted in the pull-request body from its read-back, never from here (#1180).
+This file survived a third base-sync union (PR #403 into `issue-331`, `H-0208`) byte-unchanged; a union
+that rewrites the hand-off destroys the carried items it exists to protect, so it is not a union.
 
 ## What this unit shipped
 

@@ -3327,11 +3327,15 @@ factory_log_prev_record() {
 # factory_log_move_lines [THIS_LOG_DIR]
 #   The pass's sentences about the journal's own location, one per line, in the shape
 #   `factory_unit_lines` uses: reports and changes nothing about the run. `LOG-AT <dir>` is on every
-#   pass that reaches the pass body, for the reason `UNIT-AT` and `SUPERVISOR-AT` are -- a read nobody
+#   activation that clears preflight, for the reason `UNIT-AT` and `SUPERVISOR-AT` are -- a read nobody
 #   prints cannot be told apart from a read that is not there -- and it is also the line the NEXT pass
-#   reads back as this pass's answer, which is why it is printed before anything else here. It is NOT on
-#   a pass stopped by a `factory/HALT` marker: that exit is ahead of `factory_body`, which is where all
-#   four self-report lines are emitted, and #331 carries the repair. Then at most one of:
+#   reads back as this pass's answer, which is why it is printed before anything else here. It is on
+#   a pass stopped by a `factory/HALT` marker too, since #331 hoisted the four self-report loops out
+#   of `factory_body` and ahead of the halt check: the activation whose last line is `HALTED` is now
+#   also the activation that names the file it wrote that line into. The only activation that still
+#   journals nothing is one `factory_preflight` refuses. The hoist runs ahead of `flock -n 9`, so on
+#   the halt path the append below is an unlocked write beside the `HALTED` line, which was already
+#   unlocked there; H-0191 carries that call. Then at most one of:
 #
 #     LOG-MOVED          this pass writes where the pass before it did not.
 #     LOG-MOVED-UNKNOWN  the read could not answer, one of three ways it runs out of input. It exists so

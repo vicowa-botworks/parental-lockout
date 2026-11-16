@@ -5865,6 +5865,78 @@ proc_halt_freezes() {
 }
 proc_leg 'control: the halt restored freezes it' 'exit 8, marker on disk, next run reports it, no tick' proc_halt_freezes
 
+# #331: the activation that REPORTS the halt is now also the activation that says where its record
+# is. Before the hoist the two lines above `proc_halt_freezes` -- the `HALTED` one and nothing else --
+# were the whole of a halted activation's journal, which is the exact shape of the dead tail #260
+# opens with: a queue stopped for 10h13m by a tree nobody could locate, journalled by a pass that
+# never named the file it was writing. The fixture state is the second activation of the control
+# above: exit 8, one `HALTED` line, no tick started -- and now, ABOVE that line, the self-report
+# loops that used to live inside `factory_body`, which the halt exit preceded.
+proc_halt_reports_itself() {
+	local halt_line log_line sup_line
+	# The legs read the second activation of the halt control. If that activation did not halt, this
+	# leg is asking about a journal where the question cannot arise.
+	[ "$proc_rc" = 8 ] || {
+		printf '            not the halt control'"'"'s second activation (exit %s, want 8), so this\n' "$proc_rc" >&2
+		printf '            journal cannot show what a halted pass writes.\n' >&2
+		return 1
+	}
+	halt_line=$(awk 'index($0, " HALTED "){ print NR; exit }' "$proc_journal")
+	[ -n "$halt_line" ] || {
+		printf '            no HALTED line at all -- proc_halt_freezes reports that too, but without\n' >&2
+		printf '            one the order below is unverifiable.\n' >&2
+		return 1
+	}
+	# LOG-AT is THE line of the ticket: "which directory is the journal being written to". It has to
+	# be this pass's own directory (the one it is writing into), not a string match of any LOG-AT.
+	log_line=$(awk 'index($0, " LOG-AT "){ print NR; exit }' "$proc_journal")
+	if [ -z "$log_line" ]; then
+		printf '            a halted pass wrote no LOG-AT line, so its HALTED line sits in a file\n' >&2
+		printf '            that never says which file it is -- the #331 defect, still open:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if ! proc_journal_line "$proc_journal" ' LOG-AT ' | grep -qF -- "$proc_log"; then
+		printf '            LOG-AT does not name the directory the halted pass was writing to\n' >&2
+		printf '            (want %s):\n            %s\n' "$proc_log" \
+			"$(proc_journal_line "$proc_journal" ' LOG-AT ')" >&2
+		return 1
+	fi
+	if [ "$log_line" -ge "$halt_line" ]; then
+		printf '            LOG-AT is not in the journal BEFORE the HALTED line: LOG-AT at line %s,\n' "$log_line" >&2
+		printf '            HALTED at line %s. The record must name itself before the halt sentence\n' "$halt_line" >&2
+		printf '            is the last thing it receives -- that ordering is the whole of the fix.\n' >&2
+		return 1
+	fi
+	# SUPERVISOR-AT moved with the other loops (#331): the code under test is a fact about the pass,
+	# not a fact about the queue, and a halted pass that never announced its tree is how a stale
+	# checkout halts a queue for a shift without a single line saying so. AT or UNKNOWN both count as
+	# reporting; silence does not.
+	sup_line=$(awk '/(SUPERVISOR-AT|SUPERVISOR-UNKNOWN)/{ print NR; exit }' "$proc_journal")
+	if [ -z "$sup_line" ]; then
+		printf '            a halted pass wrote no SUPERVISOR- line, so nothing above the halt says\n' >&2
+		printf '            which code the stopped loop was running:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$sup_line" -ge "$halt_line" ]; then
+		printf '            SUPERVISOR- line at %s is not above the HALTED line at %s\n' "$sup_line" "$halt_line" >&2
+		return 1
+	fi
+	# PASS stays inside `factory_body` -- it reports what triage returned, and a halted activation
+	# never asked triage anything. If it ever appears above a halt, the boundary this leg draws is
+	# drawn wrong somewhere else.
+	if proc_journal_line "$proc_journal" ' PASS ' | grep -q .; then
+		printf '            a halted pass journaled a PASS line, which is the claim #331 says it\n' >&2
+		printf '            cannot honestly make -- it never read the queue:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" ' PASS ')" >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '#331: the halted pass says where its record is' \
+	'LOG-AT naming this fixture log, and a SUPERVISOR- line, both above HALTED; no PASS' proc_halt_reports_itself
+
 # What the halting pass itself did with unit B, printed rather than asserted, because it is the
 # sentence #263 gets wrong and a reader should see the number next to the claim: the dispatcher
 # survives a tick's non-zero return (`case $rc_tick` falls through to `started++ ; rc=4`), so the unit
