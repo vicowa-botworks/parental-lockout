@@ -207,7 +207,27 @@ here (#1180).
     make verify`, which is how this head's green verdict was read. Filed as **#425** (labels `bug`,
     `area:ops`) and read back the way #1180 demands: open issues 50 → 51 with 425 the only new number,
     `gh pr view 425 --json headRefName` refuses it as a PullRequest, and `gh issue view 425 --json body`
-    is byte-identical to the 6345-byte source.
+    is byte-identical to the 6345-byte source. The repair is #425's own pinned pin: clear the two tick
+    vars inside the journalling bare arm (`env FACTORY_LOG="$logdir" bash "$script"` inherits them), and
+    do not "fix" it by weakening the legs. Differential carried from `conflict:405`'s hand-off, same day,
+    same host: bare env with the full supervisor export set reads 722 passed / 2 failed, exit 1; the
+    same tree with the two tick vars unset reads 723 / 0, exit 0.
+15. **A control tree must contain the legs it controls.** Carried from `conflict:405`'s hand-off
+    (`origin/main:NEXT.md` item 1; the measurement is theirs, not re-run here): the pre-merge tip
+    `d3d8782` carries ZERO `dpn_leg` legs (`grep -c dpn_leg factory/selftest.sh` → 0, and
+    `a bare run journals nothing` absent) even though its history contains `569ec56`, `b7c975b` and
+    `8802950` — ancestry does not mean content, at least one sync there did not carry `#407`'s fixture.
+    A `#425` control run on that tip is vacuous green. Before controlling any fixture-sensitive claim,
+    grep the control tree for the fixture by name.
+16. **`reap_leg_live` refuses a hold that is legitimately zero** (carried from the `issue-340` hand-off
+    through `conflict:405`'s; coordinate re-measured on THIS merged tree: the sentence is at
+    `factory/selftest.sh:17070` "the live journal produced a deadline hold of 0s" — the same number
+    `conflict:405` published, because this branch's 172-line selftest block lands below it). Its
+    substance is unchanged and this unit did not re-run its measurement: a `oneshot` killed at its
+    deadline writes `Main process exited`, `Failed with result 'timeout'` and `Failed to start` in the
+    same instant, so the hold it measures IS zero, and the leg pins `deadline`-with-0 and `clean`-with-0
+    as one refusal. Repair: allow `deadline` with hold 0 when the work line and the terminal line belong
+    to the same activation; keep the refusal on `clean`.
 13. **This head's merge commit states its own census numbers as the shipped blob's, and they are the
     pre-entry candidate's — the reconciliation is exact, so read them as a two-stage number.** The message
     says `200 H- headings` and `10888 = ours' 10685 + main's 203 net over the base`; the shipped blob at
@@ -293,6 +313,14 @@ here (#1180).
   `H-0219` is the first id this branch had journalled: main's #407 put the `DECISION-ID` line in
   `factory/next-decision-id.sh`, so a `REFRESH-BLIND` answer now has to be re-read after a fetch before
   the entry, and the journal will show both answers.
+  `H-0220` itself was re-read after its merge's fetch and confirmed free against the fresh union; the
+  `H-0219` gap is the allocator's to skip, not yours to reuse.
+- Run the gate with `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH` until `#425` is repaired,
+  and SAY so where you quote the verdict — the sanitization is a disclosed workaround, not a
+  silent one.
+- When a citation's checker message lists two candidate lines, resolve by opening the blob the
+  citing entry shipped at, and cite that act in the entry — that is how `H-0220` chose `3285` over
+  `6044`.
 - Before editing a file either log cites, run `python3 scripts/check-decisions.py --citations` with that
   path and fix what it lists in the same commit. Every `path:line` you write needs its quoted anchor on
   the same physical line or `POINTER_DEBT` rises and the gate refuses. Two ways to fail that were hit
@@ -313,5 +341,9 @@ here (#1180).
   `rm -rf` is refused by the harness here, so use fresh unique directories.
 - `Chose:` must quote an option verbatim or `check-decisions.py` refuses the entry (measured 16 Nov:
   the paraphrased `Chose:` line cost one gate run).
+  And the citation for a moved pointer must be written only at its NEW coordinate (main's `H-0220`
+  carries that as its own clause).
 - Overwrite this file, carrying every still-true line you did not write. Deleting another unit's owed
   item because your branch did not write it is the failure this file exists to end.
+  Re-measure every live coordinate you carry: `H-0220`'s unit found two that had moved by 7 and 8
+  lines.
