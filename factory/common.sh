@@ -4272,3 +4272,196 @@ EOF
 	log_event "HALT-RELEASED $unit cause-cleared tree-clean cause=$cause releases=$((n + 1)) mirror=$mirror"
 	return 0
 }
+
+# --------------------------------------------------------------------------- the main checkout's own tree
+#
+# Every tree the pass hands to a tick is quarantined first -- `factory_tree_stop` writes
+# `TREE-CLEAN`/`TREE-QUARANTINED` per unit -- and the pass had never once read the tree it runs its
+# own git commands in. Measured 13 Nov (issue #346): the primary checkout sat with a tracked file
+# deleted (` D .cortexkit/.gitignore`) while all 14 linked worktrees read clean, and the journal
+# carried 101 activations whose actions run `git -C "$(factory_main_checkout)"` with not one line
+# about that tree's state; the deletion survived until somebody ran `git status` for an unrelated
+# reason. This is the missing read, and it writes the missing line, once per activation beside the
+# `factory_refresh_origin` read the pass already performs.
+#
+# It RESTORES when, and only when, the dirt is exactly the shape `git checkout` cannot damage:
+# tracked files that are committed and MISSING, with staged, unmerged and untracked work each
+# VERIFIABLY absent. That shape says "whatever owns this path deleted it", and the bytes exist in
+# HEAD and in the index, so restoring destroys nothing. Every other shape -- a modification, a
+# staged entry, a conflicted index, an untracked file -- is an operator's in-flight work: the main
+# checkout is where a human works, its uncommitted content belongs to them and not to a dead tick,
+# and `git checkout -- <path>` over a MODIFIED file silently eats it. Those shapes are journalled
+# and refused, never touched. This is deliberately NOT `factory_tree_quarantine` widened:
+# quarantining the main checkout stashes its modified and untracked files into a patch and halts
+# the queue on refusal, and a halt read before triage is the 15h57m #248 outage re-imported
+# through the operator's door. (H-0197)
+#
+# The three emptiness tests carry #232's discipline stricter than the verdict does, because this
+# pass authorizes a WRITE: an emptiness that could not be verified never restores. A read that
+# refused, or that exited success and still spoke, makes the whole answer UNKNOWN; an incomplete
+# read that FOUND blocking shapes still refuses -- refusing is the safe arm -- and says its
+# warning rode with it. A restore that reported success is confirmed the way a mirror is (#250):
+# by re-reading the one verdict afterwards, never by trusting `checkout`'s exit status, because a
+# phantom restore would recreate this ticket's defect with a green line on top of it.
+#
+# DRY_RUN rehearses the read and never the write, same bargain as `factory_tree_stop`'s dry arm:
+# a rehearsal that restored files would be indistinguishable from the pass it rehearses, and the
+# `DRY-RUN MAIN-CHECKOUT-RESTORE` line says which one ran.
+#
+# usage: factory_main_tree_check TREE      (call with `factory_main_checkout`'s answer)
+# stdout: nothing; the journal is the output, like `factory_tree_stop`.
+# exit:   always 0. The verdict is advisory BY DESIGN -- it must never stop the queue -- and a
+#         nonzero exit at the call site would hand `set -e` a way to make it stop the pass. The
+#         cause token after the action verb is the machine-readable part.
+factory_main_tree_check() {
+	# One scratch file for every git stderr this classification captures and deletes, made here and
+	# deleted here, because the read has multiple exits (same shape as `factory_tree_dirt`'s wrap).
+	local errf
+	if ! errf=$(mktemp "${TMPDIR:-/tmp}/plock-main-XXXXXX" 2>/dev/null); then
+		log_event "MAIN-CHECKOUT-UNKNOWN ${1:-no path returned} cause=no-scratch the classification reads could not capture git's stderr (no scratch file under ${TMPDIR:-/tmp}), so an unfinished read would look like an empty one; nothing was touched"
+		return 0
+	fi
+	factory_main_tree_inspect "$1" "$errf"
+	rm -f -- "$errf"
+	return 0
+}
+
+# factory_main_tree_inspect TREE ERRF -- the classification, with the scratch path handed in.
+# Split from the wrapper for the same reason `factory_tree_dirt` splits from `_read`: every exit
+# here is a journalled verdict, and the scratch cleanup belongs to exactly one of them.
+factory_main_tree_inspect() {
+	local tree=${1:-} errf=${2:?factory_main_tree_inspect needs the scratch path}
+	local dirt='' dirt_rc=0
+	local staged='' unmerged_list='' untracked='' nonstaged=''
+	local shapes='' incomplete='' del_list='' nondeleted=0
+	local line='' status='' p='' why=''
+	local -a del_paths=()
+
+	# The call site resolves the path; an answer git will not answer for means there is no tree to
+	# read, and saying that beats running four reads against the caller's `$PWD`.
+	if [ -z "$tree" ] || ! git -C "$tree" rev-parse --git-dir >/dev/null 2>&1; then
+		log_event "MAIN-CHECKOUT-UNKNOWN ${tree:-no path returned} cause=no-tree the path the pass resolved is not a tree git answers for, so its status was never read; nothing was touched"
+		return 0
+	fi
+
+	dirt=$(factory_tree_dirt "$tree") || dirt_rc=$?
+	if [ "$dirt_rc" -eq 1 ]; then
+		log_event "MAIN-CHECKOUT-CLEAN $tree cause=verdict-clean nothing was dirty; nothing was restored"
+		return 0
+	elif [ "$dirt_rc" -ne 0 ]; then
+		log_event "MAIN-CHECKOUT-UNKNOWN $tree cause=verdict-unreadable ${dirt:-git gave no reason}; nothing was touched"
+		return 0
+	fi
+
+	# The dirt is real. The question is whether ALL of it is the restorable shape -- and the
+	# cheap verdict is not an answer to that: its unstaged leg is an existence test, and a
+	# deleted-AND-modified path is one `git status` letter from the shape this restores.
+	shapes=''
+
+	: >"$errf"
+	dirt_rc=0
+	staged=$(git -C "$tree" diff --cached --name-only 2>>"$errf") || dirt_rc=$?
+	if [ "$dirt_rc" -gt 1 ] || factory_git_incomplete "$errf" "$dirt_rc" 0; then
+		why=$(factory_git_said "$errf")
+		log_event "MAIN-CHECKOUT-UNKNOWN $tree cause=staged-unreadable the staged state could not be verified complete (git diff --cached exited $dirt_rc${why:+; git said: $why}) and an unverified empty never authorizes a restore; nothing was touched"
+		return 0
+	fi
+	[ -n "$staged" ] && shapes="staged"
+
+	: >"$errf"
+	dirt_rc=0
+	unmerged_list=$(git -C "$tree" ls-files --unmerged 2>>"$errf") || dirt_rc=$?
+	if [ "$dirt_rc" -gt 1 ] || factory_git_incomplete "$errf" "$dirt_rc" 0; then
+		why=$(factory_git_said "$errf")
+		log_event "MAIN-CHECKOUT-UNKNOWN $tree cause=index-unreadable the conflicted state could not be verified complete (git ls-files exited $dirt_rc${why:+; git said: $why}) and an unverified empty never authorizes a restore; nothing was touched"
+		return 0
+	fi
+	[ -n "$unmerged_list" ] && shapes="${shapes:+$shapes,}unmerged"
+
+	: >"$errf"
+	dirt_rc=0
+	untracked=$(git -C "$tree" ls-files --others --exclude-standard 2>>"$errf") || dirt_rc=$?
+	if [ "$dirt_rc" -gt 1 ] || factory_git_incomplete "$errf" "$dirt_rc" 0; then
+		why=$(factory_git_said "$errf")
+		log_event "MAIN-CHECKOUT-UNKNOWN $tree cause=untracked-unreadable the untracked state could not be verified complete (git ls-files exited $dirt_rc${why:+; git said: $why}) and an unverified empty never authorizes a restore; nothing was touched"
+		return 0
+	fi
+	[ -n "$untracked" ] && shapes="${shapes:+$shapes,}untracked"
+
+	# The unstaged diff decides deleted-versus-anything-else, by LETTER (a porcelain `XY path`
+	# row split on the first tab), never by parsing prose. `--no-renames` is load-bearing: rename
+	# detection is ON by default in this command, an `R` row is a PAIR, and read as a bare
+	# deletion a rename of a tracked file would restore the old name and "delete" the new one --
+	# an operator's move, not a restorable shape. With the flag every row answers A, M, D or T,
+	# and only D may pass. A read that exited success and spoke while finding blocking shapes
+	# still refuses -- the refusal is safe whatever the warning says -- but the line says so.
+	: >"$errf"
+	dirt_rc=0
+	nonstaged=$(git -C "$tree" diff --name-status --no-renames 2>>"$errf") || dirt_rc=$?
+	if factory_git_incomplete "$errf" "$dirt_rc" 0; then
+		why=$(factory_git_said "$errf")
+		if [ -n "$shapes" ]; then
+			incomplete=" (and this read did not finish: git exited $dirt_rc saying $why)"
+		else
+			log_event "MAIN-CHECKOUT-UNKNOWN $tree cause=worktree-unreadable the unstaged state could not be verified complete (git diff --name-status exited $dirt_rc${why:+; git said: $why}) and an unverified empty never authorizes a restore; nothing was touched"
+			return 0
+		fi
+	fi
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		status=${line%%$'\t'*}
+		p=${line#*$'\t'}
+		if [ "$status" = D ]; then
+			del_list+="$p"$'\n'
+		else
+			nondeleted=1
+		fi
+	done <<<"$nonstaged"
+	[ "$nondeleted" -gt 0 ] && shapes="${shapes:+$shapes,}modified"
+
+	if [ -n "$shapes" ]; then
+		log_event "MAIN-CHECKOUT-REFUSED $tree cause=not-restorable shapes=$shapes the dirt is not the committed-and-missing shape (${dirt:-git named nothing})${incomplete}; refusing means touching nothing, and no restore was attempted"
+		return 0
+	fi
+
+	# No blocking shape and the verdict said dirty, so the only thing the diff can carry is
+	# deletions -- unless the two reads disagree, which is the window closing under us.
+	if [ -z "$del_list" ]; then
+		log_event "MAIN-CHECKOUT-CLEAN $tree cause=late-clean the verdict read dirty (${dirt:-git named nothing}) and every classification read then answered empty; the reads disagree and the later ones say clean; nothing was touched"
+		return 0
+	fi
+	while IFS= read -r p; do
+		[ -n "$p" ] && del_paths+=("$p")
+	done <<<"$del_list"
+
+	if [ "$DRY_RUN" = "1" ]; then
+		log_event "DRY-RUN MAIN-CHECKOUT-RESTORE $tree cause=tracked-deleted count=${#del_paths[@]} the verdict would restore ${#del_paths[@]} committed missing file(s) (${del_list//$'\n'/ }); rehearsal: nothing was written"
+		return 0
+	fi
+
+	# The paths come from `diff --name-only`/`--name-status` WITHOUT `-z`, which is how
+	# `factory_tree_dirt` reads every path in this tree; a path needing quoting (core.quotePath)
+	# would arrive here quoted, match no real pathspec, and land in the FAILED arm with the quote
+	# in the message -- a refused restore, never a partial one.
+	: >"$errf"
+	if ! git -C "$tree" checkout -- "${del_paths[@]}" 2>>"$errf"; then
+		why=$(factory_git_said "$errf")
+		log_event "MAIN-CHECKOUT-RESTORE-FAILED $tree cause=checkout-refused count=${#del_paths[@]} git said: ${why:-nothing}; the restore did not land and the tree was left as the verdict found it (${dirt:-git named nothing})"
+		return 0
+	fi
+
+	# "The write worked" is a claim about the world, so the world answers it (#250): re-run the
+	# ONE verdict the queue's other eyes use. Anything other than clean -- dirt left, or a read
+	# that refused -- is its own line, because a partial restore that reads as a whole one is
+	# this ticket's defect with a green line on top of it.
+	local dirt2='' rc2=0
+	dirt2=$(factory_tree_dirt "$tree") || rc2=$?
+	if [ "$rc2" -eq 1 ]; then
+		log_event "MAIN-CHECKOUT-RESTORED $tree cause=tracked-deleted-restored count=${#del_paths[@]} restored=${del_list//$'\n'/ } verified=clean the committed file(s) were missing and the re-read verdict says the tree is clean"
+	elif [ "$rc2" -eq 0 ]; then
+		log_event "MAIN-CHECKOUT-RESTORE-INCOMPLETE $tree cause=still-dirty git checkout exited 0 and the tree still reads: ${dirt2:-git named nothing}; nothing further was touched"
+	else
+		log_event "MAIN-CHECKOUT-RESTORE-INCOMPLETE $tree cause=post-read-unreadable git checkout exited 0 and the tree could not be read back (${dirt2:-git gave no reason}); the restore is unconfirmed and nothing further was touched"
+	fi
+	return 0
+}
