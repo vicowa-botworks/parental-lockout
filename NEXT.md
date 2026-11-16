@@ -2,7 +2,7 @@
 
 State at push: branch `issue-337`, checkpoint `ae1047e`; the effect commit carries `Decision: H-0207`
 -- the second base-sync union for PR #402 (the first is `H-0190`, the hand-off gate is `H-0189`).
-Everything below is the hand-off `H-0189` shipped, carried forward unmodified.
+Everything below is the hand-off `H-0189` shipped, plus the follow-ups PR #402's 15 Nov review raised.
 `make verify`'s verdict is quoted in the pull-request body from its read-back, never from here (#1180).
 
 ## What this unit shipped
@@ -54,6 +54,20 @@ Everything below is the hand-off `H-0189` shipped, carried forward unmodified.
 5. **The dispatch that invented this gate was not the only one.** Nothing in the tree enumerates the
    commands a dispatch may name, so a future sentence can invent a different tool. The three-file leg is
    the cheapest available net, not a proof none exist.
+
+## Non-blocking review items carried forward (PR #402, review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers — fix on a later head, they will spend the approval again)
+
+1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh:157` requires
+   `[-*][ \t]` after the marker, so a lone `-` line matches neither branch, and the fixture at
+   `:372-377` plants `- ` *with* the space, so the suite cannot see the class. Measured by the
+   reviewer: rc 0 for a shipped bare-dash bullet. Repair: widen to `[-*]([ \t]|$)` and add a fixture.
+2. **The scanned-file list is unpinned.** `leg_paths` at `:182` reads `NEXT.md`, the skill and
+   `AGENTS.md`, but every phantom-path fixture plants only in `NEXT.md` — a future PR could narrow the
+   list with the suite green. The reviewer's probes show the list binds today. Repair: one fixture that
+   plants the phantom in `AGENTS.md`.
+3. **`leg_shape` early-returns after the first shape refusal** (`:119`/`:123`/`:128`/`:143`), so a
+   hand-off with two shape defects reports one per run. Accepted as a first cut; recorded so the next
+   unit does not mistake the behavior for a bug.
 
 ## Hard rules for whoever picks this up
 
