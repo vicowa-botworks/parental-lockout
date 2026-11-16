@@ -1676,6 +1676,33 @@ pass. That is the supervisor's ref policy rather than the allocator's, so it is 
 `H-0056` counter-argument written out on it -- not a paragraph here that only whoever reads this
 section will ever find.
 
+### Provenance: which id the journal watched being earned
+
+Acceptance prices the collision at the merge; it priced nothing about *attributing* one. #345 measured
+the gap: neither side of the `D-0058` collision ran the allocator -- 4 of 52 checkpoint-creating ticks
+executed it -- and afterwards every check saw two well-formed headings sharing one id with nothing
+anywhere recording which side had earned it, because the allocator's answer existed as stdout for the
+moment it printed. A number taken by eye was indistinguishable from a number handed out.
+
+So the allocator's answer now leaves a witness, and every tick audits for its absence. Whenever the
+allocator runs inside a tick context -- `factory_tick` exports `FACTORY_TICK_UNIT` and
+`FACTORY_TICK_BRANCH`, and the allocator refuses to guess: a bare terminal run journals nothing -- its
+answer is journalled in `supervisor.log` as `DECISION-ID <id> unit=<row> branch=<branch> (allocator,
+<log>, <read>)`, failure-blind like the tree verdicts, because a write that cannot land must never eat
+the id it is meant to accompany. At the end of every activation `factory_decision_provenance`
+(`factory/common.sh`) compares each decision log's headings against that record: every id the branch
+newly carries, with no allocation journalled for it on *that branch*, gets
+`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- attributed, once per unit,
+recorded and never fatal. The report is deliberately about attribution, not behavior: an unearned id
+is often harmless prose, and the human's verb is the yield procedure above, which a clean report would
+have made a coin flip. An id earned on a sibling branch reports too -- that is the #345 shape, a
+collision's other half is always somewhere the journal has never looked. And a tree whose `origin/main`
+cannot be read journals `DECISION-ID-UNCHECKED` naming the failed read and renders no verdict, per the
+`TICK-UNCHECKED` doctrine: every id in the tree is neither claimed nor refused by a read that did not
+happen. `H-0195` carries the option set, including the two refused for measurement: dispensing ids at
+claim time (a claim cannot know the unit will decide) and a gate-level duplicate refusal (it arrives at
+merge, on the wrong branch's bytes, saying `duplicate` where the question is `whose`).
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh` -- except
@@ -1694,6 +1721,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on each `git fetch` an activation does (H-0075; #342 adds the harness tree beside the primary checkout, so a split arrangement fetches each); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
+| `FACTORY_HALT_RELEASES` | `2` | how many times one unit's machine-written halt may remove itself when the tree it names is provably past its cause (#341); see the section under "Stopping it" |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_STALE_ESCALATE` | `3` | how many consecutive activations may report the installed tree behind and not repair it before `--status`'s verdict reads `STALE` (#342). Three: enough to ride out one pass whose refusal cause clears, short enough that nobody reads 92 journal lines to call the outage a defect |
@@ -1722,6 +1750,38 @@ says otherwise (#249, and the section above). Since #342 the `verdict:` line abo
 `STALE` -- the installed tree behind and unrepaired for `FACTORY_STALE_ESCALATE` activations running,
 with the last refusal's condition named in the sentence -- so the outage no longer needs a person to
 grep the journal to call it a defect.
+
+### A standing halt is re-asked every activation (#341)
+
+A halt the harness wrote is now a question, not a verdict. The marker used to be a fact about the
+instant it was written: every later activation printed its sentence and never asked the tree again,
+and the streak halt is written one second AFTER the quarantine has already stashed and mirrored the
+work it names -- so the named condition was false from the marker's birth and the queue froze anyway.
+Measured on #302: 14h34m, 77 activations, 34 idle units, until a person ran `rm`.
+
+Now the activation guard calls `factory_halt_reprobe` before it refuses. The marker written by
+`factory_tree_halt` carries a machine line-tail -- `:: halt-target: unit=…|cause=…|mirror=…|tree=…`
+-- and the re-probe asks that tree the content question (`factory_tree_dirt`) plus the two #323
+state questions (`MERGE_HEAD`, unmerged index entries). The outcomes, each one a journal line:
+
+- **`HALT-RELEASED <unit> cause-cleared tree-clean`** -- the named tree is provably clean and not
+  half-merged: the marker is removed, the streak counter it came from is cleared, and this pass
+  proceeds to triage. `HALTED` is not printed.
+- **`HALTED …, re-probed this pass without release: …`** -- still dirty, half-merged, or git would
+  not answer: the halt stands, and the sentence says this pass asked.
+- **`HALT-STUBBORN <unit> releases=N`** -- the cause is cleared but the unit's release budget
+  (`FACTORY_HALT_RELEASES`, above) is spent: the halt stands and the journal names both files a
+  human resume touches (the marker and the counter). This is the trade this section sells: a unit
+  that keeps stopping short of delivery can consume two more activations before a person is
+  required -- two ticks against the 15h57m #248 counted read by nobody.
+- **`HALTED …, and not re-probed since: …`** -- a hand-written marker. It names no target, there is
+  nothing to ask, and nothing but the person who wrote it removes it. That rule predates #341 and
+  survives it.
+
+A dry run never re-probes: a release is a write, and dry runs write nothing to the real queue's halt
+switch. The `HALT-NOTICED` issue comment stays the halt-write moment's, throttled once per hour; a
+notice posted over a mirrored halt now names the stash and the mirror path and says plainly that
+removing the marker loses nothing, because for that shape removing the marker loses nothing.
 
 ## What "dirty" means, because the test decides when the queue stops
 

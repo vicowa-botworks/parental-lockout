@@ -2912,8 +2912,8 @@ proc_rec=$proc_work/gh-calls
 proc_up=$proc_work/up
 mkdir -p "$proc_bin" "$proc_fix"
 
-# One trunk, one commit, holding the three shipped scripts and a file a leg can dirty. The scripts are
-# committed (not copied in afterwards) so the clone is clean the way a real checkout is: an untracked
+# One trunk, one commit, holding the shipped scripts, the decision log and a file a leg can dirty.
+# The scripts are committed (not copied in afterwards) so the clone is clean the way a real checkout is: an untracked
 # file here would put `dirty=1` in every `SUPERVISOR-AT` line and make the pass look like it was
 # working in a tree somebody had left half-finished -- the very state the quarantine exists to refuse.
 mkdir -p "$proc_up/factory"
@@ -2921,8 +2921,14 @@ git init -q "$proc_up"
 git -C "$proc_up" config user.email fixture@invalid
 git -C "$proc_up" config user.name fixture
 git -C "$proc_up" checkout -qb main
-cp "$HERE/common.sh" "$HERE/factory.sh" "$HERE/triage.sh" "$proc_up/factory/"
-chmod +x "$proc_up/factory/factory.sh" "$proc_up/factory/triage.sh"
+cp "$HERE/common.sh" "$HERE/factory.sh" "$HERE/triage.sh" "$HERE/next-decision-id.sh" "$proc_up/factory/"
+chmod +x "$proc_up/factory/factory.sh" "$proc_up/factory/triage.sh" "$proc_up/factory/next-decision-id.sh"
+# The allocator and the decision log joined the trunk for #345's wiring legs: the subject there is
+# the dispatch leaving the SESSION an environment in which `factory/next-decision-id.sh` journals its
+# answer, and that is only observable if the session's own hands can run the real script against the
+# real log inside the tree the pass gave it. A trunk without these two could only fake the call --
+# and a fake call proves nothing about an export.
+printf '# Decisions\n## D-0001 · the trunk entry every allocation reads past\nbody\n' >"$proc_up/DECISIONS.md"
 printf 'alpha\nbeta\ngamma\n' >"$proc_up/tracked.txt"
 git -C "$proc_up" add -A
 git -C "$proc_up" commit -qm 'fixture harness: the shipped scripts, and a file to leave uncommitted'
@@ -3132,6 +3138,25 @@ if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TI
 	printf 'fixture tick: %s fails, which is what the dispatcher is being asked about\n' "$PROC_TICK_FAILS"
 	exit 1
 fi
+# #341 needs the `#302` shape: a session that exits 0 with finished, verified, UNCOMMITTED work in
+# its tree -- that is the trigger the quarantine streak arms on. Only when PROC_DIRTY names the
+# unit, so every other fixture sees exactly the stub it always saw.
+if [ -n "${PROC_DIRTY:-}" ] && [ "${tree:-none}" != none ] && printf '%s' "$title" | grep -qF -- "$PROC_DIRTY"; then
+	printf 'finished, verified, uncommitted\n' >>"$tree/undelivered-work.txt"
+fi
+# A leg that needs the session to run something INSIDE the tick's own environment (#345's wiring
+# legs): the exports those legs pin (`FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH`) are
+# only observable from inside the session, so the stub executes the leg's script against the tree
+# the prompt names. The variable is unset for every other leg in this file, and the stub's shipped
+# behaviour is identical with the arm absent -- the two W-controls below prove the arm is reachable
+# and the exports are what make it reach.
+if [ -n "${PROC_TICK_ALLOC:-}" ]; then
+	if [ -z "$tree" ]; then
+		printf 'fixture tick: PROC_TICK_ALLOC is set but the prompt carried no tree to work in\n' >&2
+		exit 1
+	fi
+	bash "$PROC_TICK_ALLOC" "$tree"
+fi
 exit 0
 PROCRT
 chmod +x "$proc_bin/opencode"
@@ -3236,6 +3261,8 @@ proc_run() {
 	env PATH="$proc_bin:$PATH" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
+		PROC_DIRTY="${proc_dirty:-}" \
+		PROC_TICK_ALLOC="${proc_tick_alloc:-}" \
 		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
 		FACTORY_OPENCODE=opencode FACTORY_AGENT=factory \
@@ -3251,17 +3278,17 @@ proc_run() {
 }
 
 # proc_mutate <anchor> <line> -> the fixture's common.sh with one line after the shipped one. It
-# refuses unless the anchor occurs exactly once, because a mutant planted on the wrong line is a
-# control that measures nothing while printing the loudest sentence in the section.
+# refuses unless the anchor occurs exactly once: a mutant planted on the wrong line measures nothing.
+# Anchor and line arrive through ENVIRON, never `awk -v`, which eats backslashes (H-0196, gawk 5.2.1).
 proc_mutate() {
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/common.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/common.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/common.sh, so it would\n' "$hits" >&2
 		printf '            not be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ print } index($0, a) { print line }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ print } index($0, ENVIRON["PMUT_ANCHOR"]) { print ENVIRON["PMUT_LINE"] }' \
 		"$HERE/common.sh" >"$proc_dir/common.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/common.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -3516,6 +3543,1401 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ---------------- a tree left mid-merge gets cleared; every other mid-operation tree still halts (#328)
+
+# `factory_tree_quarantine` could not clear a conflicted tree: `git stash push -u` refuses a half-merged
+# index, and the refusal was the end of the story. #328 measured the cost, and these are its numbers, not
+# a paraphrase -- `TREE-QUARANTINE-REFUSED pr:307 … quarantine refused: git stash failed :: error: could
+# not write index factory/DECISIONS.md: needs merge`, then `CONFLICT-HALTED pr:307 … has uncommitted work
+# (staged-but-uncommitted: AGENTS.md DECISIONS.md docs/factory.md (+13 more, 16 in all)`, then 54
+# consecutive halted activations from `2026-11-12T04:22:36Z` to `14:36:08Z` = 10 h 13 min 32 s, with 37
+# units queued throughout -- one of them an `APPROVED / CLEAN` pull request with 5/5 checks green.
+#
+# These legs plant the state in a LINKED WORKTREE, the shape the outage was found in. A unit's tree comes
+# from `git worktree add`, which writes `.git` as a FILE reading `gitdir: <repo>/.git/worktrees/<name>`,
+# and the operation's files live in that gitdir -- measured on a fresh `worktree add` with a planted
+# conflict: `git rev-parse --git-dir` answers `<repo>/.git/worktrees/wt`, `$tree/.git/MERGE_HEAD` is
+# ABSENT, `<gitdir>/MERGE_HEAD` EXISTS, `ls-files -u` has 3 entries. A guard written against the first path
+# is dead in the field and green on a primary checkout, which is how an arm can exist in the file and
+# still leave the queue halted. One leg below asserts the fixture's own shape for that reason: a planted
+# state nobody verifies is a leg that passes on an empty tree (H-0043).
+#
+# They are in-process rather than a supervisor run like the `proc_*` section above: the thing under test
+# is one function's verdict and its two arms, and the process-level claim ("the queue got past it")
+# belongs to the legs above, which already pin `TREE-QUARANTINED`, the streak and the halt file. What
+# this section adds is the shape the function is called on and the bytes the mirror must hold.
+
+mm=$work/midmerge
+mm_risk=$FACTORY_AT_RISK
+mkdir -p "$mm"
+
+mm_leg() { # mm_leg <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-38s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-38s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-38s %s\n' "$label" "$requires"
+	fi
+	return 0
+}
+
+mm_repo_new() { # mm_repo_new <dir> -> a repo whose main AND side write the same two paths, so a merge conflicts
+	local r=$1
+	mkdir -p "$r/sub"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/keepme.txt"
+	printf 'other\n' >"$r/other.txt"
+	printf 'deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/keepme.txt"
+	printf 'side deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm side-writes-both
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/keepme.txt"
+	printf 'main deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-writes-both
+}
+
+mm_wt_new() { # mm_wt_new <name> -> a fresh detached linked worktree at main, merge NOT yet started
+	git -C "$mm_repo" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_merge() { # mm_merge <tree> -> start the conflict and say nothing
+	git -C "$mm/$1" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+}
+
+mm_repo=$mm/repo
+mm_repo_new "$mm_repo"
+mm_side=$(git -C "$mm_repo" rev-parse side)
+
+# The tree the ticket describes: a conflicted merge, a resolution typed in by hand and never committed,
+# one untracked file, and an edit to a path the merge did not touch.
+mm_plant_full() { # mm_plant_full <name> -> conflicted tree with hand bytes, a staged path, scratch, an edit
+	local t
+	t=$(mm_wt_new "$1")
+	mm_merge "$1"
+	printf 'hand resolved, never committed\n' >"$t/keepme.txt"
+	printf 'scratch\n' >"$t/notes.md"
+	printf 'edited while conflicted\n' >>"$t/other.txt"
+	# The tree #328 was reported in is `staged-but-uncommitted: … (+13 more, 16 in all)` -- resolutions
+	# `git add`ed and never committed. `git add` of a path that is not itself unmerged is legal mid-merge
+	# (measured: status `UU keepme.txt|M  staged.txt|`), so this tree holds a stage-0 entry ahead of HEAD
+	# beside the three stages -- the half a worktree-vs-HEAD patch cannot tell from an unstaged write.
+	printf 'added, never committed\n' >"$t/staged.txt"
+	git -C "$t" add -- staged.txt
+	printf '%s' "$t"
+}
+
+mm_wt=$(mm_plant_full wt)
+
+# The fixture's own shape, before anything is believed about it. `git worktree add` writes `.git` as a
+# one-line FILE, so the relative read this function replaces could not have seen the operation.
+mm_fixture_is_linked() {
+	[ -f "$mm_wt/.git" ] || {
+		printf '            %s/.git is not a file, so this is not the tree shape #328 names and the\n' "$mm_wt" >&2
+		printf '            detector below would pass on a primary checkout where it is not being asked.\n' >&2
+		return 1
+	}
+	[ -e "$mm_wt/.git/MERGE_HEAD" ] && {
+		printf '            %s/.git/MERGE_HEAD exists, so the relative read WOULD find it and the\n' "$mm_wt" >&2
+		printf '            negative control below is not controlling anything.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'fixture: .git is a file, not a dir' 'the relative read cannot see MERGE_HEAD here' mm_fixture_is_linked
+
+mm_detector_says_merge() {
+	local got rc=0
+	got=$(factory_tree_unmerged "$mm_wt") || rc=$?
+	[ "$got" = merge ] || {
+		printf '            factory_tree_unmerged said "%s", not merge. The tree has %s stage entries\n' \
+			"${got:-nothing}" "$(git -C "$mm_wt" ls-files -u | wc -l | tr -d '[:space:]')" >&2
+		printf '            and %s/.git/MERGE_HEAD is what MERGE_HEAD is called through the gitdir file.\n' "$mm_wt" >&2
+		return 1
+	}
+	# rc 0, not 2: the detector's exit is the quarantine arm's switch, and 2 means "halt" there.
+	[ "$rc" = 0 ] || {
+		printf '            it said merge and then exited %s; 0 is the arm that clears, 2 is the halt.\n' "$rc" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'the detector names a mid-merge tree' 'merge, rc 0, from a gitdir FILE' mm_detector_says_merge
+
+# The mechanism the ticket was filed against, pinned rather than trusted: this is why the merge arm sits
+# before the stash instead of inside its failure handler. A tree where `git stash` starts WORKING again
+# is a tree where this arm is redundant, and the leg says so out loud.
+mm_still_refuses() {
+	local t out rc=0
+	t=$(mm_wt_new refuse)
+	mm_merge refuse
+	out=$(git -C "$t" stash push -u -m "supervisor quarantine unclaimed:909 x" 2>&1) || rc=$?
+	if [ "$rc" = 0 ]; then
+		printf '            `git stash push -u` SUCCEEDED on a conflicted tree (git %s), so the merge\n' "$(git --version | sed 's/^git version //')" >&2
+		printf '            arm is no longer the only way out and this leg should be retired, not\n' >&2
+		printf '            patched: %s\n' "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" >&2
+		return 1
+	fi
+	case "$out" in
+	*could\ not\ write\ index* | *needs\ merge*) : ;;
+	*) printf '            it refused, but not with the sentence the ticket recorded (%s), so the\n' \
+		"$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" >&2
+		printf '            failure being routed here is a different one:\n' >&2
+		printf '              %s\n' "$(git -C "$t" status --porcelain | tr '\n' ' ')" >&2
+		return 1 ;;
+	esac
+	# The part that made it an outage rather than an error message: the refusal changes nothing, so the
+	# tree is still mid-merge and the caller had no way to know which operation to end.
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the failed stash removed MERGE_HEAD, which is not what #328 measured and\n' >&2
+		printf '            would mean the old arm was leaving trees in a state nobody described.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'git stash still refuses this tree' 'rc != 0, "needs merge", MERGE_HEAD left' mm_still_refuses
+
+mm_quarantine_clears() {
+	local out rc=0 dirt_rc=0
+	out=$(factory_tree_quarantine 'unclaimed:910' "$mm_wt" 2>"$mm/q.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantine of a mid-merge tree exited %s instead of clearing it.\n' "$rc" >&2
+		printf '            stdout: %s\n' "${out:-nothing}" >&2
+		printf '            stderr: %s\n' "$(tr '\n' ' ' <"$mm/q.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	# The journal line, field by field. `kind=` says which arm ran -- a reader triaging at 3 a.m. cannot
+	# tell "the merge was aborted" from "the tree was stashed" without it. `merge=` is the side commit
+	# #328 asked for by name, and it is the only way to re-offer the conflict from the journal alone.
+	# `mirror=` is last because the caller reads it with `${line##*mirror=}`.
+	case "$out" in
+	"kind=merge merge=$mm_side stash="*" mirror="*) : ;;
+	*) printf '            the journal line is %s, not "kind=merge merge=%s stash=<sha|none> mirror=<dir>".\n' \
+		"${out:-nothing}" "${mm_side:0:9}" >&2
+		if printf '%s' "$out" | grep -q "kind=merge"; then
+			printf '            It says kind=merge, so the arm ran and the field it owes is the one missing here:\n' >&2
+			printf '              merge= is read before the abort, which is what destroys MERGE_HEAD.\n' >&2
+		fi
+		return 1 ;;
+	esac
+	# `case`, not `test`: `"$mm_risk"/*` inside `[ ]` is a word the SHELL glob-expands before `test` ever
+	# sees it, so with one file in the box it compares two equal paths and passes, and with two it hands
+	# `test` too many arguments and fails -- which is exactly how this assertion went red in the full suite
+	# and stayed green run alone. A case pattern is matched, not expanded.
+	case "${out##*mirror=}" in
+	"$mm_risk"/*) : ;;
+	*) printf '            the journal line does not END with the mirror path (%s), so the caller'"'"'s\n' "${out##*mirror=}" >&2
+		printf '            the `mirror=` read the caller uses -- ${line##*mirror=} -- would capture a\n' >&2
+		printf '            field along with the path, and the journal would name an unusable directory.\n' >&2
+		return 1 ;;
+	esac
+	case "$out" in
+	*"$mm_risk"/*) : ;;
+	*) printf '            the mirror left the fixture box: %s\n            It belongs under %s -- the\n' "${out:-nothing}" "$mm_risk" >&2
+		printf '            default of FACTORY_AT_RISK is the operator'"'"'s real at-risk directory.\n' >&2
+		return 1 ;;
+	esac
+	if git -C "$mm_wt" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+		printf '            the tree is still mid-merge: MERGE_HEAD is %s.\n' \
+			"$(git -C "$mm_wt" rev-parse MERGE_HEAD)" >&2
+		return 1
+	fi
+	# rc 1, not merely clean: rc 0 is `factory_tree_dirt`'s "yes there is dirt" and rc 2 is "I could not
+	# read this tree". The caller's arms are written against all three.
+	factory_tree_dirt "$mm_wt" >/dev/null || dirt_rc=$?
+	[ "$dirt_rc" = 1 ] || {
+		printf '            after a reported success the tree reads %s (rc %s); 1 is the word the\n' \
+			"$(factory_tree_dirt "$mm_wt" 2>&1 | tr '\n' ' ' | cut -c1-120)" "$dirt_rc" >&2
+		printf '            caller clears a streak on, and anything else leaves the unit halted.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'quarantine clears the merge' 'kind=merge, tree clean at rc 1, no MERGE_HEAD' mm_quarantine_clears
+
+# Where the mirror went. Read back from the at-risk box rather than handed down from the leg above: a
+# leg that inherits its fixture from a shell variable cannot be run alone, and this suite gets re-run
+# one section at a time more often than any plan admits.
+mm_dir() { # mm_dir -> the mid-merge mirror this section produced
+	local d
+	d=$(find "$mm_risk" -maxdepth 1 -type d -name 'wt-merge-quarantine-*' | sort | tail -n 1)
+	[ -n "$d" ] || return 1
+	printf '%s' "$d"
+}
+
+mm_mirror_holds_the_state() {
+	local d
+	d=$(mm_dir) || {
+		printf '            no `wt-merge-quarantine-*` directory under %s, so the rescue has no copy.\n' "$mm_risk" >&2
+		return 1
+	}
+	[ -s "$d/MANIFEST" ] || {
+		printf '            %s has no MANIFEST, and a mirror nobody can interpret is bytes, not a copy.\n' "$d" >&2
+		return 1
+	}
+	grep -q -- "$mm_side" "$d/MANIFEST" || {
+		printf '            the MANIFEST does not name the side commit %s, so `git merge <sha>` -- the\n' "${mm_side:0:9}" >&2
+		printf '            only verb that reproduces this conflict -- cannot be run from it.\n' >&2
+		return 1
+	}
+	# All three stages, by content. Existence is not identity (#1703): a directory of empty stage files
+	# is the same shape and restores nothing.
+	local stage want
+	for stage in 1 2 3; do
+		case $stage in
+		1) want=base ;;
+		2) want=MAIN ;;
+		3) want=SIDE ;;
+		esac
+		[ "$(cat "$d/unmerged/$stage/keepme.txt" 2>/dev/null)" = "$want" ] || {
+			printf '            stage %s of keepme.txt holds "%s", not "%s" -- the index had base/ours/\n' \
+				"$stage" "$(cat "$d/unmerged/$stage/keepme.txt" 2>/dev/null || printf 'nothing')" "$want" >&2
+			printf '            theirs at the moment the tree was cleared.\n' >&2
+			return 1
+		}
+	done
+	[ "$(cat "$d/worktree/keepme.txt" 2>/dev/null)" = 'hand resolved, never committed' ] || {
+		printf '            worktree/keepme.txt does not hold the bytes somebody typed in (%s), which is\n' \
+			"$(cat "$d/worktree/keepme.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            the one copy of that work: `merge --abort` writes stage 2 over it and no stage\n' >&2
+		printf '            entry contains it. This is the file the whole arm exists for.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/untracked/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            the untracked scratch file is not in the mirror, and `merge --abort` does not\n' >&2
+		printf '            remove untracked files -- the stash that follows it is what takes them.\n' >&2
+		return 1
+	}
+	# The staged half. `diff-HEAD.patch` carries staged content and unstaged content identically, so a
+	# mirror without this file restores the bytes and silently drops the `git add` -- and the tree #328
+	# was filed against had sixteen paths in exactly that state.
+	[ -s "$d/diff-cached.patch" ] || {
+		printf '            diff-cached.patch is %s, so the `git add`ed-and-never-committed path is not\n' \
+			"$([ -e "$d/diff-cached.patch" ] && printf 'empty' || printf 'absent')" >&2
+		printf '            in the copy: the restore would leave it unstaged and no reader could tell.\n' >&2
+		return 1
+	}
+	grep -q '^diff --git a/staged.txt' "$d/diff-cached.patch" || {
+		printf '            diff-cached.patch has no hunk for the staged path; it holds:\n' >&2
+		sed 's/^/              /' "$d/diff-cached.patch" | head -n 6 >&2
+		return 1
+	}
+	# The conflicted paths must NOT arrive as hunks here. They render as git's `* Unmerged path <p>`
+	# notice (measured: 27 bytes for one conflicted path, no hunk), which `git apply` skips -- a hunk for
+	# an unmerged path would make the whole file unusable, and the notice is what keeps it usable.
+	grep -q '^\* Unmerged path keepme.txt$' "$d/diff-cached.patch" || {
+		printf '            the conflicted path is not the notice line in diff-cached.patch. If it is a\n' >&2
+		printf '            hunk, `git apply --cached` refuses the file; if it is absent, the notice form\n' >&2
+		printf '            changed and the comment about skipping it is the thing that is wrong.\n' >&2
+		return 1
+	}
+	grep -q '^diff --git a/other.txt' "$d/diff-cached.patch" && {
+		printf '            other.txt -- written but never `git add`ed -- has a hunk in the STAGED patch,\n' >&2
+		printf '            so this file no longer separates the two halves and the restore stages work\n' >&2
+		printf '            nobody asked to stage.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'the mirror holds all three stages' 'stages 1/2/3, worktree bytes, untracked, staged half' mm_mirror_holds_the_state
+
+# The claim #250 made about a patch mirror, asked of a directory one: a journal line that names bytes
+# which do not restore the tree is worse than the halt, because it tells the reader the work is safe.
+# This leg runs the recipe the MANIFEST printed, verbatim, in a tree at the same HEAD.
+mm_round_trip() {
+	local d t script
+	d=$(mm_dir) || return 1
+	t=$(mm_wt_new rt)
+	sed -n '/^Want the bytes back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r1.sh" || {
+		printf '            the MANIFEST has no "Want the bytes back" block, so there is no procedure\n' >&2
+		printf '            for a person to run and this mirror is a pile of files.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r1.sh")" -ge 3 ] || {
+		printf '            the extracted recipe is:\n' >&2
+		sed 's/^/              /' "$mm/r1.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r1.sh" >"$mm/r1.out" 2>&1); then
+		printf '            the recipe the MANIFEST tells a person to run exits non-zero:\n' >&2
+		sed 's/^/              /' "$mm/r1.sh" >&2
+		sed 's/^/              /' "$mm/r1.out" >&2
+		return 1
+	fi
+	[ "$(cat "$t/keepme.txt")" = 'hand resolved, never committed' ] || {
+		printf '            after the recipe keepme.txt holds "%s". The typed-in resolution is the work\n' \
+			"$(cat "$t/keepme.txt")" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$t/other.txt")" = 'edited while conflicted' ] || {
+		printf '            the edit to a path the merge did not touch did not come back (%s) -- that is\n' \
+			"$(tr '\n' '|' <"$t/other.txt")" >&2
+		printf '            the tracked work an ordinary quarantine would have put in a stash.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            the untracked file did not come back from the recipe.\n' >&2
+		return 1
+	}
+	# The index, not just the bytes. `staged.txt` was `git add`ed and never committed; `other.txt` was
+	# written and not staged. A recipe that only ran diff-HEAD.patch returns both as ` M` and the tree
+	# looks restored while the `git add` is gone -- so the two must come back in different states.
+	[ "$(git -C "$t" status --porcelain -- staged.txt)" = "A  staged.txt" ] || {
+		printf '            staged.txt comes back as [%s], not [A  staged.txt]: the mirror held its bytes\n' \
+			"$(git -C "$t" status --porcelain -- staged.txt)" >&2
+		printf '            but not the fact that it had been added, which is the state a tick died in.\n' >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- other.txt)" = " M other.txt" ] || {
+		printf '            other.txt comes back as [%s], not [ M other.txt] -- the recipe staged a path\n' \
+			"$(git -C "$t" status --porcelain -- other.txt)" >&2
+		printf '            that was only ever written, so the two halves are not separable anymore.\n' >&2
+		return 1
+	}
+	# The conflicted path comes back as the bytes it held, markers included -- proof the patch carried
+	# the worktree state and not a stage's. `diff HEAD --diff-filter=U` renders no hunk (measured, 0
+	# bytes), and `diff --diff-filter=U` with no commit renders only the 32-byte notice
+	# `* Unmerged path <p>`: non-empty, restores nothing, the exact shape H-0063 refuses.
+	grep -q '<<<<<<<' "$t/sub/deep.txt" || {
+		printf '            sub/deep.txt came back without conflict markers, so the mirror held a stage\n' >&2
+		printf '            rather than the file as it stood.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'mirror restores the tree exactly' 'the MANIFEST recipe, run literally, returns it' mm_round_trip
+
+mm_cherry_pick_halts() {
+	local t before after out rc=0 dirs_before dirs_after
+	t=$(mm_wt_new cp)
+	git -C "$t" cherry-pick "$mm_side" >/dev/null 2>&1 || true
+	git -C "$t" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null || {
+		printf '            the fixture: no CHERRY_PICK_HEAD after a cherry-pick of %s, so this leg\n' "${mm_side:0:9}" >&2
+		printf '            is asserting about a tree that is not in the shape it claims.\n' >&2
+		return 1
+	}
+	before=$(git -C "$t" status --porcelain)
+	dirs_before=$(find "$mm_risk" -maxdepth 1 -type d -name '*-merge-quarantine-*' | wc -l | tr -d '[:space:]')
+	out=$(factory_tree_quarantine 'unclaimed:911' "$t" 2>"$mm/cp.err") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            a cherry-pick conflict exited %s; 2 is the halt. stdout was %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		return 1
+	}
+	case "$(cat "$mm/cp.err")" in
+	*cherry-pick*) : ;;
+	*) printf '            the refusal does not name the operation (%s), which is the whole complaint\n' \
+		"$(tr '\n' ' ' <"$mm/cp.err" | cut -c1-160)" >&2
+		printf '            about `git stash`'"'"'s `needs merge`: the reader cannot tell what to end.\n' >&2
+		return 1 ;;
+	esac
+	after=$(git -C "$t" status --porcelain)
+	[ "$before" = "$after" ] || {
+		printf '            the halt moved the tree. Before:\n' >&2
+		printf '%s\n' "$before" | sed 's/^/              /' >&2
+		printf '            after:\n' >&2
+		printf '%s\n' "$after" | sed 's/^/              /' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null || {
+		printf '            the refusal cleared CHERRY_PICK_HEAD: an operator now has a conflicted index\n' >&2
+		printf '            with no record of the operation that made it.\n' >&2
+		return 1
+	}
+	dirs_after=$(find "$mm_risk" -maxdepth 1 -type d -name '*-merge-quarantine-*' | wc -l | tr -d '[:space:]')
+	[ "$dirs_before" = "$dirs_after" ] || {
+		printf '            it also wrote a mirror directory for a tree it refused (%s -> %s), so the\n' "$dirs_before" "$dirs_after" >&2
+		printf '            at-risk box fills with copies of states this function never cleared.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a cherry-pick still halts, untouched' 'rc 2, names cherry-pick, index and dirs unchanged' mm_cherry_pick_halts
+
+# The delete/update conflict: one side deletes the path, so there is no stage 3, and the person may have
+# deleted the worktree file as their answer. An abort writes a version back over both facts, so both are
+# written down before it runs. The worktree is added LAST, at the finished tip -- added first it sits on
+# the commit before main's edit, and merging a plain delete onto that resolves cleanly, which is how this
+# leg first printed ok over a tree that had no conflict in it.
+mm_repo_du() { # mm_repo_du <dir> -> main edits sub/deep.txt, side deletes it
+	local r=$1
+	mm_repo_new "$r"
+	git -C "$r" checkout -q side
+	git -C "$r" rm -q sub/deep.txt
+	git -C "$r" commit -qm side-deletes-deep
+	git -C "$r" checkout -q main
+	printf 'main v2\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-edits-deep
+}
+
+mm_delete_update() {
+	local t d rc=0
+	mm_repo_du "$mm/repo-du"
+	git -C "$mm/repo-du" worktree add -q --detach "$mm/du" main 2>/dev/null
+	t=$mm/du
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the delete/update merge did not conflict, so the fixture changed under the\n' >&2
+		printf '            leg and it is pinning nothing.\n' >&2
+		return 1
+	}
+	case "$(git -C "$t" status --porcelain -- sub/deep.txt)" in
+	UD* | *DU*) : ;;
+	*) printf '            sub/deep.txt reads "%s", not a delete/update conflict.\n' \
+		"$(git -C "$t" status --porcelain -- sub/deep.txt)" >&2
+		return 1 ;;
+	esac
+	rm -f "$t/keepme.txt"
+	factory_tree_quarantine 'unclaimed:912' "$t" >"$mm/du.out" 2>"$mm/du.err" || rc=$?
+	[ "$rc" = 0 ] || {
+		printf '            quarantine of a delete/update conflict exited %s: %s\n' "$rc" \
+			"$(tr '\n' ' ' <"$mm/du.err" | cut -c1-180)" >&2
+		return 1
+	}
+	d=$(sed -n 's/.*mirror=\([^ ]*\).*/\1/p' "$mm/du.out" | head -n 1)
+	# `if`, not `[ -n "$d" ] && [ -d "$d" ] || { … }`: that shape runs the refusal when `-n` passes and
+	# `-d` fails, which is what is wanted, but it ALSO runs it when `-n` fails, and then the message
+	# blames stdout for a mirror that was never named. SC2015 says the same thing more briefly.
+	if [ -z "$d" ] || [ ! -d "$d" ]; then
+		printf '            no mirror named on stdout: %s\n' "$(tr '\n' ' ' <"$mm/du.out")" >&2
+		return 1
+	fi
+	# The hand-deleted path: no bytes to copy, so the fact is the absence. An abort writes `MAIN` back
+	# over it, and a mirror that recorded nothing here would restore a file the person had removed.
+	[ -e "$d/worktree/keepme.txt.ABSENT" ] || {
+		printf '            the deleted conflicted path has no .ABSENT note (%s), so the mirror cannot\n' \
+			"$(find "$d/worktree" -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | tr '\n' ' ')" >&2
+		printf '            tell a later reader that the file was gone rather than never written.\n' >&2
+		return 1
+	}
+	[ -e "$d/worktree/sub/deep.txt.ABSENT" ] && {
+		printf '            a path that EXISTS got the .ABSENT note, so the mirror records an absence\n' >&2
+		printf '            that is not there and the restore would skip a file it should write.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/unmerged/2/sub/deep.txt" 2>/dev/null)" = 'main v2' ] || {
+		printf '            stage 2 of the deleted path is "%s", not main'"'"'s version.\n' \
+			"$(cat "$d/unmerged/2/sub/deep.txt" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ -e "$d/unmerged/3/sub/deep.txt" ] && {
+		printf '            stage 3 of a delete/update conflict was mirrored -- this shape has no\n' >&2
+		printf '            theirs side, so a file there is a copy of something the index never held.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a delete/update conflict is mirrored whole' 'stages 1/2, .ABSENT note, no phantom stage 3' mm_delete_update
+
+# The control #328 asks for by name: "the control that rewrites the arm back to plain `stash` and shows
+# the leg reddening with `TREE-QUARANTINE-REFUSED`. A leg that only asserts refusal proves the guard exists
+# and proves the queue still halts." Put the other way round, what this section has asserted so far is that
+# the new arm works; only this leg says the new arm is what makes it work. H-0079 is the precedent -- a
+# guard retired there left the suite reporting `344 passed, 0 failed` over a hole, because nothing in the
+# file could reach the arm the guard protected.
+#
+# The rewrite is a text substitution on a COPY of `common.sh`, run in a fresh `bash -c`: making the `merge)`
+# case label unmatchable drops an op=merge tree onto the stash path, which is exactly the shipped behaviour
+# before this change. The shipped definitions the other legs use are never touched, and the copy is sourced
+# by a child that exits.
+mm_control_plain_stash() {
+	local src=$HERE/common.sh copy="$mm/common-no-merge-arm.sh" t rc=0 out
+	sed 's/^\tmerge)$/\tthe-merge-arm-rewritten-away-for-this-control)$/' "$src" >"$copy" || {
+		printf '            the rewritten copy could not be written, so this control tested nothing.\n' >&2
+		return 1
+	}
+	# The control's own premise, verified rather than assumed: the shipped file carries the label once, the
+	# copy carries it not at all. A `sed` that quietly matches nothing leaves the real arm in the copy and
+	# the leg goes green having changed nothing -- the same false green as a fixture that never conflicts.
+	local n_src n_copy
+	n_src=$(awk 'BEGIN{n=0} $0=="\tmerge)"{n++} END{print n}' "$src")
+	n_copy=$(awk 'BEGIN{n=0} $0=="\tmerge)"{n++} END{print n}' "$copy")
+	{ [ "$n_src" = 1 ] && [ "$n_copy" = 0 ]; } || {
+		printf '            the rewrite did not land: %s has %s `merge)` label(s), the copy has %s.\n' \
+			"$src" "$n_src" "$n_copy" >&2
+		printf '            If the label moved in the shipped file, this control rewrites nothing and\n' >&2
+		printf '            the arm it retires is a name that no longer exists.\n' >&2
+		return 1
+	}
+	# The copy has to define the function, or rc 127 from `bash -c` would read as a refusal.
+	[ "$(bash -c '. "$1"; type -t factory_tree_quarantine' _ "$copy")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_quarantine, so whatever rc\n' >&2
+		printf '            the next command reports comes from sourcing, not from the arm.\n' >&2
+		return 1
+	}
+	t=$(mm_plant_full ctl)
+	out=$(FACTORY_AT_RISK=$mm/risk-rewritten bash -c '. "$1" >/dev/null; factory_tree_quarantine "unclaimed:913" "$2"' \
+		_ "$copy" "$t" 2>"$mm/ctl.err") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            with the arm rewritten away the quarantine exited %s, not 2. stdout %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/ctl.err" | cut -c1-160)" >&2
+		printf '            rc 2 is what makes the caller write `TREE-QUARANTINE-REFUSED`, and that halt\n' >&2
+		printf '            is the outage: 54 activations, 10 h 13 min 32 s, 37 units queued.\n' >&2
+		return 1
+	}
+	# The refusal must be the STASH's, in the shipped words. Any other sentence means the tree was routed
+	# somewhere else and this control is pinning a different arm than the one it claims to retire.
+	case "$(cat "$mm/ctl.err")" in
+	*'quarantine refused: git stash failed'*) : ;;
+	*) printf '            the rewritten arm did not fail the way #328 recorded: %s\n' \
+		"$(tr '\n' ' ' <"$mm/ctl.err" | cut -c1-180)" >&2
+		printf '            It should read `quarantine refused: git stash failed :: …`, the sentence in\n' >&2
+		printf '            the journal line at 04:22:36Z on 12 Nov.\n' >&2
+		return 1 ;;
+	esac
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the rewrite cleared MERGE_HEAD while refusing, so the tree was left in a\n' >&2
+		printf '            state neither the operator nor the next pass asked for.\n' >&2
+		return 1
+	}
+	[ -d "$mm/risk-rewritten" ] && [ -n "$(find "$mm/risk-rewritten" -maxdepth 1 -name '*-merge-quarantine-*' 2>/dev/null)" ] && {
+		printf '            the rewritten arm wrote a merge mirror, which it has no code path to do --\n' >&2
+		printf '            the substitution did not isolate the arm it claims to.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the arm and it halts again' 'rc 2, the stash'"'"'s own sentence, still mid-merge' mm_control_plain_stash
+
+# --------------------------------- a path is a path, a mirror says who it is, and the recipe RUNS (#328)
+#
+# Three things the first cut of `factory_tree_mirror_merge` got wrong on its own terms. Each was measured
+# on a planted tree before it was repaired here, and each is pinned below rather than asserted in a
+# comment -- H-0183 shipped this function with recipe 1 run by a leg and recipe 2 never run, which is how
+# "the restore recipe was executed, not asserted" managed to be true and incomplete in the same sentence.
+#
+#   PATHS. `git ls-files -u` QUOTES a path it considers unusual, and the quotes are part of the bytes it
+#       prints: a file named `we"ird.txt` answers `100644 df967b96… 1^I"we\"ird.txt"$` (measured, git
+#       2.53.0). Taken literally -- which is what the first cut did -- that string becomes the mirror's
+#       OWN filename: the stage bytes land at `unmerged/1/"we\"ird.txt"`, and the worktree read `[ -f
+#       "$tree/\"we\\\"ird.txt\"" ]` finds nothing and writes `worktree/"we\"ird.txt".ABSENT`. So the
+#       mirror asserted that a file was GONE from the tree while it stood there holding the typed-in
+#       resolution -- the one copy of the work this whole arm exists to keep. `core.quotePath=false` does
+#       not help (measured: the `"` is still escaped; quotePath governs non-ASCII only); `-z` does. The
+#       same quoting is inside the printed recipe, where `$(cut -f2 … | tr "\n" " ")` also splits
+#       `my report.txt` into two arguments.
+#   IDENTITY. The directory was named `<tree>-merge-quarantine-<seconds>`: no unit, and a clock that
+#       ticks once a second. Two runs asking for the same name is not a corner -- and `mv -f A B` with B
+#       an existing directory does not replace B, it puts A INSIDE B (measured: `B/A/inside.txt`), so
+#       `[ -f "$dir/MANIFEST" ]` was satisfied by the OLDER mirror's MANIFEST and the journal line named
+#       a directory that is not the copy it just took.
+#   THE RECIPE. Only recipe 1 was ever executed. Recipe 2 is the one that returns the CONFLICT, which is
+#       what #328 asked for by name, and measured on a planted tree it came back wrong: the
+#       `git add`ed-and-never-committed path returned as `?? ` (untracked) instead of `A `, so the restore
+#       lost the `git add` from the exact state the outage was reported in (`staged-but-uncommitted: … 16
+#       in all`), and the path a person had deleted was written back over their absence.
+
+mm_repo_wq() { # mm_repo_wq <dir> -> a repo that conflicts on a `"` path, a spaced path, a clean path,
+	           # and a delete/update -- every shape the mirror has to carry by name
+	local r=$1
+	mkdir -p "$r/sub"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/keepme.txt"
+	printf 'base\n' >"$r/we\"ird.txt"
+	printf 'base\n' >"$r/my report.txt"
+	printf 'doomed\n' >"$r/doomed.txt"
+	printf 'deep\n' >"$r/sub/deep.txt"
+	printf 'other\n' >"$r/other.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/keepme.txt"
+	printf 'SIDE\n' >"$r/we\"ird.txt"
+	printf 'SIDE\n' >"$r/my report.txt"
+	printf 'side deep\n' >"$r/sub/deep.txt"
+	git -C "$r" rm -q doomed.txt
+	git -C "$r" add -A
+	git -C "$r" commit -qm side-writes-and-deletes
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/keepme.txt"
+	printf 'MAIN\n' >"$r/we\"ird.txt"
+	printf 'MAIN\n' >"$r/my report.txt"
+	printf 'main deep\n' >"$r/sub/deep.txt"
+	printf 'main v2\n' >"$r/doomed.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-writes-all
+}
+
+mm_repo_wq_dir=$mm/repo-wq
+mm_repo_wq "$mm_repo_wq_dir"
+
+mm_plant_wq() { # mm_plant_wq <name> -> mid-merge, hand bytes on the quoted and the spaced path, a new
+	            # path `git add`ed and never committed, an edit on a path the merge did not touch, one
+	            # untracked file, and one conflicted path deleted from the worktree
+	local t
+	git -C "$mm_repo_wq_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	t=$mm/$1
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	printf 'hand quoted\n' >"$t/we\"ird.txt"
+	printf 'hand spaced\n' >"$t/my report.txt"
+	printf 'scratch\n' >"$t/notes.md"
+	printf 'edited while conflicted\n' >>"$t/other.txt"
+	printf 'added, never committed\n' >"$t/staged.txt"
+	git -C "$t" add -- staged.txt
+	rm -f "$t/doomed.txt"
+	printf '%s' "$t"
+}
+
+mm_wq_wt() { # mm_wq_wt <name> -> a clean detached worktree of the weird-path repo, for a restore target
+	git -C "$mm_repo_wq_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_wq_rescue() { # mm_wq_rescue <tree-name> <unit> -> quarantines a fresh weird tree, prints the mirror
+	local t out rc=0
+	t=$(mm_plant_wq "$1")
+	out=$(factory_tree_quarantine "$2" "$t" 2>"$mm/$1.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantining the %s tree as %s exited %s: %s\n' "$1" "$2" "$rc" \
+				"$(tr '\n' ' ' <"$mm/$1.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	printf '%s' "$out" >"$mm/$1.line"
+	printf '%s' "${out##*mirror=}"
+}
+
+# Paths as they are, on both sides of the copy: the stage bytes under the REAL name, the typed-in
+# resolution as a copy rather than an absence note, and a stage table with no quoting in it.
+mm_wq_paths_are_paths() {
+	local d
+	d=$(mm_wq_rescue wqA 'unclaimed:914') || return 1
+	# Both sides, under the name they came from: stage 2 is OURS (main wrote MAIN), stage 3 is THEIRS
+	# (side wrote SIDE). A quoted table would have put both under `"we\"ird.txt"` and neither read here
+	# would find a file, which is the failure this leg is for -- so it names the stage it lost.
+	[ "$(cat "$d/unmerged/2/we\"ird.txt" 2>/dev/null)" = MAIN ] || {
+		printf '            unmerged/2/ holds %s, and stage 2 of the quoted path is not MAIN (%s): the\n' \
+			"$(find "$d/unmerged/2" -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | tr '\n' ' ')" \
+			"$(cat "$d/unmerged/2/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            stage table is being taken with git'"'"'s quotes in it, so the bytes land under\n' >&2
+		printf '            a filename that is not the path they came from.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/unmerged/3/we\"ird.txt" 2>/dev/null)" = SIDE ] || {
+		printf '            stage 3 of the quoted path is not SIDE (%s), so the copy is not the side it\n' \
+			"$(cat "$d/unmerged/3/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            claims to be: a quoted name collides one path'"'"'s stages with another'"'"'s.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/worktree/we\"ird.txt" 2>/dev/null)" = 'hand quoted' ] || {
+		printf '            worktree/ holds no copy of the quoted path'"'"'s typed-in bytes -- that file\n' >&2
+		printf '            stood in the tree holding "hand quoted", and the mirror is what keeps them.\n' >&2
+		return 1
+	}
+	# The false sentence, and the reason this is a defect and not a cosmetic one: the quoted path WAS
+	# there. Only `doomed.txt` -- deleted, and a delete/update conflict -- may be recorded as absent.
+	[ -e "$d/worktree/we\"ird.txt.ABSENT" ] && {
+		printf '            the mirror wrote an .ABSENT note for the quoted path: it asserts to a later\n' >&2
+		printf '            reader that a file that was in the tree was gone from it.\n' >&2
+		return 1
+	}
+	[ -e "$d/worktree/doomed.txt.ABSENT" ] || {
+		printf '            the deleted conflicted path has no .ABSENT note, so the fixture changed and\n' >&2
+		printf '            the leg above could not have told a false absence from no absence at all.\n' >&2
+		return 1
+	}
+	# NUL-delimited, once per path, and the spaced path arrives whole.
+	[ "$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c .)" = 5 ] || {
+		printf '            unmerged.paths holds %s entries, not the 5 conflicted paths:\n' \
+			"$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c .)" >&2
+		tr '\0' '\n' <"$d/unmerged.paths" | sed 's/^/              /' >&2
+		return 1
+	}
+	[ "$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c '^my report\.txt$')" = 1 ] || {
+		printf '            `my report.txt` is not one entry of unmerged.paths -- a space is not a\n' >&2
+		printf '            separator here, and a list that loses it loses the path.\n' >&2
+		return 1
+	}
+	# The saved stage table is the NUL form: the raw path bytes are in it -- `we"ird.txt` carrying its own
+	# quote, three times, once per stage -- and no backslash anywhere. A backslash IS git's quoting: the
+	# newline form prints `"we\"ird.txt"`, and a reader of this file would have to un-escape it and
+	# cannot, because `core.quotePath=false` does not stop the quote being escaped (measured).
+	[ "$(tr '\0' '\n' <"$d/ls-files-u" | grep -cF -- 'we"ird.txt')" = 3 ] || {
+		printf '            the saved stage table holds %s records naming we"ird.txt, not its three\n' \
+			"$(tr '\0' '\n' <"$d/ls-files-u" | grep -cF -- 'we"ird.txt')" >&2
+		printf '            stages, so one of them is not where the copy below reads it:\n' >&2
+		tr '\0' '\n' <"$d/ls-files-u" | grep -F 'ird.txt' | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -aqF -- $'\\' "$d/ls-files-u" && {
+		printf '            the saved stage table carries a backslash, so it is the newline form with\n' >&2
+		printf '            git'"'"'s quoting in it; every path in this fixture is bare:\n' >&2
+		tr '\0' '\n' <"$d/ls-files-u" | sed 's/^/              /' >&2
+		return 1
+	}
+	# The retired read, pinned by name: `cut -f2` on a newline table plus `tr` into one argument list is
+	# the shape that split a spaced path in two, and a MANIFEST that goes back to it would pass every
+	# leg above and still hand a person a recipe that cannot restore this tree.
+	grep -qE 'cut -f2|tr .\\n. ' "$d/MANIFEST" && {
+		printf '            the MANIFEST is back to `cut -f2 … | tr`: that read splits a path containing\n' >&2
+		printf '            a space into two arguments, and quotes a path containing a double quote.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a quoted path stays one path' 'stage bytes, worktree copy, no false .ABSENT' mm_wq_paths_are_paths
+
+# The mirror says who it is, in its name and inside itself. Without the second half, `[ -f
+# "$dir/MANIFEST" ]` proves only that SOME mirror is at that path.
+mm_wq_mirror_names_itself() {
+	local d line
+	d=$(mm_wq_rescue wqB 'unclaimed:915') || return 1
+	line=$(cat "$mm/wqB.line")
+	# The journal line's `mirror=` path and the MANIFEST's own sentence about itself are the same string.
+	grep -qxF -- "mirror:    $d" "$d/MANIFEST" || {
+		printf '            %s/MANIFEST does not say `mirror:    %s` -- it holds:\n' "$d" "$d" >&2
+		grep -n '^mirror:' "$d/MANIFEST" | sed 's/^/              /' >&2
+		printf '            A mirror that does not name its own directory cannot be told apart from an\n' >&2
+		printf '            older one standing under the same name, which is what the read-back reads.\n' >&2
+		return 1
+	}
+	case "$line" in
+	*"$d") : ;;
+	*) printf '            the journal line does not end with the directory the MANIFEST names (%s).\n' "$line" >&2
+		return 1 ;;
+	esac
+	# And the name says which unit it was rescued from, because the clock is only a second and the
+	# at-risk box holds every unit'"'"'s trees side by side.
+	case $(basename -- "$d") in
+	*-unclaimed-915) : ;;
+	*) printf '            %s does not name the unit it came from, so two runs in one second ask for the\n' "$(basename -- "$d")" >&2
+		printf '            same name and the journal cannot say whose copy the box is holding.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+mm_leg 'the mirror names itself' 'MANIFEST mirror:, journal mirror=, unit in the name' mm_wq_mirror_names_itself
+
+# Recipe 2, run verbatim. This is the recipe #328 asked for -- "the rescue mirrors and continues", and the
+# conflict back is what a person finishes -- and until here nothing in this file had ever executed it.
+mm_wq_recipe_two_runs() {
+	local d t script
+	d=$(mm_wq_rescue wqC 'unclaimed:916') || return 1
+	t=$(mm_wq_wt wqCback)
+	sed -n '/^Want the conflict back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r2.sh" || {
+		printf '            the MANIFEST has no "Want the conflict back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r2.sh")" -ge 5 ] || {
+		printf '            the extracted recipe 2 is:\n' >&2
+		sed 's/^/              /' "$mm/r2.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r2.sh" >"$mm/r2.out" 2>&1); then
+		printf '            recipe 2 exits non-zero; the MANIFEST tells a person to run it:\n' >&2
+		sed 's/^/              /' "$mm/r2.sh" >&2
+		sed 's/^/              /' "$mm/r2.out" >&2
+		return 1
+	fi
+	# The state, against what was planted. A file and a sort, not a spelled-out string: `git status
+	# --porcelain` QUOTES both of the awkward paths -- `UU "my report.txt"`, and `UU "we\"ird.txt"` with
+	# git's own backslash -- and the byte order of the eight lines is the locale's, so a literal in a
+	# test would be a second thing to get wrong. The want file holds the same names the plant wrote.
+	printf '%s\n' 'UD doomed.txt' 'UU keepme.txt' 'UU "my report.txt"' ' M other.txt' \
+		'A  staged.txt' 'UU sub/deep.txt' 'UU "we\"ird.txt"' '?? notes.md' >"$mm/r2.want" || return 1
+	LC_ALL=C sort <"$mm/r2.want" >"$mm/r2.want.sorted"
+	git -C "$t" status --porcelain >"$mm/r2.got" || return 1
+	LC_ALL=C sort <"$mm/r2.got" >"$mm/r2.got.sorted"
+	if ! cmp -s "$mm/r2.want.sorted" "$mm/r2.got.sorted"; then
+		printf '            after recipe 2 the tree reads:\n' >&2
+		LC_ALL=C sort <"$mm/r2.got" | sed 's/^/              /' >&2
+		printf '            The planted state is:\n' >&2
+		sed 's/^/              /' "$mm/r2.want.sorted" >&2
+		printf '            five conflicted paths, the staged path STAGED, the clean path modified, the\n' >&2
+		printf '            scratch file untracked.\n' >&2
+		return 1
+	fi
+	# The `git add` specifically: `?? ` is the loss #328 was reported in, and a status string that has
+	# the path in it either way is why this compares the two columns and not just the name.
+	[ "$(git -C "$t" status --porcelain -- staged.txt)" = "A  staged.txt" ] || {
+		printf '            staged.txt comes back [%s], not [A  staged.txt]: recipe 2 restored its bytes\n' \
+			"$(git -C "$t" status --porcelain -- staged.txt)" >&2
+		printf '            and lost the fact that it had been added.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/staged.txt" 2>/dev/null)" = 'added, never committed' ] || {
+		printf '            the staged path has no bytes in the worktree after recipe 2 (%s): the index\n' \
+			"$(cat "$t/staged.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            half alone leaves it `AD`, which is not the state that was planted.\n' >&2
+		return 1
+	}
+	[ -e "$t/doomed.txt" ] && {
+		printf '            recipe 2 wrote back the path the person had DELETED: the re-merge puts a\n' >&2
+		printf '            version there and absent.list is the only record that the absence was theirs.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/we\"ird.txt")" = 'hand quoted' ] || {
+		printf '            the quoted path did not come back as the bytes it held (%s) -- the recipe is\n' \
+			"$(cat "$t/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            reading a name out of a quoted table again.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/my report.txt")" = 'hand spaced' ] || {
+		printf '            the spaced path did not come back (%s): an unquoted substitution split it in\n' \
+			"$(cat "$t/my report.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            two arguments, which is what the NUL reads replace.\n' >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$t/other.txt")" = 'edited while conflicted' ] || {
+		printf '            the edit to a path the merge did not touch did not come back with the\n' >&2
+		printf '            conflict, so the excludes list is excluding more than the conflicted paths.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 2 runs and returns it' 'verbatim, conflict + staged half + the absence kept' mm_wq_recipe_two_runs
+
+# Recipe 1, on the same shapes. Its leg above uses the plain fixture; the two reads that go wrong on a
+# weird name are the patch (which git quotes for itself, and applies) and the untracked copy.
+mm_wq_recipe_one_runs() {
+	local d t
+	d=$(mm_wq_rescue wqD 'unclaimed:917') || return 1
+	t=$(mm_wq_wt wqDback)
+	sed -n '/^Want the bytes back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r1w.sh"
+	(cd "$t" && bash "$mm/r1w.sh" >"$mm/r1w.out" 2>&1) || {
+		printf '            recipe 1 exits non-zero on a tree whose paths hold a space and a quote:\n' >&2
+		sed 's/^/              /' "$mm/r1w.sh" >&2
+		sed 's/^/              /' "$mm/r1w.out" >&2
+		return 1
+	}
+	[ "$(cat "$t/we\"ird.txt" 2>/dev/null)" = 'hand quoted' ] || {
+		printf '            recipe 1 did not restore the quoted path.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/my report.txt" 2>/dev/null)" = 'hand spaced' ] || {
+		printf '            recipe 1 did not restore the spaced path.\n' >&2
+		return 1
+	}
+	[ -e "$t/doomed.txt" ] && {
+		printf '            recipe 1 restored a file the person had deleted.\n' >&2
+		return 1
+	}
+	# The guard the leg exists for: a tree with no untracked file must still finish at rc 0, because the
+	# LAST line of the recipe being non-zero is what a person reads as "the restore failed".
+	[ "$(cat "$t/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            recipe 1 did not restore the untracked file.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs on those paths' 'quoted, spaced, deleted, untracked' mm_wq_recipe_one_runs
+
+# The two shapes the review of #398 measured the recipes dying on, pinned as fixtures. Every fixture
+# above stages `staged.txt` beside the conflict -- which is why the recipe legs read green while the
+# rescue errored on the tree #328 was reported in: the stage gives diff-cached.patch a real hunk and
+# it makes unmerged.paths exist. Two measurements at 3355763, before the guard fix (git 2.53.0): the
+# pure-conflict mirror's diff-cached.patch is the 22-byte notice `* Unmerged path k.txt` and the
+# printed `-s` guard let `git apply --cached` through to `error: No valid patches in input (allow
+# with "--allow-empty")`, rc 128; the zero-conflict mirror (resolution `git add`ed, `ls-files -u`
+# empty, `MERGE_HEAD` standing) has NO unmerged.paths at all, and recipe 2 died twice at
+# `done <"$M/unmerged.paths"` with `No such file or directory`.
+mm_repo_min() { # mm_repo_min <dir> -> a repo whose merge conflicts on ONE path and stages nothing else
+	local r=$1
+	mkdir -p "$r"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/k.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/k.txt"
+	git -C "$r" commit -qam side
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/k.txt"
+	git -C "$r" commit -qam main
+}
+mm_repo_min_dir=$mm/repo-min
+mm_repo_min "$mm_repo_min_dir"
+
+mm_plant_min() { # mm_plant_min <name> -> mid-merge worktree of the one-path repo, NOTHING staged
+	local t
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	t=$mm/$1
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	printf '%s' "$t"
+}
+
+mm_plant_resolved() { # mm_plant_resolved <name> -> the zero-conflict mid-merge: MERGE_HEAD standing,
+	                 # the resolution `git add`ed, `git ls-files -u` empty
+	local t
+	t=$(mm_plant_min "$1")
+	printf 'resolved, staged, not committed\n' >"$t/k.txt"
+	git -C "$t" add -- k.txt
+	printf '%s' "$t"
+}
+
+mm_min_back() { # mm_min_back <name> -> a clean detached worktree at main, for a restore target
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_min_rescue() { # mm_min_rescue <min|resolved> <tree-name> <unit> -> quarantine a fresh one-path
+	              # tree, print the mirror directory
+	local t out rc=0
+	case $1 in
+	min) t=$(mm_plant_min "$2") ;;
+	resolved) t=$(mm_plant_resolved "$2") ;;
+	*)
+		printf '            mm_min_rescue was asked to plant "%s".\n' "$1" >&2
+		return 1
+		;;
+	esac
+	out=$(factory_tree_quarantine "$3" "$t" 2>"$mm/$2.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantining the %s tree as %s exited %s: %s\n' "$2" "$3" "$rc" \
+			"$(tr '\n' ' ' <"$mm/$2.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	printf '%s' "$out" >"$mm/$2.line"
+	printf '%s' "${out##*mirror=}"
+}
+
+mm_recipe() { # mm_recipe <1|2> <MANIFEST> <out> -> the block the MANIFEST tells a person to run,
+	          # extracted the way the legs above extract it
+	case $1 in
+	1) sed -n '/^Want the bytes back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	2) sed -n '/^Want the conflict back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	*)
+		printf '            mm_recipe was asked for block %s.\n' "$1" >&2
+		return 1
+		;;
+	esac
+}
+
+mm_recipe1_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minA 'unclaimed:920') || return 1
+	t=$(mm_min_back minAback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the bytes back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r1min.sh")" -ge 3 ] || {
+		printf '            the extracted recipe is:\n' >&2
+		sed 's/^/              /' "$mm/r1min.sh" >&2
+		return 1
+	}
+	# The review's measurement was an error line INSIDE an rc-0 script; rc alone would pass that, so
+	# the output has to be clean too -- an operator reads `error:` as a failed rescue at 3 a.m.
+	if ! (cd "$t" && bash "$mm/r1min.sh" >"$mm/r1min.out" 2>&1); then
+		printf '            recipe 1 exits non-zero on the mirror of a tree with nothing staged\n' >&2
+		printf '            but the conflict:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r1min.out" && {
+		printf '            the notice-only diff-cached.patch was handed to `git apply --cached`\n' >&2
+		printf '            again; the printed output was:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	}
+	grep -q '<<<<<<<' "$t/k.txt" || {
+		printf '            k.txt came back without the marker bytes it held (%s): diff-HEAD.patch\n' \
+			"$(tr '\n' '|' <"$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            carries a conflicted path as a hunk of the worktree state.\n' >&2
+		return 1
+	}
+	[ -z "$(git -C "$t" diff --cached --name-only)" ] || {
+		printf '            the guard staged something (%s) from a file whose whole content is\n' \
+			"$(git -C "$t" diff --cached --name-only | tr '\n' ' ')" >&2
+		printf '            `* Unmerged path` notices: there is no staged work in a notice.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs conflict-only' 'rc 0, no error line, markers back, index kept' mm_recipe1_conflict_only
+
+mm_recipe2_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minB 'unclaimed:921') || return 1
+	t=$(mm_min_back minBback)
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the conflict back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r2min.sh")" -ge 5 ] || {
+		printf '            the extracted recipe 2 is:\n' >&2
+		sed 's/^/              /' "$mm/r2min.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r2min.sh" >"$mm/r2min.out" 2>&1); then
+		printf '            recipe 2 exits non-zero on the conflict-only mirror:\n' >&2
+		sed 's/^/              /' "$mm/r2min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r2min.out" && {
+		printf '            recipe 2 hit the notice-only diff-cached.patch too.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            recipe 2 says it gives the conflict back and there is no MERGE_HEAD.\n' >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "UU k.txt" ] || {
+		printf '            k.txt reads [%s] after the conflict-back recipe, not [UU k.txt].\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 2 runs conflict-only' 'rc 0, error-free, MERGE_HEAD and UU restored' mm_recipe2_conflict_only
+
+mm_recipe1_resolved_mirror() {
+	local d t
+	d=$(mm_min_rescue resolved minC 'unclaimed:922') || return 1
+	# The list files first: the mirror now PROMISES both, and recipe 2's death on a missing one was
+	# half of what the review filed. Empty is the point -- this tree held no conflict at capture.
+	[ -e "$d/unmerged.paths" ] || {
+		printf '            the zero-conflict mirror wrote no unmerged.paths, so a person running\n' >&2
+		printf '            the printed reads dies at `No such file or directory` again.\n' >&2
+		return 1
+	}
+	[ -e "$d/absent.list" ] || {
+		printf '            the zero-conflict mirror wrote no absent.list.\n' >&2
+		return 1
+	}
+	[ "$(wc -c <"$d/unmerged.paths")" -eq 0 ] || {
+		printf '            unmerged.paths holds %s bytes on a tree that had no conflict -- the\n' \
+			"$(wc -c <"$d/unmerged.paths")" >&2
+		printf '            empty file would be read as conflicts that were never there.\n' >&2
+		return 1
+	}
+	# And the MANIFEST must not print a block that would REOPEN the closed conflict.
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2res.sh" || true
+	if [ -s "$mm/r2res.sh" ]; then
+		printf '            the zero-conflict MANIFEST still prints a "Want the conflict back"\n' >&2
+		printf '            block; re-merging here invents a conflict the person had resolved:\n' >&2
+		sed 's/^/              /' "$mm/r2res.sh" >&2
+		return 1
+	fi
+	t=$(mm_min_back minCback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1res.sh" || {
+		printf '            the resolved mirror has no "Want the bytes back" block at all.\n' >&2
+		return 1
+	}
+	(cd "$t" && bash "$mm/r1res.sh" >"$mm/r1res.out" 2>&1) || {
+		printf '            recipe 1 exits non-zero on the resolved mirror:\n' >&2
+		sed 's/^/              /' "$mm/r1res.out" >&2
+		return 1
+	}
+	[ "$(cat "$t/k.txt" 2>/dev/null)" = 'resolved, staged, not committed' ] || {
+		printf '            k.txt holds [%s], not the staged resolution.\n' \
+			"$(cat "$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "M  k.txt" ] || {
+		printf '            k.txt reads [%s], not [M  k.txt]: the resolution came back unstaged,\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		printf '            which is the `git add` the tree lost on #328.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null && {
+		printf '            recipe 1 started a merge on its own; the note above the block says it\n' >&2
+		printf '            does not, and a surprise MERGE_HEAD reads as a half-done restore.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs alone, resolved mirror' 'both lists written, no re-merge block, staged back' mm_recipe1_resolved_mirror
+
+# The control for the grep guard, in the H-0184 shape: the guard is rewritten away in a copy, the
+# copy's own premise is counted (two shipped lines, zero in the copy -- there is one per recipe),
+# and the copy's MANIFEST then prints the `-s` form that the review measured at rc 128. A `sed` that
+# matched nothing would report a green control that retired nothing, so the counts are the leg.
+mm_recipe1_guard_control() {
+	local src=$HERE/common.sh dst=$mm/common-noguard.sh d t rc
+	cp -- "$src" "$dst" || {
+		printf '            the shipped common.sh could not be copied.\n' >&2
+		return 1
+	}
+	sed -i 's|if grep -q "\^diff --git" "\$M/diff-cached.patch" 2>/dev/null; then|if [ -s "$M/diff-cached.patch" ]; then|g' "$dst" || return 1
+	local n_have n_left
+	n_have=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$src")
+	n_left=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$dst")
+	[ "$n_have" = 2 ] || {
+		printf '            the shipped file holds %s copies of the grep guard, not 2 (one per\n' "$n_have" >&2
+		printf '            recipe), so this control retires a line that has moved.\n' >&2
+		return 1
+	}
+	[ "$n_left" = 0 ] || {
+		printf '            the rewrite did not land: the copy still holds %s copies of the guard,\n' "$n_left" >&2
+		printf '            so this control tested nothing.\n' >&2
+		return 1
+	}
+	[ "$(bash -c '. "$1" >/dev/null 2>&1; type -t factory_tree_mirror_merge' _ "$dst")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_mirror_merge, so whatever\n' >&2
+		printf '            rc comes next is from sourcing it, not from the guard.\n' >&2
+		return 1
+	}
+	t=$(mm_plant_min minD)
+	d=$(FACTORY_AT_RISK=$FACTORY_AT_RISK bash -c '
+		. "$1" >/dev/null
+		factory_tree_quarantine "$2" "$3"
+	' _ "$dst" 'unclaimed:923' "$t" 2>"$mm/minD.err") || {
+		printf '            quarantining through the guard-less copy exited non-zero: %s\n' \
+			"$(tr '\n' ' ' <"$mm/minD.err" | cut -c1-200)" >&2
+		return 1
+	}
+	d=${d##*mirror=}
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1ctl.sh" || {
+		printf '            the guard-less MANIFEST has no recipe 1 block.\n' >&2
+		return 1
+	}
+	grep -q '\[ -s "\$M/diff-cached.patch" \]' "$mm/r1ctl.sh" || {
+		printf '            the printed MANIFEST does not carry the -s form, so the rewrite never\n' >&2
+		printf '            reached the recipe a person would run.\n' >&2
+		return 1
+	}
+	t=$(mm_min_back minDback)
+	(cd "$t" && bash "$mm/r1ctl.sh" >"$mm/r1ctl.out" 2>&1) || true
+	grep -q 'No valid patches' "$mm/r1ctl.out" || {
+		printf '            with the guard retired, the notice-only diff-cached.patch produced NO\n' >&2
+		printf '            error -- the control premise says that refusal is the guard'"'"'s whole\n' >&2
+		printf '            job; the output was:\n' >&2
+		sed 's/^/              /' "$mm/r1ctl.out" >&2
+		return 1
+	}
+	(
+		cd "$t" || exit 1
+		git apply --cached "$d/diff-cached.patch" 2>/dev/null
+		echo "rc=$?"
+	) >"$mm/r1ctl.rc" || true
+	grep -q '^rc=128$' "$mm/r1ctl.rc" || {
+		printf '            the review measured `git apply --cached` rc 128 on this exact file; the\n' >&2
+		printf '            read here says %s: git changed, and the entry'"'"'s guard rationale does.\n' \
+			"$(cat "$mm/r1ctl.rc")" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the guard, the notice errors' 'rc 128 on the notice-only file, premise counted' mm_recipe1_guard_control
+
+# A clock this function cannot drift on: the mirror name is `date -u +…%SZ`, so a leg that wants the name
+# twice has to be given it. A shell function beats the binary, so the child below decides both names.
+# The refusal sentence is on stderr, where `factory_tree_quarantine`'s caller reads it, so a leg that
+# wants the WORDS has to be given the stream as well as the code -- `$()` alone captures the path only.
+mm_frozen() { # mm_frozen <script> <unit> <tree> <risk> -> factory_tree_mirror_merge, on a frozen clock
+	FACTORY_AT_RISK=$4 bash -c '
+		date() { printf "19700101T000000Z"; }
+		. "$1" >/dev/null
+		factory_tree_mirror_merge "$2" "$3"
+	' _ "$1" "$2" "$3" 2>"$mm/frozen.err"
+}
+
+# One guard, rewritten away in a copy of `common.sh`, and the copy's own premise checked. The two guards
+# the collision has are `test` (the directory may not already exist) and `name` (the MANIFEST there has
+# to name this directory). A `sed` that quietly matches nothing leaves both guards in and reports a
+# control that retired one -- H-0183's own false green, so each line is counted before and after.
+mm_guard_line_test='	if [ -e "$dir" ]; then'
+mm_guard_line_name='	if ! grep -qxF -- "mirror:    $dir" "$dir/MANIFEST"; then'
+
+mm_guard_count() { # mm_guard_count <file> <whole line>
+	awk -v w="$2" 'BEGIN{n=0} $0==w{n++} END{print n}' "$1"
+}
+
+mm_guard_copy() { # mm_guard_copy <dst> <test|name|both> -> the rewritten copy, or a refusal that says why
+	local dst=$1 which=$2 src=$HERE/common.sh
+	case "$which" in test | name | both) : ;; *) printf '            mm_guard_copy was asked to retire "%s".\n' "$which" >&2; return 1 ;; esac
+	cp -- "$src" "$dst" || {
+		printf '            the shipped common.sh could not be copied.\n' >&2
+		return 1
+	}
+	if [ "$which" != name ]; then
+		sed -i '/^\tif \[ -e "$dir" \]; then$/s//\tif [ -n "" ]; then/' "$dst" || return 1
+	fi
+	if [ "$which" != test ]; then
+		sed -i '/^	if ! grep -qxF -- "mirror:    \$dir" "\$dir\/MANIFEST"; then$/s//\tif false; then/' "$dst" || return 1
+	fi
+	local l keep want n
+	for l in test name; do
+		case "$which" in
+		both) keep=0 ;;
+		test) [ "$l" = test ] && keep=0 || keep=1 ;;
+		name) [ "$l" = name ] && keep=0 || keep=1 ;;
+		esac
+		local w=$mm_guard_line_test
+		[ "$l" = name ] && w=$mm_guard_line_name
+		n=$(mm_guard_count "$dst" "$w")
+		[ "$n" = "$keep" ] || {
+			printf '            the rewrite did not land: the copy holds %s copy of\n' "$n" >&2
+			printf '              %s\n            and %s retire it, so this control tested nothing.\n' \
+				"$w" "$which" >&2
+			return 1
+		}
+		[ "$(mm_guard_count "$src" "$w")" = 1 ] || {
+			printf '            the shipped file holds %s copy of the guard this control retires, so the\n' \
+				"$(mm_guard_count "$src" "$w")" >&2
+			printf '            line has moved and this control rewrites a name that is no longer there:\n' >&2
+			printf '              %s\n' "$w" >&2
+			return 1
+		}
+	done
+	[ "$(bash -c '. "$1" >/dev/null 2>&1; type -t factory_tree_mirror_merge' _ "$dst")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_mirror_merge, so whatever rc\n' >&2
+		printf '            the next command reports comes from sourcing it, not from the guard.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+mm_decoy() { # mm_decoy <risk> <tree-name> <unit-slug> -> a directory at the name the frozen clock will
+	         # ask for, whose MANIFEST says it lives somewhere else: what an older or moved mirror looks like
+	local d=$1/$2-merge-quarantine-19700101T000000Z-$3
+	mkdir -p "$d" || {
+		printf '            the decoy directory could not be planted at %s.\n' "$d" >&2
+		return 1
+	}
+	printf 'unit:      somebody else\nmirror:    /some/other/mirror\n' >"$d/MANIFEST" || return 1
+	printf '%s' "$d"
+}
+
+# Two runs, one name. With both guards shipped, the second is refused before it writes anything, and it
+# says so by naming the collision. The clock is frozen so the two runs provably asked for the same name --
+# a leg that slept on a second-resolution clock would be a leg that sometimes tests nothing.
+mm_mirror_collision_refused() {
+	local t risk first second n
+	t=$(mm_plant_wq wqE)
+	risk=$mm/risk-collide
+	mkdir -p "$risk" || return 1
+	first=$(mm_frozen "$HERE/common.sh" 'unclaimed:918' "$t" "$risk") || {
+		printf '            the first mirror was refused: %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	[ -f "$first/MANIFEST" ] || {
+		printf '            the first run named %s and wrote no MANIFEST there.\n' "$first" >&2
+		return 1
+	}
+	second=$(mm_frozen "$HERE/common.sh" 'unclaimed:918' "$t" "$risk") && {
+		printf '            the second run SUCCEEDED on the name %s and printed it anyway: %s\n' "$first" "${second:-nothing}" >&2
+		printf '            `mv -f` into a directory that exists puts the new copy INSIDE it, so the\n' >&2
+		printf '            journal would name a directory whose MANIFEST is the older run'"'"'s.\n' >&2
+		return 1
+	}
+	[ -n "$second" ] && {
+		printf '            it refused and still printed a directory on stdout: %s\n' "$second" >&2
+		printf '            stdout is the journal line'"'"'s `mirror=`, so that is a path being promised.\n' >&2
+		return 1
+	}
+	case "$(cat "$mm/frozen.err")" in
+	*"already exists"*) : ;;
+	*) printf '            it refused, but not by naming the collision (%s).\n' \
+		"$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1 ;;
+	esac
+	n=$(find "$risk" -maxdepth 1 -mindepth 1 | wc -l | tr -d '[:space:]')
+	[ "$n" = 1 ] || {
+		printf '            the refused run still left %s entries in the box:\n' "$n" >&2
+		find "$risk" -maxdepth 1 -mindepth 1 | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -qxF -- "mirror:    $first" "$first/MANIFEST" || {
+		printf '            the refusal damaged the mirror it was refusing to overwrite.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a second run cannot reuse the name' 'rc 2, names it, nothing written, first intact' mm_mirror_collision_refused
+
+# Retire the existence test and the collision reaches the second guard: the MANIFEST standing at that path
+# does not name it, and the run refuses. This is the half that survives on its own -- and the reason the
+# read-back asks whose mirror it opened rather than only whether one is there.
+mm_control_self_name_refuses() {
+	local copy=$mm/common-no-existence-test.sh t risk decoy out rc=0
+	mm_guard_copy "$copy" test || return 1
+	t=$(mm_plant_wq wqF)
+	risk=$mm/risk-guard-test
+	decoy=$(mm_decoy "$risk" wqF unclaimed-919) || return 1
+	out=$(mm_frozen "$copy" 'unclaimed:919' "$t" "$risk") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            with only the existence test retired the mirror exited %s, want 2. stdout %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	case "$(cat "$mm/frozen.err")" in
+	*does\ not\ name\ this\ directory*) : ;;
+	*) printf '            it refused, but not at the identity read (%s), so the guard this control\n' \
+		"$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		printf '            retires is not the one that stopped it.\n' >&2
+		return 1 ;;
+	esac
+	# Refusing is one thing; refusing having destroyed the thing it refused to overwrite is another.
+	grep -qxF -- 'mirror:    /some/other/mirror' "$decoy/MANIFEST" || {
+		printf '            the refusal rewrote the MANIFEST it had just refused to own.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the test, the name refuses' 'rc 2, and it says which half refused' mm_control_self_name_refuses
+
+# And the pre-repair behaviour, both guards gone: the run reports SUCCESS and names the directory, while
+# the MANIFEST there belongs to another run and the copy it just taken is buried one level inside it.
+# That is what #328's operator would have read as "rescued".
+mm_control_both_gones_accepts_the_decoy() {
+	local copy=$mm/common-no-guards.sh t risk decoy out rc=0 nested
+	mm_guard_copy "$copy" both || return 1
+	t=$(mm_plant_wq wqG)
+	risk=$mm/risk-guard-both
+	decoy=$(mm_decoy "$risk" wqG unclaimed-920) || return 1
+	out=$(mm_frozen "$copy" 'unclaimed:920' "$t" "$risk") || rc=$?
+	[ "$rc" = 0 ] || {
+		printf '            with BOTH guards retired the mirror exited %s, want 0 -- it should walk\n' "$rc" >&2
+		printf '            straight into the directory and call it a rescue:\n' >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	[ "$out" = "$decoy" ] || {
+		printf '            it printed %s, not the directory it walked into (%s).\n' "${out:-nothing}" "$decoy" >&2
+		return 1
+	}
+	grep -qxF -- 'mirror:    /some/other/mirror' "$decoy/MANIFEST" || {
+		printf '            the decoy was replaced rather than written into, so the collision this control\n' >&2
+		printf '            reproduces is not the one `mv -f` performs.\n' >&2
+		return 1
+	}
+	# The copy it just took, buried, and still naming the directory it cannot reach.
+	nested=$(find "$decoy" -mindepth 2 -name MANIFEST 2>/dev/null | head -n 1)
+	[ -n "$nested" ] || {
+		printf '            nothing was written under %s, so this control does not show where the\n' "$decoy" >&2
+		printf '            rescue it just reported actually went.\n' >&2
+		return 1
+	}
+	grep -qxF -- "mirror:    $decoy" "$nested" || {
+		printf '            the buried MANIFEST does not name %s either, so the buried copy is not this\n' "$decoy" >&2
+		printf '            run'"'"'s and the fixture is not what it claims:\n' >&2
+		grep -n '^mirror:' "$nested" | sed 's/^/              /' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire both, it reports a lie' 'rc 0, names the decoy, its own copy buried inside' mm_control_both_gones_accepts_the_decoy
+
 # ------------------------------------- the run directory holds a stream, not a verdict (#351)
 
 # `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name. Until
@@ -3620,9 +5042,9 @@ proc_mutate_last() { # <needle>
 		printf '            code while reporting a mutation.\n' >&2
 		return 1
 	}
-	if ! awk -v n="$hits" -v needle="$needle" '
+	if ! PROC_MUT_NEEDLE=$needle awk -v n="$hits" '
 		{
-			if (index($0, needle) && ++seen == n) {
+			if (index($0, ENVIRON["PROC_MUT_NEEDLE"]) && ++seen == n) {
 				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
 				next
 			}
@@ -4617,15 +6039,15 @@ fi
 # supervisor exited 5 with eight units still queued"). Make unit A's session fail — the state the guard
 # was written for — and run it twice, once shipped and once with the guard taken, so the one variable
 # is the guard and not the failure.
-proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced
+proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced, both travelling by ENVIRON: awk -v eats backslashes (H-0196)
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/factory.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/factory.sh, so it would not\n' "$hits" >&2
 		printf '            be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ if (index($0, a)) print line; else print }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ if (index($0, ENVIRON["PMUT_ANCHOR"])) print ENVIRON["PMUT_LINE"]; else print }' \
 		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/factory.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -7448,11 +8870,11 @@ ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 		return 1 ;;
 	esac
 	case "$arm" in
-	*FACTORY_ESCALATION_LABEL*) return 0 ;;
+	*FACTORY_ESCALATION_LABEL*|*escalation-label.sh*) return 0 ;;
 	esac
-	printf '            the empty-ask branch ends without the escalation label (the name comes\n' >&2
-	printf '            from `common.sh`, never spelled out) and a stop, so the one move that\n' >&2
-	printf '            invents an ask is still open to it\n' >&2
+	printf '            the empty-ask branch ends without the escalation label -- neither the\n' >&2
+	printf '            name nor the reader call that prints it from `common.sh` -- so the move\n' >&2
+	printf '            that invents an ask is still open to it\n' >&2
 	return 1
 }
 claim_leg 'the tick assembles the ask into its instruction' ask_prompt_assembles_it
@@ -13632,6 +15054,626 @@ decision_ids() {
 }
 decision_ids
 
+# ------------------------------------------------- decision-id provenance: earning the number (#345)
+#
+# H-0195 (issue #345). Both units that collided on `D-0058` numbered their entries by eye -- neither
+# ran `factory/next-decision-id.sh`, which since H-0143 has been the only sanctioned way to take a
+# number -- and every check that ran afterwards saw two well-formed headings sharing one id with
+# nothing to say about which side had earned it. The fix is a pair of contracts in two files: the
+# allocator journals every answer it gives a unit (a `DECISION-ID` line in the supervisor journal,
+# naming id, unit, branch, log and the read behind the answer), and the end-of-tick pass compares
+# every heading the branch newly carries against that journal -- an id with no journalled allocation
+# reports `DECISION-ID-UNEARNED`, attributed to the branch, fatal to nothing. Three surfaces get
+# legs here, in order of distance from the shell that runs them:
+#
+#   the write (the allocator, a unit named)   the answer leaves one `DECISION-ID` line behind.
+#       Controls: nulling the write reproduces #345 exactly -- the id is still right, the provenance
+#       is gone; and widening the guard to "anyone with a journal" shows a person checking the next
+#       id would litter the supervisor's record with answers that belong to no unit.
+#   the read (`factory_decision_provenance`)  UNEARNED names exactly the headings that are new
+#       against `origin/main` AND have no journalled answer on THIS branch: an id earned on another
+#       branch is reported (branch attribution is the whole unit of the thing), an id trunk already
+#       carries is not, one already reported is not reported twice. Both logs are compared. A tree
+#       with no readable `origin/main` says `DECISION-ID-UNCHECKED` and claims nothing -- a read that
+#       failed is not a provenance that failed, the `TICK-UNCHECKED` doctrine again.
+#       Controls: blind the comparison and UNEARNED must vanish; corrupt the earned-set parse and
+#       even earned ids must come back (a reader that cannot read must not look like a clean tree);
+#       blind the UNCHECKED arm and the unreadable base must go silent, which is what the shipped
+#       leg's sentence is about.
+#   the wiring (the dispatch, whole activations)  the exports `factory_tick` gives the session are
+#       observable only inside it, and no grep proves a child inherited them. So these legs are
+#       process legs on the established fixture: the tick's session does what #345's units did with
+#       a decision -- writes a heading -- once earning the id through the real allocator in its own
+#       tree (nothing reported, and the journalled line names the unit and branch the dispatch
+#       handed it), once taking the next number with `sed | tail`, the ticket's own shape (UNEARNED,
+#       attributed). Control: null the `FACTORY_TICK_UNIT` export and a genuinely earned id must read
+#       UNEARNED -- the export is the difference, not the fixture's mood.
+#
+# The write/read legs source nothing but shipped code: the real script, and `common.sh` sourced into
+# a shell that runs only the named function -- the poke section's shape, for the poke section's
+# reason (a whole pass would reach GitHub to get here). Nothing else in this file changes for it:
+# `PROC_TICK_ALLOC` gates the session stub's new arm and no other leg sets it, and the process
+# trunk grows a `DECISIONS.md` and the allocator itself only because the wiring legs run the real
+# command inside a real tick tree -- a fake call there would prove nothing about a real export.
+
+dpn_work=$work/dpn
+mkdir -p "$dpn_work"
+dpn_alloc=$HERE/next-decision-id.sh
+dpn_err=$dpn_work/last-stderr
+
+# dpn_repo <dir> [branch] -> a bare origin carrying both decision logs on `main`, plus a clone on
+# `branch` (default `issue-p1`). The push is load-bearing: the comparison asks `origin/main` what the
+# trunk holds, and a fixture with no remote answers the UNCHECKED question, not this one.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_repo() {
+	local d=$1 br=${2:-issue-p1}
+	mkdir -p -- "$d" || return 1
+	# `--initial-branch=main` on the BARE is load-bearing: a plain `git init --bare` aims HEAD at
+	# `master`, the trunk pushes `main`, and the unit clone then warns "remote HEAD refers to
+	# nonexistent ref" and checks out an empty tree -- measured the first run this section existed,
+	# where `unit/factory/DECISIONS.md` was simply not there and the leg read nothing.
+	git init -q --bare --initial-branch=main "$d/origin.git" || return 1
+	git --git-dir="$d/origin.git" config user.email fixture@invalid || return 1
+	git --git-dir="$d/origin.git" config user.name fixture || return 1
+	git clone -q "$d/origin.git" "$d/main" >/dev/null 2>&1 || return 1
+	git -C "$d/main" config user.email fixture@invalid || return 1
+	git -C "$d/main" config user.name fixture || return 1
+	mkdir -p "$d/main/factory" || return 1
+	printf '# Decisions\n## D-0001 · trunk\nbody\n' >"$d/main/DECISIONS.md" || return 1
+	printf '# Harness decisions\n## H-0001 · trunk\nbody\n' >"$d/main/factory/DECISIONS.md" || return 1
+	git -C "$d/main" add -A || return 1
+	git -C "$d/main" commit -qm 'fixture trunk: both decision logs' || return 1
+	git -C "$d/main" push -q origin main || return 1
+	git clone -q "$d/origin.git" "$d/unit" >/dev/null 2>&1 || return 1
+	git -C "$d/unit" config user.email fixture@invalid || return 1
+	git -C "$d/unit" config user.name fixture || return 1
+	git -C "$d/unit" checkout -qb "$br" || return 1
+}
+
+# dpn_bare <dir> -> one commit carrying both logs and no remote at all. What the allocator says about
+# this shape is pinned upstream (REFRESH-BLIND); what matters to the comparison is only that
+# `origin/main` cannot be read.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_bare() {
+	local d=$1
+	mkdir -p -- "$d" || return 1
+	git init -q "$d" || return 1
+	git -C "$d" config user.email fixture@invalid || return 1
+	git -C "$d" config user.name fixture || return 1
+	git -C "$d" checkout -qb main || return 1
+	mkdir -p "$d/factory" || return 1
+	printf '# Decisions\n## D-0001 · trunk\nbody\n' >"$d/DECISIONS.md" || return 1
+	printf '# Harness decisions\n## H-0001 · trunk\nbody\n' >"$d/factory/DECISIONS.md" || return 1
+	git -C "$d" add -A || return 1
+	git -C "$d" commit -qm 'fixture: both decision logs, no remote' || return 1
+}
+
+# dpn_leg: proc_leg's contract, forty columns wide -- the labels here carry sentences, and a leg that
+# prints what it REQUIRES is the rule this file already holds itself to.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_leg() { # <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" "$requires"
+	fi
+	return 0
+}
+
+# dpn_mut <src> <anchor> <line> <out> -> a copy of a shipped file with the one line carrying the
+# anchor replaced. The rules are `proc_mutate_factory`'s -- exactly one hit or refuse, the copy must
+# parse, the copy must differ -- because a mutant planted nowhere is a control that prints its
+# loudest sentence about nothing. Anchor and line arrive through the environment, not awk -v: the
+# shipped lines carry backslashes and `$`s that awk would otherwise eat.
+# shellcheck disable=SC2317  # reached from the controls below
+dpn_mut() {
+	local src=$1 anchor=$2 line=$3 out=$4 hits
+	hits=$(DPN_ANCHOR=$anchor awk 'index($0, ENVIRON["DPN_ANCHOR"]) { c++ } END { print c + 0 }' "$src")
+	[ "$hits" = 1 ] || {
+		printf '            the mutant anchor occurs %s time(s) in %s, so it would not be planted\n' \
+			"$hits" "${src##*/}" >&2
+		printf '            where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	DPN_ANCHOR=$anchor DPN_LINE=$line awk \
+		'{ if (index($0, ENVIRON["DPN_ANCHOR"])) print ENVIRON["DPN_LINE"]; else print }' \
+		"$src" >"$out" || return 1
+	bash -n "$out" || {
+		printf '            the mutant does not parse: the run would die before it answered,\n' >&2
+		printf '            which is not the state any leg below is asking about.\n' >&2
+		return 1
+	}
+	if cmp -s "$src" "$out"; then
+		printf '            the mutant is byte-identical to the shipped file; this control\n' >&2
+		printf '            measured nothing.\n' >&2
+		return 1
+	fi
+	return 0
+}
+
+# ------------------------------------------------------------------- the write: journalling an answer
+#
+# dpn_alloc_run <repo> <logdir> <unit or -> [script] -> the allocator's stdout, stderr captured.
+# `-` is the bare run: no unit named, the shape of a person checking from a terminal. The branch is
+# pinned through `FACTORY_TICK_BRANCH` rather than inherited from HEAD so the journal line's
+# attribution is what the leg says it is, not what the fixture happens to be standing on.
+# shellcheck disable=SC2317  # reached through the command substitutions in the predicates
+dpn_alloc_run() {
+	local repo=$1 logdir=$2 unit=$3 script=${4:-$dpn_alloc}
+	mkdir -p -- "$logdir" || return 1
+	if [ "$unit" = '-' ]; then
+		( cd -- "$repo" && env FACTORY_LOG="$logdir" bash "$script" DECISIONS.md ) 2>"$dpn_err"
+	else
+		( cd -- "$repo" && env FACTORY_LOG="$logdir" FACTORY_TICK_UNIT="$unit" \
+			FACTORY_TICK_BRANCH=issue-j bash "$script" DECISIONS.md ) 2>"$dpn_err"
+	fi
+}
+
+dpn_j1_repo=$dpn_work/j1-repo
+if ! dpn_bare "$dpn_j1_repo"; then
+	pos_say 'fixture j1-repo could not be built; the two legs about journalling read a tree that is not there'
+fi
+dpn_j1_log=$dpn_work/j1-log
+dpn_j1() {
+	local got
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_j1_log" unclaimed:j1) || {
+		printf '            the allocator refused; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
+		return 1
+	fi
+	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:j1 branch=issue-j (allocator, DECISIONS.md,' \
+		"$dpn_j1_log/supervisor.log" && return 0
+	printf '            the id printed, and the journal says:\n' >&2
+	{ sed 's/^/              /' "$dpn_j1_log/supervisor.log" 2>/dev/null ||
+		printf '              (no journal at all)\n'; } >&2
+	printf '            No DECISION-ID line: an allocation that answered a unit went unrecorded,\n' >&2
+	printf '            which is exactly the state #345 could not tell apart from numbering by eye.\n' >&2
+	return 1
+}
+dpn_leg 'a unit answer journals itself' 'one DECISION-ID line naming the id, the unit, the branch and the log' \
+	dpn_j1
+
+# The control nulls the write and nothing else: the answer must stay CORRECT (the id is computed
+# before the journal is mentioned, and a control that changed it would test the arithmetic instead),
+# while the provenance goes missing the way #345 left it.
+dpn_j1c=0
+dpn_mut "$dpn_alloc" '>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then' \
+	'		>/dev/null 2>/dev/null; then' "$dpn_work/alloc-nojournal" || dpn_j1c=1
+dpn_j1c_leg() {
+	local got
+	if [ "${dpn_j1c:-1}" != 0 ]; then
+		printf '            the journal write could not be nulled, so this control ran shipped code\n' >&2
+		printf '            and its findings are the shipped script'"'"'s, not the mutant'"'"'s.\n' >&2
+		return 1
+	fi
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_work/j1c-log" unclaimed:j1 "$dpn_work/alloc-nojournal") || {
+		printf '            the nulled allocator refused:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s: nulling the journalling changed the ANSWER, which it\n' "$got" >&2
+		printf '            must not -- the id and its provenance are independent lines of the run.\n' >&2
+		return 1
+	fi
+	if [ -e "$dpn_work/j1c-log/supervisor.log" ] &&
+		grep -qF -- 'DECISION-ID' "$dpn_work/j1c-log/supervisor.log"; then
+		printf '            the nulled write still journalled:\n' >&2
+		sed 's/^/              /' "$dpn_work/j1c-log/supervisor.log" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the line is that write' 'nulling it leaves the id correct and the provenance absent' dpn_j1c_leg
+
+dpn_j2_repo=$dpn_work/j2-repo
+if ! dpn_bare "$dpn_j2_repo"; then
+	pos_say 'fixture j2-repo could not be built; the legs about the bare run read a tree that is not there'
+fi
+dpn_j2() {
+	local got
+	got=$(dpn_alloc_run "$dpn_j2_repo" "$dpn_work/j2-log" -) || {
+		printf '            the bare allocator refused; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
+		return 1
+	fi
+	if [ -e "$dpn_work/j2-log/supervisor.log" ] &&
+		grep -qF -- 'DECISION-ID' "$dpn_work/j2-log/supervisor.log"; then
+		printf '            an allocation that answered NOBODY wrote to the supervisor journal:\n' >&2
+		sed 's/^/              /' "$dpn_work/j2-log/supervisor.log" >&2
+		printf '            Nothing there belongs to a unit, and a journal of bare answers buries the\n' >&2
+		printf '            lines the end-of-tick comparison reads.\n' >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'a bare run journals nothing' 'the person checking the next id leaves no DECISION-ID line behind' \
+	dpn_j2
+
+# And the guard that keeps it that way is the UNIT test, not the log test: widen the condition to
+# "anyone who told me where a journal lives" and the bare run above starts writing.
+dpn_j2c=0
+dpn_mut "$dpn_alloc" '[ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]' \
+	'	if [ -n "${FACTORY_LOG:-}" ]; then FACTORY_TICK_UNIT=${FACTORY_TICK_UNIT:-bare};' \
+	"$dpn_work/alloc-always" || dpn_j2c=1
+dpn_j2c_leg() {
+	local got
+	if [ "${dpn_j2c:-1}" != 0 ]; then
+		printf '            the guard could not be widened, so this control ran shipped code and its\n' >&2
+		printf '            silence about the bare run proves nothing about the guard.\n' >&2
+		return 1
+	fi
+	got=$(dpn_alloc_run "$dpn_j2_repo" "$dpn_work/j2c-log" - "$dpn_work/alloc-always") || {
+		printf '            the widened allocator refused:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	[ "$got" = D-0002 ] || {
+		printf '            it answered %s -- the widened guard changed the id, which is not a guard.\n' "$got" >&2
+		return 1
+	}
+	grep -qF -- 'DECISION-ID D-0002' "$dpn_work/j2c-log/supervisor.log" 2>/dev/null && return 0
+	printf '            with the unit test dropped the bare answer journalled nothing anyway, so the\n' >&2
+	printf '            leg above was passing on something other than the guard it names:\n' >&2
+	{ sed 's/^/              /' "$dpn_work/j2c-log/supervisor.log" 2>/dev/null ||
+		printf '              (no journal at all)\n'; } >&2
+	return 1
+}
+dpn_leg 'the unit test is the guard' 'widened to any journal, a unitless run litters the supervisor record' \
+	dpn_j2c_leg
+
+# ---------------------------------------------------------------------- the read: the end-of-tick pass
+#
+# The shipped function, called directly in a shell that sourced `common.sh` and ran nothing else --
+# the poke harness'"'"'s shape for the poke harness'"'"'s reason: `factory_decision_provenance` reads a
+# journal, two decision logs and the ledger, and reaching it through a whole supervisor would read
+# GitHub on the way. Its stdout carries the same lines it journals (`log_event` echoes), so every
+# call below lands in a file a failing leg can point at.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_prove() { # <common.sh> <unit> <branch> <tree> <logdir> <statedir>
+	local common=$1 unit=$2 branch=$3 tree=$4 logdir=$5 statedir=$6
+	(
+		set -eu
+		# shellcheck source=./common.sh
+		# shellcheck disable=SC1090,SC1091
+		. "$common"
+		FACTORY_DIR=$statedir FACTORY_LOG=$logdir FACTORY_LEDGER=$statedir/ledger \
+			FACTORY_RUN=$statedir/run DRY_RUN=0 \
+			FACTORY_REPO=example/repo FACTORY_OWNER=example FACTORY_NAME=repo \
+			factory_decision_provenance "$unit" "$branch" "$tree"
+	)
+}
+
+dpn_p1_dir=$dpn_work/p1
+if ! dpn_repo "$dpn_p1_dir" issue-p1; then
+	pos_say 'fixture p1 could not be built; the comparison legs below read a tree that does not exist'
+fi
+if ! (
+	set -eu
+	printf '## D-0007 · an id taken by eye\nbody\n' >>"$dpn_p1_dir/unit/DECISIONS.md"
+	printf '## D-0009 · an id the allocator handed out\nbody\n' >>"$dpn_p1_dir/unit/DECISIONS.md"
+	printf '## H-0004 · a harness-log id nobody earned\nbody\n' >>"$dpn_p1_dir/unit/factory/DECISIONS.md"
+	git -C "$dpn_p1_dir/unit" add -A
+	git -C "$dpn_p1_dir/unit" commit -qm 'fixture: three new headings, one earned'
+); then
+	pos_say 'fixture p1'"'"'s three headings could not be committed; the comparison legs read nothing'
+fi
+mkdir -p "$dpn_p1_dir/log"
+# The journalled answers, planted in the shipped shape: D-0009 was earned on THIS branch by a
+# different row (branches outlive rows -- `unclaimed:297` and `address_review:297` are one branch,
+# and the tick that allocated is not the tick compared later), and D-0007 was earned on another
+# branch entirely, which is the distinction the whole read exists to keep.
+printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' >>"$dpn_p1_dir/log/supervisor.log"
+printf '2026-11-15T00:00:01Z DECISION-ID D-0007 unit=unclaimed:900 branch=issue-sibling (allocator, DECISIONS.md, REFRESH 1s union)\n' >>"$dpn_p1_dir/log/supervisor.log"
+dpn_prove "$HERE/common.sh" unclaimed:p1 issue-p1 "$dpn_p1_dir/unit" "$dpn_p1_dir/log" "$dpn_p1_dir/ledger" \
+	>"$dpn_work/p1.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero (it returns 0 by contract); see '"$dpn_work"'/p1.out'
+dpn_prove "$HERE/common.sh" unclaimed:p1 issue-p1 "$dpn_p1_dir/unit" "$dpn_p1_dir/log" "$dpn_p1_dir/ledger" \
+	>"$dpn_work/p1b.out" 2>&1 ||
+	pos_say 'the second activation exited non-zero; see '"$dpn_work"'/p1b.out'
+dpn_p1_leg() {
+	local j=$dpn_p1_dir/log/supervisor.log n
+	if ! grep -qF -- \
+		'DECISION-ID-UNEARNED D-0007 (no allocation journalled for this unit) unit=unclaimed:p1 branch=issue-p1 log=DECISIONS.md' \
+		"$j"; then
+		printf '            the by-eye id was not reported in the shape an operator acts on\n' >&2
+		printf '            (id, unit, branch and log all on one line):\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED H-0004' "$j" ||
+		! grep -qF -- 'log=factory/DECISIONS.md' "$j"; then
+		printf '            the unearned heading in the HARNESS log was not reported, so the\n' >&2
+		printf '            comparison scans only the repository log:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qE -- 'DECISION-ID-UNEARNED (D-0009|D-0005|H-0001)' "$j"; then
+		printf '            something earned got reported: D-0009 IS journalled on this branch (under\n' >&2
+		printf '            another unit -- branches outlive rows), D-0005 is not new to the branch,\n' >&2
+		printf '            H-0001 is already on trunk. A report nobody acts on trains nobody to read\n' >&2
+		printf '            the ones that matter:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	n=$(grep -c 'DECISION-ID-UNEARNED' "$j") || true
+	if [ "${n:-0}" != 2 ]; then
+		printf '            the pass ran twice and journalled %s UNEARNED line(s), not two: an id is\n' "${n:-0}" >&2
+		printf '            reported once per unit, or a stuck unit drowns the journal in itself:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the pass names unearned ids' \
+	'exactly what is new against trunk with no answer journalled on this branch, once each, both logs' \
+	dpn_p1_leg
+
+# Control one blinds the scan itself. If a blinded comparison still reported, the ok above was being
+# paid for by something else in the function; if the plant fails, the control is declared dead, not
+# green.
+dpn_p1c1=0
+dpn_mut "$HERE/common.sh" 'for rel in DECISIONS.md factory/DECISIONS.md; do' \
+	'	for rel in ; do # MUTANT-345 the comparison scans no log' "$dpn_work/common-noscan" || dpn_p1c1=1
+dpn_p1c1_leg() {
+	local j=$dpn_work/p1c1-log/supervisor.log
+	if [ "${dpn_p1c1:-1}" != 0 ]; then
+		printf '            the comparison could not be blinded, so this control ran shipped code and\n' >&2
+		printf '            its UNEARNED lines prove nothing about the scan.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p1c1-log"
+	printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
+		>"$j"
+	dpn_prove "$dpn_work/common-noscan" unclaimed:p1c1 issue-p1 "$dpn_p1_dir/unit" \
+		"$dpn_work/p1c1-log" "$dpn_work/p1c1-ledger" >"$dpn_work/p1c1.out" 2>&1 || {
+		printf '            the blinded comparison exited non-zero; see %s/p1c1.out\n' "$dpn_work" >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$j"; then
+		printf '            blinding the log scan did not stop the reports, so the shipped leg above\n' >&2
+		printf '            is not this scan doing the comparing:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the report is the scan'"'"'s' 'blinding the comparison of the two logs silences UNEARNED' dpn_p1c1_leg
+
+# Control two corrupts the reading of the earned set. A parse that matches nothing must NOT look like
+# an earned tree -- it must report every new id, including the earned one -- so silence here means
+# the shipped leg was never reading the journal it claims to compare against.
+dpn_p1c2=0
+# The anchor is the FIRST line of a two-line command (the program, then the file), so the mutant must
+# rewrite that whole line -- program text only would strip the `earned=$(awk` opener and die at
+# parse, which the first run of this leg did, loudly and correctly refusing to call itself a control.
+dpn_mut "$HERE/common.sh" '$2 == "DECISION-ID" && $5 == "branch=" b {print $3}' \
+	$'\tearned=$(awk -v b="$branch" \'$2 == "DECISION-IDZ" && $5 == "branch=" b {print $3}\' \\' \
+	"$dpn_work/common-badearn" || dpn_p1c2=1
+dpn_p1c2_leg() {
+	local j=$dpn_work/p1c2-log/supervisor.log
+	if [ "${dpn_p1c2:-1}" != 0 ]; then
+		printf '            the earned-set parse could not be corrupted, so this control ran shipped\n' >&2
+		printf '            code; its verdict about D-0009 proves nothing about the parse.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p1c2-log"
+	printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
+		>"$j"
+	dpn_prove "$dpn_work/common-badearn" unclaimed:p1c2 issue-p1 "$dpn_p1_dir/unit" \
+		"$dpn_work/p1c2-log" "$dpn_work/p1c2-ledger" >"$dpn_work/p1c2.out" 2>&1 || {
+		printf '            the corrupted comparison exited non-zero; see %s/p1c2.out\n' "$dpn_work" >&2
+		return 1
+	}
+	grep -qF -- 'DECISION-ID-UNEARNED D-0009' "$j" && return 0
+	printf '            with the earned-set parse broken the pass called the tree clean -- D-0009 was\n' >&2
+	printf '            still trusted though nothing was readable about the journal. A reader that\n' >&2
+	printf '            cannot read must never look like a clean result:\n' >&2
+	sed 's/^/              /' "$j" >&2
+	return 1
+}
+dpn_leg 'unreadable is not clean' 'a corrupted earned-set reports the earned id too, rather than nothing' \
+	dpn_p1c2_leg
+
+# The unreadable base. A checkout with no `origin/main` is NOT a trunk with no entries: answering
+# "every id is unearned" from a failed read is the #345-noise-at-scale failure, and the doctrine is
+# the one the tree verdict already follows -- a read that failed is not a provenance that failed.
+dpn_p2_repo=$dpn_work/p2-repo
+if ! dpn_bare "$dpn_p2_repo"; then
+	pos_say 'fixture p2-repo could not be built; the UNCHECKED leg reads a tree that does not exist'
+fi
+dpn_prove "$HERE/common.sh" unclaimed:p2 issue-p2 "$dpn_p2_repo" "$dpn_work/p2-log" "$dpn_work/p2-ledger" \
+	>"$dpn_work/p2.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero on the no-origin tree; see '"$dpn_work"'/p2.out'
+dpn_p2_leg() {
+	local j=$dpn_work/p2-log/supervisor.log
+	if ! grep -qF -- 'DECISION-ID-UNCHECKED' "$j" || ! grep -qF -- 'origin/main' "$j"; then
+		printf '            a checkout with no readable `origin/main` journalled no UNCHECKED line\n' >&2
+		printf '            naming the failed read:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$j"; then
+		printf '            the unreadable base also produced UNEARNED verdicts; a failed read claims\n' >&2
+		printf '            nothing about any id, in either direction:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'no trunk reads as UNCHECKED' 'an unreadable base reports itself and renders no verdict' dpn_p2_leg
+
+dpn_p2c=0
+dpn_mut "$HERE/common.sh" 'ids read from it are neither claimed nor refused' \
+	'		: # MUTANT-345 the unreadable base goes unreported' "$dpn_work/common-nocheck" || dpn_p2c=1
+dpn_p2c_leg() {
+	local j=$dpn_work/p2c-log/supervisor.log
+	if [ "${dpn_p2c:-1}" != 0 ]; then
+		printf '            the UNCHECKED arm could not be blinded, so this control ran shipped code\n' >&2
+		printf '            and its silence proves nothing about the arm.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p2c-log" && : >"$j"
+	dpn_prove "$dpn_work/common-nocheck" unclaimed:p2c issue-p2 "$dpn_p2_repo" \
+		"$dpn_work/p2c-log" "$dpn_work/p2c-ledger" >"$dpn_work/p2c.out" 2>&1 || {
+		printf '            the blinded comparison exited non-zero; see %s/p2c.out\n' "$dpn_work" >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNCHECKED' "$j"; then
+		printf '            the blinded arm still reported, so the shipped leg was passing on some\n' >&2
+		printf '            other line than the one this control removed:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the UNCHECKED line is that arm' 'blinding it lets the failed read pass in silence' dpn_p2c_leg
+
+# ----------------------------------------------------------------------- the wiring: dispatch to journal
+#
+# The two contracts above meet across a process boundary: `factory_tick` exports the unit context,
+# and the allocator -- run by the session, minutes later, inside a worktree -- writes its answer
+# into the journal the export names. A grep that finds both lines still cannot say the child SAW the
+# export. So these are process legs on the established fixture, and the session does what a unit's
+# session really does with a decision: writes a heading into the log, through the real allocator or
+# by eye, exactly as #345 measured. `proc_tick_alloc` hands the session stub its script; no other
+# leg in this file sets it, and without it the stub is the shipped stub.
+
+dpn_w_earned=$dpn_work/session-earned.sh
+# The compliant unit's hands, inside the fixture tick: allocate, write, commit. Deliberately dull --
+# its exit is the tick's exit, so a broken pair here arrives as a failed tick rather than as a pass
+# whose journal nobody reads.
+cat >"$dpn_w_earned" <<'DPNA'
+#!/usr/bin/env bash
+set -eu
+cd -- "$1"
+next=$(bash factory/next-decision-id.sh DECISIONS.md)
+printf '## %s · an id that went through the allocator\nbody\n' "$next" >>DECISIONS.md
+git add DECISIONS.md
+git commit -qm "docs(decisions): $next"
+DPNA
+
+# #345's units, verbatim: the next number taken by eye -- last heading, plus one -- with the
+# allocator sitting unrun in `factory/`. Every check a reviewer can run sees a well-formed entry;
+# only the journal knows the id was never earned.
+dpn_w_eye=$dpn_work/session-eyeballed.sh
+cat >"$dpn_w_eye" <<'DPNB'
+#!/usr/bin/env bash
+set -eu
+cd -- "$1"
+last=$(sed -n 's/^## \(D-[0-9][0-9]*\).*/\1/p' DECISIONS.md | sort | tail -n1)
+printf '## D-%04d · an id taken by eye\nbody\n' "$((10#${last#D-} + 1))" >>DECISIONS.md
+git add DECISIONS.md
+git commit -qm 'docs(decisions): by eye, as #345 measured'
+DPNB
+
+proc_new dpn-w1
+proc_tick_alloc=$dpn_w_earned
+proc_plant
+proc_run dpn-w1-1
+proc_tick_alloc=''
+dpn_w1_j=$proc_journal
+dpn_w1_leg() {
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$dpn_w1_j"; then
+		printf '            the session allocated through the real script and the pass still calls\n' >&2
+		printf '            its id unearned -- the export or the journalling is not reaching:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1_j" | sed 's/^/              /' >&2
+		return 1
+	fi
+	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:900 branch=issue-900' "$dpn_w1_j" || {
+		printf '            nothing journalled the id the tick committed (D-0002): the dispatch\n' >&2
+		printf '            started a session that could not earn its own numbers.\n' >&2
+		grep 'DECISION-ID' "$dpn_w1_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the dispatch answers the allocator' \
+	'an id earned inside a real tick journals against the unit and branch the dispatch handed it' \
+	dpn_w1_leg
+
+# The control nulls ONE export. The session still earns its id honestly; the journal cannot see who
+# it was earned for; and the pass must say UNEARNED -- not fall silent. "A legitimate-looking id the
+# journal cannot vouch for reads UNEARNED" is the report's whole purpose, and the export being the
+# difference between that line and nothing is what this control pins.
+proc_new dpn-w1c
+proc_mutate_factory $'FACTORY_TICK_UNIT="$unit" \\' \
+	$'\t\tFACTORY_TICK_UNIT= \\' || proc_w1c_planted=0
+proc_tick_alloc=$dpn_w_earned
+proc_plant
+proc_run dpn-w1c-1
+proc_tick_alloc=''
+dpn_w1c_j=$proc_journal
+dpn_w1c_leg() {
+	if [ "${proc_w1c_planted:-1}" = 0 ]; then
+		printf '            the export could not be nulled, so this control ran the shipped dispatch\n' >&2
+		printf '            and whatever its journal says is the shipped code talking.\n' >&2
+		return 1
+	fi
+	if grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:900' "$dpn_w1c_j"; then
+		printf '            the nulled dispatch still journalled the allocation for the unit, so the\n' >&2
+		printf '            shipped leg above is not this export doing it:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1c_j" | sed 's/^/              /' >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0002' "$dpn_w1c_j" ||
+		! grep -qF -- 'branch=issue-900' "$dpn_w1c_j"; then
+		printf '            with the unit export nulled the pass went silent: an id the session earned\n' >&2
+		printf '            and the journal cannot vouch for must read UNEARNED, not nothing. Silence\n' >&2
+		printf '            is exactly how a missing export hides, which is what #345 measured:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1c_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'the export is the difference' \
+	'nulling FACTORY_TICK_UNIT makes an earned id read UNEARNED, which is what the export buys' \
+	dpn_w1c_leg
+
+# The ticket's unit, end to end: a session that never runs the allocator, the heading committed, the
+# tick clean by every measure the pass already takes -- and one journal line naming the id, the unit
+# and the branch, which is the whole thing #345 asked to be able to see.
+proc_new dpn-w2
+proc_tick_alloc=$dpn_w_eye
+proc_plant
+proc_run dpn-w2-1
+proc_tick_alloc=''
+dpn_w2_j=$proc_journal
+dpn_w2_leg() {
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0002' "$dpn_w2_j" ||
+		! grep -qF -- 'unit=unclaimed:900 branch=issue-900' "$dpn_w2_j"; then
+		printf '            the ticket'"'"'s unit -- heading written, id taken by eye, the allocator\n' >&2
+		printf '            sitting unrun in factory/ -- finished with nothing to say about where its\n' >&2
+		printf '            id came from:\n' >&2
+		grep 'DECISION-ID' "$dpn_w2_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'the ticket'"'"'s unit is caught' \
+	'a heading numbered by eye reports UNEARNED with the dispatch'"'"'s own unit and branch' \
+	dpn_w2_leg
+
 # --------------------------------------------------------------------------- the refs the pass reads
 #
 # H-0075 (#256). Everything the pass decides is a reading of refs: `triage.sh` reports this tree's
@@ -17432,6 +19474,656 @@ cv_leg_cmsg_empty() {
 	return 0
 }
 claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
+
+# #334 -- the footprint line. Nothing bounds `factory/log/` (20 MB across 100 files at filing, 35 MB
+# across 171 three days later, oldest file still the harness's first day), and `--status` printed the
+# journal's path and nothing about its size. The retention decision is escalated (`H-0188`) -- deleting
+# the operator's audit trail is not a tick's move -- but the line that makes the growth visible is, and
+# these legs drive the shipped function against planted directories of known bytes and known ages.
+# Nothing here deletes anything; that is the escalated half's problem, not the suite's.
+fp_leg_planted() {
+	local dir=$work/footprint/planted out
+	mkdir -p "$dir"
+	head -c 250 /dev/zero >"$dir/supervisor.log"
+	head -c 400 /dev/zero >"$dir/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$dir/refresh.log"
+	local t_old t_mid t_new
+	t_old=$(date -u -d '3 days ago' +%s)
+	t_mid=$(date -u -d '2 days ago' +%s)
+	t_new=$(date -u -d '1 day ago' +%s)
+	touch -d "@$t_old" "$dir/20261110T134828Z.unclaimed:213.log"
+	touch -d "@$t_mid" "$dir/supervisor.log"
+	touch -d "@$t_new" "$dir/refresh.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed on a planted directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | head -n 1 | grep -qxF "journal: $dir/supervisor.log" || {
+		printf '\tthe first line is not the journal path line: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\tthe planted bytes were not summed as planted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest 20261110T134828Z\.unclaimed:213\.log (2d23h|3d0h)' || {
+		printf '\tthe oldest file is not named with a days-shaped age: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# One file must read "1 file", not "1 files" -- the plural is cheap here and the journal line is
+	# read by a person deciding whether the growth is a problem.
+	local one=$work/footprint/one
+	mkdir -p "$one"
+	head -c 250 /dev/zero >"$one/supervisor.log"
+	out=$(factory_log_footprint "$one") || {
+		printf '\tfactory_log_footprint failed on the single-file directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 1 file,' || {
+		printf '\tthe single-file directory did not read singular: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# The control for `oldest`: touch that transcript and the same scan must change its answer. A
+	# report that names the same file no matter what is planted reports an order, not a minimum.
+	touch -d "@$t_new" "$dir/20261110T134828Z.unclaimed:213.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed after the flip\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qE 'oldest supervisor\.log (1d23h|2d0h)' || {
+		printf '\tafter the flip the scan still names the same file: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	# Directories under the log dir are not this footprint -- and the promise needs a plant or the
+	# `-maxdepth 1` can rot away green. A recursive scan printing `%f` would let a nested file
+	# named `supervisor.log` masquerade as the journal and silently overwrite the journal field.
+	mkdir -p "$dir/sub"
+	head -c 999 /dev/zero >"$dir/sub/supervisor.log"
+	head -c 4000 /dev/zero >"$dir/sub/big.log"
+	out=$(factory_log_footprint "$dir") || {
+		printf '\tfactory_log_footprint failed over the nested-directory plant\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal 250 B; 3 files, 750 B' || {
+		printf '\ta planted subdirectory changed the footprint: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	return 0
+}
+
+fp_leg_arms() { # what an empty directory, an absent one and a journal-less one each answer, in words that name the case
+	local empty=$work/footprint/empty out
+	mkdir -p "$empty"
+	out=$(factory_log_footprint "$empty") || {
+		printf '\tfactory_log_footprint failed on an empty directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'nothing under' || {
+		printf '\tthe empty directory did not say so: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	out=$(factory_log_footprint "$work/footprint/nosuch") || {
+		printf '\tfactory_log_footprint failed on an absent directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'does not exist' || {
+		printf '\tthe absent directory did not name its condition: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal:' || {
+		printf '\tthe absent arm dropped the journal path line\n'
+		return 1
+	}
+	# The third arm: a log directory holding transcripts and no journal. That is what a hand-deleted
+	# `supervisor.log` leaves, and what a rotation would leave in the instant between moving the file
+	# and creating the next one (#334's fix 2 will live here). The field must say `never` while the
+	# count and the bytes still describe the transcripts that ARE there.
+	#
+	# This plant is also the only witness for WHICH file the journal field is taken from that does not
+	# depend on the order `find` returns names in. With no `supervisor.log` present there is no
+	# ordering in which a last-file-wins scan can print `never`, so the mutant that fills the field
+	# with the last file it scanned dies on this line -- measured SURVIVING the 3-file plant above at
+	# 6cebe8d, where that plant printed the planted `journal 250 B` whenever the journal happened to be
+	# the name `find` returned last. An assertion a wrong implementation can satisfy by luck of
+	# directory order is H-0043's defect with the numbers still in it.
+	local nojournal=$work/footprint/no-journal
+	mkdir -p "$nojournal"
+	head -c 400 /dev/zero >"$nojournal/20261110T134828Z.unclaimed:213.log"
+	head -c 100 /dev/zero >"$nojournal/refresh.log"
+	out=$(factory_log_footprint "$nojournal") || {
+		printf '\tfactory_log_footprint failed on a journal-less directory\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -qF 'journal never; 2 files, 500 B' || {
+		printf '\tthe journal-less directory did not read `journal never` with its transcripts still counted: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+		return 1
+	}
+	return 0
+}
+
+fp_leg_wired() { # `--status` prints the line, and the scan proves it reads CALLS, not sentences
+	local dir=$work/footprint/wired/factory
+	mkdir -p "$dir"
+	# The predicate, in one place for the positive check and both control scans: the line must
+	# START the call (indent, then the bare name) and must not be the continuation of somebody
+	# else's command -- a `printf '%s\n' \` followed by the name passes a bare grep, but bash
+	# runs printf there, not the footprint. (Round 2 of the pre-PR review.)
+	is_call() {
+		awk 'p !~ /\\$/ && $0 ~ /^[[:space:]]+factory_log_footprint([[:space:]]|$)/ { f = 1 }
+			{ p = $0 }
+			END { exit !f }'
+	}
+	status_arm "$HERE/factory.sh" | is_call || {
+		printf '\tthe --status arm does not call factory_log_footprint\n'
+		return 1
+	}
+	# Control one, planted outside the repository: a copy with the call line deleted. The guard
+	# that the plant planted is `cmp` -- an edit that changed nothing would certify absence for
+	# free -- and then the same anchored scan must go red.
+	sed '/^[[:space:]]*factory_log_footprint[[:space:]]*$/d' "$HERE/factory.sh" >"$dir/deleted.sh"
+	cmp -s "$HERE/factory.sh" "$dir/deleted.sh" && {
+		printf '\tcontrol failed: deleting the call changed nothing, so the plant planted nothing\n'
+		return 1
+	}
+	status_arm "$dir/deleted.sh" | is_call && {
+		printf '\tcontrol failed: the scan still found the deleted call\n'
+		return 1
+	}
+	# Control two, the comment plant: the call line replaced by a comment that only MENTIONS the
+	# name. A scan that reads a sentence as a call certifies wiring that is not there -- the exact
+	# defect the pos-call-sites section repaired with a shape predicate (H-0043's rule).
+	sed 's/^[[:space:]]*factory_log_footprint[[:space:]]*$/\t# prints its lines via factory_log_footprint from common.sh/' \
+		"$HERE/factory.sh" >"$dir/commented.sh"
+	grep -qF '# prints its lines via factory_log_footprint' "$dir/commented.sh" || {
+		printf '\tcontrol failed: the comment plant did not land\n'
+		return 1
+	}
+	status_arm "$dir/commented.sh" | is_call && {
+		printf '\tcontrol failed: the scan reads a comment naming the function as a call\n'
+		return 1
+	}
+	return 0
+}
+claim_leg 'footprint: planted bytes, count, oldest' fp_leg_planted
+claim_leg 'footprint: empty, absent, journal-less' fp_leg_arms
+claim_leg 'footprint wired into --status' fp_leg_wired
+
+# ---- the rendered tick prompt carries no escalation name (#340)
+#
+# `ask_prompt_assembles_it` reads the SOURCE of the `address_review` arm; this section reads what that
+# arm BECOMES. The difference is the defect. The arm builds `id_line` as a double-quoted string, so
+# any `${...}` inside it is expanded by the SUPERVISOR at prompt-build time: the file census stays
+# green because the source carries a variable name, while the bytes the tick reads carry a value. A
+# prompt is not a file, so no `esc_one_home` row covered the one artifact a stopped unit cannot skip
+# reading -- and the rendered instruction used to spell the escalation label out between two commas,
+# eight words before the same paragraph ordered the name to be read from its one home (#340). The leg
+# that could have noticed instead REQUIRED that token, so #340 widened it to accept the reader call
+# as well; that widened scan is now the weaker guard, and the rendering below is the discriminator.
+#
+# Both read the EXPANSION, never the source: a leg that grepped the file for the name would pass on
+# exactly the shape it exists to refuse, because the source legitimately holds `escalation-label.sh`
+# and may hold the variable name again.
+ask_prompt_render() { # ask_prompt_render <factory.sh> -- print the rendered empty-ask branch
+	local src=$1 dir block out
+	if [ ! -f "$src" ]; then
+		printf '            %s is not there, so there is nothing to render\n' "$src" >&2
+		return 2
+	fi
+	dir=$(cd -- "$(dirname -- "$src")" && pwd)
+	if [ ! -f "$dir/common.sh" ]; then
+		printf '            no common.sh beside %s: the render has to run in the environment\n' "$src" >&2
+		printf '            the supervisor has at prompt-build time, which is what that file\n' >&2
+		printf '            loads, not an approximation of it\n' >&2
+		return 2
+	fi
+	# Only the transport-failure branch: the `if [ -n "$ask" ]` block, run with the ask EMPTY. The
+	# shipped arm holds exactly one such block and closes it with exactly one `fi` -- measured on
+	# the arm itself, `... | grep -c 'fi$'` answers 1 -- so the range cannot stop at a nested one;
+	# an arm that grows a second shape refuses below instead of rendering the wrong prose.
+	block=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$src" \
+		| awk '/if \[ -n "\$ask" \]; then/{f=1} f{print} f && /^\t\tfi$/{exit}')
+	if [ -z "$block" ]; then
+		printf '            no `if [ -n "$ask" ]` block inside the address_review arm: the arm no\n' >&2
+		printf '            longer assembles the ask by building a string, so this leg has no\n' >&2
+		printf '            expansion to read and refuses rather than passing blind\n' >&2
+		return 1
+	fi
+	# `eval` of the extracted block in a subshell shaped like the supervisor's: common.sh sourced --
+	# that is where an interpolated value would come from -- `key` and `id_line` set to the two
+	# variables the block interpolates, and a sentinel chosen so it cannot collide with a label name.
+	if ! out=$(
+		(
+			set +e
+			# shellcheck disable=SC1091  # the same common.sh the supervisor has sourced at the moment
+			# it expands the block below; the render is worth nothing without it.
+			. "$dir/common.sh" >/dev/null 2>&1
+			# shellcheck disable=SC2034  # key and ask are read by the block extracted from factory.sh
+			# and eval'd two lines down -- by everything except a static read of this file. id_line
+			# is the sentinel that block appends to, and it cannot collide with a label name.
+			key=999 ask='' id_line='PROMPT-SENTINEL'
+			eval "$block" >/dev/null 2>&1
+			printf '%s' "$id_line" ) 2>/dev/null
+	); then
+		printf '            the empty-ask branch of %s refused to execute at all\n' "$src" >&2
+		return 1
+	fi
+	printf '%s\n' "$out"
+}
+ask_prompt_carries_no_name() { # ask_prompt_carries_no_name [root] -- no literal name reaches the tick
+	local root=$HERE/.. name rendered
+	[ -z "${1:-}" ] || root=$1
+	if ! name=$(bash "$root/factory/escalation-label.sh" 2>/dev/null); then
+		printf '            the reader refuses, so there is no name to compare the rendering\n' >&2
+		printf '            against -- and a stopped unit right now cannot label anything either.\n' >&2
+		printf '            Fix the reader first; this leg inherits its verdict until then.\n' >&2
+		return 1
+	fi
+	if [ -z "$name" ]; then
+		printf '            the reader printed an empty name. Refusing to compare nothing is not\n' >&2
+		printf '            a pass: an empty name is itself the bare `--add-label` hazard #315 names\n' >&2
+		return 1
+	fi
+	if ! rendered=$(ask_prompt_render "$root/factory/factory.sh"); then
+		printf '            the shipped empty-ask branch failed to render, so there is nothing\n' >&2
+		printf '            here this leg could read and still call a prompt\n' >&2
+		return 1
+	fi
+	# Preconditions first, both of them, so any refusal below is aimed at a rendering that happened:
+	# an expansion that lost the prose would make the name grep vacuously green. The prompt must
+	# start from the id_line it was handed, and it must still BE the escalation branch.
+	case "$rendered" in
+	PROMPT-SENTINEL*) : ;;
+	*) printf '            the rendered prompt does not even start from the id_line it was\n' >&2
+		printf '            handed, so the extraction ran something the supervisor never runs\n' >&2
+		return 1 ;;
+	esac
+	printf '%s\n' "$rendered" | grep -qF -- 'escalation-label.sh' || {
+		printf '            the rendered prompt carries no reader call, which means this is not\n' >&2
+		printf '            the escalation branch any more -- a leg that greps a name out of some\n' >&2
+		printf '            other prose passes on everything\n' >&2
+		return 1
+	}
+	# The defect. Substring, the same test `esc_one_home` runs over files: the question is whether
+	# the bytes of the name reach the tick, and the shape #340 measured sat mid-line between two
+	# commas, where a whole-line test would have walked past it.
+	case "$rendered" in
+	*"$name"*)
+		printf '            the RENDERED prompt spells the escalation name to the tick. The file\n' >&2
+		printf '            census is green because the source holds a variable; a prompt is not a\n' >&2
+		printf '            file, and a name sitting beside prose that says "rather than typing\n' >&2
+		printf '            it" is the paste #315 refused, taught from the one artifact a stopped\n' >&2
+		printf '            unit cannot skip reading (#340). Rendered hits:\n' >&2
+		printf '%s\n' "$rendered" | grep -nF -- "$name" | sed 's/^/              /' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'the rendered tick prompt carries no escalation name' ask_prompt_carries_no_name
+ask_prompt_rendered_control() {
+	# One plant, outside the repository: the interpolation this unit deleted, restored in the shape
+	# the drift actually arrives -- prose that types the name because reading it is longer. It plants
+	# the VARIABLE, not today's value, so the plant follows a #311 rename instead of pinning it, and
+	# it plants INSIDE the empty-ask branch, so the only thing the refusal below can be caused by is
+	# an expansion that carries the name.
+	local ctrl=$claim_work/ask-render fs
+	esc_ctrl_copy "$ctrl/plant" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted copy could not be written\n' 'control: the rendered name'
+		return 0
+	}
+	fs=$ctrl/plant/factory/factory.sh
+	awk -v 'pl=\t\t\tid_line="$id_line MARKER-NAME: $FACTORY_ESCALATION_LABEL"' '
+		/^\taddress_review\)/ { inarm = 1 }
+		inarm && /^\t\telse$/ && !planted { print; print pl; planted = 1; next }
+		{ print }
+		inarm && /^\t\t;;$/ { inarm = 0 }
+	' "$HERE/factory.sh" >"$fs" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the interpolation could not be planted\n' 'control: the rendered name'
+		return 0
+	}
+	# Measured, not assumed: a plant that did not land and a leg that is blind print the same green.
+	if ! grep -qF -- 'MARKER-NAME: $FACTORY_ESCALATION_LABEL' "$fs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant is not in the copy, so the refusal below was never aimed\n' \
+			'control: the rendered name'
+		printf '          at an instruction that carries the name\n'
+		return 0
+	fi
+	# And the copy must still render the escalation branch: the refusal below has to be caused by
+	# the name reaching the prompt, not by an extraction that stopped working on the copy.
+	if ! ask_prompt_render "$fs" 2>/dev/null | grep -qF -- 'escalation-label.sh'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted copy stopped rendering the escalation branch, so the\n' \
+			'control: the rendered name'
+		printf '          refusal below proves nothing about a name reaching the prompt\n'
+		return 0
+	fi
+	if ask_prompt_carries_no_name "$ctrl/plant" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a copy whose RENDERED prompt spells the name still passes, so the\n' \
+			'control: the rendered name'
+		printf '          ok above is grepping the source and not the expansion\n'
+	else
+		printf '        control: putting the interpolation back renders the name into the prompt and\n'
+		printf '        is refused, so the ok above reads the bytes a tick reads.\n'
+	fi
+}
+ask_prompt_rendered_control
+
+
+# ------------------------------------------------------------------ #341: a standing halt is re-asked every activation
+#
+# The outage this section refuses: `unclaimed:302` twice left verified work uncommitted, the streak
+# halted the queue, and the marker -- written one second AFTER the quarantine had already stashed and
+# mirrored the work it named -- stood for 14h34m and 77 activations, printing "and not re-probed
+# since" 77 times over a tree that had been clean since the moment the cause was recorded. The cause
+# was false from birth and nothing noticed, because nothing asked. These legs drive the shipped
+# `factory.sh` end to end (no mutants in the shipped runs): a stub tick that exits 0 and leaves the
+# `#302` shape in its tree -- finished, verified, uncommitted -- so the streak arms and halts for the
+# real reason, and then they ask what the NEXT activation does with a marker whose cause is gone.
+#
+# The contract under test, in four sentences: an activation with a standing, machine-written halt
+# re-asks the marker's own tree before it refuses, and releases the halt (`HALT-RELEASED`, marker
+# removed, pass continues) when that tree is provably clean and not half-merged; a tree still dirty
+# or mid-merge holds, and the `HALTED` line says this pass asked; a twice-spent release budget turns
+# a cleared cause into `HALT-STUBBORN` and a human resume; and a hand-written marker, which names no
+# target to ask, is held forever exactly as before.
+
+# One fixture walked to the halt: three activations of shipped code with a tick that leaves its work
+# uncommitted in unit A's tree. Activation one arms the streak (tree dirty after the tick), two
+# quarantines at attempt=1 and arms again, three quarantines at attempt=2 -- TREE-STREAK, and the
+# shipped `factory_tree_halt` writes the marker over a tree the quarantine itself just cleaned.
+# Leaves the fixture in the post-halt state and the third journal in $hp_j3.
+hp_walk_to_halt() { # <fixture-name>
+	proc_dirty=unclaimed:900
+	proc_new "$1"
+	proc_run "$1-1"
+	proc_run "$1-2"
+	proc_run "$1-3"
+	proc_dirty=''
+	hp_j3=$proc_journal
+	hp_tree=$proc_trees/issue-900
+	return 0
+}
+
+hp_walk_to_halt reprobe
+
+hp_w1_target() {
+	local line
+	if [ -z "$(proc_journal_line "$hp_j3" 'TREE-STREAK unclaimed:900')" ]; then
+		printf '            the shipped streak never halted -- these legs would then release nothing.\n' >&2
+		sed -n 's/^/              /p' "$hp_j3" | cut -c1-150 >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            TREE-STREAK halted without leaving the marker, which is #248'"'"'s\n' >&2
+		printf '            outage wearing this fixture'"'"'s clothes: nothing after it would stop.\n' >&2
+		return 1
+	}
+	[ "$(wc -l <"$proc_halt")" = 1 ] || {
+		printf '            the marker is not one line, so `factory_halt_reason` would join two\n' >&2
+		printf '            sentences with no space and the #237 legs'"'"' one-line rule is gone.\n' >&2
+		return 1
+	}
+	line=$(cat "$proc_halt")
+	# The wildcard stars stay OUTSIDE the quotes: `mirror='` ends the quoted literal and a `*`
+	# written inside double quotes is a star the marker would have to contain literally.
+	local want=' :: halt-target: unit=unclaimed:900|cause=quarantined|mirror='
+	case "$line" in
+	*"$want"*"$hp_tree"*) : ;;
+	*) printf '            the halt the harness wrote does not name the target a later activation\n' >&2
+		printf '            must re-ask, so #341'"'"'s gap is open again: unit, cause, mirror or tree\n' >&2
+		printf '            is missing from the stamp. The marker:\n              %s\n' "${line:0:200}" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the streak halt stamps its target' \
+	'one-line marker carrying :: halt-target: unit|cause=quarantined|mirror=<path>|tree=<path>' hp_w1_target
+
+proc_run reprobe-4
+
+hp_w2_release() {
+	[ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED unclaimed:900 cause-cleared tree-clean')" ] || {
+		printf '            the activation after a streak halt did not release it, while the tree\n' >&2
+		printf '            the marker names is clean -- the quarantine cleaned it. This is the\n' >&2
+		printf '            14h34m/77-activations line this issue was filed over. Its journal:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ ! -e "$proc_halt" ] || {
+		printf '            it journaled the release and left the marker standing, so the NEXT\n' >&2
+		printf '            activation would halt again on a cause already released.\n' >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ]; then
+		printf '            the released activation still printed its halt line:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" 'HALTED ')" >&2
+		return 1
+	fi
+	awk '/HALT-RELEASED/ { r = NR } /TICK-START/ { t = NR }
+		END { exit (r && t && t > r) ? 0 : 1 }' "$proc_journal" || {
+		printf '            the pass did not go on to triage after releasing -- a TICK-START must\n' >&2
+		printf '            exist and come after the release line, or the release freed nothing:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$proc_rc" = 0 ] || {
+		printf '            the released activation exited %s; with the marker gone it is an\n' "$proc_rc" >&2
+		printf '            ordinary pass and owes an ordinary 0.\n' >&2
+		return 1
+	}
+	# Anti-flap (demand 2's honest half): the release ends the run of bad luck it measured, so the
+	# streak counter that produced it must not stand ready to fire a THIRD halt on one fresh accident.
+	local n
+	n=$(cat "$proc_stash/unclaimed:900.quarantine-count" 2>/dev/null || printf 'absent')
+	[ "$n" = "0" ] || [ "$n" = "absent" ] || {
+		printf '            the release left quarantine-count at %s, so the next single accident\n' "$n" >&2
+		printf '            halts the queue on the strength of the streak this halt already consumed.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the next activation releases it' \
+	'HALT-RELEASED, marker gone, no HALTED line, triage follows, exit 0, streak cleared' hp_w2_release
+
+# Control, demand 1's own words: "control rewrites the re-probe to trust the marker's word and the
+# leg must go red." Planted at the top of `factory_halt_reprobe`'s body, so the shipped guard is
+# intact and the ONE changed decision is whether the tree is asked at all. Without this control a
+# deleted re-probe could hide behind any journal that happened to hold the right lines.
+proc_new rectl
+proc_mutate '	local tgt unit cause mirror tree' \
+	'	return 1 # MUTANT-341A: trust the marker, never the tree' || proc_halt_control_planted=0
+proc_dirty=unclaimed:900
+proc_run rectl-1
+proc_run rectl-2
+proc_run rectl-3
+proc_dirty=''
+proc_run rectl-4
+
+hp_w3_control() {
+	if [ "${proc_halt_control_planted:-1}" = 0 ]; then
+		printf '            the control was never planted, so this leg ran shipped code and\n' >&2
+		printf '            proves nothing about the re-probe.\n' >&2
+		return 1
+	fi
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the control released the halt WITHOUT asking the tree -- the mutant\n' >&2
+		printf '            removes the asking, so a release here means the release does not come\n' >&2
+		printf '            through `factory_halt_reprobe` and the control measures nothing.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the control removed the marker while refusing to re-probe it: an\n' >&2
+		printf '            un-asked release is the flap #341 demand 2 is written against.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ] || {
+		printf '            the trusted-marker control printed no halt line at all:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the trusted-marker control exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: trusting the marker holds it' \
+	'mutant never asks the tree: no release, marker stands, HALTED printed, exit 8' hp_w3_control
+
+# Demand 2's bound: releases are a budget, and the halt that spends it stops being a self-clearing
+# condition. Two are seeded as already spent (the shipped value is `2`); the third halt, on a tree
+# this pass proves clean, is `HALT-STUBBORN` -- the cause is named cleared, and the resume is a human
+# with the counter in hand, not another quiet release eleven minutes before the next halt.
+hp_walk_to_halt rstub
+printf '2\n' >"$proc_stash/unclaimed:900.halt-releases"
+proc_run rstub-4
+
+hp_w4_bound() {
+	[ -n "$(proc_journal_line "$proc_journal" 'HALT-STUBBORN unclaimed:900 releases=2')" ] || {
+		printf '            the third halt released, or held without naming the spent budget. Two\n' >&2
+		printf '            releases per unit is the bound demand 2 sets, and `HALT-STUBBORN` is\n' >&2
+		printf '            the sentence a human acts on. Its journal:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ -e "$proc_halt" ] || {
+		printf '            the spent budget released the marker anyway; the bound is then a\n' >&2
+		printf '            comment, not a bound.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ] || {
+		printf '            the stubborn halt printed no HALTED line, so `--status` and the\n' >&2
+		printf '            journal would disagree about whether the queue is stopped.\n' >&2
+		return 1
+	}
+	if grep -qF 'HALT-RELEASED' "$proc_journal"; then
+		printf '            a release was journalled while the budget was spent.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'demand 2'"'"'s bound: the third halt stands' \
+	'HALT-STUBBORN releases=2, marker stands, HALTED printed, no release' hp_w4_bound
+
+# The hold arms. A marker whose tree is still dirty, and a marker whose clean tree is half-merged
+# (the #323 shapes demand 1 names: MERGE_HEAD, and unmerged index entries), must both hold -- and
+# the line they hold with must say THIS pass asked, which is what separates #341's contract from
+# #237's. The notice stays silent while holding: `HALT-NOTICED` belongs to the moment a halt is
+# written, throttled by its own ledger stamp; a guard that re-noticed on every refusal would mail
+# the issue every ten minutes for as long as the outage runs.
+hp_walk_to_halt rdirty
+printf 'work the next tick has not seen\n' >"$proc_trees/issue-900/still-here.txt"
+proc_run rdirty-4
+
+hp_w5_dirty_hold() {
+	local line
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the halt released over a tree with a dirty path in it -- releasing on\n' >&2
+		printf '            less than "provably clean" is the failure direction that destroys work.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the dirty tree did not hold the marker.\n' >&2
+		return 1
+	}
+	line=$(proc_journal_line "$proc_journal" 'HALTED ')
+	[ -n "$line" ] || {
+		printf '            the holding activation printed no halt line:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'re-probed this pass without release:'*) : ;;
+	*) printf '            the holding line does not say this pass asked the tree (demand 1);\n' >&2
+		printf '            the asking clause must stand before the reason, where #237 put its\n' >&2
+		printf '            age clause, not replace the age clause entirely:\n' >&2
+		printf '              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	[ -z "$(proc_journal_line "$proc_journal" 'HALT-NOTICED')" ] || {
+		printf '            the guard re-noticed while holding; the notice is the write moment'"'"'s,\n' >&2
+		printf '            throttled once per hour, not one comment per activation.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the holding activation exited %s; the halt keeps its 8.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a dirty tree holds, saying it was asked' \
+	'no release, marker stands, HALTED names this pass'"'"'s asking, no re-notice, exit 8' hp_w5_dirty_hold
+
+hp_walk_to_halt rmerge
+gd=$(git -C "$proc_trees/issue-900" rev-parse --absolute-git-dir)
+: >"$gd/MERGE_HEAD"
+proc_run rmerge-4
+
+hp_w6_merge_hold() {
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            the halt released into a tree with MERGE_HEAD standing -- a pass that\n' >&2
+		printf '            resumes onto a merge in progress merges ON TOP of it. This is the\n' >&2
+		printf '            #323 shape demand 1 names, and clean paths are not clean state.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the mid-merge tree did not hold the marker.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 8 ] || {
+		printf '            the mid-merge hold exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a half-merged tree holds the release' \
+	'MERGE_HEAD planted on the otherwise-clean tree: no release, marker stands, exit 8' hp_w6_merge_hold
+
+# The other kind of marker: a person's sentence, which names no tree to ask. Nothing may remove a
+# halt a human wrote -- its cause lives in their head, not in a `git status` -- so the guard holds
+# it, and the line keeps #237's original words: nobody re-probed, because nobody can.
+hp_walk_to_halt rhuman
+rm -f -- "$proc_halt"
+printf 'operator stopped the queue pending a decision on the release branch\n' >"$proc_halt"
+proc_run rhuman-4
+
+hp_w7_human_hold() {
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALT-RELEASED')" ]; then
+		printf '            a hand-written halt was released by the harness. The human who wrote\n' >&2
+		printf '            it owns removing it; that rule predates #341 and survives it.\n' >&2
+		return 1
+	fi
+	[ -e "$proc_halt" ] || {
+		printf '            the hand-written marker is gone -- released or erased, both are the\n' >&2
+		printf '            same defect: the harness deleting a human'"'"'s stop sign.\n' >&2
+		return 1
+	}
+	local line
+	line=$(proc_journal_line "$proc_journal" 'HALTED ')
+	case "$line" in
+	*'not re-probed since'*) : ;;
+	*) printf '            the human-marker line lost #237'"'"'s clause (there is no target to\n' >&2
+		printf '            re-ask, and the line must say so rather than claim an asking it\n' >&2
+		printf '            did not make):\n              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	case "$line" in
+	*'re-probed this pass'* | *'on every activation'*)
+		printf '            the line claims this pass re-asked a marker with no target to ask:\n' >&2
+		printf '              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	[ "$proc_rc" = 8 ] || {
+		printf '            the human-marker hold exited %s; 8 is the halt'"'"'s own code.\n' "$proc_rc" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a hand-written halt is never released' \
+	'no target to ask: no release, marker stands, #237 clause verbatim, exit 8' hp_w7_human_hold
 
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045

@@ -83,7 +83,12 @@ while [ $# -gt 0 ]; do
 		# and the answer used to require reading a journal timestamp and comparing it to `date`.
 		printf 'verdict: %s\n' "$(factory_verdict)"
 		if factory_halted; then
-			printf 'halt:    YES -- %s\n' "$(factory_halt_report)"
+			# Which sentence is true depends on whether the guard can re-ask this marker at all:
+			# machine-written markers carry a target and are re-probed every activation (#341);
+			# hand-written ones carry none, and only the person who wrote them may remove them.
+			halt_asking=''
+			factory_halt_target >/dev/null 2>&1 && halt_asking=guarded
+			printf 'halt:    YES -- %s\n' "$(factory_halt_report "$halt_asking")"
 		else
 			printf 'halt:    no\n'
 		fi
@@ -161,7 +166,7 @@ EOF
 		# journal, the timer still said `active`, and nothing printed `SubState=stop-sigterm`.
 		printf 'reaping: %s\n' "$(factory_reap_line)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
-		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
+		factory_log_footprint
 		printf '\nledger:\n'
 		shopt -s nullglob
 		for f in "$FACTORY_LEDGER"/*; do
@@ -274,14 +279,44 @@ factory_self_report() {
 factory_self_report
 
 if factory_halted; then
-	# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
-	# one cause, so without the age a halt that has stood for nine hours and one that is three
-	# seconds old are the same sentence. Measured on this branch: three passes over one
-	# eight-hour-old marker wrote three byte-identical `HALTED` lines.
-	log_event "HALTED $(factory_halt_report)"
-	# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
-	# something that broke. See H-0036 for why the difference is not cosmetic.
-	exit "$FACTORY_EXIT_HALT"
+	# #341: the marker used to be the whole of the answer. It is written at the instant a cause is
+	# seen, and a cause that was quarantined away in that same pass left the marker standing on a
+	# tree that had been clean ever since -- measured, 14h34m of `HALTED` lines on a clean tree.
+	# So the guard now re-asks the marker's own target before it refuses, and the refusal sentence
+	# says which of those happened. A dry run skips the asking entirely: a release is a write --
+	# the marker's removal and the release counter -- and dry runs write nothing, least of all to
+	# the real queue's halt switch.
+	halt_probe_rc=0
+	if [ "$DRY_RUN" = 1 ]; then
+		log_event "HALTED $(factory_halt_report)"
+		log_event "DRY-RUN HALT-REPROBE -- the marker was not re-asked and cannot be released by a dry run"
+		# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
+		# something that broke. See H-0036 for why the difference is not cosmetic.
+		exit "$FACTORY_EXIT_HALT"
+	fi
+	factory_halt_reprobe || halt_probe_rc=$?
+	if [ "$halt_probe_rc" = 0 ]; then
+		# Released: `factory_halt_reprobe` journaled the `HALT-RELEASED` line with the cause, the
+		# release count and where the mirror is, and this pass proceeds like any other -- triage,
+		# dispatch, the lot. The budget for that is `FACTORY_HALT_RELEASES`; past it the same clean
+		# tree holds with `HALT-STUBBORN` and the resume is a human.
+		:
+	else
+		# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
+		# one cause, so without the age a halt that has stood for nine hours and one that is three
+		# seconds old are the same sentence. Measured on this branch: three passes over one
+		# eight-hour-old marker wrote three byte-identical `HALTED` lines. rc 2 is the marker with no
+		# machine target -- a person wrote it, nobody re-probes it, and the sentence must not claim
+		# otherwise. rc 1 is this pass asking and the cause still standing.
+		if [ "$halt_probe_rc" = 2 ]; then
+			log_event "HALTED $(factory_halt_report)"
+		else
+			log_event "HALTED $(factory_halt_report probed)"
+		fi
+		# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
+		# something that broke. See H-0036 for why the difference is not cosmetic.
+		exit "$FACTORY_EXIT_HALT"
+	fi
 fi
 
 # `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and both
@@ -1119,8 +1154,8 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, mark it with the escalation label -- ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull
-request you already have. Take the name from its one home rather than typing it, and use the ISSUE verb
+ask, mark it with the escalation label, and stop there with the pull request you already have. This
+prompt carries no name to type: read it from its one home in the calls below, and use the ISSUE verb
 even though this artifact is a pull request: gh pr edit cannot label anything on this account -- it
 dies on the retired projectCards field before gh reads the name -- so the marker and its read-back are
 exactly these two calls:
@@ -1210,8 +1245,19 @@ Inventing the ask is the failure this repository has written up more often than 
 	# instead of the shared one -- so `opencode session list` in the tree no longer shows a tick's
 	# conversation. The per-tick log is the durable record either way, which is what `TICK-START`
 	# already names.
+	#
+	# The three `FACTORY_*` exports are the allocator's unit context (#345): a decision id is only
+	# as trustworthy as the evidence an allocator was running when it was handed out, and #345
+	# measured ticks taking ids by eye. With these set, every `factory/next-decision-id.sh` this
+	# session runs journals its answer against this unit and branch, and
+	# `factory_decision_provenance` below reads that journal at the end of the tick. A session that
+	# sanitises its own environment loses the journalling and gains an `UNEARNED` report -- the
+	# report is the point; the allocator answers exactly the same either way.
 	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
+		FACTORY_LOG="$FACTORY_LOG" \
+		FACTORY_TICK_UNIT="$unit" \
+		FACTORY_TICK_BRANCH="$branch" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
@@ -1230,6 +1276,12 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
 	# whatever it found: what the tick achieved remains the tick's own answer.
 	factory_quarantine_after_tick "$unit" "$tree"
+
+	# The journal's second end-of-tick read, beside the tree's: does every decision id this branch
+	# newly carries have a `DECISION-ID` allocation the allocator journalled for this branch (#345)?
+	# Same posture as the streak above -- reported, never fatal, above both exits below -- because an
+	# id whose provenance nobody saw is for a human to weigh, not for the pass to act on.
+	factory_decision_provenance "$unit" "$branch" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
