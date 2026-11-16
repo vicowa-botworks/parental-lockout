@@ -20587,6 +20587,331 @@ proc_leg 'a hand-written halt is never released' \
 	'no target to ask: no release, marker stands, #237 clause verbatim, exit 8' hp_w7_human_hold
 
 
+# --------------------------------------------------------------------------- #346 the main checkout's own tree
+#
+# The pass quarantined every tree it handed to a tick and never once read the tree it ran its own
+# git commands in: measured 13 Nov, the primary checkout sat ` D .cortexkit/.gitignore` across 101
+# activations, all 14 worktrees clean, nothing in the journal (issue #346, decision H-0197). The
+# legs below pin the repair from both ends. The function-level legs drive
+# `factory_main_tree_check` in-process against throwaway clones and read the journal line the way
+# `halt_pair_problems` does -- a line-count snapshot before, `tail -n +` after -- because the
+# journal IS the function's output; the two process-level legs then run the shipped supervisor and
+# prove the call site is actually reached, since a function no pass calls restores nothing however
+# correct its arms are.
+#
+# Every polarity is planted, including the ones that decide a WRITE: a modification, an untracked
+# file and a staged entry each have to make the pass REFUSE and leave the bytes exactly where they
+# were, and the mixed trees (deleted-plus-untracked, deleted-plus-modified) pin that a refusal is
+# total -- a "partial restore" of the deletable half is the destructive bug hiding inside the
+# helpful function. The unreadable arms are planted by SHADOWING `factory_tree_dirt` inside a
+# subshell: redefining a sourced function in a subshell changes one scenario's answer and cannot
+# leak into any later leg, and the journal is the shared medium the outer shell reads back.
+mtj_tree=''
+mtj_line=''
+mtj_rc=0
+
+mtj_new() { # <tag> -> a throwaway clone of the proc trunk in $mtj_tree, with a second committed path
+	mtj_tree=$work/mtj-$1
+	git clone -q "$proc_up" "$mtj_tree"
+	git -C "$mtj_tree" config user.email fixture@invalid
+	git -C "$mtj_tree" config user.name fixture
+	printf 'second committed file\n' >"$mtj_tree/second.txt"
+	git -C "$mtj_tree" add second.txt
+	git -C "$mtj_tree" commit -qm 'fixture: a second tracked path so mixed trees need no renames'
+}
+
+# mtj_exec [dry] -> run the pass-function over $mtj_tree and keep only the line THIS call wrote
+# (plus its exit status), the way `halt_pair_problems` reads a journalled verdict. An empty
+# $mtj_tree is a scenario of its own: the no-path arm.
+mtj_exec() {
+	local before=0
+	[ -f "$FACTORY_LOG/supervisor.log" ] && before=$(wc -l <"$FACTORY_LOG/supervisor.log")
+	mtj_rc=0
+	# `VAR=x command` only reverts for an EXTERNAL command; against a shell function the assignment
+	# persists, so the rehearsal is restored by hand the moment it is done.
+	[ "${1:-}" = dry ] && DRY_RUN=1
+	factory_main_tree_check "$mtj_tree" >/dev/null 2>&1 || mtj_rc=$?
+	[ "${1:-}" = dry ] && DRY_RUN=0
+	if [ -s "$FACTORY_LOG/supervisor.log" ]; then
+		mtj_line=$(tail -n +"$((before + 1))" "$FACTORY_LOG/supervisor.log" | { grep 'MAIN-CHECKOUT' || true; } | tail -n 1)
+	else
+		mtj_line=''
+	fi
+}
+
+mtj_p_clean() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-CLEAN*cause=verdict-clean*) : ;;
+	*) printf '            a clean tree drew no CLEAN line:\n              %s\n' "${mtj_line:-nothing}" >&2; return 1 ;;
+	esac
+	[ "$mtj_rc" = 0 ] || {
+		printf '            the advisory function exited %s; it must never be able to\n' "$mtj_rc" >&2
+		printf '            stop the pass that calls it\n' >&2; return 1; }
+	if git -C "$mtj_tree" status --porcelain | grep -q .; then
+		printf '            the tree was not clean after a CLEAN verdict was written\n' >&2; return 1; fi
+}
+mtj_new clean-tree
+mtj_exec
+proc_leg 'a clean tree is journalled clean' 'MAIN-CHECKOUT-CLEAN verdict-clean, rc 0, nothing written' \
+	mtj_p_clean
+
+mtj_p_restored() {
+	case "$mtj_line" in
+	*"MAIN-CHECKOUT-RESTORED $mtj_tree"*cause=tracked-deleted-restored*'count=1'*restored=tracked.txt*) : ;;
+	*) printf '            a committed missing file drew no restoral line naming it:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	# Existence is not identity (#1703): the restored bytes have to equal HEAD's.
+	git -C "$mtj_tree" show HEAD:tracked.txt >"$work/mtj-head-bytes" 2>/dev/null
+	cmp -s "$work/mtj-head-bytes" "$mtj_tree/tracked.txt" || {
+		printf '            %s/tracked.txt is back but does not match HEAD\n' "$mtj_tree" >&2; return 1; }
+	if git -C "$mtj_tree" status --porcelain | grep -q .; then
+		printf '            the tree still reads dirty after a verified-clean restore line\n' >&2; return 1; fi
+}
+mtj_new deleted-file
+rm "$mtj_tree/tracked.txt"
+mtj_exec
+proc_leg 'restores a committed deletion' 'RESTORED count=1 naming the path; the bytes are HEAD'"'"'s again' \
+	mtj_p_restored
+
+mtj_p_refused_mod() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-REFUSED*cause=not-restorable*shapes=modified*) : ;;
+	*) printf '            a modified tracked file did not draw the refusal it must:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	grep -qF 'operator work in flight' "$mtj_tree/tracked.txt" || {
+		printf '            the refusal RESTORED OVER the operator'"'"'s bytes\n' >&2; return 1; }
+}
+mtj_new modified-file
+printf 'operator work in flight\n' >>"$mtj_tree/tracked.txt"
+mtj_exec
+proc_leg 'a modification is refused, not eaten' 'shapes=modified; the sentence stays in the file' \
+	mtj_p_refused_mod
+
+mtj_p_refused_untracked() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-REFUSED*cause=not-restorable*shapes=untracked*) : ;;
+	*) printf '            an untracked file did not draw the refusal it must:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	[ -f "$mtj_tree/notes.txt" ] || {
+		printf '            the pass removed an untracked file; it has no such power\n' >&2; return 1; }
+}
+mtj_new untracked-file
+printf 'untracked and nowhere else\n' >"$mtj_tree/notes.txt"
+mtj_exec
+proc_leg 'untracked work is refused, not stashed' 'shapes=untracked; the file is still there' \
+	mtj_p_refused_untracked
+
+mtj_p_refused_staged() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-REFUSED*cause=not-restorable*shapes=staged*) : ;;
+	*) printf '            a staged entry did not draw the refusal it must:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	[ -n "$(git -C "$mtj_tree" diff --cached --name-only)" ] || {
+		printf '            the refusal reset the index; nothing here may touch it\n' >&2; return 1; }
+}
+mtj_new staged-entry
+printf 'staged ahead of anything\n' >"$mtj_tree/second.txt"
+git -C "$mtj_tree" add second.txt
+mtj_exec
+proc_leg 'a staged entry is refused' 'shapes=staged; git diff --cached still names it' \
+	mtj_p_refused_staged
+
+mtj_p_refused_mixed() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-REFUSED*shapes=*untracked*) : ;;
+	*) printf '            deleted-plus-untracked drew no refusal:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	case "$mtj_line" in
+	*RESTORED*) printf '            a refusal must not also claim a restore:\n              %s\n' "$mtj_line" >&2; return 1 ;;
+	esac
+	[ ! -f "$mtj_tree/tracked.txt" ] || {
+		printf '            the deletion was half-restored although the tree as a whole was\n' >&2
+		printf '            refused -- the partial restore is the destructive arm\n' >&2; return 1; }
+	[ -f "$mtj_tree/notes.txt" ]
+}
+mtj_new mixed-del-untracked
+rm "$mtj_tree/tracked.txt"
+printf 'untracked and nowhere else\n' >"$mtj_tree/notes.txt"
+mtj_exec
+proc_leg 'a mixed tree is refused whole' 'deletion NOT half-restored; untracked file survives' \
+	mtj_p_refused_mixed
+
+mtj_p_refused_del_mod() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-REFUSED*cause=not-restorable*shapes=modified*) : ;;
+	*) printf '            deleted-plus-modified drew no refusal:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	[ ! -f "$mtj_tree/tracked.txt" ] || {
+		printf '            one file was restored although the tree was refused\n' >&2; return 1; }
+	grep -qF 'operator work in flight' "$mtj_tree/second.txt"
+}
+mtj_new mixed-del-modified
+rm "$mtj_tree/tracked.txt"
+printf 'operator work in flight\n' >>"$mtj_tree/second.txt"
+mtj_exec
+proc_leg 'deleted plus modified refuses both' 'shapes=modified; the deleted file stays deleted' \
+	mtj_p_refused_del_mod
+
+mtj_tree=''
+mtj_exec
+mtj_p_notree() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-UNKNOWN*cause=no-tree*) : ;;
+	*) printf '            an empty path drew no UNKNOWN line:\n              %s\n' "${mtj_line:-nothing}" >&2; return 1 ;;
+	esac
+	[ "$mtj_rc" = 0 ] || { printf '            exit %s: a missing path may not stop a pass\n' "$mtj_rc" >&2; return 1; }
+}
+proc_leg 'no path answers UNKNOWN, never a halt' 'UNKNOWN cause=no-tree with exit 0' mtj_p_notree
+
+mtj_p_unreadable() {
+	case "$mtj_line" in
+	*MAIN-CHECKOUT-UNKNOWN*cause=verdict-unreadable*) : ;;
+	*) printf '            an unreadable verdict drew no UNKNOWN line:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	[ ! -f "$mtj_tree/tracked.txt" ] || {
+		printf '            the pass restored from a verdict it could not read -- #232 in a\n' >&2
+		printf '            new building: an unverified read authorizes no write\n' >&2; return 1; }
+}
+mtj_new unreadable-verdict
+rm "$mtj_tree/tracked.txt"
+# The verdict planted UNREADABLE, by shadowing `factory_tree_dirt` in a subshell so the redefinition
+# cannot outlive this scenario. The line the shadow drew travels back through the journal, which is
+# a file and therefore shared; the outer shell never sees the shadow itself.
+mtj_line=$(
+	(
+		# shellcheck disable=SC2317  # the shadow reads as unreachable code, and it is: to
+		# everything except the `factory_tree_dirt` call the function under test makes.
+		factory_tree_dirt() { printf 'fixture: the read refused\n' >&2; printf 'git gave no reason\n'; return 2; }
+		before=$(wc -l <"$FACTORY_LOG/supervisor.log")
+		factory_main_tree_check "$mtj_tree" >/dev/null 2>&1
+		tail -n +"$((before + 1))" "$FACTORY_LOG/supervisor.log" | { grep 'MAIN-CHECKOUT' || true; } | tail -n 1
+	)
+)
+proc_leg 'an unreadable verdict never restores' 'UNKNOWN verdict-unreadable; the file stays absent' \
+	mtj_p_unreadable
+
+mtj_p_dry() {
+	case "$mtj_line" in
+	*'DRY-RUN MAIN-CHECKOUT-RESTORE'*) : ;;
+	*) printf '            the dry arm drew no rehearsal line:\n              %s\n' "${mtj_line:-nothing}" >&2
+		return 1 ;;
+	esac
+	case "$mtj_line" in
+	*count=1*) : ;;
+	*) printf '            the rehearsal does not say what it would have restored:\n              %s\n' "$mtj_line" >&2
+		return 1 ;;
+	esac
+	[ ! -f "$mtj_tree/tracked.txt" ] || {
+		printf '            DRY_RUN WROTE FILES -- a rehearsal indistinguishable from the pass\n' >&2
+		printf '            it rehearses is worth nothing at 3 a.m.\n' >&2; return 1; }
+}
+mtj_new dry-run
+rm "$mtj_tree/tracked.txt"
+mtj_exec dry
+proc_leg 'DRY_RUN rehearses without writing' 'DRY-RUN RESTORE line; the file is still absent' \
+	mtj_p_dry
+
+# The function's blind verdict, planted: with `factory_tree_dirt` shadowed to answer CLEAN for a
+# tree that is anything but, a restoral line must NOT be drawn. A restoral leg that stayed green on
+# this plant would be green because it reads nothing.
+mtj_blind_line=$(
+	(
+		# shellcheck disable=SC2317  # unreachable to shellcheck, reached by every call the function makes
+		factory_tree_dirt() { return 1; }
+		mtj_tree2=$work/mtj-blind
+		git clone -q "$proc_up" "$mtj_tree2"
+		git -C "$mtj_tree2" config user.email fixture@invalid
+		git -C "$mtj_tree2" config user.name fixture
+		rm "$mtj_tree2/tracked.txt"
+		before=$(wc -l <"$FACTORY_LOG/supervisor.log")
+		factory_main_tree_check "$mtj_tree2" >/dev/null 2>&1
+		tail -n +"$((before + 1))" "$FACTORY_LOG/supervisor.log" | { grep 'MAIN-CHECKOUT' || true; } | tail -n 1
+	)
+)
+case "$mtj_blind_line" in
+*MAIN-CHECKOUT-RESTORED*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-36s the blind verdict still drew restoral wording, so the leg above reads\n' 'control: blind verdict'
+	printf '            the fixture'"'"'s state and not the verdict under test\n' >&2 ;;
+*)
+	printf '        control: a verdict planted blind draws no restoral line, so the leg above\n'
+	printf '        reports the restore and not the wish for one\n' ;;
+esac
+
+# The shipped supervisor, as a process, over the fixture: the call site, not just the function.
+# The deletion is planted BEFORE the activation and its absence right before the run is recorded --
+# a control that cannot prove its own precondition proves nothing (#1703).
+proc_new main-tree
+mtj_ctl_planted=0
+if rm -f "$proc_repo/tracked.txt" && [ ! -e "$proc_repo/tracked.txt" ]; then
+	mtj_ctl_planted=1
+fi
+proc_run main-tree-1
+mtj_j1=$proc_journal
+
+mtj_p_activation() {
+	[ "$mtj_ctl_planted" = 1 ] || {
+		printf '            the fixture deletion was never planted, so every line below\n' >&2
+		printf '            describes a tree that was never dirty\n' >&2; return 1; }
+	local line n
+	line=$(proc_journal_line "$mtj_j1" 'MAIN-CHECKOUT-RESTORED')
+	[ -n "$line" ] || {
+		printf '            the activation wrote no restoral line. Its journal:\n' >&2
+		sed 's/^/              /' "$mtj_j1" | cut -c1-150 >&2; return 1; }
+	case "$line" in
+	*"$proc_repo"*cause=tracked-deleted-restored*count=1*restored=tracked.txt*) : ;;
+	*) printf '            the restoral line does not name this tree and this file:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	n=$(grep -c 'MAIN-CHECKOUT-' "$mtj_j1" 2>/dev/null || true)
+	[ "$n" = 1 ] || {
+		printf '            %s MAIN-CHECKOUT lines for one activation; once is the contract\n' "${n:-0}" >&2
+		return 1; }
+	git -C "$proc_repo" show HEAD:tracked.txt >"$work/mtj-act-bytes" 2>/dev/null
+	cmp -s "$work/mtj-act-bytes" "$proc_repo/tracked.txt" || {
+		printf '            the journal claims a restore whose bytes do not match HEAD\n' >&2; return 1; }
+}
+proc_leg 'the pass reads its own tree' 'one RESTORED line per activation naming the main checkout' \
+	mtj_p_activation
+
+mtj_p_rc() {
+	[ "$proc_rc" = 0 ] || {
+		printf '            the supervisor exited %s with a repairable tree repaired (124 is\n' "$proc_rc" >&2
+		printf '            the timeout refusing to wedge the suite). Its output:\n' >&2
+		tail -n 12 "$proc_out" | sed 's/^/              /' >&2; return 1; }
+}
+proc_leg 'the advisory verdict cannot halt a pass' 'the supervisor still exits 0 over a restored tree' \
+	mtj_p_rc
+
+# The control, in the polarity the whole file carries: the site planted inert, the same fixture
+# state, and the expectation that the deletion SURVIVES with no MAIN-CHECKOUT line. A pass that
+# still restored with the function neutralized would prove the legs above read the fixture and not
+# the code -- and a mutation this file cannot plant is a leg that cannot fail.
+if proc_new main-tree-ctl \
+	&& proc_mutate 'factory_main_tree_check() {' '	return 0 # mutant: neutralize the main-checkout site (#346 control)'; then
+	rm -f "$proc_repo/tracked.txt"
+	proc_run main-tree-ctl
+	if [ -z "$(proc_journal_line "$proc_journal" 'MAIN-CHECKOUT')" ] && [ ! -e "$proc_repo/tracked.txt" ]; then
+		printf '        control: with the site inert the deletion survives and nothing is journalled,\n'
+		printf '        so the two activation legs read this write and not the fixture\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-36s the mutant pass still acted: %s\n' 'control: inert site' \
+			"$(proc_journal_line "$proc_journal" 'MAIN-CHECKOUT')"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-36s the mutant could not be planted, so the control ran nothing\n' 'control: inert site'
+fi
+
+
 # --------------------------------------------------------------------------- the worktree census (#348)
 # #348 measured what a tree outside the convention costs: `/home/rodney/prj/.wt-armcheck` sat
 # detached-at-a-merged-commit and clean for six days, listed by every tick's `git worktree list`
