@@ -3536,6 +3536,1401 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ---------------- a tree left mid-merge gets cleared; every other mid-operation tree still halts (#328)
+
+# `factory_tree_quarantine` could not clear a conflicted tree: `git stash push -u` refuses a half-merged
+# index, and the refusal was the end of the story. #328 measured the cost, and these are its numbers, not
+# a paraphrase -- `TREE-QUARANTINE-REFUSED pr:307 … quarantine refused: git stash failed :: error: could
+# not write index factory/DECISIONS.md: needs merge`, then `CONFLICT-HALTED pr:307 … has uncommitted work
+# (staged-but-uncommitted: AGENTS.md DECISIONS.md docs/factory.md (+13 more, 16 in all)`, then 54
+# consecutive halted activations from `2026-11-12T04:22:36Z` to `14:36:08Z` = 10 h 13 min 32 s, with 37
+# units queued throughout -- one of them an `APPROVED / CLEAN` pull request with 5/5 checks green.
+#
+# These legs plant the state in a LINKED WORKTREE, the shape the outage was found in. A unit's tree comes
+# from `git worktree add`, which writes `.git` as a FILE reading `gitdir: <repo>/.git/worktrees/<name>`,
+# and the operation's files live in that gitdir -- measured on a fresh `worktree add` with a planted
+# conflict: `git rev-parse --git-dir` answers `<repo>/.git/worktrees/wt`, `$tree/.git/MERGE_HEAD` is
+# ABSENT, `<gitdir>/MERGE_HEAD` EXISTS, `ls-files -u` has 3 entries. A guard written against the first path
+# is dead in the field and green on a primary checkout, which is how an arm can exist in the file and
+# still leave the queue halted. One leg below asserts the fixture's own shape for that reason: a planted
+# state nobody verifies is a leg that passes on an empty tree (H-0043).
+#
+# They are in-process rather than a supervisor run like the `proc_*` section above: the thing under test
+# is one function's verdict and its two arms, and the process-level claim ("the queue got past it")
+# belongs to the legs above, which already pin `TREE-QUARANTINED`, the streak and the halt file. What
+# this section adds is the shape the function is called on and the bytes the mirror must hold.
+
+mm=$work/midmerge
+mm_risk=$FACTORY_AT_RISK
+mkdir -p "$mm"
+
+mm_leg() { # mm_leg <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-38s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-38s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-38s %s\n' "$label" "$requires"
+	fi
+	return 0
+}
+
+mm_repo_new() { # mm_repo_new <dir> -> a repo whose main AND side write the same two paths, so a merge conflicts
+	local r=$1
+	mkdir -p "$r/sub"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/keepme.txt"
+	printf 'other\n' >"$r/other.txt"
+	printf 'deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/keepme.txt"
+	printf 'side deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm side-writes-both
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/keepme.txt"
+	printf 'main deep\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-writes-both
+}
+
+mm_wt_new() { # mm_wt_new <name> -> a fresh detached linked worktree at main, merge NOT yet started
+	git -C "$mm_repo" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_merge() { # mm_merge <tree> -> start the conflict and say nothing
+	git -C "$mm/$1" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+}
+
+mm_repo=$mm/repo
+mm_repo_new "$mm_repo"
+mm_side=$(git -C "$mm_repo" rev-parse side)
+
+# The tree the ticket describes: a conflicted merge, a resolution typed in by hand and never committed,
+# one untracked file, and an edit to a path the merge did not touch.
+mm_plant_full() { # mm_plant_full <name> -> conflicted tree with hand bytes, a staged path, scratch, an edit
+	local t
+	t=$(mm_wt_new "$1")
+	mm_merge "$1"
+	printf 'hand resolved, never committed\n' >"$t/keepme.txt"
+	printf 'scratch\n' >"$t/notes.md"
+	printf 'edited while conflicted\n' >>"$t/other.txt"
+	# The tree #328 was reported in is `staged-but-uncommitted: … (+13 more, 16 in all)` -- resolutions
+	# `git add`ed and never committed. `git add` of a path that is not itself unmerged is legal mid-merge
+	# (measured: status `UU keepme.txt|M  staged.txt|`), so this tree holds a stage-0 entry ahead of HEAD
+	# beside the three stages -- the half a worktree-vs-HEAD patch cannot tell from an unstaged write.
+	printf 'added, never committed\n' >"$t/staged.txt"
+	git -C "$t" add -- staged.txt
+	printf '%s' "$t"
+}
+
+mm_wt=$(mm_plant_full wt)
+
+# The fixture's own shape, before anything is believed about it. `git worktree add` writes `.git` as a
+# one-line FILE, so the relative read this function replaces could not have seen the operation.
+mm_fixture_is_linked() {
+	[ -f "$mm_wt/.git" ] || {
+		printf '            %s/.git is not a file, so this is not the tree shape #328 names and the\n' "$mm_wt" >&2
+		printf '            detector below would pass on a primary checkout where it is not being asked.\n' >&2
+		return 1
+	}
+	[ -e "$mm_wt/.git/MERGE_HEAD" ] && {
+		printf '            %s/.git/MERGE_HEAD exists, so the relative read WOULD find it and the\n' "$mm_wt" >&2
+		printf '            negative control below is not controlling anything.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'fixture: .git is a file, not a dir' 'the relative read cannot see MERGE_HEAD here' mm_fixture_is_linked
+
+mm_detector_says_merge() {
+	local got rc=0
+	got=$(factory_tree_unmerged "$mm_wt") || rc=$?
+	[ "$got" = merge ] || {
+		printf '            factory_tree_unmerged said "%s", not merge. The tree has %s stage entries\n' \
+			"${got:-nothing}" "$(git -C "$mm_wt" ls-files -u | wc -l | tr -d '[:space:]')" >&2
+		printf '            and %s/.git/MERGE_HEAD is what MERGE_HEAD is called through the gitdir file.\n' "$mm_wt" >&2
+		return 1
+	}
+	# rc 0, not 2: the detector's exit is the quarantine arm's switch, and 2 means "halt" there.
+	[ "$rc" = 0 ] || {
+		printf '            it said merge and then exited %s; 0 is the arm that clears, 2 is the halt.\n' "$rc" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'the detector names a mid-merge tree' 'merge, rc 0, from a gitdir FILE' mm_detector_says_merge
+
+# The mechanism the ticket was filed against, pinned rather than trusted: this is why the merge arm sits
+# before the stash instead of inside its failure handler. A tree where `git stash` starts WORKING again
+# is a tree where this arm is redundant, and the leg says so out loud.
+mm_still_refuses() {
+	local t out rc=0
+	t=$(mm_wt_new refuse)
+	mm_merge refuse
+	out=$(git -C "$t" stash push -u -m "supervisor quarantine unclaimed:909 x" 2>&1) || rc=$?
+	if [ "$rc" = 0 ]; then
+		printf '            `git stash push -u` SUCCEEDED on a conflicted tree (git %s), so the merge\n' "$(git --version | sed 's/^git version //')" >&2
+		printf '            arm is no longer the only way out and this leg should be retired, not\n' >&2
+		printf '            patched: %s\n' "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" >&2
+		return 1
+	fi
+	case "$out" in
+	*could\ not\ write\ index* | *needs\ merge*) : ;;
+	*) printf '            it refused, but not with the sentence the ticket recorded (%s), so the\n' \
+		"$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-140)" >&2
+		printf '            failure being routed here is a different one:\n' >&2
+		printf '              %s\n' "$(git -C "$t" status --porcelain | tr '\n' ' ')" >&2
+		return 1 ;;
+	esac
+	# The part that made it an outage rather than an error message: the refusal changes nothing, so the
+	# tree is still mid-merge and the caller had no way to know which operation to end.
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the failed stash removed MERGE_HEAD, which is not what #328 measured and\n' >&2
+		printf '            would mean the old arm was leaving trees in a state nobody described.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'git stash still refuses this tree' 'rc != 0, "needs merge", MERGE_HEAD left' mm_still_refuses
+
+mm_quarantine_clears() {
+	local out rc=0 dirt_rc=0
+	out=$(factory_tree_quarantine 'unclaimed:910' "$mm_wt" 2>"$mm/q.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantine of a mid-merge tree exited %s instead of clearing it.\n' "$rc" >&2
+		printf '            stdout: %s\n' "${out:-nothing}" >&2
+		printf '            stderr: %s\n' "$(tr '\n' ' ' <"$mm/q.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	# The journal line, field by field. `kind=` says which arm ran -- a reader triaging at 3 a.m. cannot
+	# tell "the merge was aborted" from "the tree was stashed" without it. `merge=` is the side commit
+	# #328 asked for by name, and it is the only way to re-offer the conflict from the journal alone.
+	# `mirror=` is last because the caller reads it with `${line##*mirror=}`.
+	case "$out" in
+	"kind=merge merge=$mm_side stash="*" mirror="*) : ;;
+	*) printf '            the journal line is %s, not "kind=merge merge=%s stash=<sha|none> mirror=<dir>".\n' \
+		"${out:-nothing}" "${mm_side:0:9}" >&2
+		if printf '%s' "$out" | grep -q "kind=merge"; then
+			printf '            It says kind=merge, so the arm ran and the field it owes is the one missing here:\n' >&2
+			printf '              merge= is read before the abort, which is what destroys MERGE_HEAD.\n' >&2
+		fi
+		return 1 ;;
+	esac
+	# `case`, not `test`: `"$mm_risk"/*` inside `[ ]` is a word the SHELL glob-expands before `test` ever
+	# sees it, so with one file in the box it compares two equal paths and passes, and with two it hands
+	# `test` too many arguments and fails -- which is exactly how this assertion went red in the full suite
+	# and stayed green run alone. A case pattern is matched, not expanded.
+	case "${out##*mirror=}" in
+	"$mm_risk"/*) : ;;
+	*) printf '            the journal line does not END with the mirror path (%s), so the caller'"'"'s\n' "${out##*mirror=}" >&2
+		printf '            the `mirror=` read the caller uses -- ${line##*mirror=} -- would capture a\n' >&2
+		printf '            field along with the path, and the journal would name an unusable directory.\n' >&2
+		return 1 ;;
+	esac
+	case "$out" in
+	*"$mm_risk"/*) : ;;
+	*) printf '            the mirror left the fixture box: %s\n            It belongs under %s -- the\n' "${out:-nothing}" "$mm_risk" >&2
+		printf '            default of FACTORY_AT_RISK is the operator'"'"'s real at-risk directory.\n' >&2
+		return 1 ;;
+	esac
+	if git -C "$mm_wt" rev-parse -q --verify MERGE_HEAD >/dev/null; then
+		printf '            the tree is still mid-merge: MERGE_HEAD is %s.\n' \
+			"$(git -C "$mm_wt" rev-parse MERGE_HEAD)" >&2
+		return 1
+	fi
+	# rc 1, not merely clean: rc 0 is `factory_tree_dirt`'s "yes there is dirt" and rc 2 is "I could not
+	# read this tree". The caller's arms are written against all three.
+	factory_tree_dirt "$mm_wt" >/dev/null || dirt_rc=$?
+	[ "$dirt_rc" = 1 ] || {
+		printf '            after a reported success the tree reads %s (rc %s); 1 is the word the\n' \
+			"$(factory_tree_dirt "$mm_wt" 2>&1 | tr '\n' ' ' | cut -c1-120)" "$dirt_rc" >&2
+		printf '            caller clears a streak on, and anything else leaves the unit halted.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'quarantine clears the merge' 'kind=merge, tree clean at rc 1, no MERGE_HEAD' mm_quarantine_clears
+
+# Where the mirror went. Read back from the at-risk box rather than handed down from the leg above: a
+# leg that inherits its fixture from a shell variable cannot be run alone, and this suite gets re-run
+# one section at a time more often than any plan admits.
+mm_dir() { # mm_dir -> the mid-merge mirror this section produced
+	local d
+	d=$(find "$mm_risk" -maxdepth 1 -type d -name 'wt-merge-quarantine-*' | sort | tail -n 1)
+	[ -n "$d" ] || return 1
+	printf '%s' "$d"
+}
+
+mm_mirror_holds_the_state() {
+	local d
+	d=$(mm_dir) || {
+		printf '            no `wt-merge-quarantine-*` directory under %s, so the rescue has no copy.\n' "$mm_risk" >&2
+		return 1
+	}
+	[ -s "$d/MANIFEST" ] || {
+		printf '            %s has no MANIFEST, and a mirror nobody can interpret is bytes, not a copy.\n' "$d" >&2
+		return 1
+	}
+	grep -q -- "$mm_side" "$d/MANIFEST" || {
+		printf '            the MANIFEST does not name the side commit %s, so `git merge <sha>` -- the\n' "${mm_side:0:9}" >&2
+		printf '            only verb that reproduces this conflict -- cannot be run from it.\n' >&2
+		return 1
+	}
+	# All three stages, by content. Existence is not identity (#1703): a directory of empty stage files
+	# is the same shape and restores nothing.
+	local stage want
+	for stage in 1 2 3; do
+		case $stage in
+		1) want=base ;;
+		2) want=MAIN ;;
+		3) want=SIDE ;;
+		esac
+		[ "$(cat "$d/unmerged/$stage/keepme.txt" 2>/dev/null)" = "$want" ] || {
+			printf '            stage %s of keepme.txt holds "%s", not "%s" -- the index had base/ours/\n' \
+				"$stage" "$(cat "$d/unmerged/$stage/keepme.txt" 2>/dev/null || printf 'nothing')" "$want" >&2
+			printf '            theirs at the moment the tree was cleared.\n' >&2
+			return 1
+		}
+	done
+	[ "$(cat "$d/worktree/keepme.txt" 2>/dev/null)" = 'hand resolved, never committed' ] || {
+		printf '            worktree/keepme.txt does not hold the bytes somebody typed in (%s), which is\n' \
+			"$(cat "$d/worktree/keepme.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            the one copy of that work: `merge --abort` writes stage 2 over it and no stage\n' >&2
+		printf '            entry contains it. This is the file the whole arm exists for.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/untracked/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            the untracked scratch file is not in the mirror, and `merge --abort` does not\n' >&2
+		printf '            remove untracked files -- the stash that follows it is what takes them.\n' >&2
+		return 1
+	}
+	# The staged half. `diff-HEAD.patch` carries staged content and unstaged content identically, so a
+	# mirror without this file restores the bytes and silently drops the `git add` -- and the tree #328
+	# was filed against had sixteen paths in exactly that state.
+	[ -s "$d/diff-cached.patch" ] || {
+		printf '            diff-cached.patch is %s, so the `git add`ed-and-never-committed path is not\n' \
+			"$([ -e "$d/diff-cached.patch" ] && printf 'empty' || printf 'absent')" >&2
+		printf '            in the copy: the restore would leave it unstaged and no reader could tell.\n' >&2
+		return 1
+	}
+	grep -q '^diff --git a/staged.txt' "$d/diff-cached.patch" || {
+		printf '            diff-cached.patch has no hunk for the staged path; it holds:\n' >&2
+		sed 's/^/              /' "$d/diff-cached.patch" | head -n 6 >&2
+		return 1
+	}
+	# The conflicted paths must NOT arrive as hunks here. They render as git's `* Unmerged path <p>`
+	# notice (measured: 27 bytes for one conflicted path, no hunk), which `git apply` skips -- a hunk for
+	# an unmerged path would make the whole file unusable, and the notice is what keeps it usable.
+	grep -q '^\* Unmerged path keepme.txt$' "$d/diff-cached.patch" || {
+		printf '            the conflicted path is not the notice line in diff-cached.patch. If it is a\n' >&2
+		printf '            hunk, `git apply --cached` refuses the file; if it is absent, the notice form\n' >&2
+		printf '            changed and the comment about skipping it is the thing that is wrong.\n' >&2
+		return 1
+	}
+	grep -q '^diff --git a/other.txt' "$d/diff-cached.patch" && {
+		printf '            other.txt -- written but never `git add`ed -- has a hunk in the STAGED patch,\n' >&2
+		printf '            so this file no longer separates the two halves and the restore stages work\n' >&2
+		printf '            nobody asked to stage.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'the mirror holds all three stages' 'stages 1/2/3, worktree bytes, untracked, staged half' mm_mirror_holds_the_state
+
+# The claim #250 made about a patch mirror, asked of a directory one: a journal line that names bytes
+# which do not restore the tree is worse than the halt, because it tells the reader the work is safe.
+# This leg runs the recipe the MANIFEST printed, verbatim, in a tree at the same HEAD.
+mm_round_trip() {
+	local d t script
+	d=$(mm_dir) || return 1
+	t=$(mm_wt_new rt)
+	sed -n '/^Want the bytes back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r1.sh" || {
+		printf '            the MANIFEST has no "Want the bytes back" block, so there is no procedure\n' >&2
+		printf '            for a person to run and this mirror is a pile of files.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r1.sh")" -ge 3 ] || {
+		printf '            the extracted recipe is:\n' >&2
+		sed 's/^/              /' "$mm/r1.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r1.sh" >"$mm/r1.out" 2>&1); then
+		printf '            the recipe the MANIFEST tells a person to run exits non-zero:\n' >&2
+		sed 's/^/              /' "$mm/r1.sh" >&2
+		sed 's/^/              /' "$mm/r1.out" >&2
+		return 1
+	fi
+	[ "$(cat "$t/keepme.txt")" = 'hand resolved, never committed' ] || {
+		printf '            after the recipe keepme.txt holds "%s". The typed-in resolution is the work\n' \
+			"$(cat "$t/keepme.txt")" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$t/other.txt")" = 'edited while conflicted' ] || {
+		printf '            the edit to a path the merge did not touch did not come back (%s) -- that is\n' \
+			"$(tr '\n' '|' <"$t/other.txt")" >&2
+		printf '            the tracked work an ordinary quarantine would have put in a stash.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            the untracked file did not come back from the recipe.\n' >&2
+		return 1
+	}
+	# The index, not just the bytes. `staged.txt` was `git add`ed and never committed; `other.txt` was
+	# written and not staged. A recipe that only ran diff-HEAD.patch returns both as ` M` and the tree
+	# looks restored while the `git add` is gone -- so the two must come back in different states.
+	[ "$(git -C "$t" status --porcelain -- staged.txt)" = "A  staged.txt" ] || {
+		printf '            staged.txt comes back as [%s], not [A  staged.txt]: the mirror held its bytes\n' \
+			"$(git -C "$t" status --porcelain -- staged.txt)" >&2
+		printf '            but not the fact that it had been added, which is the state a tick died in.\n' >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- other.txt)" = " M other.txt" ] || {
+		printf '            other.txt comes back as [%s], not [ M other.txt] -- the recipe staged a path\n' \
+			"$(git -C "$t" status --porcelain -- other.txt)" >&2
+		printf '            that was only ever written, so the two halves are not separable anymore.\n' >&2
+		return 1
+	}
+	# The conflicted path comes back as the bytes it held, markers included -- proof the patch carried
+	# the worktree state and not a stage's. `diff HEAD --diff-filter=U` renders no hunk (measured, 0
+	# bytes), and `diff --diff-filter=U` with no commit renders only the 32-byte notice
+	# `* Unmerged path <p>`: non-empty, restores nothing, the exact shape H-0063 refuses.
+	grep -q '<<<<<<<' "$t/sub/deep.txt" || {
+		printf '            sub/deep.txt came back without conflict markers, so the mirror held a stage\n' >&2
+		printf '            rather than the file as it stood.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'mirror restores the tree exactly' 'the MANIFEST recipe, run literally, returns it' mm_round_trip
+
+mm_cherry_pick_halts() {
+	local t before after out rc=0 dirs_before dirs_after
+	t=$(mm_wt_new cp)
+	git -C "$t" cherry-pick "$mm_side" >/dev/null 2>&1 || true
+	git -C "$t" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null || {
+		printf '            the fixture: no CHERRY_PICK_HEAD after a cherry-pick of %s, so this leg\n' "${mm_side:0:9}" >&2
+		printf '            is asserting about a tree that is not in the shape it claims.\n' >&2
+		return 1
+	}
+	before=$(git -C "$t" status --porcelain)
+	dirs_before=$(find "$mm_risk" -maxdepth 1 -type d -name '*-merge-quarantine-*' | wc -l | tr -d '[:space:]')
+	out=$(factory_tree_quarantine 'unclaimed:911' "$t" 2>"$mm/cp.err") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            a cherry-pick conflict exited %s; 2 is the halt. stdout was %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		return 1
+	}
+	case "$(cat "$mm/cp.err")" in
+	*cherry-pick*) : ;;
+	*) printf '            the refusal does not name the operation (%s), which is the whole complaint\n' \
+		"$(tr '\n' ' ' <"$mm/cp.err" | cut -c1-160)" >&2
+		printf '            about `git stash`'"'"'s `needs merge`: the reader cannot tell what to end.\n' >&2
+		return 1 ;;
+	esac
+	after=$(git -C "$t" status --porcelain)
+	[ "$before" = "$after" ] || {
+		printf '            the halt moved the tree. Before:\n' >&2
+		printf '%s\n' "$before" | sed 's/^/              /' >&2
+		printf '            after:\n' >&2
+		printf '%s\n' "$after" | sed 's/^/              /' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null || {
+		printf '            the refusal cleared CHERRY_PICK_HEAD: an operator now has a conflicted index\n' >&2
+		printf '            with no record of the operation that made it.\n' >&2
+		return 1
+	}
+	dirs_after=$(find "$mm_risk" -maxdepth 1 -type d -name '*-merge-quarantine-*' | wc -l | tr -d '[:space:]')
+	[ "$dirs_before" = "$dirs_after" ] || {
+		printf '            it also wrote a mirror directory for a tree it refused (%s -> %s), so the\n' "$dirs_before" "$dirs_after" >&2
+		printf '            at-risk box fills with copies of states this function never cleared.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a cherry-pick still halts, untouched' 'rc 2, names cherry-pick, index and dirs unchanged' mm_cherry_pick_halts
+
+# The delete/update conflict: one side deletes the path, so there is no stage 3, and the person may have
+# deleted the worktree file as their answer. An abort writes a version back over both facts, so both are
+# written down before it runs. The worktree is added LAST, at the finished tip -- added first it sits on
+# the commit before main's edit, and merging a plain delete onto that resolves cleanly, which is how this
+# leg first printed ok over a tree that had no conflict in it.
+mm_repo_du() { # mm_repo_du <dir> -> main edits sub/deep.txt, side deletes it
+	local r=$1
+	mm_repo_new "$r"
+	git -C "$r" checkout -q side
+	git -C "$r" rm -q sub/deep.txt
+	git -C "$r" commit -qm side-deletes-deep
+	git -C "$r" checkout -q main
+	printf 'main v2\n' >"$r/sub/deep.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-edits-deep
+}
+
+mm_delete_update() {
+	local t d rc=0
+	mm_repo_du "$mm/repo-du"
+	git -C "$mm/repo-du" worktree add -q --detach "$mm/du" main 2>/dev/null
+	t=$mm/du
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the delete/update merge did not conflict, so the fixture changed under the\n' >&2
+		printf '            leg and it is pinning nothing.\n' >&2
+		return 1
+	}
+	case "$(git -C "$t" status --porcelain -- sub/deep.txt)" in
+	UD* | *DU*) : ;;
+	*) printf '            sub/deep.txt reads "%s", not a delete/update conflict.\n' \
+		"$(git -C "$t" status --porcelain -- sub/deep.txt)" >&2
+		return 1 ;;
+	esac
+	rm -f "$t/keepme.txt"
+	factory_tree_quarantine 'unclaimed:912' "$t" >"$mm/du.out" 2>"$mm/du.err" || rc=$?
+	[ "$rc" = 0 ] || {
+		printf '            quarantine of a delete/update conflict exited %s: %s\n' "$rc" \
+			"$(tr '\n' ' ' <"$mm/du.err" | cut -c1-180)" >&2
+		return 1
+	}
+	d=$(sed -n 's/.*mirror=\([^ ]*\).*/\1/p' "$mm/du.out" | head -n 1)
+	# `if`, not `[ -n "$d" ] && [ -d "$d" ] || { … }`: that shape runs the refusal when `-n` passes and
+	# `-d` fails, which is what is wanted, but it ALSO runs it when `-n` fails, and then the message
+	# blames stdout for a mirror that was never named. SC2015 says the same thing more briefly.
+	if [ -z "$d" ] || [ ! -d "$d" ]; then
+		printf '            no mirror named on stdout: %s\n' "$(tr '\n' ' ' <"$mm/du.out")" >&2
+		return 1
+	fi
+	# The hand-deleted path: no bytes to copy, so the fact is the absence. An abort writes `MAIN` back
+	# over it, and a mirror that recorded nothing here would restore a file the person had removed.
+	[ -e "$d/worktree/keepme.txt.ABSENT" ] || {
+		printf '            the deleted conflicted path has no .ABSENT note (%s), so the mirror cannot\n' \
+			"$(find "$d/worktree" -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | tr '\n' ' ')" >&2
+		printf '            tell a later reader that the file was gone rather than never written.\n' >&2
+		return 1
+	}
+	[ -e "$d/worktree/sub/deep.txt.ABSENT" ] && {
+		printf '            a path that EXISTS got the .ABSENT note, so the mirror records an absence\n' >&2
+		printf '            that is not there and the restore would skip a file it should write.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/unmerged/2/sub/deep.txt" 2>/dev/null)" = 'main v2' ] || {
+		printf '            stage 2 of the deleted path is "%s", not main'"'"'s version.\n' \
+			"$(cat "$d/unmerged/2/sub/deep.txt" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ -e "$d/unmerged/3/sub/deep.txt" ] && {
+		printf '            stage 3 of a delete/update conflict was mirrored -- this shape has no\n' >&2
+		printf '            theirs side, so a file there is a copy of something the index never held.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a delete/update conflict is mirrored whole' 'stages 1/2, .ABSENT note, no phantom stage 3' mm_delete_update
+
+# The control #328 asks for by name: "the control that rewrites the arm back to plain `stash` and shows
+# the leg reddening with `TREE-QUARANTINE-REFUSED`. A leg that only asserts refusal proves the guard exists
+# and proves the queue still halts." Put the other way round, what this section has asserted so far is that
+# the new arm works; only this leg says the new arm is what makes it work. H-0079 is the precedent -- a
+# guard retired there left the suite reporting `344 passed, 0 failed` over a hole, because nothing in the
+# file could reach the arm the guard protected.
+#
+# The rewrite is a text substitution on a COPY of `common.sh`, run in a fresh `bash -c`: making the `merge)`
+# case label unmatchable drops an op=merge tree onto the stash path, which is exactly the shipped behaviour
+# before this change. The shipped definitions the other legs use are never touched, and the copy is sourced
+# by a child that exits.
+mm_control_plain_stash() {
+	local src=$HERE/common.sh copy="$mm/common-no-merge-arm.sh" t rc=0 out
+	sed 's/^\tmerge)$/\tthe-merge-arm-rewritten-away-for-this-control)$/' "$src" >"$copy" || {
+		printf '            the rewritten copy could not be written, so this control tested nothing.\n' >&2
+		return 1
+	}
+	# The control's own premise, verified rather than assumed: the shipped file carries the label once, the
+	# copy carries it not at all. A `sed` that quietly matches nothing leaves the real arm in the copy and
+	# the leg goes green having changed nothing -- the same false green as a fixture that never conflicts.
+	local n_src n_copy
+	n_src=$(awk 'BEGIN{n=0} $0=="\tmerge)"{n++} END{print n}' "$src")
+	n_copy=$(awk 'BEGIN{n=0} $0=="\tmerge)"{n++} END{print n}' "$copy")
+	{ [ "$n_src" = 1 ] && [ "$n_copy" = 0 ]; } || {
+		printf '            the rewrite did not land: %s has %s `merge)` label(s), the copy has %s.\n' \
+			"$src" "$n_src" "$n_copy" >&2
+		printf '            If the label moved in the shipped file, this control rewrites nothing and\n' >&2
+		printf '            the arm it retires is a name that no longer exists.\n' >&2
+		return 1
+	}
+	# The copy has to define the function, or rc 127 from `bash -c` would read as a refusal.
+	[ "$(bash -c '. "$1"; type -t factory_tree_quarantine' _ "$copy")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_quarantine, so whatever rc\n' >&2
+		printf '            the next command reports comes from sourcing, not from the arm.\n' >&2
+		return 1
+	}
+	t=$(mm_plant_full ctl)
+	out=$(FACTORY_AT_RISK=$mm/risk-rewritten bash -c '. "$1" >/dev/null; factory_tree_quarantine "unclaimed:913" "$2"' \
+		_ "$copy" "$t" 2>"$mm/ctl.err") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            with the arm rewritten away the quarantine exited %s, not 2. stdout %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/ctl.err" | cut -c1-160)" >&2
+		printf '            rc 2 is what makes the caller write `TREE-QUARANTINE-REFUSED`, and that halt\n' >&2
+		printf '            is the outage: 54 activations, 10 h 13 min 32 s, 37 units queued.\n' >&2
+		return 1
+	}
+	# The refusal must be the STASH's, in the shipped words. Any other sentence means the tree was routed
+	# somewhere else and this control is pinning a different arm than the one it claims to retire.
+	case "$(cat "$mm/ctl.err")" in
+	*'quarantine refused: git stash failed'*) : ;;
+	*) printf '            the rewritten arm did not fail the way #328 recorded: %s\n' \
+		"$(tr '\n' ' ' <"$mm/ctl.err" | cut -c1-180)" >&2
+		printf '            It should read `quarantine refused: git stash failed :: …`, the sentence in\n' >&2
+		printf '            the journal line at 04:22:36Z on 12 Nov.\n' >&2
+		return 1 ;;
+	esac
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            the rewrite cleared MERGE_HEAD while refusing, so the tree was left in a\n' >&2
+		printf '            state neither the operator nor the next pass asked for.\n' >&2
+		return 1
+	}
+	[ -d "$mm/risk-rewritten" ] && [ -n "$(find "$mm/risk-rewritten" -maxdepth 1 -name '*-merge-quarantine-*' 2>/dev/null)" ] && {
+		printf '            the rewritten arm wrote a merge mirror, which it has no code path to do --\n' >&2
+		printf '            the substitution did not isolate the arm it claims to.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the arm and it halts again' 'rc 2, the stash'"'"'s own sentence, still mid-merge' mm_control_plain_stash
+
+# --------------------------------- a path is a path, a mirror says who it is, and the recipe RUNS (#328)
+#
+# Three things the first cut of `factory_tree_mirror_merge` got wrong on its own terms. Each was measured
+# on a planted tree before it was repaired here, and each is pinned below rather than asserted in a
+# comment -- H-0183 shipped this function with recipe 1 run by a leg and recipe 2 never run, which is how
+# "the restore recipe was executed, not asserted" managed to be true and incomplete in the same sentence.
+#
+#   PATHS. `git ls-files -u` QUOTES a path it considers unusual, and the quotes are part of the bytes it
+#       prints: a file named `we"ird.txt` answers `100644 df967b96… 1^I"we\"ird.txt"$` (measured, git
+#       2.53.0). Taken literally -- which is what the first cut did -- that string becomes the mirror's
+#       OWN filename: the stage bytes land at `unmerged/1/"we\"ird.txt"`, and the worktree read `[ -f
+#       "$tree/\"we\\\"ird.txt\"" ]` finds nothing and writes `worktree/"we\"ird.txt".ABSENT`. So the
+#       mirror asserted that a file was GONE from the tree while it stood there holding the typed-in
+#       resolution -- the one copy of the work this whole arm exists to keep. `core.quotePath=false` does
+#       not help (measured: the `"` is still escaped; quotePath governs non-ASCII only); `-z` does. The
+#       same quoting is inside the printed recipe, where `$(cut -f2 … | tr "\n" " ")` also splits
+#       `my report.txt` into two arguments.
+#   IDENTITY. The directory was named `<tree>-merge-quarantine-<seconds>`: no unit, and a clock that
+#       ticks once a second. Two runs asking for the same name is not a corner -- and `mv -f A B` with B
+#       an existing directory does not replace B, it puts A INSIDE B (measured: `B/A/inside.txt`), so
+#       `[ -f "$dir/MANIFEST" ]` was satisfied by the OLDER mirror's MANIFEST and the journal line named
+#       a directory that is not the copy it just took.
+#   THE RECIPE. Only recipe 1 was ever executed. Recipe 2 is the one that returns the CONFLICT, which is
+#       what #328 asked for by name, and measured on a planted tree it came back wrong: the
+#       `git add`ed-and-never-committed path returned as `?? ` (untracked) instead of `A `, so the restore
+#       lost the `git add` from the exact state the outage was reported in (`staged-but-uncommitted: … 16
+#       in all`), and the path a person had deleted was written back over their absence.
+
+mm_repo_wq() { # mm_repo_wq <dir> -> a repo that conflicts on a `"` path, a spaced path, a clean path,
+	           # and a delete/update -- every shape the mirror has to carry by name
+	local r=$1
+	mkdir -p "$r/sub"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/keepme.txt"
+	printf 'base\n' >"$r/we\"ird.txt"
+	printf 'base\n' >"$r/my report.txt"
+	printf 'doomed\n' >"$r/doomed.txt"
+	printf 'deep\n' >"$r/sub/deep.txt"
+	printf 'other\n' >"$r/other.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/keepme.txt"
+	printf 'SIDE\n' >"$r/we\"ird.txt"
+	printf 'SIDE\n' >"$r/my report.txt"
+	printf 'side deep\n' >"$r/sub/deep.txt"
+	git -C "$r" rm -q doomed.txt
+	git -C "$r" add -A
+	git -C "$r" commit -qm side-writes-and-deletes
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/keepme.txt"
+	printf 'MAIN\n' >"$r/we\"ird.txt"
+	printf 'MAIN\n' >"$r/my report.txt"
+	printf 'main deep\n' >"$r/sub/deep.txt"
+	printf 'main v2\n' >"$r/doomed.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm main-writes-all
+}
+
+mm_repo_wq_dir=$mm/repo-wq
+mm_repo_wq "$mm_repo_wq_dir"
+
+mm_plant_wq() { # mm_plant_wq <name> -> mid-merge, hand bytes on the quoted and the spaced path, a new
+	            # path `git add`ed and never committed, an edit on a path the merge did not touch, one
+	            # untracked file, and one conflicted path deleted from the worktree
+	local t
+	git -C "$mm_repo_wq_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	t=$mm/$1
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	printf 'hand quoted\n' >"$t/we\"ird.txt"
+	printf 'hand spaced\n' >"$t/my report.txt"
+	printf 'scratch\n' >"$t/notes.md"
+	printf 'edited while conflicted\n' >>"$t/other.txt"
+	printf 'added, never committed\n' >"$t/staged.txt"
+	git -C "$t" add -- staged.txt
+	rm -f "$t/doomed.txt"
+	printf '%s' "$t"
+}
+
+mm_wq_wt() { # mm_wq_wt <name> -> a clean detached worktree of the weird-path repo, for a restore target
+	git -C "$mm_repo_wq_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_wq_rescue() { # mm_wq_rescue <tree-name> <unit> -> quarantines a fresh weird tree, prints the mirror
+	local t out rc=0
+	t=$(mm_plant_wq "$1")
+	out=$(factory_tree_quarantine "$2" "$t" 2>"$mm/$1.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantining the %s tree as %s exited %s: %s\n' "$1" "$2" "$rc" \
+				"$(tr '\n' ' ' <"$mm/$1.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	printf '%s' "$out" >"$mm/$1.line"
+	printf '%s' "${out##*mirror=}"
+}
+
+# Paths as they are, on both sides of the copy: the stage bytes under the REAL name, the typed-in
+# resolution as a copy rather than an absence note, and a stage table with no quoting in it.
+mm_wq_paths_are_paths() {
+	local d
+	d=$(mm_wq_rescue wqA 'unclaimed:914') || return 1
+	# Both sides, under the name they came from: stage 2 is OURS (main wrote MAIN), stage 3 is THEIRS
+	# (side wrote SIDE). A quoted table would have put both under `"we\"ird.txt"` and neither read here
+	# would find a file, which is the failure this leg is for -- so it names the stage it lost.
+	[ "$(cat "$d/unmerged/2/we\"ird.txt" 2>/dev/null)" = MAIN ] || {
+		printf '            unmerged/2/ holds %s, and stage 2 of the quoted path is not MAIN (%s): the\n' \
+			"$(find "$d/unmerged/2" -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null | tr '\n' ' ')" \
+			"$(cat "$d/unmerged/2/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            stage table is being taken with git'"'"'s quotes in it, so the bytes land under\n' >&2
+		printf '            a filename that is not the path they came from.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/unmerged/3/we\"ird.txt" 2>/dev/null)" = SIDE ] || {
+		printf '            stage 3 of the quoted path is not SIDE (%s), so the copy is not the side it\n' \
+			"$(cat "$d/unmerged/3/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            claims to be: a quoted name collides one path'"'"'s stages with another'"'"'s.\n' >&2
+		return 1
+	}
+	[ "$(cat "$d/worktree/we\"ird.txt" 2>/dev/null)" = 'hand quoted' ] || {
+		printf '            worktree/ holds no copy of the quoted path'"'"'s typed-in bytes -- that file\n' >&2
+		printf '            stood in the tree holding "hand quoted", and the mirror is what keeps them.\n' >&2
+		return 1
+	}
+	# The false sentence, and the reason this is a defect and not a cosmetic one: the quoted path WAS
+	# there. Only `doomed.txt` -- deleted, and a delete/update conflict -- may be recorded as absent.
+	[ -e "$d/worktree/we\"ird.txt.ABSENT" ] && {
+		printf '            the mirror wrote an .ABSENT note for the quoted path: it asserts to a later\n' >&2
+		printf '            reader that a file that was in the tree was gone from it.\n' >&2
+		return 1
+	}
+	[ -e "$d/worktree/doomed.txt.ABSENT" ] || {
+		printf '            the deleted conflicted path has no .ABSENT note, so the fixture changed and\n' >&2
+		printf '            the leg above could not have told a false absence from no absence at all.\n' >&2
+		return 1
+	}
+	# NUL-delimited, once per path, and the spaced path arrives whole.
+	[ "$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c .)" = 5 ] || {
+		printf '            unmerged.paths holds %s entries, not the 5 conflicted paths:\n' \
+			"$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c .)" >&2
+		tr '\0' '\n' <"$d/unmerged.paths" | sed 's/^/              /' >&2
+		return 1
+	}
+	[ "$(tr '\0' '\n' <"$d/unmerged.paths" | grep -c '^my report\.txt$')" = 1 ] || {
+		printf '            `my report.txt` is not one entry of unmerged.paths -- a space is not a\n' >&2
+		printf '            separator here, and a list that loses it loses the path.\n' >&2
+		return 1
+	}
+	# The saved stage table is the NUL form: the raw path bytes are in it -- `we"ird.txt` carrying its own
+	# quote, three times, once per stage -- and no backslash anywhere. A backslash IS git's quoting: the
+	# newline form prints `"we\"ird.txt"`, and a reader of this file would have to un-escape it and
+	# cannot, because `core.quotePath=false` does not stop the quote being escaped (measured).
+	[ "$(tr '\0' '\n' <"$d/ls-files-u" | grep -cF -- 'we"ird.txt')" = 3 ] || {
+		printf '            the saved stage table holds %s records naming we"ird.txt, not its three\n' \
+			"$(tr '\0' '\n' <"$d/ls-files-u" | grep -cF -- 'we"ird.txt')" >&2
+		printf '            stages, so one of them is not where the copy below reads it:\n' >&2
+		tr '\0' '\n' <"$d/ls-files-u" | grep -F 'ird.txt' | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -aqF -- $'\\' "$d/ls-files-u" && {
+		printf '            the saved stage table carries a backslash, so it is the newline form with\n' >&2
+		printf '            git'"'"'s quoting in it; every path in this fixture is bare:\n' >&2
+		tr '\0' '\n' <"$d/ls-files-u" | sed 's/^/              /' >&2
+		return 1
+	}
+	# The retired read, pinned by name: `cut -f2` on a newline table plus `tr` into one argument list is
+	# the shape that split a spaced path in two, and a MANIFEST that goes back to it would pass every
+	# leg above and still hand a person a recipe that cannot restore this tree.
+	grep -qE 'cut -f2|tr .\\n. ' "$d/MANIFEST" && {
+		printf '            the MANIFEST is back to `cut -f2 … | tr`: that read splits a path containing\n' >&2
+		printf '            a space into two arguments, and quotes a path containing a double quote.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a quoted path stays one path' 'stage bytes, worktree copy, no false .ABSENT' mm_wq_paths_are_paths
+
+# The mirror says who it is, in its name and inside itself. Without the second half, `[ -f
+# "$dir/MANIFEST" ]` proves only that SOME mirror is at that path.
+mm_wq_mirror_names_itself() {
+	local d line
+	d=$(mm_wq_rescue wqB 'unclaimed:915') || return 1
+	line=$(cat "$mm/wqB.line")
+	# The journal line's `mirror=` path and the MANIFEST's own sentence about itself are the same string.
+	grep -qxF -- "mirror:    $d" "$d/MANIFEST" || {
+		printf '            %s/MANIFEST does not say `mirror:    %s` -- it holds:\n' "$d" "$d" >&2
+		grep -n '^mirror:' "$d/MANIFEST" | sed 's/^/              /' >&2
+		printf '            A mirror that does not name its own directory cannot be told apart from an\n' >&2
+		printf '            older one standing under the same name, which is what the read-back reads.\n' >&2
+		return 1
+	}
+	case "$line" in
+	*"$d") : ;;
+	*) printf '            the journal line does not end with the directory the MANIFEST names (%s).\n' "$line" >&2
+		return 1 ;;
+	esac
+	# And the name says which unit it was rescued from, because the clock is only a second and the
+	# at-risk box holds every unit'"'"'s trees side by side.
+	case $(basename -- "$d") in
+	*-unclaimed-915) : ;;
+	*) printf '            %s does not name the unit it came from, so two runs in one second ask for the\n' "$(basename -- "$d")" >&2
+		printf '            same name and the journal cannot say whose copy the box is holding.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+mm_leg 'the mirror names itself' 'MANIFEST mirror:, journal mirror=, unit in the name' mm_wq_mirror_names_itself
+
+# Recipe 2, run verbatim. This is the recipe #328 asked for -- "the rescue mirrors and continues", and the
+# conflict back is what a person finishes -- and until here nothing in this file had ever executed it.
+mm_wq_recipe_two_runs() {
+	local d t script
+	d=$(mm_wq_rescue wqC 'unclaimed:916') || return 1
+	t=$(mm_wq_wt wqCback)
+	sed -n '/^Want the conflict back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r2.sh" || {
+		printf '            the MANIFEST has no "Want the conflict back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r2.sh")" -ge 5 ] || {
+		printf '            the extracted recipe 2 is:\n' >&2
+		sed 's/^/              /' "$mm/r2.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r2.sh" >"$mm/r2.out" 2>&1); then
+		printf '            recipe 2 exits non-zero; the MANIFEST tells a person to run it:\n' >&2
+		sed 's/^/              /' "$mm/r2.sh" >&2
+		sed 's/^/              /' "$mm/r2.out" >&2
+		return 1
+	fi
+	# The state, against what was planted. A file and a sort, not a spelled-out string: `git status
+	# --porcelain` QUOTES both of the awkward paths -- `UU "my report.txt"`, and `UU "we\"ird.txt"` with
+	# git's own backslash -- and the byte order of the eight lines is the locale's, so a literal in a
+	# test would be a second thing to get wrong. The want file holds the same names the plant wrote.
+	printf '%s\n' 'UD doomed.txt' 'UU keepme.txt' 'UU "my report.txt"' ' M other.txt' \
+		'A  staged.txt' 'UU sub/deep.txt' 'UU "we\"ird.txt"' '?? notes.md' >"$mm/r2.want" || return 1
+	LC_ALL=C sort <"$mm/r2.want" >"$mm/r2.want.sorted"
+	git -C "$t" status --porcelain >"$mm/r2.got" || return 1
+	LC_ALL=C sort <"$mm/r2.got" >"$mm/r2.got.sorted"
+	if ! cmp -s "$mm/r2.want.sorted" "$mm/r2.got.sorted"; then
+		printf '            after recipe 2 the tree reads:\n' >&2
+		LC_ALL=C sort <"$mm/r2.got" | sed 's/^/              /' >&2
+		printf '            The planted state is:\n' >&2
+		sed 's/^/              /' "$mm/r2.want.sorted" >&2
+		printf '            five conflicted paths, the staged path STAGED, the clean path modified, the\n' >&2
+		printf '            scratch file untracked.\n' >&2
+		return 1
+	fi
+	# The `git add` specifically: `?? ` is the loss #328 was reported in, and a status string that has
+	# the path in it either way is why this compares the two columns and not just the name.
+	[ "$(git -C "$t" status --porcelain -- staged.txt)" = "A  staged.txt" ] || {
+		printf '            staged.txt comes back [%s], not [A  staged.txt]: recipe 2 restored its bytes\n' \
+			"$(git -C "$t" status --porcelain -- staged.txt)" >&2
+		printf '            and lost the fact that it had been added.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/staged.txt" 2>/dev/null)" = 'added, never committed' ] || {
+		printf '            the staged path has no bytes in the worktree after recipe 2 (%s): the index\n' \
+			"$(cat "$t/staged.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            half alone leaves it `AD`, which is not the state that was planted.\n' >&2
+		return 1
+	}
+	[ -e "$t/doomed.txt" ] && {
+		printf '            recipe 2 wrote back the path the person had DELETED: the re-merge puts a\n' >&2
+		printf '            version there and absent.list is the only record that the absence was theirs.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/we\"ird.txt")" = 'hand quoted' ] || {
+		printf '            the quoted path did not come back as the bytes it held (%s) -- the recipe is\n' \
+			"$(cat "$t/we\"ird.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            reading a name out of a quoted table again.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/my report.txt")" = 'hand spaced' ] || {
+		printf '            the spaced path did not come back (%s): an unquoted substitution split it in\n' \
+			"$(cat "$t/my report.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            two arguments, which is what the NUL reads replace.\n' >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$t/other.txt")" = 'edited while conflicted' ] || {
+		printf '            the edit to a path the merge did not touch did not come back with the\n' >&2
+		printf '            conflict, so the excludes list is excluding more than the conflicted paths.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 2 runs and returns it' 'verbatim, conflict + staged half + the absence kept' mm_wq_recipe_two_runs
+
+# Recipe 1, on the same shapes. Its leg above uses the plain fixture; the two reads that go wrong on a
+# weird name are the patch (which git quotes for itself, and applies) and the untracked copy.
+mm_wq_recipe_one_runs() {
+	local d t
+	d=$(mm_wq_rescue wqD 'unclaimed:917') || return 1
+	t=$(mm_wq_wt wqDback)
+	sed -n '/^Want the bytes back/,/^$/p' "$d/MANIFEST" | grep -E '^ ' | sed 's/^  //' >"$mm/r1w.sh"
+	(cd "$t" && bash "$mm/r1w.sh" >"$mm/r1w.out" 2>&1) || {
+		printf '            recipe 1 exits non-zero on a tree whose paths hold a space and a quote:\n' >&2
+		sed 's/^/              /' "$mm/r1w.sh" >&2
+		sed 's/^/              /' "$mm/r1w.out" >&2
+		return 1
+	}
+	[ "$(cat "$t/we\"ird.txt" 2>/dev/null)" = 'hand quoted' ] || {
+		printf '            recipe 1 did not restore the quoted path.\n' >&2
+		return 1
+	}
+	[ "$(cat "$t/my report.txt" 2>/dev/null)" = 'hand spaced' ] || {
+		printf '            recipe 1 did not restore the spaced path.\n' >&2
+		return 1
+	}
+	[ -e "$t/doomed.txt" ] && {
+		printf '            recipe 1 restored a file the person had deleted.\n' >&2
+		return 1
+	}
+	# The guard the leg exists for: a tree with no untracked file must still finish at rc 0, because the
+	# LAST line of the recipe being non-zero is what a person reads as "the restore failed".
+	[ "$(cat "$t/notes.md" 2>/dev/null)" = scratch ] || {
+		printf '            recipe 1 did not restore the untracked file.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs on those paths' 'quoted, spaced, deleted, untracked' mm_wq_recipe_one_runs
+
+# The two shapes the review of #398 measured the recipes dying on, pinned as fixtures. Every fixture
+# above stages `staged.txt` beside the conflict -- which is why the recipe legs read green while the
+# rescue errored on the tree #328 was reported in: the stage gives diff-cached.patch a real hunk and
+# it makes unmerged.paths exist. Two measurements at 3355763, before the guard fix (git 2.53.0): the
+# pure-conflict mirror's diff-cached.patch is the 22-byte notice `* Unmerged path k.txt` and the
+# printed `-s` guard let `git apply --cached` through to `error: No valid patches in input (allow
+# with "--allow-empty")`, rc 128; the zero-conflict mirror (resolution `git add`ed, `ls-files -u`
+# empty, `MERGE_HEAD` standing) has NO unmerged.paths at all, and recipe 2 died twice at
+# `done <"$M/unmerged.paths"` with `No such file or directory`.
+mm_repo_min() { # mm_repo_min <dir> -> a repo whose merge conflicts on ONE path and stages nothing else
+	local r=$1
+	mkdir -p "$r"
+	git init -q "$r"
+	git -C "$r" config user.email selftest@example.invalid
+	git -C "$r" config user.name selftest
+	git -C "$r" config commit.gpgsign false
+	printf 'base\n' >"$r/k.txt"
+	git -C "$r" add -A
+	git -C "$r" commit -qm base
+	git -C "$r" branch -m main 2>/dev/null || git -C "$r" branch -m
+	git -C "$r" checkout -qb side
+	printf 'SIDE\n' >"$r/k.txt"
+	git -C "$r" commit -qam side
+	git -C "$r" checkout -q main
+	printf 'MAIN\n' >"$r/k.txt"
+	git -C "$r" commit -qam main
+}
+mm_repo_min_dir=$mm/repo-min
+mm_repo_min "$mm_repo_min_dir"
+
+mm_plant_min() { # mm_plant_min <name> -> mid-merge worktree of the one-path repo, NOTHING staged
+	local t
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	t=$mm/$1
+	git -C "$t" merge --no-commit --no-ff side >/dev/null 2>&1 || true
+	printf '%s' "$t"
+}
+
+mm_plant_resolved() { # mm_plant_resolved <name> -> the zero-conflict mid-merge: MERGE_HEAD standing,
+	                 # the resolution `git add`ed, `git ls-files -u` empty
+	local t
+	t=$(mm_plant_min "$1")
+	printf 'resolved, staged, not committed\n' >"$t/k.txt"
+	git -C "$t" add -- k.txt
+	printf '%s' "$t"
+}
+
+mm_min_back() { # mm_min_back <name> -> a clean detached worktree at main, for a restore target
+	git -C "$mm_repo_min_dir" worktree add -q --detach "$mm/$1" main 2>/dev/null
+	printf '%s' "$mm/$1"
+}
+
+mm_min_rescue() { # mm_min_rescue <min|resolved> <tree-name> <unit> -> quarantine a fresh one-path
+	              # tree, print the mirror directory
+	local t out rc=0
+	case $1 in
+	min) t=$(mm_plant_min "$2") ;;
+	resolved) t=$(mm_plant_resolved "$2") ;;
+	*)
+		printf '            mm_min_rescue was asked to plant "%s".\n' "$1" >&2
+		return 1
+		;;
+	esac
+	out=$(factory_tree_quarantine "$3" "$t" 2>"$mm/$2.err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            quarantining the %s tree as %s exited %s: %s\n' "$2" "$3" "$rc" \
+			"$(tr '\n' ' ' <"$mm/$2.err" | cut -c1-200)" >&2
+		return 1
+	fi
+	printf '%s' "$out" >"$mm/$2.line"
+	printf '%s' "${out##*mirror=}"
+}
+
+mm_recipe() { # mm_recipe <1|2> <MANIFEST> <out> -> the block the MANIFEST tells a person to run,
+	          # extracted the way the legs above extract it
+	case $1 in
+	1) sed -n '/^Want the bytes back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	2) sed -n '/^Want the conflict back/,/^$/p' "$2" | grep -E '^ ' | sed 's/^  //' >"$3" ;;
+	*)
+		printf '            mm_recipe was asked for block %s.\n' "$1" >&2
+		return 1
+		;;
+	esac
+}
+
+mm_recipe1_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minA 'unclaimed:920') || return 1
+	t=$(mm_min_back minAback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the bytes back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r1min.sh")" -ge 3 ] || {
+		printf '            the extracted recipe is:\n' >&2
+		sed 's/^/              /' "$mm/r1min.sh" >&2
+		return 1
+	}
+	# The review's measurement was an error line INSIDE an rc-0 script; rc alone would pass that, so
+	# the output has to be clean too -- an operator reads `error:` as a failed rescue at 3 a.m.
+	if ! (cd "$t" && bash "$mm/r1min.sh" >"$mm/r1min.out" 2>&1); then
+		printf '            recipe 1 exits non-zero on the mirror of a tree with nothing staged\n' >&2
+		printf '            but the conflict:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r1min.out" && {
+		printf '            the notice-only diff-cached.patch was handed to `git apply --cached`\n' >&2
+		printf '            again; the printed output was:\n' >&2
+		sed 's/^/              /' "$mm/r1min.out" >&2
+		return 1
+	}
+	grep -q '<<<<<<<' "$t/k.txt" || {
+		printf '            k.txt came back without the marker bytes it held (%s): diff-HEAD.patch\n' \
+			"$(tr '\n' '|' <"$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		printf '            carries a conflicted path as a hunk of the worktree state.\n' >&2
+		return 1
+	}
+	[ -z "$(git -C "$t" diff --cached --name-only)" ] || {
+		printf '            the guard staged something (%s) from a file whose whole content is\n' \
+			"$(git -C "$t" diff --cached --name-only | tr '\n' ' ')" >&2
+		printf '            `* Unmerged path` notices: there is no staged work in a notice.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs conflict-only' 'rc 0, no error line, markers back, index kept' mm_recipe1_conflict_only
+
+mm_recipe2_conflict_only() {
+	local d t
+	d=$(mm_min_rescue min minB 'unclaimed:921') || return 1
+	t=$(mm_min_back minBback)
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2min.sh" || {
+		printf '            the conflict-only MANIFEST has no "Want the conflict back" block.\n' >&2
+		return 1
+	}
+	[ "$(grep -c . "$mm/r2min.sh")" -ge 5 ] || {
+		printf '            the extracted recipe 2 is:\n' >&2
+		sed 's/^/              /' "$mm/r2min.sh" >&2
+		return 1
+	}
+	if ! (cd "$t" && bash "$mm/r2min.sh" >"$mm/r2min.out" 2>&1); then
+		printf '            recipe 2 exits non-zero on the conflict-only mirror:\n' >&2
+		sed 's/^/              /' "$mm/r2min.out" >&2
+		return 1
+	fi
+	grep -q 'No valid patches' "$mm/r2min.out" && {
+		printf '            recipe 2 hit the notice-only diff-cached.patch too.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null || {
+		printf '            recipe 2 says it gives the conflict back and there is no MERGE_HEAD.\n' >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "UU k.txt" ] || {
+		printf '            k.txt reads [%s] after the conflict-back recipe, not [UU k.txt].\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 2 runs conflict-only' 'rc 0, error-free, MERGE_HEAD and UU restored' mm_recipe2_conflict_only
+
+mm_recipe1_resolved_mirror() {
+	local d t
+	d=$(mm_min_rescue resolved minC 'unclaimed:922') || return 1
+	# The list files first: the mirror now PROMISES both, and recipe 2's death on a missing one was
+	# half of what the review filed. Empty is the point -- this tree held no conflict at capture.
+	[ -e "$d/unmerged.paths" ] || {
+		printf '            the zero-conflict mirror wrote no unmerged.paths, so a person running\n' >&2
+		printf '            the printed reads dies at `No such file or directory` again.\n' >&2
+		return 1
+	}
+	[ -e "$d/absent.list" ] || {
+		printf '            the zero-conflict mirror wrote no absent.list.\n' >&2
+		return 1
+	}
+	[ "$(wc -c <"$d/unmerged.paths")" -eq 0 ] || {
+		printf '            unmerged.paths holds %s bytes on a tree that had no conflict -- the\n' \
+			"$(wc -c <"$d/unmerged.paths")" >&2
+		printf '            empty file would be read as conflicts that were never there.\n' >&2
+		return 1
+	}
+	# And the MANIFEST must not print a block that would REOPEN the closed conflict.
+	mm_recipe 2 "$d/MANIFEST" "$mm/r2res.sh" || true
+	if [ -s "$mm/r2res.sh" ]; then
+		printf '            the zero-conflict MANIFEST still prints a "Want the conflict back"\n' >&2
+		printf '            block; re-merging here invents a conflict the person had resolved:\n' >&2
+		sed 's/^/              /' "$mm/r2res.sh" >&2
+		return 1
+	fi
+	t=$(mm_min_back minCback)
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1res.sh" || {
+		printf '            the resolved mirror has no "Want the bytes back" block at all.\n' >&2
+		return 1
+	}
+	(cd "$t" && bash "$mm/r1res.sh" >"$mm/r1res.out" 2>&1) || {
+		printf '            recipe 1 exits non-zero on the resolved mirror:\n' >&2
+		sed 's/^/              /' "$mm/r1res.out" >&2
+		return 1
+	}
+	[ "$(cat "$t/k.txt" 2>/dev/null)" = 'resolved, staged, not committed' ] || {
+		printf '            k.txt holds [%s], not the staged resolution.\n' \
+			"$(cat "$t/k.txt" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ "$(git -C "$t" status --porcelain -- k.txt)" = "M  k.txt" ] || {
+		printf '            k.txt reads [%s], not [M  k.txt]: the resolution came back unstaged,\n' \
+			"$(git -C "$t" status --porcelain -- k.txt)" >&2
+		printf '            which is the `git add` the tree lost on #328.\n' >&2
+		return 1
+	}
+	git -C "$t" rev-parse -q --verify MERGE_HEAD >/dev/null && {
+		printf '            recipe 1 started a merge on its own; the note above the block says it\n' >&2
+		printf '            does not, and a surprise MERGE_HEAD reads as a half-done restore.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'recipe 1 runs alone, resolved mirror' 'both lists written, no re-merge block, staged back' mm_recipe1_resolved_mirror
+
+# The control for the grep guard, in the H-0184 shape: the guard is rewritten away in a copy, the
+# copy's own premise is counted (two shipped lines, zero in the copy -- there is one per recipe),
+# and the copy's MANIFEST then prints the `-s` form that the review measured at rc 128. A `sed` that
+# matched nothing would report a green control that retired nothing, so the counts are the leg.
+mm_recipe1_guard_control() {
+	local src=$HERE/common.sh dst=$mm/common-noguard.sh d t rc
+	cp -- "$src" "$dst" || {
+		printf '            the shipped common.sh could not be copied.\n' >&2
+		return 1
+	}
+	sed -i 's|if grep -q "\^diff --git" "\$M/diff-cached.patch" 2>/dev/null; then|if [ -s "$M/diff-cached.patch" ]; then|g' "$dst" || return 1
+	local n_have n_left
+	n_have=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$src")
+	n_left=$(grep -c 'grep -q "\^diff --git" "\$M/diff-cached.patch"' "$dst")
+	[ "$n_have" = 2 ] || {
+		printf '            the shipped file holds %s copies of the grep guard, not 2 (one per\n' "$n_have" >&2
+		printf '            recipe), so this control retires a line that has moved.\n' >&2
+		return 1
+	}
+	[ "$n_left" = 0 ] || {
+		printf '            the rewrite did not land: the copy still holds %s copies of the guard,\n' "$n_left" >&2
+		printf '            so this control tested nothing.\n' >&2
+		return 1
+	}
+	[ "$(bash -c '. "$1" >/dev/null 2>&1; type -t factory_tree_mirror_merge' _ "$dst")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_mirror_merge, so whatever\n' >&2
+		printf '            rc comes next is from sourcing it, not from the guard.\n' >&2
+		return 1
+	}
+	t=$(mm_plant_min minD)
+	d=$(FACTORY_AT_RISK=$FACTORY_AT_RISK bash -c '
+		. "$1" >/dev/null
+		factory_tree_quarantine "$2" "$3"
+	' _ "$dst" 'unclaimed:923' "$t" 2>"$mm/minD.err") || {
+		printf '            quarantining through the guard-less copy exited non-zero: %s\n' \
+			"$(tr '\n' ' ' <"$mm/minD.err" | cut -c1-200)" >&2
+		return 1
+	}
+	d=${d##*mirror=}
+	mm_recipe 1 "$d/MANIFEST" "$mm/r1ctl.sh" || {
+		printf '            the guard-less MANIFEST has no recipe 1 block.\n' >&2
+		return 1
+	}
+	grep -q '\[ -s "\$M/diff-cached.patch" \]' "$mm/r1ctl.sh" || {
+		printf '            the printed MANIFEST does not carry the -s form, so the rewrite never\n' >&2
+		printf '            reached the recipe a person would run.\n' >&2
+		return 1
+	}
+	t=$(mm_min_back minDback)
+	(cd "$t" && bash "$mm/r1ctl.sh" >"$mm/r1ctl.out" 2>&1) || true
+	grep -q 'No valid patches' "$mm/r1ctl.out" || {
+		printf '            with the guard retired, the notice-only diff-cached.patch produced NO\n' >&2
+		printf '            error -- the control premise says that refusal is the guard'"'"'s whole\n' >&2
+		printf '            job; the output was:\n' >&2
+		sed 's/^/              /' "$mm/r1ctl.out" >&2
+		return 1
+	}
+	(
+		cd "$t" || exit 1
+		git apply --cached "$d/diff-cached.patch" 2>/dev/null
+		echo "rc=$?"
+	) >"$mm/r1ctl.rc" || true
+	grep -q '^rc=128$' "$mm/r1ctl.rc" || {
+		printf '            the review measured `git apply --cached` rc 128 on this exact file; the\n' >&2
+		printf '            read here says %s: git changed, and the entry'"'"'s guard rationale does.\n' \
+			"$(cat "$mm/r1ctl.rc")" >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the guard, the notice errors' 'rc 128 on the notice-only file, premise counted' mm_recipe1_guard_control
+
+# A clock this function cannot drift on: the mirror name is `date -u +…%SZ`, so a leg that wants the name
+# twice has to be given it. A shell function beats the binary, so the child below decides both names.
+# The refusal sentence is on stderr, where `factory_tree_quarantine`'s caller reads it, so a leg that
+# wants the WORDS has to be given the stream as well as the code -- `$()` alone captures the path only.
+mm_frozen() { # mm_frozen <script> <unit> <tree> <risk> -> factory_tree_mirror_merge, on a frozen clock
+	FACTORY_AT_RISK=$4 bash -c '
+		date() { printf "19700101T000000Z"; }
+		. "$1" >/dev/null
+		factory_tree_mirror_merge "$2" "$3"
+	' _ "$1" "$2" "$3" 2>"$mm/frozen.err"
+}
+
+# One guard, rewritten away in a copy of `common.sh`, and the copy's own premise checked. The two guards
+# the collision has are `test` (the directory may not already exist) and `name` (the MANIFEST there has
+# to name this directory). A `sed` that quietly matches nothing leaves both guards in and reports a
+# control that retired one -- H-0183's own false green, so each line is counted before and after.
+mm_guard_line_test='	if [ -e "$dir" ]; then'
+mm_guard_line_name='	if ! grep -qxF -- "mirror:    $dir" "$dir/MANIFEST"; then'
+
+mm_guard_count() { # mm_guard_count <file> <whole line>
+	awk -v w="$2" 'BEGIN{n=0} $0==w{n++} END{print n}' "$1"
+}
+
+mm_guard_copy() { # mm_guard_copy <dst> <test|name|both> -> the rewritten copy, or a refusal that says why
+	local dst=$1 which=$2 src=$HERE/common.sh
+	case "$which" in test | name | both) : ;; *) printf '            mm_guard_copy was asked to retire "%s".\n' "$which" >&2; return 1 ;; esac
+	cp -- "$src" "$dst" || {
+		printf '            the shipped common.sh could not be copied.\n' >&2
+		return 1
+	}
+	if [ "$which" != name ]; then
+		sed -i '/^\tif \[ -e "$dir" \]; then$/s//\tif [ -n "" ]; then/' "$dst" || return 1
+	fi
+	if [ "$which" != test ]; then
+		sed -i '/^	if ! grep -qxF -- "mirror:    \$dir" "\$dir\/MANIFEST"; then$/s//\tif false; then/' "$dst" || return 1
+	fi
+	local l keep want n
+	for l in test name; do
+		case "$which" in
+		both) keep=0 ;;
+		test) [ "$l" = test ] && keep=0 || keep=1 ;;
+		name) [ "$l" = name ] && keep=0 || keep=1 ;;
+		esac
+		local w=$mm_guard_line_test
+		[ "$l" = name ] && w=$mm_guard_line_name
+		n=$(mm_guard_count "$dst" "$w")
+		[ "$n" = "$keep" ] || {
+			printf '            the rewrite did not land: the copy holds %s copy of\n' "$n" >&2
+			printf '              %s\n            and %s retire it, so this control tested nothing.\n' \
+				"$w" "$which" >&2
+			return 1
+		}
+		[ "$(mm_guard_count "$src" "$w")" = 1 ] || {
+			printf '            the shipped file holds %s copy of the guard this control retires, so the\n' \
+				"$(mm_guard_count "$src" "$w")" >&2
+			printf '            line has moved and this control rewrites a name that is no longer there:\n' >&2
+			printf '              %s\n' "$w" >&2
+			return 1
+		}
+	done
+	[ "$(bash -c '. "$1" >/dev/null 2>&1; type -t factory_tree_mirror_merge' _ "$dst")" = function ] || {
+		printf '            the rewritten copy does not define factory_tree_mirror_merge, so whatever rc\n' >&2
+		printf '            the next command reports comes from sourcing it, not from the guard.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+mm_decoy() { # mm_decoy <risk> <tree-name> <unit-slug> -> a directory at the name the frozen clock will
+	         # ask for, whose MANIFEST says it lives somewhere else: what an older or moved mirror looks like
+	local d=$1/$2-merge-quarantine-19700101T000000Z-$3
+	mkdir -p "$d" || {
+		printf '            the decoy directory could not be planted at %s.\n' "$d" >&2
+		return 1
+	}
+	printf 'unit:      somebody else\nmirror:    /some/other/mirror\n' >"$d/MANIFEST" || return 1
+	printf '%s' "$d"
+}
+
+# Two runs, one name. With both guards shipped, the second is refused before it writes anything, and it
+# says so by naming the collision. The clock is frozen so the two runs provably asked for the same name --
+# a leg that slept on a second-resolution clock would be a leg that sometimes tests nothing.
+mm_mirror_collision_refused() {
+	local t risk first second n
+	t=$(mm_plant_wq wqE)
+	risk=$mm/risk-collide
+	mkdir -p "$risk" || return 1
+	first=$(mm_frozen "$HERE/common.sh" 'unclaimed:918' "$t" "$risk") || {
+		printf '            the first mirror was refused: %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	[ -f "$first/MANIFEST" ] || {
+		printf '            the first run named %s and wrote no MANIFEST there.\n' "$first" >&2
+		return 1
+	}
+	second=$(mm_frozen "$HERE/common.sh" 'unclaimed:918' "$t" "$risk") && {
+		printf '            the second run SUCCEEDED on the name %s and printed it anyway: %s\n' "$first" "${second:-nothing}" >&2
+		printf '            `mv -f` into a directory that exists puts the new copy INSIDE it, so the\n' >&2
+		printf '            journal would name a directory whose MANIFEST is the older run'"'"'s.\n' >&2
+		return 1
+	}
+	[ -n "$second" ] && {
+		printf '            it refused and still printed a directory on stdout: %s\n' "$second" >&2
+		printf '            stdout is the journal line'"'"'s `mirror=`, so that is a path being promised.\n' >&2
+		return 1
+	}
+	case "$(cat "$mm/frozen.err")" in
+	*"already exists"*) : ;;
+	*) printf '            it refused, but not by naming the collision (%s).\n' \
+		"$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1 ;;
+	esac
+	n=$(find "$risk" -maxdepth 1 -mindepth 1 | wc -l | tr -d '[:space:]')
+	[ "$n" = 1 ] || {
+		printf '            the refused run still left %s entries in the box:\n' "$n" >&2
+		find "$risk" -maxdepth 1 -mindepth 1 | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -qxF -- "mirror:    $first" "$first/MANIFEST" || {
+		printf '            the refusal damaged the mirror it was refusing to overwrite.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'a second run cannot reuse the name' 'rc 2, names it, nothing written, first intact' mm_mirror_collision_refused
+
+# Retire the existence test and the collision reaches the second guard: the MANIFEST standing at that path
+# does not name it, and the run refuses. This is the half that survives on its own -- and the reason the
+# read-back asks whose mirror it opened rather than only whether one is there.
+mm_control_self_name_refuses() {
+	local copy=$mm/common-no-existence-test.sh t risk decoy out rc=0
+	mm_guard_copy "$copy" test || return 1
+	t=$(mm_plant_wq wqF)
+	risk=$mm/risk-guard-test
+	decoy=$(mm_decoy "$risk" wqF unclaimed-919) || return 1
+	out=$(mm_frozen "$copy" 'unclaimed:919' "$t" "$risk") || rc=$?
+	[ "$rc" = 2 ] || {
+		printf '            with only the existence test retired the mirror exited %s, want 2. stdout %s\n' \
+			"$rc" "${out:-nothing}" >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	case "$(cat "$mm/frozen.err")" in
+	*does\ not\ name\ this\ directory*) : ;;
+	*) printf '            it refused, but not at the identity read (%s), so the guard this control\n' \
+		"$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		printf '            retires is not the one that stopped it.\n' >&2
+		return 1 ;;
+	esac
+	# Refusing is one thing; refusing having destroyed the thing it refused to overwrite is another.
+	grep -qxF -- 'mirror:    /some/other/mirror' "$decoy/MANIFEST" || {
+		printf '            the refusal rewrote the MANIFEST it had just refused to own.\n' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire the test, the name refuses' 'rc 2, and it says which half refused' mm_control_self_name_refuses
+
+# And the pre-repair behaviour, both guards gone: the run reports SUCCESS and names the directory, while
+# the MANIFEST there belongs to another run and the copy it just taken is buried one level inside it.
+# That is what #328's operator would have read as "rescued".
+mm_control_both_gones_accepts_the_decoy() {
+	local copy=$mm/common-no-guards.sh t risk decoy out rc=0 nested
+	mm_guard_copy "$copy" both || return 1
+	t=$(mm_plant_wq wqG)
+	risk=$mm/risk-guard-both
+	decoy=$(mm_decoy "$risk" wqG unclaimed-920) || return 1
+	out=$(mm_frozen "$copy" 'unclaimed:920' "$t" "$risk") || rc=$?
+	[ "$rc" = 0 ] || {
+		printf '            with BOTH guards retired the mirror exited %s, want 0 -- it should walk\n' "$rc" >&2
+		printf '            straight into the directory and call it a rescue:\n' >&2
+		printf '            stderr %s\n' "$(tr '\n' ' ' <"$mm/frozen.err" | cut -c1-200)" >&2
+		return 1
+	}
+	[ "$out" = "$decoy" ] || {
+		printf '            it printed %s, not the directory it walked into (%s).\n' "${out:-nothing}" "$decoy" >&2
+		return 1
+	}
+	grep -qxF -- 'mirror:    /some/other/mirror' "$decoy/MANIFEST" || {
+		printf '            the decoy was replaced rather than written into, so the collision this control\n' >&2
+		printf '            reproduces is not the one `mv -f` performs.\n' >&2
+		return 1
+	}
+	# The copy it just took, buried, and still naming the directory it cannot reach.
+	nested=$(find "$decoy" -mindepth 2 -name MANIFEST 2>/dev/null | head -n 1)
+	[ -n "$nested" ] || {
+		printf '            nothing was written under %s, so this control does not show where the\n' "$decoy" >&2
+		printf '            rescue it just reported actually went.\n' >&2
+		return 1
+	}
+	grep -qxF -- "mirror:    $decoy" "$nested" || {
+		printf '            the buried MANIFEST does not name %s either, so the buried copy is not this\n' "$decoy" >&2
+		printf '            run'"'"'s and the fixture is not what it claims:\n' >&2
+		grep -n '^mirror:' "$nested" | sed 's/^/              /' >&2
+		return 1
+	}
+	return 0
+}
+mm_leg 'retire both, it reports a lie' 'rc 0, names the decoy, its own copy buried inside' mm_control_both_gones_accepts_the_decoy
+
 # ------------------------------------- the run directory holds a stream, not a verdict (#351)
 
 # `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name. Until
@@ -3995,6 +5390,13 @@ proc_leg 'control: the retired key ranks youngest' \
 # journal, both stamps written in one pass with 900 first). The repair hands the ranking pass one
 # reading of the same clock; the leg below measures both readers against the same ticking clock and
 # the same two stamps, so the difference it reports is the readers and nothing else.
+#
+# The stamps are anchored on the same principle (H-0186): the leg samples the real clock ONCE into
+# $proc_clock_now and every proc_clock_stamp below is that instant minus an offset -- a conversion,
+# never a sampling -- because sampling per stamp let a real second boundary fall BETWEEN the two
+# writes and make the pair unequal before any reader saw them. CI run 43673767085 (15 Nov, PR #400)
+# hit exactly that: the control printed `the ticking clock answered 0s and 0s`, which is this
+# fixture re-minting, in its own stamping loop, the per-row defect H-0169 exists to retire.
 proc_clock=$proc_work/age-clock
 mkdir -p "$proc_clock/bin" "$proc_clock/ledger"
 printf '0\n' >"$proc_clock/tick"
@@ -4013,8 +5415,22 @@ exec /bin/date "$@"
 PROCDATE
 chmod +x "$proc_clock/bin/date"
 
-proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, on the REAL clock
-	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_clock/ledger/$1.first-seen"
+proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` derived from $proc_clock_now
+	# One clock reading for the whole pair. This call used to ask the real clock
+	# for "now" itself -- `date -u -d "-N seconds"` samples it -- so the stamps
+	# were same-second by LUCK, and a boundary between the two writes made them
+	# unequal before any reader saw them: CI run 43673767085 (15 Nov, PR #400,
+	# `55.9977200Z` ok / `56.0145857Z` FAIL) landed the flip exactly there, and
+	# the control printed `the ticking clock answered 0s and 0s` because the
+	# ticking stub cancelled the one-second-newer stamp 901 exactly. A conversion
+	# of an epoch cannot straddle anything: `date` formats an instant here and
+	# never samples one.
+	[ -n "${proc_clock_now:-}" ] || {
+		printf 'proc_clock_stamp: no anchor in $proc_clock_now, refusing to sample the clock\n' >&2
+		return 1
+	}
+	printf '%s\n' "$(date -u -d "@$((proc_clock_now - $2))" +%Y-%m-%dT%H:%M:%SZ)" \
+		>"$proc_clock/ledger/$1.first-seen"
 }
 
 # proc_clock_ages <snapshot|per-row> -> "<age900> <age901>", both rows read the way that reader reads
@@ -4468,6 +5884,78 @@ proc_halt_freezes() {
 	return 0
 }
 proc_leg 'control: the halt restored freezes it' 'exit 8, marker on disk, next run reports it, no tick' proc_halt_freezes
+
+# #331: the activation that REPORTS the halt is now also the activation that says where its record
+# is. Before the hoist the two lines above `proc_halt_freezes` -- the `HALTED` one and nothing else --
+# were the whole of a halted activation's journal, which is the exact shape of the dead tail #260
+# opens with: a queue stopped for 10h13m by a tree nobody could locate, journalled by a pass that
+# never named the file it was writing. The fixture state is the second activation of the control
+# above: exit 8, one `HALTED` line, no tick started -- and now, ABOVE that line, the self-report
+# loops that used to live inside `factory_body`, which the halt exit preceded.
+proc_halt_reports_itself() {
+	local halt_line log_line sup_line
+	# The legs read the second activation of the halt control. If that activation did not halt, this
+	# leg is asking about a journal where the question cannot arise.
+	[ "$proc_rc" = 8 ] || {
+		printf '            not the halt control'"'"'s second activation (exit %s, want 8), so this\n' "$proc_rc" >&2
+		printf '            journal cannot show what a halted pass writes.\n' >&2
+		return 1
+	}
+	halt_line=$(awk 'index($0, " HALTED "){ print NR; exit }' "$proc_journal")
+	[ -n "$halt_line" ] || {
+		printf '            no HALTED line at all -- proc_halt_freezes reports that too, but without\n' >&2
+		printf '            one the order below is unverifiable.\n' >&2
+		return 1
+	}
+	# LOG-AT is THE line of the ticket: "which directory is the journal being written to". It has to
+	# be this pass's own directory (the one it is writing into), not a string match of any LOG-AT.
+	log_line=$(awk 'index($0, " LOG-AT "){ print NR; exit }' "$proc_journal")
+	if [ -z "$log_line" ]; then
+		printf '            a halted pass wrote no LOG-AT line, so its HALTED line sits in a file\n' >&2
+		printf '            that never says which file it is -- the #331 defect, still open:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if ! proc_journal_line "$proc_journal" ' LOG-AT ' | grep -qF -- "$proc_log"; then
+		printf '            LOG-AT does not name the directory the halted pass was writing to\n' >&2
+		printf '            (want %s):\n            %s\n' "$proc_log" \
+			"$(proc_journal_line "$proc_journal" ' LOG-AT ')" >&2
+		return 1
+	fi
+	if [ "$log_line" -ge "$halt_line" ]; then
+		printf '            LOG-AT is not in the journal BEFORE the HALTED line: LOG-AT at line %s,\n' "$log_line" >&2
+		printf '            HALTED at line %s. The record must name itself before the halt sentence\n' "$halt_line" >&2
+		printf '            is the last thing it receives -- that ordering is the whole of the fix.\n' >&2
+		return 1
+	fi
+	# SUPERVISOR-AT moved with the other loops (#331): the code under test is a fact about the pass,
+	# not a fact about the queue, and a halted pass that never announced its tree is how a stale
+	# checkout halts a queue for a shift without a single line saying so. AT or UNKNOWN both count as
+	# reporting; silence does not.
+	sup_line=$(awk '/(SUPERVISOR-AT|SUPERVISOR-UNKNOWN)/{ print NR; exit }' "$proc_journal")
+	if [ -z "$sup_line" ]; then
+		printf '            a halted pass wrote no SUPERVISOR- line, so nothing above the halt says\n' >&2
+		printf '            which code the stopped loop was running:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$sup_line" -ge "$halt_line" ]; then
+		printf '            SUPERVISOR- line at %s is not above the HALTED line at %s\n' "$sup_line" "$halt_line" >&2
+		return 1
+	fi
+	# PASS stays inside `factory_body` -- it reports what triage returned, and a halted activation
+	# never asked triage anything. If it ever appears above a halt, the boundary this leg draws is
+	# drawn wrong somewhere else.
+	if proc_journal_line "$proc_journal" ' PASS ' | grep -q .; then
+		printf '            a halted pass journaled a PASS line, which is the claim #331 says it\n' >&2
+		printf '            cannot honestly make -- it never read the queue:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" ' PASS ')" >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '#331: the halted pass says where its record is' \
+	'LOG-AT naming this fixture log, and a SUPERVISOR- line, both above HALTED; no PASS' proc_halt_reports_itself
 
 # What the halting pass itself did with unit B, printed rather than asserted, because it is the
 # sentence #263 gets wrong and a reader should see the number next to the claim: the dispatcher
@@ -7467,12 +8955,12 @@ claim_reset
 esc_live() { # the files whose mentions are instructions, one path per line
 	printf '%s\n' factory/common.sh factory/escalation-label.sh factory/factory.sh \
 		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md \
-		.opencode/skills/factory/SKILL.md
+		.opencode/skills/factory/SKILL.md NEXT.md
 }
-# The two decision logs are NOT in that list, and that is deliberate rather than an oversight: an
-# entry records what was believed when it was written, so re-editing history to match a renamed label
-# turns every citation in it into a lie. A name in a log is a fossil. A name in one of the seven files
-# above is an instruction some later tick carries into a write against GitHub.
+# The two decision logs are NOT in that list, and they are the ONLY exemption (#360 measured a ninth
+# live file omitted by accident, not by rule). A log entry records what was believed when it was
+# written, so re-editing history to match a renamed label turns every citation in it into a lie. A
+# name in a log is a fossil; anywhere else -- `NEXT.md` joined at H-0201 -- it is an instruction.
 
 esc_ctrl_copy() { # esc_ctrl_copy <dest-root> -- the live files, outside the repository
 	local dest=$1 f
@@ -7490,7 +8978,7 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 	local root=$HERE/.. name f hit bad=0
 	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
 		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md
-		.opencode/skills/factory/SKILL.md)
+		.opencode/skills/factory/SKILL.md NEXT.md)
 	[ -z "${1:-}" ] || root=$1
 	if ! name=$(bash "$root/factory/escalation-label.sh" 2>&1); then
 		printf '            factory/escalation-label.sh refuses: %s\n' "$name" >&2
@@ -7519,7 +9007,7 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 		elif [ "${hit:-0}" -ne 0 ]; then
 			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
 				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
-			printf '            the home moves and this leg passes on the other six\n' >&2
+			printf '            the home moves and this leg passes on the rest of the census\n' >&2
 			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
 			bad=1
 		fi
@@ -7630,33 +9118,33 @@ esc_controls() {
 			'control: the escalation label'
 		return 0
 	fi
-	# 1. A sixth mention, planted in prose the way it would arrive in real life: someone writing the
-	#    command out because it is shorter than reading it.
-	esc_ctrl_copy "$ctrl/drift" || {
+	# 1. A further mention, planted in prose the way it would arrive in real life: someone writing the
+	#    command out because it is shorter than reading it. Once per census file (#360): the leg reads
+	#    its OWN array, a hand-copied twin of esc_live's list, and this control planted only AGENTS.md,
+	#    a file both lists hold -- so a file missing from the leg's array was invisible. #360 measured
+	#    exactly that: NEXT.md spelled the name and every leg stayed green. The plants now come from
+	#    esc_live and the verdict from the leg's own array, so the two lists cannot part ways in
+	#    silence, and no census file is witnessed by membership alone.
+	local esc_f esc_d esc_bad=''
+	for esc_f in $(esc_live); do
+		if [ "$esc_f" = factory/common.sh ]; then continue; fi
+		esc_d=$ctrl/drift/${esc_f//\//_}
+		esc_ctrl_copy "$esc_d" || esc_bad='the census copy could not be written'
+		printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$esc_d/$esc_f" || esc_bad='the plant failed'
+		if ! grep -qF -- "$name" "$esc_d/$esc_f"; then esc_bad='the plant is not in the copy'; fi
+		if esc_one_home "$esc_d" 2>/dev/null; then esc_bad='the leg passed a copy that spells it'; fi
+		[ -z "$esc_bad" ] || break
+	done
+	if [ -n "$esc_bad" ]; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-40s the drift copy could not be written\n' 'control: the escalation label'
-		return 0
-	}
-	printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$ctrl/drift/AGENTS.md" || {
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s the mention could not be planted\n' 'control: the escalation label'
-		return 0
-	}
-	if ! grep -qF -- "$name" "$ctrl/drift/AGENTS.md"; then
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s the plant is not in the copy, so the leg above was never aimed\n' \
-			'control: the escalation label'
-		printf '          at a sixth mention\n'
-		return 0
-	fi
-	if esc_one_home "$ctrl/drift" 2>/dev/null; then
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s a copy with the name spelled out in AGENTS.md still passes, so the\n' \
-			'control: one home'
-		printf '          ok above counts nothing but the file it happens to read first\n'
+		printf '  FAIL  %-40s %s -- the leg is not the census its comment claims,\n' \
+			'control: one home' "$esc_bad"
+		printf '          because a plant aimed only at a file both lists hold was never\n'
+		printf '          aimed at a file the leg omits, which is exactly what #360 measured.\n'
 	else
-		printf '        control: a copy with a sixth mention planted in AGENTS.md is refused, so the\n'
-		printf '        ok above is a census of every live file and not of one.\n'
+		printf '        control: each non-home census file, planted with the name, is refused, so the\n'
+		printf '        ok above reads every file the census claims, and not one file plus a trust\n'
+		printf '        that the leg'"'"'s own array kept the list whole (#360: NEXT.md, blind).\n'
 	fi
 	# 2. A reader that no longer reads: the stub prints its own literal, and the definition is
 	#    untouched. This is the plant that says the leg compares two things rather than one.
