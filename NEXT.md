@@ -171,6 +171,20 @@ remove. Two facts a later unit should not have to rediscover:
     `t328/adv/n*/wt`, `s406/wt-merge`). That is the intended behaviour — reported, never removed — but it
     means the line count in a supervisor pass is a count of other people's work, not a to-do list. Anyone
     tempted to act on a `WORKTREE-ORPHAN` row reads that tree's owner first.
+19. **`make verify` never touches the mutant sets — CI's `mutation sets` job is the only gate that does,
+    and a base sync is exactly what stalenesses them.** `Makefile:48` "kept OUT of verify for the opposite
+    reason" states the split as a cost decision: the checker compiles the tree once per mutant and pays
+    minutes. But a sync whose whole content is moved code lines is what moves a mutant patch off its
+    anchor, so a sync unit runs `make check-mutations` before pushing rather than letting CI find it.
+    Measured at head `e8ab8b9`: the local run answers `all 847 mutants apply and compile`, with its own
+    caveat printed beside it — `this does not run the suite, so a mutant that survives every test is
+    invisible here (make mutate)` — and CI's job on the same head passed in 16m19s. Two mechanics worth
+    knowing before you start it: it applies each mutant to the **working tree** and restores between runs,
+    so `git status` reads one to three dirty files while it runs and nothing may be committed during it
+    (the same hazard #2215 names for the negative-control helper), and its summary is a per-file tally over
+    `scripts/mutations/` — 13 files, `audit` 59 through `web` 292, summing to the `all 847` it prints. That
+    847 is the mutant **set** population and is not the number any `make verify` line reports; quoting one
+    as the other is how a set count gets inflated in prose.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
@@ -220,6 +234,14 @@ remove. Two facts a later unit should not have to rediscover:
   use fresh unique directory names.
 - Run the gate as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make
   verify` until #425 is repaired, and say so wherever the verdict is quoted.
+- **A base sync also runs `make check-mutations` before it pushes.** `verify` never touches the mutant
+  sets — `Makefile:48` "kept OUT of verify for the opposite reason" states that as a cost decision — and CI
+  is the only thing that checks them, so a sync whose content is moved code lines can move a patch off its
+  anchor and read green locally. Nothing is committed while that run is in flight: it applies each mutant to
+  the working tree and restores between runs, so `git status` reads one to three dirty files on purpose
+  (#2215 is the same hazard). Measured at head `e8ab8b9`: the local run prints `all 847 mutants apply and
+  compile`, the 847 being the per-file tally's own sum (13 files, 59 at the low end, 292 at the high), and
+  CI's job on the same head passed in 16m19s.
 - Never commit the built `plock` binary; `git add -A` has swept it four times. Check
   `git ls-files | grep -x plock` before every `git add -A`, and read the pushed file list afterwards.
 - No `gh pr edit` on this account (it dies on the retired `projectCards` field and writes nothing, and it
