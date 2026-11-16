@@ -25,7 +25,12 @@ func installServeSelfLocation(t *testing.T, uid uint32, inside bool) {
 	serveSelfLocation = func() platform.SelfLocation {
 		return platform.SelfLocation{UID: uid, InUserSlice: inside}
 	}
-	t.Cleanup(func() { serveSelfLocation = previous })
+	t.Cleanup(func() {
+		if liveServeDaemons.Load() > 0 {
+			return // see liveServeDaemons in serve_test.go: the stub stays, /proc stays out of reach
+		}
+		serveSelfLocation = previous
+	})
 }
 
 // A daemon that has decided not to lock an account has to say so where the operator
