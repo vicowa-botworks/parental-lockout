@@ -7,15 +7,24 @@ every owed line the earlier `issue-334` hand-offs carried that this unit re-read
 merged tree. `make verify`'s verdict is quoted in the pull-request body from its read-back, never from
 here (#1180).
 
-## Queue state this tick read (16 Nov, ~19:30Z)
+## Queue state this tick read (16 Nov, ~14:45Z)
 
-- `gh pr list --state open --json number -q length` → **10**; `gh issue list --state open --json number
-  -q length` → **30**; drafts **0**. Eight of the ten open PRs read `CONFLICTING`, and `#401` is one of
-  them until this push lands. `#405` and `#414` read `CHANGES_REQUESTED`; `#404` reads `MERGEABLE` with
-  no review decision at all.
-- `main`'s tip at this tick is `6ca61c3` (PR #407, `issue-345`, publishing `H-0195`, `H-0196`, `H-0216`).
-  Since the last hand-off, PRs **#419, #424 and #427 have merged** — a queue table in an older hand-off
-  that still lists them as waiting is stale, and the API is the tie-breaker.
+- `gh pr list --state open --limit 500 --json number` → **10 open PRs**; `gh issue list --state open
+  --limit 500 --json number` → **50 open issues**; drafts **0**. Nine of the ten open PRs read
+  `CONFLICTING`/`DIRTY` (401, 405, 406, 408, 409, 410, 411, 413, 414) and #404 is the only `MERGEABLE`
+  one, with no review decision at all. `#405` and `#414` read `CHANGES_REQUESTED`; the other seven read
+  `APPROVED`, so nine branches are about to pay this same base-sync tax.
+- **A count read must name its own page size.** `gh issue list --state open --json number -q length`
+  answered **30** at this tick and the same call with `--limit 500` answers **50** — gh's default
+  `--limit` is 30, so the unbounded-looking count was a page, not the queue. Same family as #1180's
+  silent-drop class: a listing shorter than the queue that exits 0. Carry `--limit` on every count quoted
+  here.
+- `main`'s tip at this tick is `6ca61c3` (PR #407, `issue-345`, publishing `H-0195`, `H-0196`, `H-0216`,
+  merged 13:42:55Z). **Since the last hand-off exactly one pull request has merged — #407.** There are no
+  pull requests numbered 419, 424 or 427 at all: `gh pr view 419 --json headRefName` answers
+  `Could not resolve to a PullRequest` for all three, and #419 and #424 are open *issues*. An earlier
+  draft of this very bullet claimed those three had merged, and it was contaminated by the fabricated
+  file item 11 describes — read the type test, not the prose.
 - The supervisor dispatched this as `conflict:401` at `14:31:37Z` (`TICK-START`), and its own pass
   journalled `TREE-CLEAN conflict:401 ... cause=never-dirty` in the same second this tree was sitting in
   a conflicted merge with 7 unmerged and modified paths. That sentence was measured, not fixed here — a
@@ -134,14 +143,68 @@ here (#1180).
     `/home/rodney/prj/parental-lockout` and every tree under `/home/rodney/prj/wt` answered nothing when
     it was run. This very file now quotes that marker, so the detector for a later unit is
     `git show HEAD:NEXT.md`, not a grep over the working trees.
-    The fabricated text named main's real tip `6ca61c3`, the real `H-0216`, the real cap raise to 6 and
-    PR #419's real head `1c536a4`, which is exactly why it reads as trustworthy. Blast radius here was
+    The fabricated text mixed two real facts with invented ones — main's tip `6ca61c3` and `H-0216` are
+    real, while `1c536a4` is not an object in this repository (`git cat-file -t` refuses it), there is no
+    pull request #419 for it to be the head of, and its "cap raise to 6" matches nothing in the tree
+    (`FACTORY_REVIEW_POKES` is `${FACTORY_REVIEW_POKES:-1800}` at `factory/common.sh:214`, a
+    seconds-interval, not a count of 6). **The invented rows are the dangerous ones: an earlier draft of
+    this hand-off carried "#419, #424 and #427 have merged" forward as a queue fact, and it took this
+    tick's type tests to catch it** — see the queue section above. Blast radius here was
     zero — the merge took `NEXT.md` whole from ours, nothing written this tick quoted it, and this file
     was rewritten from `git show HEAD:NEXT.md` — but a unit that had trusted it would have "restored"
     owed items that main never wrote. Second instrument before any overwrite: `git diff --quiet HEAD --
     NEXT.md && wc -c NEXT.md && sha256sum NEXT.md && grep -c '<marker from the read>' NEXT.md`; if the two
     instruments disagree, say so on the pull request instead of writing. Same class as #1180, arriving on
     the read side.
+12. **`make verify` reads RED for a tick that exports its own dispatch env, and it is `main`'s defect, not
+    this branch's.** Run as CI runs it (none of the tick's vars set) this merge is green; run from this
+    tick's own shell (which exports `FACTORY_LOG`, `FACTORY_TICK_UNIT=conflict:401`,
+    `FACTORY_TICK_BRANCH=issue-334`, `FACTORY_REVIEWER`, `FACTORY_REVIEWER_TEAM`, `FACTORY_SERVICE_UNIT`)
+    it dies at `Makefile:111` with `2 failed`. Six runs, one variable at a time, two trees:
+
+    | tree | what was exported | `factory/selftest.sh` |
+    |---|---|---|
+    | `569ec56` this merge | nothing | 718 passed, 0 failed, `verify: OK` |
+    | `569ec56` this merge | the tick's six vars | 717 passed, 2 failed |
+    | `6ca61c3` `main` alone | the tick's six vars | 714 passed, 2 failed |
+    | `569ec56` this merge | `FACTORY_TICK_UNIT` only | 717 passed, 1 failed |
+    | `569ec56` this merge | `FACTORY_LOG` only | 718 passed, 0 failed |
+    | `569ec56` this merge | `FACTORY_TICK_UNIT` and `FACTORY_LOG` | 717 passed, 2 failed |
+
+    The two legs are `a bare run journals nothing` and `control: one note can suppress the other`. The
+    first is pinned to a line: `factory/selftest.sh:14933` — `		if [ "$unit" = '-' ]; then` — the bare arm
+    of `dpn_alloc_run` sets `FACTORY_LOG="$logdir"` and clears nothing else, while the allocator writes its
+    journalled line under `factory/next-decision-id.sh:546` — `if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n`
+    — so the fixture's "bare run" inherits the *caller's* unit and journals
+    `DECISION-ID D-0002 unit=conflict:401 branch=issue-334` into its own fixture log, the one line the leg
+    exists to forbid. A supervisor tick is exactly the caller that exports it, because the dispatch needs
+    it for journal attribution. Repair shape: the fixture pins its own truth —
+    `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH` on both arms — so the leg tests the guard instead of
+    inheriting it, plus the missing opposite leg (a unit run journals exactly one line), because a leg
+    satisfiable by the ambient environment is what let this ship. The second leg's minimal trigger is
+    measured too: `FACTORY_TICK_UNIT` alone leaves it green, `FACTORY_LOG` alone leaves it green, the two
+    together fail it — the same two conditions the allocator's own guard reads, which is the lead: the
+    journalled write the leak causes is what the note control's clock comparison trips over. That mechanism
+    is inferred from the three rows, not traced; the trigger set is measured. No repair was attempted here,
+    because neither leg is this branch's file. **Blast radius: nine of the ten open PRs are `CONFLICTING`, so every conflict tick
+    from now on meets this before it can push, and CI cannot see it — Actions exports none of those
+    vars.** Workaround until it is fixed: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH
+    make verify`, which is how this head's green verdict was read. Filed as **#425** (labels `bug`,
+    `area:ops`) and read back the way #1180 demands: open issues 50 → 51 with 425 the only new number,
+    `gh pr view 425 --json headRefName` refuses it as a PullRequest, and `gh issue view 425 --json body`
+    is byte-identical to the 6345-byte source.
+13. **This head's merge commit states its own census numbers as the shipped blob's, and they are the
+    pre-entry candidate's — the reconciliation is exact, so read them as a two-stage number.** The message
+    says `200 H- headings` and `10888 = ours' 10685 + main's 203 net over the base`; the shipped blob at
+    `HEAD:factory/DECISIONS.md` is **10986 lines with 201 headings**, because the `H-0219` entry — 98 lines
+    from its heading to EOF, and one heading — was appended inside the same commit, after those two numbers
+    were taken. Measured this tick against the four blobs: base `4cb5277` 10376 lines / 192 headings, ours
+    `5a69f38` 10685 / 197, main `6ca61c3` 10579 / 195, merged 10986 / 201; the ours-only id set is
+    `H-0187 H-0188 H-0205 H-0215 H-0217`, main's is `H-0195 H-0196 H-0216`, the intersection is empty, and
+    `HEAD` minus base is exactly those eight plus `H-0219`, ascending, no duplicates. Nothing was lost and
+    nothing was invented; the number was just taken one step early. Same lesson item 10 records for the
+    third sync's message: state census numbers with the stage they belong to, because the next unit reads a
+    commit message as the shipped artifact.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers — fix on a later head, they will spend the approval again)
 
