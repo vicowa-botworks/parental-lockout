@@ -3391,6 +3391,24 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   it once, this head matches it **0** times), so it arrives `INVALID`; that is a second decision and the
   next entry, not this commit. **What this does not take:** no behaviour in `testing/capture/` is
   changed by this commit, no rule is added or dropped, and no row of the suite is edited here.
+- Correction (`#345`, 15 Nov): the **cause** sentence is false — both the Question's "Both units were
+  handed the id by `factory/next-decision-id.sh`" and the "What lost" clause "#300 was cut from a clone
+  this one has never seen". #345 read the supervisor's own per-tick transcripts (a `grep -c` over the
+  `issue-297` tick's 201 280-byte transcript answers **0** for `next-decision-id`; the `issue-296`
+  tick's log line 272 shows its allocator "substitute" was `grep -n "^## D-00\(5[0-9]\)" DECISIONS.md |
+  tail -12`): **neither unit ran the allocator** — each numbered by eye off the file's tail, which is
+  the exact move the skill bans. Both trees were worktrees of **one** clone, so `refs/remotes` was
+  shared through the common dir (H-0075's measured shape), the activation's `REFRESH` line for the
+  second dispatch sits in `supervisor.log` 15 s before that tick opened (per-machine and gitignored, so
+  the reading is quoted, not pointed at), and `06b7c29`'s `D-0058` had been on `origin` 37 minutes
+  before the second unit's checkpoint. Measured counterfactual (throwaway clone at `4901264`, the
+  allocator of that commit, one variable — the sibling's ref): with no `refs/remotes/origin/issue-296`
+  the allocator answers `D-0058`; with it restored to `06b7c29` the same call answers `D-0059`. The
+  union read was never blind; nobody asked it. `#303`'s body therefore named a mechanism that did not
+  operate, and `#307` hardened an allocator read nobody performed — the correction lives as a comment
+  on `#303` because its body is the artifact `#307` was dispatched from (#345). What stands untouched
+  is every judgement in this entry: the renumbering, the id taken, and the reasoning above all remain
+  correct — only this cause sentence was wrong, and it gets a dated bullet rather than an edit (#1180).
 
 ## D-0062 · The merge repairs the witness it retired: the attack’s anchor moves onto a one-line statement, because an aligned continuation line is the thing that went stale
 

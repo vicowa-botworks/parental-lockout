@@ -2912,8 +2912,8 @@ proc_rec=$proc_work/gh-calls
 proc_up=$proc_work/up
 mkdir -p "$proc_bin" "$proc_fix"
 
-# One trunk, one commit, holding the three shipped scripts and a file a leg can dirty. The scripts are
-# committed (not copied in afterwards) so the clone is clean the way a real checkout is: an untracked
+# One trunk, one commit, holding the shipped scripts, the decision log and a file a leg can dirty.
+# The scripts are committed (not copied in afterwards) so the clone is clean the way a real checkout is: an untracked
 # file here would put `dirty=1` in every `SUPERVISOR-AT` line and make the pass look like it was
 # working in a tree somebody had left half-finished -- the very state the quarantine exists to refuse.
 mkdir -p "$proc_up/factory"
@@ -2921,8 +2921,14 @@ git init -q "$proc_up"
 git -C "$proc_up" config user.email fixture@invalid
 git -C "$proc_up" config user.name fixture
 git -C "$proc_up" checkout -qb main
-cp "$HERE/common.sh" "$HERE/factory.sh" "$HERE/triage.sh" "$proc_up/factory/"
-chmod +x "$proc_up/factory/factory.sh" "$proc_up/factory/triage.sh"
+cp "$HERE/common.sh" "$HERE/factory.sh" "$HERE/triage.sh" "$HERE/next-decision-id.sh" "$proc_up/factory/"
+chmod +x "$proc_up/factory/factory.sh" "$proc_up/factory/triage.sh" "$proc_up/factory/next-decision-id.sh"
+# The allocator and the decision log joined the trunk for #345's wiring legs: the subject there is
+# the dispatch leaving the SESSION an environment in which `factory/next-decision-id.sh` journals its
+# answer, and that is only observable if the session's own hands can run the real script against the
+# real log inside the tree the pass gave it. A trunk without these two could only fake the call --
+# and a fake call proves nothing about an export.
+printf '# Decisions\n## D-0001 · the trunk entry every allocation reads past\nbody\n' >"$proc_up/DECISIONS.md"
 printf 'alpha\nbeta\ngamma\n' >"$proc_up/tracked.txt"
 git -C "$proc_up" add -A
 git -C "$proc_up" commit -qm 'fixture harness: the shipped scripts, and a file to leave uncommitted'
@@ -3132,6 +3138,19 @@ if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TI
 	printf 'fixture tick: %s fails, which is what the dispatcher is being asked about\n' "$PROC_TICK_FAILS"
 	exit 1
 fi
+# A leg that needs the session to run something INSIDE the tick's own environment (#345's wiring
+# legs): the exports those legs pin (`FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH`) are
+# only observable from inside the session, so the stub executes the leg's script against the tree
+# the prompt names. The variable is unset for every other leg in this file, and the stub's shipped
+# behaviour is identical with the arm absent -- the two W-controls below prove the arm is reachable
+# and the exports are what make it reach.
+if [ -n "${PROC_TICK_ALLOC:-}" ]; then
+	if [ -z "$tree" ]; then
+		printf 'fixture tick: PROC_TICK_ALLOC is set but the prompt carried no tree to work in\n' >&2
+		exit 1
+	fi
+	bash "$PROC_TICK_ALLOC" "$tree"
+fi
 exit 0
 PROCRT
 chmod +x "$proc_bin/opencode"
@@ -3236,6 +3255,7 @@ proc_run() {
 	env PATH="$proc_bin:$PATH" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
+		PROC_TICK_ALLOC="${proc_tick_alloc:-}" \
 		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
 		FACTORY_OPENCODE=opencode FACTORY_AGENT=factory \
@@ -3251,17 +3271,17 @@ proc_run() {
 }
 
 # proc_mutate <anchor> <line> -> the fixture's common.sh with one line after the shipped one. It
-# refuses unless the anchor occurs exactly once, because a mutant planted on the wrong line is a
-# control that measures nothing while printing the loudest sentence in the section.
+# refuses unless the anchor occurs exactly once: a mutant planted on the wrong line measures nothing.
+# Anchor and line arrive through ENVIRON, never `awk -v`, which eats backslashes (H-0196, gawk 5.2.1).
 proc_mutate() {
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/common.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/common.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/common.sh, so it would\n' "$hits" >&2
 		printf '            not be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ print } index($0, a) { print line }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ print } index($0, ENVIRON["PMUT_ANCHOR"]) { print ENVIRON["PMUT_LINE"] }' \
 		"$HERE/common.sh" >"$proc_dir/common.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/common.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -5015,9 +5035,9 @@ proc_mutate_last() { # <needle>
 		printf '            code while reporting a mutation.\n' >&2
 		return 1
 	}
-	if ! awk -v n="$hits" -v needle="$needle" '
+	if ! PROC_MUT_NEEDLE=$needle awk -v n="$hits" '
 		{
-			if (index($0, needle) && ++seen == n) {
+			if (index($0, ENVIRON["PROC_MUT_NEEDLE"]) && ++seen == n) {
 				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
 				next
 			}
@@ -6012,15 +6032,15 @@ fi
 # supervisor exited 5 with eight units still queued"). Make unit A's session fail — the state the guard
 # was written for — and run it twice, once shipped and once with the guard taken, so the one variable
 # is the guard and not the failure.
-proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced
+proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced, both travelling by ENVIRON: awk -v eats backslashes (H-0196)
 	local anchor=$1 line=$2 hits
-	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	hits=$(PMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["PMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/factory.sh")
 	[ "$hits" = 1 ] || {
 		printf '            the mutant anchor occurs %s time(s) in factory/factory.sh, so it would not\n' "$hits" >&2
 		printf '            be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
 		return 1
 	}
-	awk -v line="$line" -v a="$anchor" '{ if (index($0, a)) print line; else print }' \
+	PMUT_ANCHOR=$anchor PMUT_LINE=$line awk '{ if (index($0, ENVIRON["PMUT_ANCHOR"])) print ENVIRON["PMUT_LINE"]; else print }' \
 		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
 	grep -qF -- "$line" "$proc_dir/factory.sh" || {
 		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
@@ -14753,6 +14773,626 @@ decision_ids() {
 	return 0
 }
 decision_ids
+
+# ------------------------------------------------- decision-id provenance: earning the number (#345)
+#
+# H-0195 (issue #345). Both units that collided on `D-0058` numbered their entries by eye -- neither
+# ran `factory/next-decision-id.sh`, which since H-0143 has been the only sanctioned way to take a
+# number -- and every check that ran afterwards saw two well-formed headings sharing one id with
+# nothing to say about which side had earned it. The fix is a pair of contracts in two files: the
+# allocator journals every answer it gives a unit (a `DECISION-ID` line in the supervisor journal,
+# naming id, unit, branch, log and the read behind the answer), and the end-of-tick pass compares
+# every heading the branch newly carries against that journal -- an id with no journalled allocation
+# reports `DECISION-ID-UNEARNED`, attributed to the branch, fatal to nothing. Three surfaces get
+# legs here, in order of distance from the shell that runs them:
+#
+#   the write (the allocator, a unit named)   the answer leaves one `DECISION-ID` line behind.
+#       Controls: nulling the write reproduces #345 exactly -- the id is still right, the provenance
+#       is gone; and widening the guard to "anyone with a journal" shows a person checking the next
+#       id would litter the supervisor's record with answers that belong to no unit.
+#   the read (`factory_decision_provenance`)  UNEARNED names exactly the headings that are new
+#       against `origin/main` AND have no journalled answer on THIS branch: an id earned on another
+#       branch is reported (branch attribution is the whole unit of the thing), an id trunk already
+#       carries is not, one already reported is not reported twice. Both logs are compared. A tree
+#       with no readable `origin/main` says `DECISION-ID-UNCHECKED` and claims nothing -- a read that
+#       failed is not a provenance that failed, the `TICK-UNCHECKED` doctrine again.
+#       Controls: blind the comparison and UNEARNED must vanish; corrupt the earned-set parse and
+#       even earned ids must come back (a reader that cannot read must not look like a clean tree);
+#       blind the UNCHECKED arm and the unreadable base must go silent, which is what the shipped
+#       leg's sentence is about.
+#   the wiring (the dispatch, whole activations)  the exports `factory_tick` gives the session are
+#       observable only inside it, and no grep proves a child inherited them. So these legs are
+#       process legs on the established fixture: the tick's session does what #345's units did with
+#       a decision -- writes a heading -- once earning the id through the real allocator in its own
+#       tree (nothing reported, and the journalled line names the unit and branch the dispatch
+#       handed it), once taking the next number with `sed | tail`, the ticket's own shape (UNEARNED,
+#       attributed). Control: null the `FACTORY_TICK_UNIT` export and a genuinely earned id must read
+#       UNEARNED -- the export is the difference, not the fixture's mood.
+#
+# The write/read legs source nothing but shipped code: the real script, and `common.sh` sourced into
+# a shell that runs only the named function -- the poke section's shape, for the poke section's
+# reason (a whole pass would reach GitHub to get here). Nothing else in this file changes for it:
+# `PROC_TICK_ALLOC` gates the session stub's new arm and no other leg sets it, and the process
+# trunk grows a `DECISIONS.md` and the allocator itself only because the wiring legs run the real
+# command inside a real tick tree -- a fake call there would prove nothing about a real export.
+
+dpn_work=$work/dpn
+mkdir -p "$dpn_work"
+dpn_alloc=$HERE/next-decision-id.sh
+dpn_err=$dpn_work/last-stderr
+
+# dpn_repo <dir> [branch] -> a bare origin carrying both decision logs on `main`, plus a clone on
+# `branch` (default `issue-p1`). The push is load-bearing: the comparison asks `origin/main` what the
+# trunk holds, and a fixture with no remote answers the UNCHECKED question, not this one.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_repo() {
+	local d=$1 br=${2:-issue-p1}
+	mkdir -p -- "$d" || return 1
+	# `--initial-branch=main` on the BARE is load-bearing: a plain `git init --bare` aims HEAD at
+	# `master`, the trunk pushes `main`, and the unit clone then warns "remote HEAD refers to
+	# nonexistent ref" and checks out an empty tree -- measured the first run this section existed,
+	# where `unit/factory/DECISIONS.md` was simply not there and the leg read nothing.
+	git init -q --bare --initial-branch=main "$d/origin.git" || return 1
+	git --git-dir="$d/origin.git" config user.email fixture@invalid || return 1
+	git --git-dir="$d/origin.git" config user.name fixture || return 1
+	git clone -q "$d/origin.git" "$d/main" >/dev/null 2>&1 || return 1
+	git -C "$d/main" config user.email fixture@invalid || return 1
+	git -C "$d/main" config user.name fixture || return 1
+	mkdir -p "$d/main/factory" || return 1
+	printf '# Decisions\n## D-0001 · trunk\nbody\n' >"$d/main/DECISIONS.md" || return 1
+	printf '# Harness decisions\n## H-0001 · trunk\nbody\n' >"$d/main/factory/DECISIONS.md" || return 1
+	git -C "$d/main" add -A || return 1
+	git -C "$d/main" commit -qm 'fixture trunk: both decision logs' || return 1
+	git -C "$d/main" push -q origin main || return 1
+	git clone -q "$d/origin.git" "$d/unit" >/dev/null 2>&1 || return 1
+	git -C "$d/unit" config user.email fixture@invalid || return 1
+	git -C "$d/unit" config user.name fixture || return 1
+	git -C "$d/unit" checkout -qb "$br" || return 1
+}
+
+# dpn_bare <dir> -> one commit carrying both logs and no remote at all. What the allocator says about
+# this shape is pinned upstream (REFRESH-BLIND); what matters to the comparison is only that
+# `origin/main` cannot be read.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_bare() {
+	local d=$1
+	mkdir -p -- "$d" || return 1
+	git init -q "$d" || return 1
+	git -C "$d" config user.email fixture@invalid || return 1
+	git -C "$d" config user.name fixture || return 1
+	git -C "$d" checkout -qb main || return 1
+	mkdir -p "$d/factory" || return 1
+	printf '# Decisions\n## D-0001 · trunk\nbody\n' >"$d/DECISIONS.md" || return 1
+	printf '# Harness decisions\n## H-0001 · trunk\nbody\n' >"$d/factory/DECISIONS.md" || return 1
+	git -C "$d" add -A || return 1
+	git -C "$d" commit -qm 'fixture: both decision logs, no remote' || return 1
+}
+
+# dpn_leg: proc_leg's contract, forty columns wide -- the labels here carry sentences, and a leg that
+# prints what it REQUIRES is the rule this file already holds itself to.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_leg() { # <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" "$requires"
+	fi
+	return 0
+}
+
+# dpn_mut <src> <anchor> <line> <out> -> a copy of a shipped file with the one line carrying the
+# anchor replaced. The rules are `proc_mutate_factory`'s -- exactly one hit or refuse, the copy must
+# parse, the copy must differ -- because a mutant planted nowhere is a control that prints its
+# loudest sentence about nothing. Anchor and line arrive through the environment, not awk -v: the
+# shipped lines carry backslashes and `$`s that awk would otherwise eat.
+# shellcheck disable=SC2317  # reached from the controls below
+dpn_mut() {
+	local src=$1 anchor=$2 line=$3 out=$4 hits
+	hits=$(DPN_ANCHOR=$anchor awk 'index($0, ENVIRON["DPN_ANCHOR"]) { c++ } END { print c + 0 }' "$src")
+	[ "$hits" = 1 ] || {
+		printf '            the mutant anchor occurs %s time(s) in %s, so it would not be planted\n' \
+			"$hits" "${src##*/}" >&2
+		printf '            where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	DPN_ANCHOR=$anchor DPN_LINE=$line awk \
+		'{ if (index($0, ENVIRON["DPN_ANCHOR"])) print ENVIRON["DPN_LINE"]; else print }' \
+		"$src" >"$out" || return 1
+	bash -n "$out" || {
+		printf '            the mutant does not parse: the run would die before it answered,\n' >&2
+		printf '            which is not the state any leg below is asking about.\n' >&2
+		return 1
+	}
+	if cmp -s "$src" "$out"; then
+		printf '            the mutant is byte-identical to the shipped file; this control\n' >&2
+		printf '            measured nothing.\n' >&2
+		return 1
+	fi
+	return 0
+}
+
+# ------------------------------------------------------------------- the write: journalling an answer
+#
+# dpn_alloc_run <repo> <logdir> <unit or -> [script] -> the allocator's stdout, stderr captured.
+# `-` is the bare run: no unit named, the shape of a person checking from a terminal. The branch is
+# pinned through `FACTORY_TICK_BRANCH` rather than inherited from HEAD so the journal line's
+# attribution is what the leg says it is, not what the fixture happens to be standing on.
+# shellcheck disable=SC2317  # reached through the command substitutions in the predicates
+dpn_alloc_run() {
+	local repo=$1 logdir=$2 unit=$3 script=${4:-$dpn_alloc}
+	mkdir -p -- "$logdir" || return 1
+	if [ "$unit" = '-' ]; then
+		( cd -- "$repo" && env FACTORY_LOG="$logdir" bash "$script" DECISIONS.md ) 2>"$dpn_err"
+	else
+		( cd -- "$repo" && env FACTORY_LOG="$logdir" FACTORY_TICK_UNIT="$unit" \
+			FACTORY_TICK_BRANCH=issue-j bash "$script" DECISIONS.md ) 2>"$dpn_err"
+	fi
+}
+
+dpn_j1_repo=$dpn_work/j1-repo
+if ! dpn_bare "$dpn_j1_repo"; then
+	pos_say 'fixture j1-repo could not be built; the two legs about journalling read a tree that is not there'
+fi
+dpn_j1_log=$dpn_work/j1-log
+dpn_j1() {
+	local got
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_j1_log" unclaimed:j1) || {
+		printf '            the allocator refused; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
+		return 1
+	fi
+	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:j1 branch=issue-j (allocator, DECISIONS.md,' \
+		"$dpn_j1_log/supervisor.log" && return 0
+	printf '            the id printed, and the journal says:\n' >&2
+	{ sed 's/^/              /' "$dpn_j1_log/supervisor.log" 2>/dev/null ||
+		printf '              (no journal at all)\n'; } >&2
+	printf '            No DECISION-ID line: an allocation that answered a unit went unrecorded,\n' >&2
+	printf '            which is exactly the state #345 could not tell apart from numbering by eye.\n' >&2
+	return 1
+}
+dpn_leg 'a unit answer journals itself' 'one DECISION-ID line naming the id, the unit, the branch and the log' \
+	dpn_j1
+
+# The control nulls the write and nothing else: the answer must stay CORRECT (the id is computed
+# before the journal is mentioned, and a control that changed it would test the arithmetic instead),
+# while the provenance goes missing the way #345 left it.
+dpn_j1c=0
+dpn_mut "$dpn_alloc" '>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then' \
+	'		>/dev/null 2>/dev/null; then' "$dpn_work/alloc-nojournal" || dpn_j1c=1
+dpn_j1c_leg() {
+	local got
+	if [ "${dpn_j1c:-1}" != 0 ]; then
+		printf '            the journal write could not be nulled, so this control ran shipped code\n' >&2
+		printf '            and its findings are the shipped script'"'"'s, not the mutant'"'"'s.\n' >&2
+		return 1
+	fi
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_work/j1c-log" unclaimed:j1 "$dpn_work/alloc-nojournal") || {
+		printf '            the nulled allocator refused:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s: nulling the journalling changed the ANSWER, which it\n' "$got" >&2
+		printf '            must not -- the id and its provenance are independent lines of the run.\n' >&2
+		return 1
+	fi
+	if [ -e "$dpn_work/j1c-log/supervisor.log" ] &&
+		grep -qF -- 'DECISION-ID' "$dpn_work/j1c-log/supervisor.log"; then
+		printf '            the nulled write still journalled:\n' >&2
+		sed 's/^/              /' "$dpn_work/j1c-log/supervisor.log" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the line is that write' 'nulling it leaves the id correct and the provenance absent' dpn_j1c_leg
+
+dpn_j2_repo=$dpn_work/j2-repo
+if ! dpn_bare "$dpn_j2_repo"; then
+	pos_say 'fixture j2-repo could not be built; the legs about the bare run read a tree that is not there'
+fi
+dpn_j2() {
+	local got
+	got=$(dpn_alloc_run "$dpn_j2_repo" "$dpn_work/j2-log" -) || {
+		printf '            the bare allocator refused; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	if [ "$got" != D-0002 ]; then
+		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
+		return 1
+	fi
+	if [ -e "$dpn_work/j2-log/supervisor.log" ] &&
+		grep -qF -- 'DECISION-ID' "$dpn_work/j2-log/supervisor.log"; then
+		printf '            an allocation that answered NOBODY wrote to the supervisor journal:\n' >&2
+		sed 's/^/              /' "$dpn_work/j2-log/supervisor.log" >&2
+		printf '            Nothing there belongs to a unit, and a journal of bare answers buries the\n' >&2
+		printf '            lines the end-of-tick comparison reads.\n' >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'a bare run journals nothing' 'the person checking the next id leaves no DECISION-ID line behind' \
+	dpn_j2
+
+# And the guard that keeps it that way is the UNIT test, not the log test: widen the condition to
+# "anyone who told me where a journal lives" and the bare run above starts writing.
+dpn_j2c=0
+dpn_mut "$dpn_alloc" '[ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]' \
+	'	if [ -n "${FACTORY_LOG:-}" ]; then FACTORY_TICK_UNIT=${FACTORY_TICK_UNIT:-bare};' \
+	"$dpn_work/alloc-always" || dpn_j2c=1
+dpn_j2c_leg() {
+	local got
+	if [ "${dpn_j2c:-1}" != 0 ]; then
+		printf '            the guard could not be widened, so this control ran shipped code and its\n' >&2
+		printf '            silence about the bare run proves nothing about the guard.\n' >&2
+		return 1
+	fi
+	got=$(dpn_alloc_run "$dpn_j2_repo" "$dpn_work/j2c-log" - "$dpn_work/alloc-always") || {
+		printf '            the widened allocator refused:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	[ "$got" = D-0002 ] || {
+		printf '            it answered %s -- the widened guard changed the id, which is not a guard.\n' "$got" >&2
+		return 1
+	}
+	grep -qF -- 'DECISION-ID D-0002' "$dpn_work/j2c-log/supervisor.log" 2>/dev/null && return 0
+	printf '            with the unit test dropped the bare answer journalled nothing anyway, so the\n' >&2
+	printf '            leg above was passing on something other than the guard it names:\n' >&2
+	{ sed 's/^/              /' "$dpn_work/j2c-log/supervisor.log" 2>/dev/null ||
+		printf '              (no journal at all)\n'; } >&2
+	return 1
+}
+dpn_leg 'the unit test is the guard' 'widened to any journal, a unitless run litters the supervisor record' \
+	dpn_j2c_leg
+
+# ---------------------------------------------------------------------- the read: the end-of-tick pass
+#
+# The shipped function, called directly in a shell that sourced `common.sh` and ran nothing else --
+# the poke harness'"'"'s shape for the poke harness'"'"'s reason: `factory_decision_provenance` reads a
+# journal, two decision logs and the ledger, and reaching it through a whole supervisor would read
+# GitHub on the way. Its stdout carries the same lines it journals (`log_event` echoes), so every
+# call below lands in a file a failing leg can point at.
+# shellcheck disable=SC2317  # reached from the legs below
+dpn_prove() { # <common.sh> <unit> <branch> <tree> <logdir> <statedir>
+	local common=$1 unit=$2 branch=$3 tree=$4 logdir=$5 statedir=$6
+	(
+		set -eu
+		# shellcheck source=./common.sh
+		# shellcheck disable=SC1090,SC1091
+		. "$common"
+		FACTORY_DIR=$statedir FACTORY_LOG=$logdir FACTORY_LEDGER=$statedir/ledger \
+			FACTORY_RUN=$statedir/run DRY_RUN=0 \
+			FACTORY_REPO=example/repo FACTORY_OWNER=example FACTORY_NAME=repo \
+			factory_decision_provenance "$unit" "$branch" "$tree"
+	)
+}
+
+dpn_p1_dir=$dpn_work/p1
+if ! dpn_repo "$dpn_p1_dir" issue-p1; then
+	pos_say 'fixture p1 could not be built; the comparison legs below read a tree that does not exist'
+fi
+if ! (
+	set -eu
+	printf '## D-0007 · an id taken by eye\nbody\n' >>"$dpn_p1_dir/unit/DECISIONS.md"
+	printf '## D-0009 · an id the allocator handed out\nbody\n' >>"$dpn_p1_dir/unit/DECISIONS.md"
+	printf '## H-0004 · a harness-log id nobody earned\nbody\n' >>"$dpn_p1_dir/unit/factory/DECISIONS.md"
+	git -C "$dpn_p1_dir/unit" add -A
+	git -C "$dpn_p1_dir/unit" commit -qm 'fixture: three new headings, one earned'
+); then
+	pos_say 'fixture p1'"'"'s three headings could not be committed; the comparison legs read nothing'
+fi
+mkdir -p "$dpn_p1_dir/log"
+# The journalled answers, planted in the shipped shape: D-0009 was earned on THIS branch by a
+# different row (branches outlive rows -- `unclaimed:297` and `address_review:297` are one branch,
+# and the tick that allocated is not the tick compared later), and D-0007 was earned on another
+# branch entirely, which is the distinction the whole read exists to keep.
+printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' >>"$dpn_p1_dir/log/supervisor.log"
+printf '2026-11-15T00:00:01Z DECISION-ID D-0007 unit=unclaimed:900 branch=issue-sibling (allocator, DECISIONS.md, REFRESH 1s union)\n' >>"$dpn_p1_dir/log/supervisor.log"
+dpn_prove "$HERE/common.sh" unclaimed:p1 issue-p1 "$dpn_p1_dir/unit" "$dpn_p1_dir/log" "$dpn_p1_dir/ledger" \
+	>"$dpn_work/p1.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero (it returns 0 by contract); see '"$dpn_work"'/p1.out'
+dpn_prove "$HERE/common.sh" unclaimed:p1 issue-p1 "$dpn_p1_dir/unit" "$dpn_p1_dir/log" "$dpn_p1_dir/ledger" \
+	>"$dpn_work/p1b.out" 2>&1 ||
+	pos_say 'the second activation exited non-zero; see '"$dpn_work"'/p1b.out'
+dpn_p1_leg() {
+	local j=$dpn_p1_dir/log/supervisor.log n
+	if ! grep -qF -- \
+		'DECISION-ID-UNEARNED D-0007 (no allocation journalled for this unit) unit=unclaimed:p1 branch=issue-p1 log=DECISIONS.md' \
+		"$j"; then
+		printf '            the by-eye id was not reported in the shape an operator acts on\n' >&2
+		printf '            (id, unit, branch and log all on one line):\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED H-0004' "$j" ||
+		! grep -qF -- 'log=factory/DECISIONS.md' "$j"; then
+		printf '            the unearned heading in the HARNESS log was not reported, so the\n' >&2
+		printf '            comparison scans only the repository log:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qE -- 'DECISION-ID-UNEARNED (D-0009|D-0005|H-0001)' "$j"; then
+		printf '            something earned got reported: D-0009 IS journalled on this branch (under\n' >&2
+		printf '            another unit -- branches outlive rows), D-0005 is not new to the branch,\n' >&2
+		printf '            H-0001 is already on trunk. A report nobody acts on trains nobody to read\n' >&2
+		printf '            the ones that matter:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	n=$(grep -c 'DECISION-ID-UNEARNED' "$j") || true
+	if [ "${n:-0}" != 2 ]; then
+		printf '            the pass ran twice and journalled %s UNEARNED line(s), not two: an id is\n' "${n:-0}" >&2
+		printf '            reported once per unit, or a stuck unit drowns the journal in itself:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the pass names unearned ids' \
+	'exactly what is new against trunk with no answer journalled on this branch, once each, both logs' \
+	dpn_p1_leg
+
+# Control one blinds the scan itself. If a blinded comparison still reported, the ok above was being
+# paid for by something else in the function; if the plant fails, the control is declared dead, not
+# green.
+dpn_p1c1=0
+dpn_mut "$HERE/common.sh" 'for rel in DECISIONS.md factory/DECISIONS.md; do' \
+	'	for rel in ; do # MUTANT-345 the comparison scans no log' "$dpn_work/common-noscan" || dpn_p1c1=1
+dpn_p1c1_leg() {
+	local j=$dpn_work/p1c1-log/supervisor.log
+	if [ "${dpn_p1c1:-1}" != 0 ]; then
+		printf '            the comparison could not be blinded, so this control ran shipped code and\n' >&2
+		printf '            its UNEARNED lines prove nothing about the scan.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p1c1-log"
+	printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
+		>"$j"
+	dpn_prove "$dpn_work/common-noscan" unclaimed:p1c1 issue-p1 "$dpn_p1_dir/unit" \
+		"$dpn_work/p1c1-log" "$dpn_work/p1c1-ledger" >"$dpn_work/p1c1.out" 2>&1 || {
+		printf '            the blinded comparison exited non-zero; see %s/p1c1.out\n' "$dpn_work" >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$j"; then
+		printf '            blinding the log scan did not stop the reports, so the shipped leg above\n' >&2
+		printf '            is not this scan doing the comparing:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the report is the scan'"'"'s' 'blinding the comparison of the two logs silences UNEARNED' dpn_p1c1_leg
+
+# Control two corrupts the reading of the earned set. A parse that matches nothing must NOT look like
+# an earned tree -- it must report every new id, including the earned one -- so silence here means
+# the shipped leg was never reading the journal it claims to compare against.
+dpn_p1c2=0
+# The anchor is the FIRST line of a two-line command (the program, then the file), so the mutant must
+# rewrite that whole line -- program text only would strip the `earned=$(awk` opener and die at
+# parse, which the first run of this leg did, loudly and correctly refusing to call itself a control.
+dpn_mut "$HERE/common.sh" '$2 == "DECISION-ID" && $5 == "branch=" b {print $3}' \
+	$'\tearned=$(awk -v b="$branch" \'$2 == "DECISION-IDZ" && $5 == "branch=" b {print $3}\' \\' \
+	"$dpn_work/common-badearn" || dpn_p1c2=1
+dpn_p1c2_leg() {
+	local j=$dpn_work/p1c2-log/supervisor.log
+	if [ "${dpn_p1c2:-1}" != 0 ]; then
+		printf '            the earned-set parse could not be corrupted, so this control ran shipped\n' >&2
+		printf '            code; its verdict about D-0009 proves nothing about the parse.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p1c2-log"
+	printf '2026-11-15T00:00:00Z DECISION-ID D-0009 unit=address_review:901 branch=issue-p1 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
+		>"$j"
+	dpn_prove "$dpn_work/common-badearn" unclaimed:p1c2 issue-p1 "$dpn_p1_dir/unit" \
+		"$dpn_work/p1c2-log" "$dpn_work/p1c2-ledger" >"$dpn_work/p1c2.out" 2>&1 || {
+		printf '            the corrupted comparison exited non-zero; see %s/p1c2.out\n' "$dpn_work" >&2
+		return 1
+	}
+	grep -qF -- 'DECISION-ID-UNEARNED D-0009' "$j" && return 0
+	printf '            with the earned-set parse broken the pass called the tree clean -- D-0009 was\n' >&2
+	printf '            still trusted though nothing was readable about the journal. A reader that\n' >&2
+	printf '            cannot read must never look like a clean result:\n' >&2
+	sed 's/^/              /' "$j" >&2
+	return 1
+}
+dpn_leg 'unreadable is not clean' 'a corrupted earned-set reports the earned id too, rather than nothing' \
+	dpn_p1c2_leg
+
+# The unreadable base. A checkout with no `origin/main` is NOT a trunk with no entries: answering
+# "every id is unearned" from a failed read is the #345-noise-at-scale failure, and the doctrine is
+# the one the tree verdict already follows -- a read that failed is not a provenance that failed.
+dpn_p2_repo=$dpn_work/p2-repo
+if ! dpn_bare "$dpn_p2_repo"; then
+	pos_say 'fixture p2-repo could not be built; the UNCHECKED leg reads a tree that does not exist'
+fi
+dpn_prove "$HERE/common.sh" unclaimed:p2 issue-p2 "$dpn_p2_repo" "$dpn_work/p2-log" "$dpn_work/p2-ledger" \
+	>"$dpn_work/p2.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero on the no-origin tree; see '"$dpn_work"'/p2.out'
+dpn_p2_leg() {
+	local j=$dpn_work/p2-log/supervisor.log
+	if ! grep -qF -- 'DECISION-ID-UNCHECKED' "$j" || ! grep -qF -- 'origin/main' "$j"; then
+		printf '            a checkout with no readable `origin/main` journalled no UNCHECKED line\n' >&2
+		printf '            naming the failed read:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$j"; then
+		printf '            the unreadable base also produced UNEARNED verdicts; a failed read claims\n' >&2
+		printf '            nothing about any id, in either direction:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'no trunk reads as UNCHECKED' 'an unreadable base reports itself and renders no verdict' dpn_p2_leg
+
+dpn_p2c=0
+dpn_mut "$HERE/common.sh" 'ids read from it are neither claimed nor refused' \
+	'		: # MUTANT-345 the unreadable base goes unreported' "$dpn_work/common-nocheck" || dpn_p2c=1
+dpn_p2c_leg() {
+	local j=$dpn_work/p2c-log/supervisor.log
+	if [ "${dpn_p2c:-1}" != 0 ]; then
+		printf '            the UNCHECKED arm could not be blinded, so this control ran shipped code\n' >&2
+		printf '            and its silence proves nothing about the arm.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/p2c-log" && : >"$j"
+	dpn_prove "$dpn_work/common-nocheck" unclaimed:p2c issue-p2 "$dpn_p2_repo" \
+		"$dpn_work/p2c-log" "$dpn_work/p2c-ledger" >"$dpn_work/p2c.out" 2>&1 || {
+		printf '            the blinded comparison exited non-zero; see %s/p2c.out\n' "$dpn_work" >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNCHECKED' "$j"; then
+		printf '            the blinded arm still reported, so the shipped leg was passing on some\n' >&2
+		printf '            other line than the one this control removed:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the UNCHECKED line is that arm' 'blinding it lets the failed read pass in silence' dpn_p2c_leg
+
+# ----------------------------------------------------------------------- the wiring: dispatch to journal
+#
+# The two contracts above meet across a process boundary: `factory_tick` exports the unit context,
+# and the allocator -- run by the session, minutes later, inside a worktree -- writes its answer
+# into the journal the export names. A grep that finds both lines still cannot say the child SAW the
+# export. So these are process legs on the established fixture, and the session does what a unit's
+# session really does with a decision: writes a heading into the log, through the real allocator or
+# by eye, exactly as #345 measured. `proc_tick_alloc` hands the session stub its script; no other
+# leg in this file sets it, and without it the stub is the shipped stub.
+
+dpn_w_earned=$dpn_work/session-earned.sh
+# The compliant unit's hands, inside the fixture tick: allocate, write, commit. Deliberately dull --
+# its exit is the tick's exit, so a broken pair here arrives as a failed tick rather than as a pass
+# whose journal nobody reads.
+cat >"$dpn_w_earned" <<'DPNA'
+#!/usr/bin/env bash
+set -eu
+cd -- "$1"
+next=$(bash factory/next-decision-id.sh DECISIONS.md)
+printf '## %s · an id that went through the allocator\nbody\n' "$next" >>DECISIONS.md
+git add DECISIONS.md
+git commit -qm "docs(decisions): $next"
+DPNA
+
+# #345's units, verbatim: the next number taken by eye -- last heading, plus one -- with the
+# allocator sitting unrun in `factory/`. Every check a reviewer can run sees a well-formed entry;
+# only the journal knows the id was never earned.
+dpn_w_eye=$dpn_work/session-eyeballed.sh
+cat >"$dpn_w_eye" <<'DPNB'
+#!/usr/bin/env bash
+set -eu
+cd -- "$1"
+last=$(sed -n 's/^## \(D-[0-9][0-9]*\).*/\1/p' DECISIONS.md | sort | tail -n1)
+printf '## D-%04d · an id taken by eye\nbody\n' "$((10#${last#D-} + 1))" >>DECISIONS.md
+git add DECISIONS.md
+git commit -qm 'docs(decisions): by eye, as #345 measured'
+DPNB
+
+proc_new dpn-w1
+proc_tick_alloc=$dpn_w_earned
+proc_plant
+proc_run dpn-w1-1
+proc_tick_alloc=''
+dpn_w1_j=$proc_journal
+dpn_w1_leg() {
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$dpn_w1_j"; then
+		printf '            the session allocated through the real script and the pass still calls\n' >&2
+		printf '            its id unearned -- the export or the journalling is not reaching:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1_j" | sed 's/^/              /' >&2
+		return 1
+	fi
+	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:900 branch=issue-900' "$dpn_w1_j" || {
+		printf '            nothing journalled the id the tick committed (D-0002): the dispatch\n' >&2
+		printf '            started a session that could not earn its own numbers.\n' >&2
+		grep 'DECISION-ID' "$dpn_w1_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the dispatch answers the allocator' \
+	'an id earned inside a real tick journals against the unit and branch the dispatch handed it' \
+	dpn_w1_leg
+
+# The control nulls ONE export. The session still earns its id honestly; the journal cannot see who
+# it was earned for; and the pass must say UNEARNED -- not fall silent. "A legitimate-looking id the
+# journal cannot vouch for reads UNEARNED" is the report's whole purpose, and the export being the
+# difference between that line and nothing is what this control pins.
+proc_new dpn-w1c
+proc_mutate_factory $'FACTORY_TICK_UNIT="$unit" \\' \
+	$'\t\tFACTORY_TICK_UNIT= \\' || proc_w1c_planted=0
+proc_tick_alloc=$dpn_w_earned
+proc_plant
+proc_run dpn-w1c-1
+proc_tick_alloc=''
+dpn_w1c_j=$proc_journal
+dpn_w1c_leg() {
+	if [ "${proc_w1c_planted:-1}" = 0 ]; then
+		printf '            the export could not be nulled, so this control ran the shipped dispatch\n' >&2
+		printf '            and whatever its journal says is the shipped code talking.\n' >&2
+		return 1
+	fi
+	if grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:900' "$dpn_w1c_j"; then
+		printf '            the nulled dispatch still journalled the allocation for the unit, so the\n' >&2
+		printf '            shipped leg above is not this export doing it:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1c_j" | sed 's/^/              /' >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0002' "$dpn_w1c_j" ||
+		! grep -qF -- 'branch=issue-900' "$dpn_w1c_j"; then
+		printf '            with the unit export nulled the pass went silent: an id the session earned\n' >&2
+		printf '            and the journal cannot vouch for must read UNEARNED, not nothing. Silence\n' >&2
+		printf '            is exactly how a missing export hides, which is what #345 measured:\n' >&2
+		grep 'DECISION-ID' "$dpn_w1c_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'the export is the difference' \
+	'nulling FACTORY_TICK_UNIT makes an earned id read UNEARNED, which is what the export buys' \
+	dpn_w1c_leg
+
+# The ticket's unit, end to end: a session that never runs the allocator, the heading committed, the
+# tick clean by every measure the pass already takes -- and one journal line naming the id, the unit
+# and the branch, which is the whole thing #345 asked to be able to see.
+proc_new dpn-w2
+proc_tick_alloc=$dpn_w_eye
+proc_plant
+proc_run dpn-w2-1
+proc_tick_alloc=''
+dpn_w2_j=$proc_journal
+dpn_w2_leg() {
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0002' "$dpn_w2_j" ||
+		! grep -qF -- 'unit=unclaimed:900 branch=issue-900' "$dpn_w2_j"; then
+		printf '            the ticket'"'"'s unit -- heading written, id taken by eye, the allocator\n' >&2
+		printf '            sitting unrun in factory/ -- finished with nothing to say about where its\n' >&2
+		printf '            id came from:\n' >&2
+		grep 'DECISION-ID' "$dpn_w2_j" | sed 's/^/              /' >&2 ||
+			printf '              (no DECISION-ID line of any kind)\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'the ticket'"'"'s unit is caught' \
+	'a heading numbered by eye reports UNEARNED with the dispatch'"'"'s own unit and branch' \
+	dpn_w2_leg
 
 # --------------------------------------------------------------------------- the refs the pass reads
 #
