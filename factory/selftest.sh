@@ -3975,6 +3975,13 @@ proc_leg 'control: the retired key ranks youngest' \
 # journal, both stamps written in one pass with 900 first). The repair hands the ranking pass one
 # reading of the same clock; the leg below measures both readers against the same ticking clock and
 # the same two stamps, so the difference it reports is the readers and nothing else.
+#
+# The stamps are anchored on the same principle (H-0186): the leg samples the real clock ONCE into
+# $proc_clock_now and every proc_clock_stamp below is that instant minus an offset -- a conversion,
+# never a sampling -- because sampling per stamp let a real second boundary fall BETWEEN the two
+# writes and make the pair unequal before any reader saw them. CI run 43673767085 (15 Nov, PR #400)
+# hit exactly that: the control printed `the ticking clock answered 0s and 0s`, which is this
+# fixture re-minting, in its own stamping loop, the per-row defect H-0169 exists to retire.
 proc_clock=$proc_work/age-clock
 mkdir -p "$proc_clock/bin" "$proc_clock/ledger"
 printf '0\n' >"$proc_clock/tick"
@@ -3993,8 +4000,22 @@ exec /bin/date "$@"
 PROCDATE
 chmod +x "$proc_clock/bin/date"
 
-proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, on the REAL clock
-	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_clock/ledger/$1.first-seen"
+proc_clock_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` derived from $proc_clock_now
+	# One clock reading for the whole pair. This call used to ask the real clock
+	# for "now" itself -- `date -u -d "-N seconds"` samples it -- so the stamps
+	# were same-second by LUCK, and a boundary between the two writes made them
+	# unequal before any reader saw them: CI run 43673767085 (15 Nov, PR #400,
+	# `55.9977200Z` ok / `56.0145857Z` FAIL) landed the flip exactly there, and
+	# the control printed `the ticking clock answered 0s and 0s` because the
+	# ticking stub cancelled the one-second-newer stamp 901 exactly. A conversion
+	# of an epoch cannot straddle anything: `date` formats an instant here and
+	# never samples one.
+	[ -n "${proc_clock_now:-}" ] || {
+		printf 'proc_clock_stamp: no anchor in $proc_clock_now, refusing to sample the clock\n' >&2
+		return 1
+	}
+	printf '%s\n' "$(date -u -d "@$((proc_clock_now - $2))" +%Y-%m-%dT%H:%M:%SZ)" \
+		>"$proc_clock/ledger/$1.first-seen"
 }
 
 # proc_clock_ages <snapshot|per-row> -> "<age900> <age901>", both rows read the way that reader reads
@@ -4448,6 +4469,78 @@ proc_halt_freezes() {
 	return 0
 }
 proc_leg 'control: the halt restored freezes it' 'exit 8, marker on disk, next run reports it, no tick' proc_halt_freezes
+
+# #331: the activation that REPORTS the halt is now also the activation that says where its record
+# is. Before the hoist the two lines above `proc_halt_freezes` -- the `HALTED` one and nothing else --
+# were the whole of a halted activation's journal, which is the exact shape of the dead tail #260
+# opens with: a queue stopped for 10h13m by a tree nobody could locate, journalled by a pass that
+# never named the file it was writing. The fixture state is the second activation of the control
+# above: exit 8, one `HALTED` line, no tick started -- and now, ABOVE that line, the self-report
+# loops that used to live inside `factory_body`, which the halt exit preceded.
+proc_halt_reports_itself() {
+	local halt_line log_line sup_line
+	# The legs read the second activation of the halt control. If that activation did not halt, this
+	# leg is asking about a journal where the question cannot arise.
+	[ "$proc_rc" = 8 ] || {
+		printf '            not the halt control'"'"'s second activation (exit %s, want 8), so this\n' "$proc_rc" >&2
+		printf '            journal cannot show what a halted pass writes.\n' >&2
+		return 1
+	}
+	halt_line=$(awk 'index($0, " HALTED "){ print NR; exit }' "$proc_journal")
+	[ -n "$halt_line" ] || {
+		printf '            no HALTED line at all -- proc_halt_freezes reports that too, but without\n' >&2
+		printf '            one the order below is unverifiable.\n' >&2
+		return 1
+	}
+	# LOG-AT is THE line of the ticket: "which directory is the journal being written to". It has to
+	# be this pass's own directory (the one it is writing into), not a string match of any LOG-AT.
+	log_line=$(awk 'index($0, " LOG-AT "){ print NR; exit }' "$proc_journal")
+	if [ -z "$log_line" ]; then
+		printf '            a halted pass wrote no LOG-AT line, so its HALTED line sits in a file\n' >&2
+		printf '            that never says which file it is -- the #331 defect, still open:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if ! proc_journal_line "$proc_journal" ' LOG-AT ' | grep -qF -- "$proc_log"; then
+		printf '            LOG-AT does not name the directory the halted pass was writing to\n' >&2
+		printf '            (want %s):\n            %s\n' "$proc_log" \
+			"$(proc_journal_line "$proc_journal" ' LOG-AT ')" >&2
+		return 1
+	fi
+	if [ "$log_line" -ge "$halt_line" ]; then
+		printf '            LOG-AT is not in the journal BEFORE the HALTED line: LOG-AT at line %s,\n' "$log_line" >&2
+		printf '            HALTED at line %s. The record must name itself before the halt sentence\n' "$halt_line" >&2
+		printf '            is the last thing it receives -- that ordering is the whole of the fix.\n' >&2
+		return 1
+	fi
+	# SUPERVISOR-AT moved with the other loops (#331): the code under test is a fact about the pass,
+	# not a fact about the queue, and a halted pass that never announced its tree is how a stale
+	# checkout halts a queue for a shift without a single line saying so. AT or UNKNOWN both count as
+	# reporting; silence does not.
+	sup_line=$(awk '/(SUPERVISOR-AT|SUPERVISOR-UNKNOWN)/{ print NR; exit }' "$proc_journal")
+	if [ -z "$sup_line" ]; then
+		printf '            a halted pass wrote no SUPERVISOR- line, so nothing above the halt says\n' >&2
+		printf '            which code the stopped loop was running:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$sup_line" -ge "$halt_line" ]; then
+		printf '            SUPERVISOR- line at %s is not above the HALTED line at %s\n' "$sup_line" "$halt_line" >&2
+		return 1
+	fi
+	# PASS stays inside `factory_body` -- it reports what triage returned, and a halted activation
+	# never asked triage anything. If it ever appears above a halt, the boundary this leg draws is
+	# drawn wrong somewhere else.
+	if proc_journal_line "$proc_journal" ' PASS ' | grep -q .; then
+		printf '            a halted pass journaled a PASS line, which is the claim #331 says it\n' >&2
+		printf '            cannot honestly make -- it never read the queue:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" ' PASS ')" >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '#331: the halted pass says where its record is' \
+	'LOG-AT naming this fixture log, and a SUPERVISOR- line, both above HALTED; no PASS' proc_halt_reports_itself
 
 # What the halting pass itself did with unit B, printed rather than asserted, because it is the
 # sentence #263 gets wrong and a reader should see the number next to the claim: the dispatcher
@@ -7447,12 +7540,12 @@ claim_reset
 esc_live() { # the files whose mentions are instructions, one path per line
 	printf '%s\n' factory/common.sh factory/escalation-label.sh factory/factory.sh \
 		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md \
-		.opencode/skills/factory/SKILL.md
+		.opencode/skills/factory/SKILL.md NEXT.md
 }
-# The two decision logs are NOT in that list, and that is deliberate rather than an oversight: an
-# entry records what was believed when it was written, so re-editing history to match a renamed label
-# turns every citation in it into a lie. A name in a log is a fossil. A name in one of the seven files
-# above is an instruction some later tick carries into a write against GitHub.
+# The two decision logs are NOT in that list, and they are the ONLY exemption (#360 measured a ninth
+# live file omitted by accident, not by rule). A log entry records what was believed when it was
+# written, so re-editing history to match a renamed label turns every citation in it into a lie. A
+# name in a log is a fossil; anywhere else -- `NEXT.md` joined at H-0201 -- it is an instruction.
 
 esc_ctrl_copy() { # esc_ctrl_copy <dest-root> -- the live files, outside the repository
 	local dest=$1 f
@@ -7470,7 +7563,7 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 	local root=$HERE/.. name f hit bad=0
 	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
 		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md
-		.opencode/skills/factory/SKILL.md)
+		.opencode/skills/factory/SKILL.md NEXT.md)
 	[ -z "${1:-}" ] || root=$1
 	if ! name=$(bash "$root/factory/escalation-label.sh" 2>&1); then
 		printf '            factory/escalation-label.sh refuses: %s\n' "$name" >&2
@@ -7499,7 +7592,7 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 		elif [ "${hit:-0}" -ne 0 ]; then
 			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
 				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
-			printf '            the home moves and this leg passes on the other six\n' >&2
+			printf '            the home moves and this leg passes on the rest of the census\n' >&2
 			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
 			bad=1
 		fi
@@ -7610,33 +7703,33 @@ esc_controls() {
 			'control: the escalation label'
 		return 0
 	fi
-	# 1. A sixth mention, planted in prose the way it would arrive in real life: someone writing the
-	#    command out because it is shorter than reading it.
-	esc_ctrl_copy "$ctrl/drift" || {
+	# 1. A further mention, planted in prose the way it would arrive in real life: someone writing the
+	#    command out because it is shorter than reading it. Once per census file (#360): the leg reads
+	#    its OWN array, a hand-copied twin of esc_live's list, and this control planted only AGENTS.md,
+	#    a file both lists hold -- so a file missing from the leg's array was invisible. #360 measured
+	#    exactly that: NEXT.md spelled the name and every leg stayed green. The plants now come from
+	#    esc_live and the verdict from the leg's own array, so the two lists cannot part ways in
+	#    silence, and no census file is witnessed by membership alone.
+	local esc_f esc_d esc_bad=''
+	for esc_f in $(esc_live); do
+		if [ "$esc_f" = factory/common.sh ]; then continue; fi
+		esc_d=$ctrl/drift/${esc_f//\//_}
+		esc_ctrl_copy "$esc_d" || esc_bad='the census copy could not be written'
+		printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$esc_d/$esc_f" || esc_bad='the plant failed'
+		if ! grep -qF -- "$name" "$esc_d/$esc_f"; then esc_bad='the plant is not in the copy'; fi
+		if esc_one_home "$esc_d" 2>/dev/null; then esc_bad='the leg passed a copy that spells it'; fi
+		[ -z "$esc_bad" ] || break
+	done
+	if [ -n "$esc_bad" ]; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-40s the drift copy could not be written\n' 'control: the escalation label'
-		return 0
-	}
-	printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$ctrl/drift/AGENTS.md" || {
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s the mention could not be planted\n' 'control: the escalation label'
-		return 0
-	}
-	if ! grep -qF -- "$name" "$ctrl/drift/AGENTS.md"; then
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s the plant is not in the copy, so the leg above was never aimed\n' \
-			'control: the escalation label'
-		printf '          at a sixth mention\n'
-		return 0
-	fi
-	if esc_one_home "$ctrl/drift" 2>/dev/null; then
-		fail=$((fail + 1))
-		printf '  FAIL  %-40s a copy with the name spelled out in AGENTS.md still passes, so the\n' \
-			'control: one home'
-		printf '          ok above counts nothing but the file it happens to read first\n'
+		printf '  FAIL  %-40s %s -- the leg is not the census its comment claims,\n' \
+			'control: one home' "$esc_bad"
+		printf '          because a plant aimed only at a file both lists hold was never\n'
+		printf '          aimed at a file the leg omits, which is exactly what #360 measured.\n'
 	else
-		printf '        control: a copy with a sixth mention planted in AGENTS.md is refused, so the\n'
-		printf '        ok above is a census of every live file and not of one.\n'
+		printf '        control: each non-home census file, planted with the name, is refused, so the\n'
+		printf '        ok above reads every file the census claims, and not one file plus a trust\n'
+		printf '        that the leg'"'"'s own array kept the list whole (#360: NEXT.md, blind).\n'
 	fi
 	# 2. A reader that no longer reads: the stub prints its own literal, and the definition is
 	#    untouched. This is the plant that says the leg compares two things rather than one.

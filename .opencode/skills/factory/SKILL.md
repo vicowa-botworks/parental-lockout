@@ -543,6 +543,50 @@ NEXT:          <the one thing the next tick should do>
 If you got nothing pushed, say that plainly in `NEXT:` with the reason. A silent tick is the worst
 outcome this system produces: it is indistinguishable from a machine that is working.
 
+### The hand-off file is `NEXT.md`, and `scripts/check-next-md.sh` reads it
+
+`NEXT:` above is one line in the supervisor's log and it lives no longer than that log. The durable half
+is `NEXT.md`, at the repository root. Until 15 Nov this page never named it: the file was tracked, five
+commits from three units had written it, and `grep -n 'NEXT' Makefile` answered nothing — nothing read
+it, so a merge resolution dropped another unit's in-flight warning and the tree stayed green (measured on
+`main` for #337: `grep -n '#296' NEXT.md` empty, that line's last touch `ccf852c`). A dispatch in that
+gap told a tick that `scripts/check-next-md.sh` was `NEXT.md`'s gate and to "quote its verdict in the
+pull-request body"; the file has never existed on any ref (`git log -S 'check-next-md' --all --oneline`
+is empty), so the verdict quoted from it was invented. The obligation and the artifact were both missing,
+which is why this page now carries both.
+
+Before you push, write `NEXT.md` — overwriting it, not appending to it — with:
+
+- **one `# ` heading naming the unit that wrote it** (`issue-<n>` or `#<n>`). A hand-off that does not
+  say who is speaking cannot be recognised as stale later, and staleness is this file's failure mode.
+- **what this branch shipped** — delivered, and equally what it did not deliver.
+- **what is still owed, all of it, none silent**: every open finding, every claim you did not measure,
+  every follow-up you deliberately left. The `NEXT:` line above names one thing; this section names all
+  of them, and it is the section the next tick reads first.
+- **the constraints a stranger would break**, if your branch left any.
+
+At least two `## ` sections, and every list item under one of them: a bullet that sits above the first
+heading belongs to no section, and that is precisely the line a merge resolution drops without noticing.
+
+Then run the gate and quote what it printed:
+
+```
+bash scripts/check-next-md.sh
+```
+
+Put its verdict in the pull-request body beside the `GATE:` line, quoting the line it actually printed —
+never a sentence about what it would have said, which is how the invented verdict got believed (#1180).
+Two clauses of `make verify` run it: `==> hand-off contract` executes its fixture self-test, and
+`==> hand-off file` checks the tree in front of it. So a `NEXT.md` that does not hold the shape, or a
+hand-off sentence naming a tool that is not in the tree, reddens the gate instead of reaching `main`.
+
+What the gate does not do, so do not trust it further than it reaches: it reads the tree and never the
+API, so it cannot tell you that the issue `NEXT.md` calls open was finished two days ago. Staleness is
+still a merge hazard — which is why the heading names the unit, why the file is rewritten each time, and
+why a line another unit wrote that is still true belongs in YOUR version of it, carried forward. Deleting
+it because your branch did not write it is the #337 failure, and it is the one thing here that no check
+catches.
+
 ## What is never in a tick
 
 - A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
