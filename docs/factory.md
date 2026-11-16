@@ -1077,6 +1077,62 @@ the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare aga
 `factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
 the same three content reads `factory_tree_dirt` uses -- never from `git status --porcelain`, for the
 reason given in the section on dirty trees.
+Since #342 the `SUPERVISOR-AT` line carries two more fields, `main=<sha>` and `behind=<n>`: the code
+the activation runs and where the trunk stands, in one line a leg can pin instead of a reader grepping
+two lines and joining them by hand. `main=?` and `behind=?` go with `SUPERVISOR-NOBASE`, and a `?` is
+never printed as a `0` (#228's polarity).
+
+**And since #342, the pass that prints `SUPERVISOR-STALE` acts on it, because acting is safe at that
+instant and nowhere later.** A sentence was all the line ever was: by 13 Nov it had printed 92 times --
+13h20m of a ten-minute cadence, with the guard reading the right tree at last since #260 -- and every
+one of those passes went on to triage, allocate decision ids and halt on code 38 commits behind
+`origin/main`, five of those commits executable harness files the running pass would have used. At the
+point the line prints, the pass holds `factory/run/lock`, triage has only read the queue, no tick has
+been dispatched, and the tree is clean by the same content read that named the state. After that point
+a tick is running and the window is shut until a human shows up -- and a line that prints every ten
+minutes forever is not a human.
+
+`factory_supervisor_repair` (`factory/common.sh`) fast-forwards the tree the *installed unit*
+`ExecStart`s -- the tree the loop actually runs, which #260 established is not necessarily either of
+the two trees the lines above report -- to `origin/<trunk>`, when four conditions all hold of that
+tree at that instant: it is the harness's own script, clean by the #228 content reads, `behind > 0`,
+and `ahead = 0`. Every refusal is a named condition, printed and never acted on:
+
+```
+2026-11-15T09:00:00Z SUPERVISOR-AT 3962919 dirty=0 main=4f1a2c8 behind=3
+2026-11-15T09:00:00Z SUPERVISOR-STALE origin/main is 3 commits ahead; the loop is not running merged code
+2026-11-15T09:00:00Z SUPERVISOR-FF 3962919 -> 4f1a2c8 commits=3 tree=/srv/harness -- fast-forwarded the tree the installed unit execs to origin/main; this pass stops here with exit 9 and started no tick, the next activation (OnUnitInactiveSec=, seconds away) runs the merged code
+2026-11-15T09:00:00Z SUPERVISOR-RERUN the pass stops here with exit 9: no triage, no id, no tick; the line above says what moved and the next activation runs it
+```
+
+(The shas are a fixture's own, in the manner of the excerpts above; the shapes are the shipped ones.)
+
+- `SUPERVISOR-FF` -- the tree moved, the pass exits `9` before anything is dispatched, and the timer's
+  `OnUnitInactiveSec=` hands the queue to the merged code seconds later. Stopping is not
+  conservatism: the merge replaced the bytes of the script bash is reading incrementally, so a pass
+  that *continued* would execute a mix of old and new code -- #260's reason against moving the tree,
+  which still holds exactly. Exit-and-restart keeps the whole promise #260 made (bash never reads
+  across the change) and closes the one gap it left: the gap was not that the move was unsafe, it was
+  that nothing did it.
+- `SUPERVISOR-FF-REFUSED <condition>` -- `dirty=n` (uncommitted work; #249's quarantine owns dirty
+  trees and the repair will not compete with it), `diverged ahead=n` (a fork; only a merge or rebase
+  moves that, and those stay human acts on a tree the timer execs), `not-ff-only` (every condition
+  said fast-forward and git still refused -- the line quotes git's own `error:`/`fatal:` line, which
+  is not its last line: measured against a locked index the last line is `Updating 568f92b..2fc8ebd`,
+  and that distinction between *not safe* and *refused anyway* is the whole reason refusal is a token
+  rather than a boolean).
+- The streak and the escalation: an activation that reported staleness and did not repair it appends
+  its condition to a ledger line (`supervisor.stale-streak`); a current tree or a completed repair
+  clears it. `factory.sh --status` then prints a fifth verdict word, `STALE`, once the streak reaches
+  `FACTORY_STALE_ESCALATE` (default 3), with the last refusal's condition in the sentence. `STALLED`
+  is still asked first -- every repair sentence is written into `supervisor.log`, so a loop printing
+  them is never stalled, and a loop gone silent has a newer fault than staleness. `STALE` replaces
+  `WORKING`/`IDLE`, the two words behind which this outage sat for 92 activations.
+
+`--dry-run` prints `DRY-RUN  git -C <tree> merge --ff-only origin/<trunk>` and touches nothing --
+including the streak, because a dry run writes no ledger (H-0017). The exit `9` joins `8` in the
+generated unit's `SuccessExitStatus=` (#246/#305's lesson: an unlisted deliberate stop journals as
+`Failed with result 'exit-code'`, which points a reader away from the one line that explains it).
 
 The count is every commit reachable from `origin/main` that the tree lacks, which is the reading
 `triage.sh` already uses for its `branch=` column. It is therefore *not* first-parent: the tree above
@@ -1434,8 +1490,12 @@ shapes a sibling arrives in do not behave the same way:
 
 So the skill's re-read immediately before the entry commit closes the same-machine window and nothing
 else. The second row is closed by the activation itself (H-0075): `factory.sh` fetches origin -- every
-branch, once, bounded by `FACTORY_FETCH_TIMEOUT`, before it reads the queue -- so `refs/remotes` is
-current by the time the allocator runs in a tick's shell. The command an operator types is still
+branch, bounded by `FACTORY_FETCH_TIMEOUT`, before it reads the queue -- so `refs/remotes` is
+current by the time the allocator runs in a tick's shell. Since #342 the fetch belongs to every tree
+the pass is about to compare or repair: the tree the harness runs from is fetched before the
+supervisor's position is read, not only the primary checkout, or the fast-forward would be about to
+merge an `origin/main` from whichever clock that tree last saw (and one fetch serves both when they
+are the same directory, which they usually are). The command an operator types is still
 `git fetch --prune origin`, and the shape matters more than it looks: measured in a fixture,
 `git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
 still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
@@ -1658,12 +1718,13 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
-| `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
+| `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on each `git fetch` an activation does (H-0075; #342 adds the harness tree beside the primary checkout, so a split arrangement fetches each); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_HALT_RELEASES` | `2` | how many times one unit's machine-written halt may remove itself when the tree it names is provably past its cause (#341); see the section under "Stopping it" |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
+| `FACTORY_STALE_ESCALATE` | `3` | how many consecutive activations may report the installed tree behind and not repair it before `--status`'s verdict reads `STALE` (#342). Three: enough to ride out one pass whose refusal cause clears, short enough that nobody reads 92 journal lines to call the outage a defect |
 | `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
 | `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
 | `FACTORY_LOG_TAIL` | `400` | how many of the unit's journal lines the read of the journal's own location looks back for the last line that named a directory (#260); a line-count window, so a pass that outwrites it is told `LOG-MOVED-UNKNOWN rc=2`, never "it has not moved" |
@@ -1684,8 +1745,11 @@ neither is a machine's to clean up. To stop it hard: `systemctl --user stop ploc
 
 Nothing halted and the queue still is not moving: read the `code:` line of
 `factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
-`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place
-that says otherwise (#249, and the section above).
+`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place that
+says otherwise (#249, and the section above). Since #342 the `verdict:` line above it can also answer
+`STALE` -- the installed tree behind and unrepaired for `FACTORY_STALE_ESCALATE` activations running,
+with the last refusal's condition named in the sentence -- so the outage no longer needs a person to
+grep the journal to call it a defect.
 
 ### A standing halt is re-asked every activation (#341)
 
@@ -1944,10 +2008,21 @@ is throughput, and the timer is already the thing that provides it.
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed
-· `7` another supervisor holds the lock · `8` halted.
+· `7` another supervisor holds the lock · `8` halted · `9` the installed tree was fast-forwarded to
+the trunk, so this pass stopped before dispatching and the next activation runs the merged code (#342).
 
 `3` and `7` are the two that matter to monitoring: `3` means the token or the network is gone, and
-`7` means two timers are pointing at the same repository.
+`7` means two timers are pointing at the same repository. `8` and `9` are the two the unit files must
+agree with: both are listed in the generated service's `SuccessExitStatus=`, **separated by spaces**,
+because both are decisions the pass made on purpose. The separator is part of the mechanism, not
+formatting: `systemd.service(5)` parses that value as a space-separated list, and on a comma systemd
+does not skip one code, it ignores the whole assignment -- measured on the two renderings of the
+generator's own line (systemd 259.9): `SuccessExitStatus=8,9` prints `Failed to parse value,
+ignoring: 8,9` and lists neither code, at exit 0; `SuccessExitStatus=8 9` prints nothing. A
+deliberate stop that journals as
+`Failed with result 'exit-code'` points every reader away from the line that explains it (#246,
+measured on code `4` hiding `Agent not found` for 152 activations; #305 added `8` to the line; #342
+added `9` in the same commit that made the code reachable).
 
 ## What it is not allowed to do
 

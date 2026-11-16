@@ -362,6 +362,19 @@ FACTORY_UNITS_DIR=${FACTORY_UNITS_DIR:-}
 # file: shellcheck analyses common.sh alone, so a constant that both consumers need looks dead here.
 # The alternative -- duplicating the 8 in each -- is the drift this constant exists to prevent.
 FACTORY_EXIT_HALT=8
+
+# The exit code a pass leaves behind after it fast-forwarded the installed tree (#342). Like the halt
+# code it is a code the *machine* reads: the repair rewrote the file bash is executing, so the pass
+# cannot go on and must not be journalled as a failure -- the generated unit names this code beside
+# FACTORY_EXIT_HALT in `SuccessExitStatus=`, and the timer re-arms seconds later on merged code.
+# shellcheck disable=SC2034  # read by factory.sh and install-timer.sh, both of which source this
+FACTORY_EXIT_RERUN=9
+
+# How many consecutive activations may report `SUPERVISOR-STALE` and not repair it before the one-word
+# verdict reads `STALE` (#342 ask 3). Measured 13 Nov: the line printed 92 times while `--status` kept
+# answering `IDLE`, so the escalation belongs at three -- enough to ride out one refused pass whose
+# cause clears, short enough that nobody has to read the journal to learn the loop is stale.
+FACTORY_STALE_ESCALATE=${FACTORY_STALE_ESCALATE:-3}
 DRY_RUN=${DRY_RUN:-0}
 
 # --------------------------------------------------------------------------- directories
@@ -931,15 +944,20 @@ EOF
 # nothing in the system that could be asked the question or would notice the answer.
 #
 #   HALTED   factory/HALT exists, with how long it has been there and its own sentence.
+#   STALLED  the journal itself is older than the window, or missing. The only verdict that means go.
+#   STALE    the installed tree has been behind `origin/$FACTORY_BASE`, unrepaired, for
+#            FACTORY_STALE_ESCALATE consecutive activations (#342 ask 3). A loop that journals a
+#            `SUPERVISOR-*` line every activation is by construction not stalled, so this can only
+#            replace WORKING and IDLE -- the two words behind which 92 `SUPERVISOR-STALE` lines sat
+#            on 13 Nov without a single reader able to call them a defect.
 #   WORKING  a tick started inside FACTORY_STALL_SECS.
 #   IDLE     the journal is younger than the window and no tick is running: every unit is waiting on a
 #            review, a check or a conflict. That is a queue with nothing to do, not a broken queue.
-#   STALLED  the journal itself is older than the window, or missing. The only verdict that means go.
 #
-# It reads local state only -- a marker, a file, one systemctl query -- because the times it matters
-# most are the times GitHub may not be reachable either.
+# It reads local state only -- a marker, a journal, one ledger line, one systemctl query -- because
+# the times it matters most are the times GitHub may not be reachable either.
 factory_verdict() {
-	local tick pass
+	local tick pass stale reason
 	if factory_halted; then
 		# Zero-argument is the verdict's clause: it reports, never probes.
 		# shellcheck disable=SC2119
@@ -948,14 +966,30 @@ factory_verdict() {
 	fi
 	tick=$(factory_journal_age 'TICK-START ')
 	pass=$(factory_file_age "$FACTORY_LOG/supervisor.log")
-	if [ "$tick" -le "$FACTORY_STALL_SECS" ]; then
-		printf 'WORKING last tick started %s ago\n' "$(factory_age_human "$tick")"
-	elif [ "$pass" -le "$FACTORY_STALL_SECS" ]; then
-		printf 'IDLE journal last written %s ago, no tick started: every unit is waiting on a review, a check or a conflict\n' \
-			"$(factory_age_human "$pass")"
-	else
+	# STALLED is asked before STALE and the order is not decoration. Every repair sentence this
+	# harness journals goes into `supervisor.log`, so a loop printing them is never stalled; and a
+	# loop that went SILENT while its streak was high has a newer, worse failure than staleness --
+	# a dead timer. Answering that one with a word about git would hide the live fault behind an
+	# old one. (A young tick always implies a young journal: the `TICK-START` line is written into
+	# it, so reordering STALLED ahead of the tick test loses no case the old order answered.)
+	if [ "$pass" -gt "$FACTORY_STALL_SECS" ]; then
 		printf 'STALLED nothing written to the journal for %s; timer: %s\n' \
 			"$(factory_age_human "$pass")" "$(factory_timer_state)"
+		return 0
+	fi
+	stale=$(factory_ledger_int supervisor stale-streak)
+	if [ "$stale" -ge "$FACTORY_STALE_ESCALATE" ]; then
+		reason=$(factory_ledger_get supervisor stale-reason)
+		printf 'STALE the installed tree has been behind origin/%s, unrepaired, for %s consecutive activations (escalates at %s; last refusal: %s) -- the loop is reporting, not repairing; `grep SUPERVISOR-FF-REFUSED %s/supervisor.log` names the condition\n' \
+			"${FACTORY_BASE:-main}" "$stale" "$FACTORY_STALE_ESCALATE" \
+			"${reason:-not recorded}" "$FACTORY_LOG"
+		return 0
+	fi
+	if [ "$tick" -le "$FACTORY_STALL_SECS" ]; then
+		printf 'WORKING last tick started %s ago\n' "$(factory_age_human "$tick")"
+	else
+		printf 'IDLE journal last written %s ago, no tick started: every unit is waiting on a review, a check or a conflict\n' \
+			"$(factory_age_human "$pass")"
 	fi
 }
 
@@ -3076,17 +3110,22 @@ factory_plural() {
 }
 
 # factory_supervisor_position <tree>
-#   Where <tree> stands against the trunk, as five tab-separated fields on one line:
+#   Where <tree> stands against the trunk, as six tab-separated fields on one line:
 #
-#       <short-sha>   <branch>   <behind>   <ahead>   <dirty>
+#       <short-sha>   <branch>   <behind>   <ahead>   <dirty>   <base-sha>
 #
-#   exit 0  all five known. A detached head puts the word `detached` in <branch> rather than an
+#   exit 0  all six known. A detached head puts the word `detached` in <branch> rather than an
 #           empty field: an empty field is what slides every column after it one place left, which
 #           is the reason the supervisor's own row delimiter is U+001F and not a tab.
-#   exit 2  git could not read the tree at all. All five are `unknown`/`?`, and a caller must not
+#   exit 2  git could not read the tree at all. All six are `unknown`/`?`, and a caller must not
 #           print `0 behind` -- an unreadable tree is not a current one.
-#   exit 3  the tree is readable but `origin/$FACTORY_BASE` is not, so <behind> and <ahead> are `?`
-#           while the sha and the branch are still worth printing.
+#   exit 3  the tree is readable but `origin/$FACTORY_BASE` is not, so <behind>, <ahead> and
+#           <base-sha> are `?` while the sha and the branch are still worth printing.
+#
+# <base-sha> is the short sha of `origin/$FACTORY_BASE` in <tree> (#342 ask 4): the pair
+# `<sha> ... main=<base-sha> behind=<n>` puts the whole divergence of the activation into one
+# machine-readable line, which is what `SUPERVISOR-AT` grew the two fields to be. `?` when the
+# trunk ref does not resolve, never `0` -- #228's polarity again.
 #
 # <dirty> is a *count of paths* with uncommitted work, or `?` when the read itself failed. It is not
 # the halt's verdict: `factory_tree_dirt` stays the one guard that stops a unit (#228), and this is
@@ -3096,14 +3135,14 @@ factory_plural() {
 # and the count being high is the safe direction for a field that only informs.
 factory_supervisor_position() {
 	local tree=$1 rc=0 out='' paths='' short='' branch='' behind='?' ahead='?' dirty='?'
-	local base_shown
+	local base_shown base_short=''
 	base_shown=$(factory_supervisor_base)
 	base_shown=${base_shown#refs/remotes/}
 
 	rc=0
 	out=$(git -C "$tree" rev-parse --short HEAD 2>&1) || rc=$?
 	if [ "$rc" -ne 0 ]; then
-		printf 'unknown\tunknown\tunknown\tunknown\t?\n'
+		printf 'unknown\tunknown\tunknown\tunknown\t?\t?\n'
 		return 2
 	fi
 	short=$(printf '%s\n' "$out" | head -n 1)
@@ -3144,7 +3183,7 @@ factory_supervisor_position() {
 	rc=0
 	git -C "$tree" rev-parse --verify --quiet "$base_shown" >/dev/null 2>&1 || rc=$?
 	if [ "$rc" -ne 0 ]; then
-		printf '%s\t%s\t?\t?\t%s\n' "$short" "$branch" "$dirty"
+		printf '%s\t%s\t?\t?\t%s\t?\n' "$short" "$branch" "$dirty"
 		return 3
 	fi
 
@@ -3164,7 +3203,11 @@ factory_supervisor_position() {
 	[ -n "$behind" ] || behind='?'
 	[ -n "$ahead" ] || ahead='?'
 
-	printf '%s\t%s\t%s\t%s\t%s\n' "$short" "$branch" "$behind" "$ahead" "$dirty"
+	# The trunk's own short sha, read only once the verify above says it resolves -- so `?` in this
+	# field can only mean "the count arms could not ask git", never "the trunk moved" (the counts and
+	# this read come from the same refs; neither fetches, per H-0056).
+	base_short=$(git -C "$tree" rev-parse --short "$base_shown" 2>/dev/null) || base_short='?'
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$short" "$branch" "$behind" "$ahead" "$dirty" "$base_short"
 	return 0
 }
 
@@ -3174,9 +3217,9 @@ factory_supervisor_position() {
 # #249's remedy is to make the staleness loud, and moving a tree the timer is executing from is
 # editing a script while bash is reading it. That stays a human act.
 factory_supervisor_lines() {
-	local tree=$1 rc=0 pos='' sha='' branch='' behind='' ahead='' dirty='' base=''
+	local tree=$1 rc=0 pos='' sha='' branch='' behind='' ahead='' dirty='' base_sha='' base=''
 	pos=$(factory_supervisor_position "$tree") || rc=$?
-	IFS=$'\t' read -r sha branch behind ahead dirty <<EOF
+	IFS=$'\t' read -r sha branch behind ahead dirty base_sha <<EOF
 $pos
 EOF
 	base=$(factory_supervisor_base)
@@ -3186,7 +3229,12 @@ EOF
 		printf 'SUPERVISOR-UNKNOWN git could not read %s, so the code this pass is running is not known\n' "$tree"
 		return 0
 	fi
-	printf 'SUPERVISOR-AT %s dirty=%s\n' "$sha" "$dirty"
+	# `main=` and `behind=` are the pair #342 ask 4 asked for: one line that says both what the
+	# activation is running and where the trunk stands, so a leg can pin the comparison instead of
+	# grepping two lines for it. `?` on both when the trunk ref does not resolve -- the NOBASE arm
+	# below is what explains that pair, and the AT line still prints its sha, for the reason the
+	# NOBASE legs state: the sha identifies the code even when the trunk is invisible to it.
+	printf 'SUPERVISOR-AT %s dirty=%s main=%s behind=%s\n' "$sha" "$dirty" "$base_sha" "$behind"
 	if [ "$behind" = '?' ]; then
 		printf 'SUPERVISOR-NOBASE %s cannot be resolved in %s, so the loop cannot say whether it is running merged code\n' \
 			"$base" "$tree"
@@ -3288,8 +3336,9 @@ factory_installed_tree() {
 
 	# Every `ExecStart=` line, value only: `sub` takes the assignment away, then systemd's own execution
 	# prefixes (`-` ignore-failure, `@`, `+`, `:`) go so `/bin/sh` is not read as a prefix. Nothing here
-	# interprets quoting -- a unit whose ExecStart is quoted is not this generator's, and lands in the
-	# exit-3 arm with its raw text, which is the honest answer.
+	# interprets quoting or word-splitting -- a unit whose ExecStart is quoted, or carries an
+	# interpreter or arguments, is not this generator's, and lands in the exit-3 arm with its raw
+	# text, which is the honest answer.
 	values=$(awk '/^[[:space:]]*ExecStart[[:space:]]*=/ { sub(/^[^=]*=/, ""); sub(/^[-@+!:]+/, ""); print }' \
 		"$file" 2>/dev/null) || return 4
 	count=$(printf '%s\n' "$values" | grep -c . || true)
@@ -3298,7 +3347,15 @@ factory_installed_tree() {
 		return 3
 	fi
 	value=$(printf '%s\n' "$values" | head -n 1)
+	# The suffix strip is only honest for a value that IS a path. An interpreter-prefixed line
+	# (`/bin/bash /tree/factory/factory.sh` -- hand-edited, or some future template) ends in the
+	# same suffix, and `${value%/factory/factory.sh}` turns `/bin/bash /tree` into a tree with
+	# rc=0 (measured 15 Nov): the position read aims git at `/bin/bash /tree`, answers `unknown`
+	# forever, and every consumer below reports the tree blind rather than foreign. systemd splits
+	# the line into argv before it execs; the generator writes one bare token (#384), so any
+	# whitespace means this is not the generator's line and the raw text is the honest answer.
 	case "$value" in
+	*[[:space:]]*) tree='' ;;
 	*/factory/factory.sh) tree=${value%/factory/factory.sh} ;;
 	esac
 	# `${value%/factory/factory.sh}` is empty only for a script at the filesystem root, which is not a
@@ -3347,6 +3404,153 @@ factory_unit_lines() {
 		;;
 	esac
 	return 0
+}
+
+# ------------------------------------------- repairing a stale installed tree (#342)
+#
+# `SUPERVISOR-STALE` printed 92 times while the loop triaged, allocated ids and halted on code 38
+# commits behind `origin/main` -- five of those commits executable harness files the running pass
+# would have used. The guard #260 shipped reads the right tree now; nothing downstream of it acted.
+# And this is the one moment acting is safe: the pass holds `factory/run/lock`, triage has only
+# read the queue and no tick has been dispatched, and the tree is clean by the same content read
+# that produced the STALE line. Waiting for a human means waiting for whoever notices a line that
+# prints every ten minutes forever.
+#
+# The repair is a `git merge --ff-only` of the trunk into the tree the *installed unit* names -- not
+# this pass's tree, which may be another checkout (H-0009; #260's whole finding). Every condition is
+# read of that tree at this instant: dirt (the #228 content reads, never `git status`, because the
+# ticket's `--porcelain` and this share a verdict and #228 measured which one is honest), a pure
+# descendant (`behind > 0` and `ahead = 0` -- never a merge commit, never a rebase of local work),
+# and git's own consent at the moment of the merge. A refusal is a verb and a token, never an
+# action: nothing here merges a dirty or divergent tree under any circumstance -- #249's quarantine
+# owns dirty trees and this path does not compete with it.
+#
+# A pass that moved the tree must stop: the merge rewrote the bytes of the script bash reads
+# incrementally, which is the documented reason #260 left the move a human act. The stop is the
+# re-exec -- exit `FACTORY_EXIT_RERUN`, and the timer's `OnUnitInactiveSec=` re-arms seconds later,
+# when the new code is what gets read. The journal line says all of that, because a reader must not
+# hunt for a pass that never ran.
+
+# The streak (#342 ask 3's memory). One ledger line, `supervisor.stale-streak`: an activation that
+# saw the installed tree behind and did not repair it adds 1; an activation that saw it current, or
+# repaired it, clears it. An activation that could not see -- no installed unit, a tree git refuses
+# to read, a trunk ref that does not resolve -- touches nothing: the count is of activations that
+# *reported* staleness and did not repair it, and one that could see nothing neither advances nor
+# erases that record. `factory_verdict` reads the word `STALE` from it once it reaches
+# FACTORY_STALE_ESCALATE. `--dry-run` writes no ledger (H-0017), so a rehearsal cannot arm the
+# verdict either.
+factory_stale_tally() { # factory_stale_tally <refusal token>
+	local n
+	n=$(( $(factory_ledger_int supervisor stale-streak) + 1 ))
+	factory_ledger_set supervisor stale-streak "$n"
+	factory_ledger_set supervisor stale-reason "$1"
+}
+
+factory_stale_reset() {
+	factory_ledger_set supervisor stale-streak 0
+	factory_ledger_clear supervisor stale-reason
+}
+
+# factory_supervisor_repair [UNIT_FILE]
+#   Prints the pass's sentences about the repair (the caller logs them; same shape as
+#   `factory_unit_lines`). Returns:
+#     0                  the pass continues: nothing behind, repair refused (the line says which
+#                        condition), no installed tree to repair, dry-run, or nothing git allowed
+#     $FACTORY_EXIT_RERUN the tree the unit execs is now at the trunk; the caller MUST exit with
+#                        that code before anything else reads the tree
+factory_supervisor_repair() {
+	local file=${1:-}
+	[ -n "$file" ] || file="$(factory_units_dir)/$(factory_service_unit)"
+	local installed='' rc=0 pos='' sha='' branch='' behind='' ahead='' dirty=''
+	local old8='' new8='' moved='' ffwhy=''
+	installed=$(factory_installed_tree "$file") || rc=$?
+	case "$rc" in
+	0) ;;
+	*)
+		# 1/3/4: the unit names no tree this pass could name, or names one that is not this
+		# harness's. There is nothing to repair, and `UNIT-UNINSTALLED`/`UNIT-FOREIGN`/
+		# `UNIT-UNREADABLE` already said which -- the streak stays untouched, per the rule above.
+		return 0
+		;;
+	esac
+
+	rc=0
+	pos=$(factory_supervisor_position "$installed") || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		# An unreadable or trunk-blind tree is not a tree to move; `SUPERVISOR-UNKNOWN`/
+		# `SUPERVISOR-NOBASE` are that tree's sentences and the streak stays untouched.
+		return 0
+	fi
+	# The trunk sha is the AT line's field, not the repair's: the merge targets the remote-tracking
+	# ref itself, so the sixth tab field is read away rather than held unused.
+	IFS=$'\t' read -r sha branch behind ahead dirty _ <<EOF
+$pos
+EOF
+	if [ -n "${behind//[0-9]/}" ] || [ -n "${ahead//[0-9]/}" ] || [ -n "${dirty//[0-9]/}" ]; then
+		# A position git would not count is a position to act on even less than one it counted:
+		# `factory_supervisor_lines` already prints that tree's own `SUPERVISOR-UNKNOWN` sentence,
+		# and the streak stays untouched -- this activation saw nothing about staleness one way or
+		# the other. The counts are digits or `?` by contract; this arm is the belt to that
+		# suspenders. The test is NON-empty after stripping digits -- a stripped-EMPTY field is a
+		# counted one. It read `-z` until this function's first live leg caught it answering every
+		# clean behind tree with the silent rc=0 of a counted current one (15 Nov): inverted, the
+		# belt silently disconnected the very repair the issue was filed to install.
+		return 0
+	fi
+	if [ "$behind" = "0" ]; then
+		factory_stale_reset
+		return 0
+	fi
+	if [ "$dirty" != "0" ]; then
+		factory_stale_tally "dirty=$dirty"
+		printf 'SUPERVISOR-FF-REFUSED dirty=%s tree=%s -- %s holds uncommitted work; #249'"'"'s quarantine owns a dirty tree and this path will not compete with it\n' \
+			"$dirty" "$installed" "$installed"
+		return 0
+	fi
+	if [ "$ahead" != "0" ]; then
+		factory_stale_tally "diverged ahead=$ahead"
+		printf 'SUPERVISOR-FF-REFUSED diverged ahead=%s tree=%s -- %s holds %s %s %s does not; a fast-forward is not available on a fork, and merging or rebasing a tree the timer execs is not this pass'"'"'s to do\n' \
+			"$ahead" "$installed" "$branch" "$ahead" "$(factory_plural "$ahead")" "${FACTORY_BASE:-main}"
+		return 0
+	fi
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  git -C %s merge --ff-only origin/%s\n' "$installed" "${FACTORY_BASE:-main}"
+		return 0
+	fi
+	old8=$sha
+	if ! moved=$(git -C "$installed" merge --ff-only "refs/remotes/origin/${FACTORY_BASE:-main}" 2>&1); then
+		# Conditions all said fast-forward and git disagreed -- the index is locked, a merge state
+		# is pending, the tree moved under the read. Whatever git's reason is, the tree did not
+		# move, and the line quotes it: this is the arm that distinguishes "not safe" from "git
+		# refused anyway", and a reader should never have to re-run the merge to learn which.
+		#
+		# git's LAST line is not its reason: measured 15 Nov against a locked index, the refuse
+		# prints `error: Unable to create '…index.lock'` first, a three-paragraph hint after it,
+		# and `Updating 568f92b..2fc8ebd` last -- the operation's own header, the one line that
+		# explains nothing. So the quote is the first `error:`/`fatal:` line, and the last line is
+		# only the fallback for a git that wrote neither (a signal-killed merge writes nothing).
+		ffwhy=$(printf '%s\n' "$moved" | { grep -E '^(error|fatal):' || true; } | head -n 1)
+		[ -n "$ffwhy" ] || ffwhy=$(printf '%s\n' "$moved" | { grep -v '^[[:space:]]*$' || true; } | tail -n 1)
+		ffwhy=${ffwhy:0:160}
+		factory_stale_tally "not-ff-only"
+		printf 'SUPERVISOR-FF-REFUSED not-ff-only tree=%s -- every condition held and git still refused the fast-forward (%s); the tree was not moved\n' \
+			"$installed" "${ffwhy:-git wrote no error line at all, which is what a signal-killed merge does}"
+		return 0
+	fi
+	new8=$(git -C "$installed" rev-parse --short HEAD 2>/dev/null) || new8='?'
+	if [ "$new8" = "$old8" ]; then
+		# The merge reported success and HEAD did not move: the tree's position changed under this
+		# read (another actor is here). Nothing to claim, nothing to repair -- say so, leave the
+		# streak alone (this activation did not fail to repair; there was nothing left to repair
+		# when the merge ran), and let the pass continue on code it did not move.
+		printf 'SUPERVISOR-FF-REFUSED not-ff-only tree=%s -- the merge ran but HEAD did not move (%s), so another actor is changing this tree; nothing was claimed\n' \
+			"$installed" "$old8"
+		return 0
+	fi
+	factory_stale_reset
+	printf 'SUPERVISOR-FF %s -> %s commits=%s tree=%s -- fast-forwarded the tree the installed unit execs to origin/%s; this pass stops here with exit %s and started no tick, the next activation (OnUnitInactiveSec=, seconds away) runs the merged code\n' \
+		"$old8" "$new8" "$behind" "$installed" "${FACTORY_BASE:-main}" "$FACTORY_EXIT_RERUN"
+	return "$FACTORY_EXIT_RERUN"
 }
 
 # ------------------------------------------- where the journal was, and whether this pass moved it (#260)

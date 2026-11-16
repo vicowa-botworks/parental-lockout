@@ -12041,6 +12041,23 @@ installed_tree_refuses_to_guess() {
 	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
 	[ "$rc" -eq 3 ] || { pos_say "a foreign ExecStart answered rc=$rc, want 3"; return 1; }
 	[ "$got" = '/usr/bin/true --serve' ] || { pos_say "the raw ExecStart was not passed through: '$got'"; return 1; }
+	# The more convincing foreign unit: an interpreter prefix on exactly the harness shape. Stripping
+	# the `/factory/factory.sh` suffix off the whole line invents the tree `/bin/bash <path>` -- and
+	# it ends in the right suffix, so an unanchored strip answers it rc=0 with a tree no git can open
+	# (measured 15 Nov by the #342 fixture, whose unit carried `/bin/bash`: the repair then took its
+	# silent `unreadable tree` return and nine legs read the silence of a current tree).
+	pos_unit_exec "ExecStart=/bin/bash $pos_stale/factory/factory.sh"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "an interpreter-prefixed ExecStart answered rc=$rc, want 3"; return 1; }
+	[ "$got" = "/bin/bash $pos_stale/factory/factory.sh" ] || {
+		pos_say "the interpreter line was not passed through raw: '$got'"
+		return 1
+	}
+	pos_unit_exec "ExecStart=/bin/bash $pos_stale/factory/factory.sh --status"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "an interpreter-and-argument ExecStart answered rc=$rc, want 3"; return 1; }
 	# Two `ExecStart=` lines -- a hand-written unit, or one with a drop-in. Which checkout the loop runs
 	# is not knowable from two answers, so this refuses to choose and prints both.
 	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh" "ExecStart=$pos_current/factory/factory.sh"
@@ -12940,9 +12957,265 @@ unit_deadlines() {
 	# Last, because it borrows `$gen_tree` and hands it back: the fixture itself gets a plant, aimed
 	# at the one thing every leg above depends on.
 	gen_control_unarmed
+	gen_tree=$gen_root
 	return 0
 }
 unit_deadlines
+
+# ------------------------------------------------- the unit's success codes (#342, review of 674d0de)
+#
+# `SuccessExitStatus=` is the unit's whole answer to "did the pass do what it was told", and it lists
+# two codes now: the halt's 8 (#246) and the stale-tree repair's 9 (H-0194). systemd parses that value
+# as a list separated by SPACES -- `systemd.service(5)` says so in words -- and a comma does not
+# reject one element, it discards the assignment. Measured on this box (systemd 259.9) against two
+# renderings of the shipped template, both written to a `*.service` filename because
+# `systemd-analyze verify` refuses anything else:
+#
+#	SuccessExitStatus=8,9  ->  `unit.service:57: Failed to parse value, ignoring: 8,9`   (rc 0)
+#	SuccessExitStatus=8 9  ->  no complaint                                               (rc 0)
+#
+# So the comma form un-lists 8 along with 9 and a deliberate halt reads
+# `Failed with result 'exit-code'` again -- the exact defect #246 added this line to stop, re-created
+# by re-running the installer. Two consequences for a gate: the parse failure EXITS 0, so the verdict
+# is the text and never the status; and a leg that greps `install-timer.sh` for the string it wrote
+# cannot see any of this, because the string is exactly what the template says. Hence rendering
+# through the generator, like every leg above, and then asking systemd to load the result.
+#
+# The leg also proves its own probe has teeth in the same run: it writes a second copy of the same
+# rendered unit with the separator changed to a comma and refuses if systemd loads THAT one without
+# complaining. A box where the fixture cannot fail is a box where the ok certifies nothing, and this
+# failure mode is silent in both directions.
+exit_code_of() { # <VAR> -> the code as `common.sh` states it, never a literal repeated here
+	sed -n "s/^$1=\([0-9][0-9]*\).*/\1/p" "$HERE/common.sh" | head -n 1
+}
+
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
+leg_success_exit_status_parses() {
+	local v tok halt rerun d good bad out
+	v=$(deadline_value "$gen_svc" SuccessExitStatus)
+	if [ -z "$v" ]; then
+		printf '            the rendered unit lists no SuccessExitStatus at all, so a deliberate halt\n' >&2
+		printf '            and a stale-tree re-exec both read as `Failed with '"'"'exit-code'"'"'`: the\n' >&2
+		printf '            defect #246 added this line to stop, wearing H-0194'"'"'s number.\n' >&2
+		return 1
+	fi
+	halt=$(exit_code_of FACTORY_EXIT_HALT)
+	rerun=$(exit_code_of FACTORY_EXIT_RERUN)
+	if [ -z "$halt" ] || [ -z "$rerun" ]; then
+		return 2
+	fi
+	case "$v" in
+	*,*)
+		printf '            SuccessExitStatus=%s. systemd separates statuses with SPACES, and on a\n' "$v" >&2
+		printf '            comma it ignores the ENTIRE value -- measured here: "Failed to parse\n' >&2
+		printf '            value, ignoring: 8,9", at exit 0. Neither code is listed then, so the\n' >&2
+		printf '            halt regresses along with the repair.\n' >&2
+		return 1
+		;;
+	esac
+	for tok in $v; do
+		is_a_number "$tok" || {
+			printf '            SuccessExitStatus=%s holds `%s`, which is not an exit status: the same\n' "$v" "$tok" >&2
+			printf '            ignore-the-whole-value path as a comma, and the same silence.\n' >&2
+			return 1
+		}
+	done
+	for tok in "$halt" "$rerun"; do
+		case " $v " in
+		*" $tok "*) ;;
+		*)
+			printf '            SuccessExitStatus=%s does not list %s -- that is the code a deliberate\n' "$v" "$tok" >&2
+			printf '            stop exits with, and the unit reading it as a crash is the whole reason\n' >&2
+			printf '            the line exists.\n' >&2
+			return 1
+			;;
+		esac
+	done
+	if ! command -v systemd-analyze >/dev/null 2>&1; then
+		printf '        note: systemd-analyze is not in this tree, so the parser was not asked -- the\n'
+		printf '              separator and the two codes above are all this leg could check here.\n'
+		return 0
+	fi
+	d=$work/verify-exit-status
+	mkdir -p -- "$d" || return 1
+	cp -- "$gen_svc" "$d/plock-good.service" || return 1
+	sed '/^SuccessExitStatus=/ s/[[:space:]]\{1,\}/,/g' "$gen_svc" >"$d/plock-bad.service" || return 1
+	good=$(systemd-analyze verify "$d/plock-good.service" 2>&1 || true)
+	if printf '%s\n' "$good" | grep -q 'Failed to parse value'; then
+		printf '            systemd refuses the SHIPPED rendering:\n' >&2
+		printf '%s\n' "$good" | grep 'Failed to parse value' | sed 's/^/              /' >&2
+		printf '            -- and it says so at exit 0, which is why this leg reads the text.\n' >&2
+		return 1
+	fi
+	bad=$(systemd-analyze verify "$d/plock-bad.service" 2>&1 || true)
+	if ! printf '%s\n' "$bad" | grep -q 'Failed to parse value'; then
+		printf '            the fixture, not the unit: a comma-separated copy of this very unit loaded\n' >&2
+		printf '            without a complaint, so "systemd is happy" would be no evidence at all.\n' >&2
+		printf '            Either systemd stopped rejecting this value or the plant missed the line:\n' >&2
+		printf '%s\n' "$bad" | sed 's/^/              /' | head -n 4 >&2
+		return 1
+	fi
+	return 0
+}
+
+unit_exit_status_codes() {
+	local saved=$gen_tree rc=0
+	if [ ! -f "$HERE/install-timer.sh" ]; then
+		printf '  SKIP  %-40s install-timer.sh is not in this tree\n' "the unit's two success codes"
+		return 0
+	fi
+	# Its own fixture rather than the one `unit_deadlines` left behind: the bargain in that section is
+	# that a refusal to render is a FAIL, and it stays a FAIL only if the fixture is built here, where
+	# the leg that reads it can say so.
+	gen_tree=$work/genrepo-exits
+	if ! gen_setup "$gen_tree" 1; then
+		gen_tree=$saved
+		printf '  SKIP  %-40s the throwaway generator could not be built in %s\n' \
+			"the unit's two success codes" "$work"
+		return 0
+	fi
+	gen_dry_run "$HERE/install-timer.sh" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		gen_tree=$saved
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the generator refused its own fixture (exit %s),\n' \
+			"the unit's two success codes" "$rc"
+		printf '          so nothing was rendered to ask: %s\n' "$(sed -n '1,1p' "$gen_err")"
+		return 0
+	fi
+	gen_split
+	gen_leg 'both success codes are listed' \
+		'space-separated statuses, both codes from common.sh' \
+		leg_success_exit_status_parses
+	gen_control 'the two codes comma-separated' "$work/ctrl-comma" \
+		's/^SuccessExitStatus=@HALT_EXIT@ @RERUN_EXIT@$/SuccessExitStatus=@HALT_EXIT@,@RERUN_EXIT@/' \
+		leg_success_exit_status_parses
+	gen_tree=$saved
+	return 0
+}
+unit_exit_status_codes
+
+# --------------------------------------- every reader of the position row takes every field (#342 item 2)
+#
+# `factory_supervisor_position` answers six tab-separated fields, and `read` gives the LAST name the
+# rest of the line. Five names therefore do not drop the sixth field, they HIDE it inside the fifth
+# variable: on this branch's own head the row for the tree the installed unit execs is
+# `674d0de<TAB>issue-342<TAB>25<TAB>2<TAB>0<TAB>535e80c`, so `pos_dirty` held `0<TAB>535e80c`,
+# `[ "$pos_dirty" = "0" ]` was false, and the installer refused a clean tree as dirty while printing
+# `0 535e80c uncommitted`. The guards that decide anything read fields 3 and 4, which stay aligned --
+# that is why 691 legs were green over it: the two verdicts were right and only the sentences about
+# them were wrong, and no leg pins a sentence. So the pin here is not those two lines but the COUNT,
+# read off the row's own format strings in `common.sh`: a seventh field added tomorrow reddens this leg
+# until every reader is updated, which is the class the review asked about ("no leg pins these arms").
+#
+# The scope is `install-timer.sh` on purpose. It is the file the review names and the one whose reads
+# were the miss; elsewhere the row is read once per printed sentence and each of those sentences has a
+# leg of its own (the AT line's `main=`/`behind=` pair is one), so a slip there shows up as a wrong
+# journal line in a leg, not as silence.
+supervisor_row_fields() { # -> how many fields the position row prints, counted off common.sh's own printf
+	local f c counts
+	counts=$(awk '/^factory_supervisor_position\(\) \{/,/^\}/' "$HERE/common.sh" |
+		sed -n "s/^[[:space:]]*printf '\([^']*\)'.*/\1/p" |
+		while IFS= read -r f; do
+			c=$(printf '%s' "$f" | grep -o '\\t' | wc -l)
+			printf '%s\n' "$((c + 1))"
+		done)
+	[ -n "$counts" ] || return 1
+	[ "$(printf '%s\n' "$counts" | sort -u | wc -l)" -eq 1 ] || return 2
+	printf '%s\n' "$counts" | head -n 1
+}
+
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg
+leg_readers_take_every_field() { # [install-timer.sh] -- a control may pass a planted copy
+	local f=${1:-$HERE/install-timer.sh} n rc=0 needle line names unreadable='' offenders='' seen=0
+	n=$(supervisor_row_fields) || {
+		rc=$?
+		if [ "$rc" -eq 2 ]; then
+			printf '            the row'"'"'s own printf arms disagree about how many fields there are,\n' >&2
+			printf '            so "read the whole row" has no answer and every reader is guessing.\n' >&2
+		else
+			printf '            no row format could be read out of `factory_supervisor_position` -- the\n' >&2
+			printf '            function changed shape, and the readers below are unpinned: it still\n' >&2
+			printf '            prints a tab-separated row, but not one this leg can count.\n' >&2
+		fi
+		return 1
+	}
+	needle="IFS=\$'\t' read -r"
+	while IFS= read -r line; do
+		seen=$((seen + 1))
+		names=$(printf '%s\n' "$line" | sed -n 's/.*read -r \(.*\) <<.*/\1/p' | wc -w)
+		names=${names//[[:space:]]/}
+		# Empty or non-numeric means the sed matched none of the line, so there is nothing to count.
+		# The polarity here was inverted in the first draft -- `[ -z "${names//[0-9]/}" ]` is TRUE for
+		# `6`, which is the whole answer `wc -w` prints -- and the shipped, correct file was the control
+		# that said so: a leg that refuses the clean tree is worse than no leg, because the next one to
+		# hit it edits the leg, not the bug.
+		case $names in
+		'' | *[!0-9]* | 0)
+			unreadable="$unreadable    $line\n"
+			continue
+			;;
+		esac
+		[ "$names" -eq "$n" ] || offenders="$offenders    $names of $n fields: ${line#*read -r }\n"
+	done < <(grep -Fn -- "$needle" "$f" || true)
+	if [ "$seen" -eq 0 ]; then
+		printf '            `%s` reads no tab-separated row anywhere in %s -- either every reader\n' "$needle" "${f##*/}" >&2
+		printf '            became something else, or the needle stopped matching. Either way this leg\n' >&2
+		printf '            is green because it is blind, which is the failure it exists to refuse.\n' >&2
+		return 1
+	fi
+	if [ -n "$unreadable" ]; then
+		printf '            these reads are not the shape this leg can count (`read -r <names> <<`):\n' >&2
+		printf '%b' "$unreadable" >&2
+		printf '            the row is still being split there; update the leg so the count is checked.\n' >&2
+		return 1
+	fi
+	if [ -n "$offenders" ]; then
+		printf '            the row carries %s fields and `read` gives the LAST name the rest of the\n' "$n" >&2
+		printf '            line, so a short read does not lose a field, it buries one in the variable\n' >&2
+		printf '            before it. Measured on the shipped bytes at 674d0de: the dirty flag became\n' >&2
+		printf '            `0<TAB>535e80c`, a clean tree was refused as dirty, and the guard above the\n' >&2
+		printf '            refusal never noticed because fields 3 and 4 stay aligned.\n' >&2
+		printf '%b' "$offenders" >&2
+		return 1
+	fi
+	return 0
+}
+
+readers_take_every_field() { # the leg, with a plant that buries the sixth field again
+	local dir=$work/ctrl-row copy rc=0
+	if [ ! -f "$HERE/install-timer.sh" ]; then
+		printf '  SKIP  %-40s install-timer.sh is not in this tree\n' "every reader takes every field"
+		return 0
+	fi
+	gen_leg 'every reader takes every field' \
+		"the count off common.sh's row, every read in install-timer.sh" \
+		leg_readers_take_every_field
+	mkdir -p -- "$dir" || return 1
+	copy=$dir/install-timer.sh
+	sed 's/ pos_dirty _ <</ pos_dirty <</' "$HERE/install-timer.sh" >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy could not be written\n' "control: the sixth name deleted"
+		return 0
+	}
+	if cmp -s "$copy" "$HERE/install-timer.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant changed nothing: the read it\n' "control: the sixth name deleted"
+		printf '          aims at is not the shipped line, so the ok above counts names in a file\n'
+		printf '          this control cannot break.\n'
+		return 0
+	fi
+	if leg_readers_take_every_field "$copy" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the leg accepted a five-name read of a\n' "control: the sixth name deleted"
+		printf '          six-field row, which is the exact bug the review found at 674d0de.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses the read that buries the base sha\n' "control: the sixth name deleted"
+	printf '          in the dirty flag -- the shipped defect, replanted.\n'
+	return 0
+}
+readers_take_every_field
 
 # ------------------------------------------------------------ decision ids across refs (#253)
 #
@@ -16089,6 +16362,772 @@ case "$no_branch" in
 		'a stop with no branch' "${no_branch:0:96}"
 	;;
 esac
+
+# ------------------------------------ what the loop DOES with a stale installed tree (#342)
+#
+# `SUPERVISOR-STALE` printed 92 times across 13h20m while the pass triaged, allocated ids and
+# halted on code 38 commits behind `origin/main` -- five of those commits executable harness files.
+# The guard (#260) read the right tree; nothing acted on the line. This section pins the acting, the
+# refusing, the streak that makes a refused repair a verdict word, and the exit the unit is told to
+# accept. Conditions pinned, each with the plant that must red it where a plant can exist:
+#
+#   the repair   a clean pure-descendant tree moves (`git rev-parse` answers the trunk's sha after,
+#                not a grep of a sentence), the pass's exit is FACTORY_EXIT_RERUN, and the streak
+#                clears -- control: the same function with the rerun return flattened to 0, which
+#                the leg refuses on the exit code alone.
+#   the refusals dirty=N, diverged ahead=N, not-ff-only: each names its condition in the token,
+#                leaves HEAD exactly where it was, and streaks; controls delete the dirty arm and
+#                the fork arm, which must red their legs -- the wrong token is the witness.
+#   the sight    an activation that could not SEE (no unit, unreadable tree) neither advances nor
+#                clears the streak; a current tree clears it; `--dry-run` writes no ledger at all
+#                (H-0017) -- control: the ledger guard with its DRY_RUN arm deleted.
+#   the verdict  `STALE` from the streak at FACTORY_STALE_ESCALATE, STALLED asked first, HALTED
+#                above both -- control: the plant that hoists STALE above STALLED.
+#   the shape    the harness tree is fetched before its position is read, the repair runs before
+#                the first tick, and the primary-checkout fetch stays inside the not-equal guard --
+#                the shape-pinning style of the section above (a whole pass reads GitHub, which no
+#                leg may do), so the plant moves the fetch behind the read.
+#
+# Not pinned, once and honestly: the arm where `git merge --ff-only` returns success and HEAD has
+# not moved. It needs a second actor mid-merge; a fixture cannot stage one without racing a copy
+# instead of the shipped function.
+#
+# shellcheck disable=SC2317  # every predicate below is reached through gen_leg's argument
+
+r342_work=$work/stale-tree
+r342_err=$work/stale-tree.err
+
+# The fixture #342 describes: a bare origin, a harness clone parked two commits behind it, clean; a
+# unit file naming exactly that tree; and an isolated FACTORY_DIR so the streak ledger never touches
+# a real one. The bare origin authors no commits and carries an identity, per the note above.
+r342_fixture() { # <dir> -> 0 when the fixture is standing
+	local d=$1 i
+	# Built fresh every call: a control re-runs its leg's predicate over the SAME leg name, and a
+	# clone that finds a leftover working tree refuses to clone and the control reads as a pass.
+	rm -rf -- "$d" || return 1
+	mkdir -p -- "$d" || return 1
+	git init -q --bare "$d/origin.git" || return 1
+	git --git-dir="$d/origin.git" config user.email fixture@invalid || return 1
+	git --git-dir="$d/origin.git" config user.name fixture || return 1
+	git --git-dir="$d/origin.git" symbolic-ref HEAD refs/heads/main || return 1
+	# The bare carries an identity and its HEAD names `main`: a default-`master` bare repo whose
+	# first pushed branch is `main` leaves HEAD on a nonexistent ref, and the harness clone below
+	# would check out nothing and read `unknown` to every position call. The identity lines sit
+	# inside the three-line window `pos_unconfigured_repos` scans, comments included -- H-0059.
+	git clone -q "$d/origin.git" "$d/seed" >/dev/null 2>&1 || return 1
+	git -C "$d/seed" config user.email fixture@invalid || return 1
+	git -C "$d/seed" config user.name fixture || return 1
+	# A clone of an EMPTY bare repo lands on the clone's own default branch, which is `master` on
+	# this box's git and `main` on others -- and then `push origin main` answers `src refspec main
+	# does not match any` (measured 15 Nov, first smoke of this fixture). Name the branch on the
+	# unborn HEAD rather than inherit a default; the bare origin was created with `--bare` and takes
+	# whatever ref the first push supplies.
+	git -C "$d/seed" checkout -qb main || return 1
+	mkdir -p -- "$d/seed/factory" || return 1
+	printf '#!/bin/bash\n' >"$d/seed/factory/factory.sh" || return 1
+	git -C "$d/seed" add -A >/dev/null || return 1
+	git -C "$d/seed" commit -qm 'fixture: the commit the loop is running' || return 1
+	git -C "$d/seed" push -q -u origin main || return 1
+	git clone -q "$d/origin.git" "$d/harness" >/dev/null 2>&1 || return 1
+	git -C "$d/harness" config user.email fixture@invalid || return 1
+	git -C "$d/harness" config user.name fixture || return 1
+	mkdir -p -- "$d/units" "$d/factorydir/log" "$d/factorydir/ledger" || return 1
+	# The shipped template renders `ExecStart` as a BARE path (install-timer.sh:383) and
+	# `factory_installed_tree` only recognizes that shape -- an argument or an interpreter on the
+	# line is the exit-3 `UNIT-FOREIGN` arm (measured 15 Nov: this fixture wrote
+	# `/bin/bash … factory.sh --status`, the read answered a bogus tree with rc=0, every leg's
+	# repair returned the silent rc=0 of the "unreadable tree" guard, and only reading the rc of
+	# `factory_installed_tree` directly said so).
+	printf '[Unit]\nDescription=fixture unit\n[Service]\nType=oneshot\nExecStart=%s/factory/factory.sh\n' \
+		"$d/harness" >"$d/units/plock-factory.service" || return 1
+	for i in 1 2; do
+		printf 'merged %s\n' "$i" >>"$d/seed/DECISIONS.md" || return 1
+		git -C "$d/seed" add -A >/dev/null || return 1
+		git -C "$d/seed" commit -qm "fixture: merged work $i the loop is missing" || return 1
+		git -C "$d/seed" push -q origin main || return 1
+	done
+	# Sync the harness clone's remote-tracking ref. The position function counts `behind` against
+	# the refs the tree ALREADY has -- fetching is the pass body's job (factory_refresh_origin),
+	# not the read's -- so a fixture that never fetches hands every leg a tree whose origin/main
+	# still names the commit it was cloned at: behind=0, the exact staleness #342 is about, wearing
+	# our fixture's clothes (measured by this fixture's own debug pass, 15 Nov).
+	git -C "$d/harness" fetch -q origin || return 1
+	[ "$(git -C "$d/harness" rev-list --count HEAD..origin/main)" = 2 ] || return 1
+	return 0
+}
+
+# Runs the shipped function over the shipped common.sh, in the fixture's environment -- the same
+# bargain `refsh_run` makes: the subject is the file, the environment is `$FACTORY_*`, and stdout is
+# the sentences a reader of `supervisor.log` would get.
+r342_run() { # <fixture-dir> [DRY_RUN] -> stdout of `factory_supervisor_repair` with no argument
+	# The sourced file is overridable for the controls below: R342_SRC names a planted `common.sh`
+	# for the duration of one control, and nothing else in the suite ever sets it.
+	local d=$1 dry=${2:-0}
+	FACTORY_DIR=$d/factorydir FACTORY_LOG=$d/factorydir/log \
+		FACTORY_LEDGER=$d/factorydir/ledger FACTORY_RUN=$d/factorydir/run \
+		FACTORY_HALT=$d/factorydir/HALT FACTORY_UNITS_DIR=$d/units \
+		FACTORY_SERVICE_UNIT=plock-factory.service FACTORY_BASE=main \
+		FACTORY_ROOT=$d/harness DRY_RUN=$dry \
+		bash -c '. "$1"; factory_supervisor_repair' sh "${R342_SRC:-$HERE/common.sh}" 2>"$r342_err"
+}
+
+# One verdict, the same environment, the threshold the leg hands it.
+r342_verdict() { # <fixture-dir> [FACTORY_STALE_ESCALATE] -> `factory_verdict`'s line
+	local d=$1 esc=${2:-3}
+	# The knob word is a plain assignment in the env prefix, always present: `${esc:+VAR=$esc}`
+	# after a preceding `NAME=value` makes the expansion the COMMAND of that assignment (measured:
+	# `FACTORY_STALE_ESCALATE=1: command not found`), and the leg then read the silence back as an
+	# unescalated verdict. Empty is not a value the shipped code wants anyway -- it defaults itself.
+	FACTORY_DIR=$d/factorydir FACTORY_LOG=$d/factorydir/log \
+		FACTORY_LEDGER=$d/factorydir/ledger FACTORY_RUN=$d/factorydir/run \
+		FACTORY_HALT=$d/factorydir/HALT FACTORY_BASE=main \
+		FACTORY_STALE_ESCALATE=$esc \
+		bash -c '. "$1"; factory_verdict' sh "${R342_SRC:-$HERE/common.sh}" 2>"$r342_err"
+}
+
+r342_seed_streak() { # <fixture-dir> <n> <reason>
+	printf '%s\n' "$2" >"$1/factorydir/ledger/supervisor.stale-streak" || return 1
+	[ -z "${3:-}" ] || printf '%s\n' "$3" >"$1/factorydir/ledger/supervisor.stale-reason" || return 1
+	return 0
+}
+
+r342_streak() { # <fixture-dir> -> the streak as the ledger holds it, or `absent`
+	local f=$1/factorydir/ledger/supervisor.stale-streak
+	{ [ -f "$f" ] && tr -d '\n' <"$f"; } || printf 'absent\n'
+}
+
+# The exit the repair is contracted to answer with, read out of the shipped file rather than
+# repeated as a literal here (`budget_default`'s reasoning: a leg that hardcodes the number keeps
+# passing the day somebody moves it).
+r342_rerun_code() {
+	sed -n 's/^FACTORY_EXIT_RERUN=\([0-9][0-9]*\).*/\1/p' "$HERE/common.sh" | head -n 1
+}
+
+# A planted `common.sh`: the shipped file with one arm of the repair or the verdict taken out (or
+# reordered), verified to differ -- `refsh_fn`'s bargain, so the plant landed and the control is
+# aimed at a plant rather than at a sed that matched nothing.
+r342_common_planted() { # <dir> <sed expr> -> the planted file's path
+	local d=$1 expr=$2
+	mkdir -p -- "$d" || return 1
+	sed "$expr" "$HERE/common.sh" >"$d/common.sh" || return 1
+	cmp -s "$d/common.sh" "$HERE/common.sh" && return 1
+	printf '%s' "$d/common.sh"
+}
+
+r342_run_with() { # <fixture-dir> <common-sh> -> the call r342_run makes, over the given file
+	local d=$1 src=$2
+	FACTORY_DIR=$d/factorydir FACTORY_LOG=$d/factorydir/log \
+		FACTORY_LEDGER=$d/factorydir/ledger FACTORY_RUN=$d/factorydir/run \
+		FACTORY_HALT=$d/factorydir/HALT FACTORY_UNITS_DIR=$d/units \
+		FACTORY_SERVICE_UNIT=plock-factory.service FACTORY_BASE=main \
+		FACTORY_ROOT=$d/harness DRY_RUN=0 \
+		bash -c '. "$1"; factory_supervisor_repair' sh "$src" 2>"$r342_err"
+}
+
+# --------------------------------------------------------------------------- the repair, by condition
+stale_repair_moves_a_clean_behind_tree() {
+	local fx=$r342_work/move rc=0 out before after code pos rc2=0
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	before=$(git -C "$fx/harness" rev-parse HEAD)
+	# The fixture's own honesty test, in both directions: a tree that was already current would make
+	# the moved HEAD below certify nothing, and a tree git cannot count would make a refusal the
+	# subject of this leg instead of the action.
+	[ "$(r342_streak "$fx")" = "absent" ] || { pos_say 'the fixture arrived with a streak'; return 1; }
+	pos=$(FACTORY_DIR=$fx/factorydir FACTORY_LOG=$fx/factorydir/log FACTORY_BASE=main \
+		bash -c '. "$1"; factory_supervisor_position "$2"' sh "${R342_SRC:-$HERE/common.sh}" "$fx/harness" 2>>"$r342_err") || rc2=$?
+	[ "$rc2" -eq 0 ] || { pos_say 'the fixture tree is unreadable to its own position read'; return 1; }
+	[ "$(printf '%s\n' "$pos" | cut -f3)" = "2" ] || {
+		pos_say "the fixture tree is $(printf '%s\n' "$pos" | cut -f3) behind, not 2 -- the repair"
+		pos_say 'below would be refusing a tree this leg claims is a repair candidate'
+		return 1
+	}
+	[ "$(printf '%s\n' "$pos" | cut -f4)" = "0" ] || { pos_say 'the fixture tree is a fork, not a descendant'; return 1; }
+	out=$(r342_run "$fx") || rc=$?
+	code=$(r342_rerun_code)
+	[ "$rc" = "$code" ] || {
+		pos_say "the repair answered rc=$rc on the one tree every condition says to move; the pass"
+		pos_say "holds it as the re-exec contract (FACTORY_EXIT_RERUN=$code):"
+		pos_say "$out"
+		pos_say "$(cat "$r342_err" 2>/dev/null)"
+		return 1
+	}
+	after=$(git -C "$fx/harness" rev-parse HEAD)
+	[ "$after" = "$(git -C "$fx/origin.git" rev-parse main)" ] || {
+		pos_say "rc=$code and the tree did not reach the trunk: HEAD $after, origin/main"
+		pos_say "$(git -C "$fx/origin.git" rev-parse main)"
+		return 1
+	}
+	[ "$after" != "$before" ] || { pos_say 'HEAD did not move at all'; return 1; }
+	printf '%s\n' "$out" | grep -q "^SUPERVISOR-FF ${before:0:7} -> ${after:0:7} commits=2 " || {
+		pos_say "the line does not say what moved, from where, to where, in its first words: $out"
+		return 1
+	}
+	[ "$(r342_streak "$fx")" = "0" ] || {
+		pos_say "the repair completed and the streak reads $(r342_streak "$fx") -- a completed"
+		pos_say 'repair clearing nothing is how an escalation counts activations that were fixed'
+		return 1
+	}
+	return 0
+}
+
+stale_repair_rerun_return_control() {
+	local label='the rerun return flattened to 0' fx=$r342_work/ctrl-nostop planted rc=0
+	planted=$(r342_common_planted "$fx" 's/^\treturn "\$FACTORY_EXIT_RERUN"$/\treturn 0/') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the exit code.\n'
+		return 0
+	}
+	r342_fixture "$fx/tree" || { pos_say 'the control fixture could not be built'; return 1; }
+	r342_run_with "$fx/tree" "$planted" >/dev/null || rc=$?
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s still answers rc=%s, so the ok above was\n' "control: $label" "$rc"
+		printf '          never aimed at the return.\n'
+		return 0
+	fi
+	printf '  ok    %-40s the same leg refuses it on the exit code alone\n' "control: $label"
+	return 0
+}
+
+stale_repair_refuses_dirty_tree() {
+	local fx=$r342_work/dirty rc=0 out head now
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	printf 'someone is working here\n' >>"$fx/harness/DECISIONS.md" || return 1
+	printf 'untracked\n' >"$fx/harness/scratch.md" || return 1
+	head=$(git -C "$fx/harness" rev-parse HEAD)
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || {
+		pos_say "a dirty tree answered rc=$rc; #249 owns dirty trees and this pass owns its exit"
+		pos_say 'codes: a halt-shaped stop is not this arm'"'"'s to take.'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-FF-REFUSED dirty=2 ' || {
+		pos_say "no dirty=N token naming the two paths: $out"
+		return 1
+	}
+	now=$(git -C "$fx/harness" rev-parse HEAD)
+	[ "$now" = "$head" ] || { pos_say 'the tree MOVED, which is the whole refusal; HEAD now differs'; return 1; }
+	[ "$(r342_streak "$fx")" = "1" ] || {
+		pos_say "an unrepaired reported staleness streaked $(r342_streak "$fx"), not 1"
+		return 1
+	}
+	[ "$(tr -d '\n' <"$fx/factorydir/ledger/supervisor.stale-reason" 2>/dev/null)" = "dirty=2" ] || {
+		pos_say 'the streak lost its condition, so the verdict word could not name the refusal'
+		return 1
+	}
+	return 0
+}
+
+stale_repair_dirty_guard_control() {
+	local label='the dirty arm deleted' fx=$r342_work/ctrl-dirty planted rc=0 out
+	planted=$(r342_common_planted "$fx" '/if \[ "\$dirty" != "0" \]; then/,/^\tfi$/d') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the guard.\n'
+		return 0
+	}
+	r342_fixture "$fx/tree" || { pos_say 'the control fixture could not be built'; return 1; }
+	printf 'someone is working here\n' >>"$fx/tree/harness/DECISIONS.md" || return 1
+	out=$(r342_run_with "$fx/tree" "$planted") || rc=$?
+	# Without the guard the merge itself refuses (a dirty worktree blocks the checkout), so "nothing
+	# moved" could pass the plant; what the control measures is that the dirty=N token -- the
+	# condition NAMED, which is the leg's subject -- is what the plant can no longer print.
+	if printf '%s\n' "$out" | grep -q '^SUPERVISOR-FF-REFUSED dirty=1 '; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s still prints the dirty token, so the ok\n' "control: $label"
+		printf '          above is the grep being blind, not the guard working.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it loses the dirty token, which is the guard\n' "control: $label"
+	printf '          the leg above pins.\n'
+	return 0
+}
+
+stale_repair_refuses_forked_tree() {
+	local fx=$r342_work/fork rc=0 out head now
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	# `add -A`, not `commit -a`: DECISIONS.md entered the trunk in the loop's merge commits, so the
+	# two-behind harness tree has it UNTRACKED, `-a` declines to include it, and the leg would
+	# refuse a fork that was never made (measured 15 Nov: `nothing added to commit`).
+	printf 'local work\n' >>"$fx/harness/DECISIONS.md" || return 1
+	git -C "$fx/harness" add -A >/dev/null || return 1
+	git -C "$fx/harness" commit -qm 'fixture: a commit the trunk does not have' || return 1
+	head=$(git -C "$fx/harness" rev-parse HEAD)
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "a fork answered rc=$rc; only a move may answer the rerun code"; return 1; }
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-FF-REFUSED diverged ahead=1 ' || {
+		pos_say 'no diverged-ahead token, and a fork has its own sentence because it has its own'
+		pos_say 'fix, which is not a fast-forward:'
+		pos_say "$out"
+		return 1
+	}
+	now=$(git -C "$fx/harness" rev-parse HEAD)
+	[ "$now" = "$head" ] || { pos_say 'the tree MOVED -- a fork moved is a rebase of local work'; return 1; }
+	[ "$(r342_streak "$fx")" = "1" ] || { pos_say "the streak reads $(r342_streak "$fx"), not 1"; return 1; }
+	return 0
+}
+
+stale_repair_fork_guard_control() {
+	local label='the diverged arm deleted' fx=$r342_work/ctrl-fork planted rc=0 out
+	planted=$(r342_common_planted "$fx" '/if \[ "\$ahead" != "0" \]; then/,/^\tfi$/d') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the guard.\n'
+		return 0
+	}
+	r342_fixture "$fx/tree" || { pos_say 'the control fixture could not be built'; return 1; }
+	# `add -A` for the reason the leg above carries it: DECISIONS.md is untracked in a two-behind
+	# tree and `-a` writes no fork (measured 15 Nov: the control printed git's status text and
+	# `return 1`ed in silence, printing no ok line at all).
+	printf 'local work\n' >>"$fx/tree/harness/DECISIONS.md" || return 1
+	git -C "$fx/tree/harness" add -A >/dev/null || return 1
+	git -C "$fx/tree/harness" commit -qm 'fixture: a commit the trunk does not have' || return 1
+	out=$(r342_run_with "$fx/tree" "$planted") || rc=$?
+	if printf '%s\n' "$out" | grep -q '^SUPERVISOR-FF-REFUSED diverged ahead=1 '; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s still prints the diverged token, so the\n' "control: $label"
+		printf '          ok above is the grep being blind, not the guard working.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it loses the diverged token (git refuses the ff\n' "control: $label"
+	printf '          anyway -- the subject is the CONDITION, not that nothing moved).'
+	printf '\n'
+	return 0
+}
+
+stale_repair_refused_by_git_anyway() {
+	local fx=$r342_work/notff rc=0 out head now
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	# Every shipped condition still holds -- clean, behind 2, ahead 0 -- and git alone refuses: a
+	# locked index is the shape of "somebody is mid-operation in this tree". The reads that judge
+	# the conditions do not take the index lock; the merge does.
+	: >"$fx/harness/.git/index.lock" || { pos_say 'the lock fixture could not be planted'; return 1; }
+	head=$(git -C "$fx/harness" rev-parse HEAD)
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "git refused and the pass was told to stop anyway (rc=$rc)"; return 1; }
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-FF-REFUSED not-ff-only ' || {
+		pos_say "not-ff-only is the arm that separates NOT SAFE from REFUSED ANYWAY: $out"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'index.lock' || {
+		pos_say "the line does not quote git's own reason -- a reader would have to re-run"
+		pos_say 'the merge to learn why every condition held:'
+		pos_say "$out"
+		return 1
+	}
+	now=$(git -C "$fx/harness" rev-parse HEAD)
+	[ "$now" = "$head" ] || { pos_say 'the tree moved under a locked index, which git forbids'; return 1; }
+	[ "$(r342_streak "$fx")" = "1" ] || { pos_say "the streak reads $(r342_streak "$fx"), not 1"; return 1; }
+	return 0
+}
+
+stale_repair_current_tree_clears_streak() {
+	local fx=$r342_work/clear rc=0 out
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	git -C "$fx/harness" merge -q --ff-only origin/main || { pos_say 'could not bring the fixture current'; return 1; }
+	r342_seed_streak "$fx" 4 'dirty=2' || return 1
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "a current tree answered rc=$rc, so the next activation would stop"; return 1; }
+	[ -z "$out" ] || { pos_say "a current tree printed: $out -- nothing to say is the sentence"; return 1; }
+	[ "$(r342_streak "$fx")" = "0" ] || { pos_say "the streak reads $(r342_streak "$fx") after a current read"; return 1; }
+	[ ! -e "$fx/factorydir/ledger/supervisor.stale-reason" ] || {
+		pos_say 'the stale reason survived a current read, so the verdict would quote a dead refusal'
+		return 1
+	}
+	return 0
+}
+
+stale_repair_blind_activation_touches_nothing() {
+	local fx=$r342_work/blind rc=0 out
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	r342_seed_streak "$fx" 4 'not-ff-only' || return 1
+	# Arm one: nothing armed at all -- the unit file gone.
+	rm -f -- "$fx/units/plock-factory.service" || return 1
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "no unit armed answered rc=$rc; UNIT-UNINSTALLED is that sentence"; return 1; }
+	[ -z "$out" ] || { pos_say "the no-unit arm printed: $out"; return 1; }
+	[ "$(r342_streak "$fx")" = "4" ] || {
+		pos_say "an activation that saw nothing moved the streak to $(r342_streak "$fx") -- the"
+		pos_say 'count is of activations that REPORTED staleness and did not repair it'
+		return 1
+	}
+	# Arm two: a unit naming a tree that is not a git checkout -- position unreadable.
+	mkdir -p -- "$fx/ghost/factory" || return 1
+	printf '[Service]\nExecStart=%s/factory/factory.sh\n' "$fx/ghost" >"$fx/units/plock-factory.service" || return 1
+	: >"$fx/ghost/factory/factory.sh" || return 1
+	out=$(r342_run "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "an unreadable tree answered rc=$rc"; return 1; }
+	[ "$(r342_streak "$fx")" = "4" ] || {
+		pos_say "the unreadable-tree arm streaked to $(r342_streak "$fx") -- unknown counts are not refusals"
+		return 1
+	}
+	return 0
+}
+
+stale_repair_dry_run_writes_nothing() {
+	local fx=$r342_work/dry rc=0 out head
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	head=$(git -C "$fx/harness" rev-parse HEAD)
+	out=$(r342_run "$fx" 1) || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "a dry run answered rc=$rc -- a rehearsal never owns a re-exec"; return 1; }
+	printf '%s\n' "$out" | grep -qF "DRY-RUN  git -C $fx/harness merge --ff-only origin/main" || {
+		pos_say "the dry run did not print the exact command it declined to run: $out"
+		return 1
+	}
+	[ "$(git -C "$fx/harness" rev-parse HEAD)" = "$head" ] || { pos_say 'the dry run MOVED the tree'; return 1; }
+	[ ! -e "$fx/factorydir/ledger/supervisor.stale-streak" ] || {
+		pos_say 'a dry run armed the streak -- H-0017: print, do not do, in halves nobody can audit'
+		return 1
+	}
+	return 0
+}
+
+stale_repair_dry_run_ledger_control() {
+	local label='the ledger DRY_RUN guard deleted' fx=$r342_work/ctrl-dry planted rc=0
+	planted=$(r342_common_planted "$fx" '/^factory_ledger_set()/,/^\}/{/\[ "\$DRY_RUN" = "1" \] && return 0/d}') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the guard.\n'
+		return 0
+	}
+	r342_fixture "$fx/tree" || { pos_say 'the control fixture could not be built'; return 1; }
+	printf 'someone is working here\n' >>"$fx/tree/harness/DECISIONS.md" || return 1
+	# The planted file's tally arm writes the ledger even under DRY_RUN -- the leg's ledger-absence
+	# assertion has to be the thing that refuses this file.
+	FACTORY_DIR=$fx/tree/factorydir FACTORY_LOG=$fx/tree/factorydir/log \
+		FACTORY_LEDGER=$fx/tree/factorydir/ledger FACTORY_RUN=$fx/tree/factorydir/run \
+		FACTORY_HALT=$fx/tree/factorydir/HALT FACTORY_UNITS_DIR=$fx/tree/units \
+		FACTORY_SERVICE_UNIT=plock-factory.service FACTORY_BASE=main \
+		FACTORY_ROOT=$fx/tree/harness DRY_RUN=1 \
+		bash -c '. "$1"; factory_supervisor_repair' sh "$planted" >"$r342_err" 2>&1 || rc=$?
+	if [ ! -e "$fx/tree/factorydir/ledger/supervisor.stale-streak" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s wrote no streak either, so the ok above\n' "control: $label"
+		printf '          was never aimed at a ledger write.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it arms the streak on a dry run, which is the\n' "control: $label"
+	printf '          write the leg above refuses the shipped file over.\n'
+	return 0
+}
+
+# --------------------------------------------------------------------------------- the verdict word
+stale_verdict_escalates_and_orders() {
+	local fx=$r342_work/verdict out rc=0
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	printf 'PASS units=0 dry=0\n' >"$fx/factorydir/log/supervisor.log" || return 1
+	# STALE replaces IDLE at the shipped threshold, naming the count, the threshold and the
+	# condition of the last refusal -- the reader must not grep the journal to learn the defect.
+	r342_seed_streak "$fx" 3 'dirty=2' || return 1
+	out=$(r342_verdict "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "factory_verdict rc=$rc: $(cat "$r342_err")"; return 1; }
+	printf '%s\n' "$out" | grep -q 'STALE .*behind origin/main, unrepaired, for 3 consecutive activations (escalates at 3; last refusal: dirty=2)' || {
+		pos_say "a 3-streak did not answer the STALE sentence over an IDLE journal: $out"
+		return 1
+	}
+	# Below the threshold the word is still the journal's own -- the escalation must not fire on
+	# one refusal, which is the "ride out one pass whose cause clears" half of the default of 3.
+	r342_seed_streak "$fx" 2 'dirty=2' || return 1
+	out=$(r342_verdict "$fx") || rc=$?
+	printf '%s\n' "$out" | grep -q '^IDLE ' || {
+		pos_say "streak 2 answered over the same journal: $out -- STALE must wait for the knob"
+		return 1
+	}
+	# the threshold is a knob: FACTORY_STALE_ESCALATE=1 escalates the first refusal.
+	r342_seed_streak "$fx" 1 'not-ff-only' || return 1
+	out=$(r342_verdict "$fx" 1) || rc=$?
+	printf '%s\n' "$out" | grep -q 'STALE .*for 1 consecutive activations (escalates at 1; last refusal: not-ff-only)' || {
+		pos_say 'FACTORY_STALE_ESCALATE=1 did not escalate one activation: the knob is a literal'
+		pos_say "$out"
+		return 1
+	}
+	# STALLED first: the journal older than the window with a high streak is the NEWER fault -- a
+	# dead timer -- and every repair sentence is written INTO that journal, so a printing loop is
+	# never stalled; answering that outage with a word about git would point a reader at the old
+	# fault while the queue has gone silent.
+	touch -d '10 days ago' "$fx/factorydir/log/supervisor.log" || return 1
+	r342_seed_streak "$fx" 9 'dirty=2' || return 1
+	out=$(r342_verdict "$fx") || rc=$?
+	printf '%s\n' "$out" | grep -q '^STALLED ' || {
+		pos_say 'a 10-day journal under a 9-streak answered something other than STALLED: '
+		pos_say "$out -- the order STALLED-before-STALE is not decoration"
+		return 1
+	}
+	# HALTED above both: the halt is a decision somebody made on purpose and always the first word.
+	printf 'fixture: the halt is the halt\n' >"$fx/factorydir/HALT" || return 1
+	out=$(r342_verdict "$fx") || rc=$?
+	printf '%s\n' "$out" | grep -q '^HALTED ' || {
+		pos_say "a planted HALT yielded to the streak: $out"
+		return 1
+	}
+	# and WORKING still works: a young TICK-START journal and streak 0 say WORKING, not STALE.
+	rm -f -- "$fx/factorydir/HALT" || return 1
+	printf '0\n' >"$fx/factorydir/ledger/supervisor.stale-streak" || return 1
+	printf '%s TICK-START unit=fixture\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$fx/factorydir/log/supervisor.log" || return 1
+	out=$(r342_verdict "$fx") || rc=$?
+	printf '%s\n' "$out" | grep -q '^WORKING ' || { pos_say "a young tick answered: $out"; return 1; }
+	return 0
+}
+
+stale_verdict_order_control() {
+	local label='STALE hoisted above STALLED' fx=$r342_work/ctrl-order planted out rc=0
+	planted=$(r342_common_planted "$fx" 's/^\tif \[ "\$pass" -gt "\$FACTORY_STALL_SECS" \]; then$/\tif [ "$pass" -gt "$FACTORY_STALL_SECS" ] \&\& [ "$(factory_ledger_int supervisor stale-streak)" -lt "$FACTORY_STALE_ESCALATE" ]; then/') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the order.\n'
+		return 0
+	}
+	r342_fixture "$fx" || { pos_say 'the control fixture could not be built'; return 1; }
+	printf 'PASS units=0 dry=0\n' >"$fx/factorydir/log/supervisor.log" || return 1
+	touch -d '10 days ago' "$fx/factorydir/log/supervisor.log" || return 1
+	r342_seed_streak "$fx" 9 'dirty=2' || return 1
+	out=$(FACTORY_DIR=$fx/factorydir FACTORY_LOG=$fx/factorydir/log \
+		FACTORY_LEDGER=$fx/factorydir/ledger FACTORY_RUN=$fx/factorydir/run \
+		FACTORY_HALT=$fx/factorydir/HALT FACTORY_BASE=main \
+		bash -c '. "$1"; factory_verdict' sh "$planted" 2>>"$r342_err") || rc=$?
+	if printf '%s\n' "$out" | grep -q '^STALE '; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s prints STALE over a silent journal, so the\n' "control: $label"
+		printf '          ordering the leg above claims is not the shipped ordering.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it answers STALE where the shipped file says\n' "control: $label"
+	printf '          STALLED -- the order is the subject of the leg.\n'
+	return 0
+}
+
+# ------------------------------------------------------------------------------- the AT-line fields
+stale_position_line_carries_trunk_pair() {
+	local fx=$r342_work/atline out rc=0 base8 nb
+	r342_fixture "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	out=$(FACTORY_DIR=$fx/factorydir FACTORY_LOG=$fx/factorydir/log FACTORY_BASE=main \
+		bash -c '. "$1"; factory_supervisor_lines "$2"' sh "$HERE/common.sh" "$fx/harness" 2>>"$r342_err") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "factory_supervisor_lines rc=$rc"; return 1; }
+	base8=$(git -C "$fx/harness" rev-parse --short refs/remotes/origin/main)
+	# The pair #342 ask 4 asked for: one line that carries both the code and the trunk, so a leg
+	# pins the comparison instead of joining two lines, and `behind=N` is N now, never a stale zero.
+	printf '%s\n' "$out" | grep -qE "^SUPERVISOR-AT [0-9a-f]+ dirty=0 main=${base8} behind=2$" || {
+		pos_say "the AT line does not carry the pair: $out"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-STALE origin/main is 2 commits ahead' || {
+		pos_say 'the STALE sentence was lost: the AT line gained a pair by taking away the line'
+		pos_say 'that made this issue a line rather than an incident:'
+		pos_say "$out"
+		return 1
+	}
+	# `?` is the no-base polarity: a tree with no trunk ref prints main=? behind=?, never a zero.
+	# mktemp, not a fixed name: a leg that runs twice (a control re-run, a re-invocation) would find
+	# the same `x` already committed the second time, `git commit` would answer `nothing to commit`,
+	# and the leg would die on that `|| return 1` with no SAY line at all (measured 15 Nov).
+	nb=$(mktemp -d "$r342_work/atline-nb.XXXXX") || return 1
+	git init -q "$nb" || return 1
+	git -C "$nb" config user.email fixture@invalid || return 1
+	git -C "$nb" config user.name fixture || return 1
+	printf 'x\n' >"$nb/f" || return 1
+	git -C "$nb" add -A >/dev/null || return 1
+	git -C "$nb" commit -qm fixture >/dev/null || return 1
+	out=$(FACTORY_DIR=$fx/factorydir FACTORY_LOG=$fx/factorydir/log FACTORY_BASE=main \
+		bash -c '. "$1"; factory_supervisor_lines "$2"' sh "$HERE/common.sh" "$nb" 2>>"$r342_err") || rc=$?
+	printf '%s\n' "$out" | grep -q 'main=? behind=?' || {
+		pos_say "a trunk-blind tree printed a number where ? is the polarity: $out"
+		return 1
+	}
+	return 0
+}
+
+# -------------------------------------------------------------------------------- the pass's shape
+# The shape-pinning legs, in the style of the section above: a whole pass reads GitHub and may not
+# be run here, so these pin what the shipped body CALLS and in what order -- with a plant each.
+first_match_line() { # <file> <regex> -> the first line number that matches, empty when none does
+	# The bare idiom `l=$(grep -n R F | head -n 1 | cut -d: -f1)` is a way to kill this whole suite
+	# without naming a leg: line 69 runs `set -euo pipefail`, so an absent needle makes grep exit 1,
+	# the pipeline exit 1, the assignment exit 1, and the run dies at exit 1 with no FAIL and no
+	# verdict -- measured on a planted copy whose sed anchor had slid. It is the worst shape this
+	# class can take, because the absent needle is exactly the failure the leg exists to PRINT: the
+	# refusal written under each of those greps cannot be reached. Guarded so an absent match comes
+	# back empty and the caller's own sentence says what is missing.
+	{ grep -n -- "$2" "$1" || true; } | head -n 1 | cut -d: -f1
+}
+stale_fetch_precedes_read() { # [factory.sh] -- a control may pass a planted copy
+	local f=${1:-$HERE/factory.sh} lf lr lt sr
+	lf=$(first_match_line "$f" '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$')
+	[ -n "$lf" ] || {
+		pos_say 'the harness tree is never fetched -- the comparison runs on that tree'"'"'s own'
+		pos_say 'stale clock; #342 ask 5'
+		return 1
+	}
+	lr=$(first_match_line "$f" 'sup_repair=$(factory_supervisor_repair)')
+	{ [ -n "$lr" ] && [ "$lf" -lt "$lr" ]; } || {
+		pos_say "the harness fetch is on line $lf and the repair that compares on line ${lr:-<absent>} --"
+		pos_say 'a repair after the fetch would fast-forward an origin/main from the wrong clock'
+		return 1
+	}
+	# #331 (merged into this branch) hoisted `SUPERVISOR-AT` out of the pass body and ahead of the
+	# lock, so the fetch can no longer sit before the printed position without joining the hoisted
+	# block -- and there it would be a network call outside the pass's budget, outside
+	# `factory/run/lock`, on the halt path, and inside the one read this suite forbids to fetch
+	# (`no_fetch_in_the_verdict`). So the order pinned here is fetch-before-the-step-that-ACTS, which
+	# is what #342 ask 5 bought: `factory_supervisor_repair` reads the position again, after the
+	# fetch, for the tree it may move. The printed `behind=` is the tree's own clock, and that is
+	# #331's bargain, not an oversight of this leg.
+	sr=$(awk '/^factory_self_report\(\) \{/,/^\}/' "$f")
+	[ -n "$sr" ] || {
+		pos_say 'no factory_self_report in the shipped pass -- the hoist #331 made is gone, so'
+		pos_say 'this leg has lost the subject it re-aimed at'
+		return 1
+	}
+	printf '%s\n' "$sr" | grep -q 'factory_refresh_origin' && {
+		pos_say 'the hoisted self-report fetches: a network call outside the budget and the lock,'
+		pos_say 'on the halt path, inside the read that may never fetch'
+		return 1
+	}
+	# The pin is against the DISPATCH CALL SITE in the pass body, not the text inside
+	# `factory_tick`: the dispatch invocation lives at line 61 and line 1128 in prose and in the
+	# function body -- both above any reasonable repair line -- while what the order is about is
+	# that no tick has started when the tree moves (measured by this leg's own first smoke).
+	lt=$(first_match_line "$f" '^[[:space:]]*factory_tick "')
+	{ [ -n "$lt" ] && [ "$lr" -lt "$lt" ]; } || {
+		pos_say "the repair is on line ${lr:-<absent>} and the tick dispatch on line ${lt:-<absent>} --"
+		pos_say 'the window that makes the move safe closes at the first dispatch'
+		return 1
+	}
+	# The primary-checkout fetch stays inside the not-equal guard, so a harness-equals-checkout
+	# activation still fetches once (the cadence leg of the section above owns that count).
+	grep -q 'FACTORY_HARNESS" != "$(factory_main_checkout)' "$f" || {
+		pos_say 'the second fetch is unguarded -- every normal activation pays a duplicate'
+		pos_say 'network fetch inside its budget for a tree it just fetched'
+		return 1
+	}
+	return 0
+}
+
+stale_fetch_position_control() {
+	# Two plants, because the leg now pins two things: the fetch lands ahead of the step that acts,
+	# and the hoisted self-report stays read-only. Each plant is checked to have changed the copy AND
+	# to have landed where it says: a plant that deletes the line it meant to move changes the copy
+	# while proving nothing, and this control shipped exactly that way once -- its anchor ended in `$`
+	# while the shipped line carries ` || sup_repair_rc=$?`, so the fetch was deleted, never re-added,
+	# and the copy had no fetch to be behind the repair. Matching the line by prefix instead of to its
+	# end keeps a suffix edit from sliding the anchor; the landing check below is what catches a rename.
+	local label='the harness fetch moved behind the repair' dir=$r342_work/ctrl-fetch copy lf lr
+	mkdir -p -- "$dir" || return 1
+	copy=$dir/factory.sh
+	sed -e '/^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$/d' \
+		-e 's#^\tsup_repair=$(factory_supervisor_repair).*#\0\n\tfactory_refresh_origin "$FACTORY_HARNESS"#' \
+		"$HERE/factory.sh" >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
+		return 0
+	}
+	if cmp -s "$copy" "$HERE/factory.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant changed nothing; the leg above\n' "control: $label"
+		printf '          has stopped pinning the order.\n'
+		return 0
+	fi
+	lf=$(first_match_line "$copy" '^[[:space:]]*factory_refresh_origin "\$FACTORY_HARNESS"$')
+	lr=$(first_match_line "$copy" 'sup_repair=$(factory_supervisor_repair)')
+	if [ -z "$lf" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant landed nowhere: the copy has no harness\n' "control: $label"
+		printf '          fetch left on it, so the sed above deleted the line it was meant to\n'
+		printf '          move and never re-added it. The ok above would be a grep reading a\n'
+		printf '          file that has nothing in it -- this is the shape the anchor slid into.\n'
+		return 0
+	fi
+	if [ -z "$lr" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy has no sup_repair line to be behind,\n' "control: $label"
+		printf '          so the leg above pins an order against a line that is not in the file.\n'
+		return 0
+	fi
+	if [ "$lf" -lt "$lr" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s still fetches before the repair (line %s vs %s),\n' "control: $label" "$lf" "$lr"
+		printf '          so the ok above is the grep being blind.\n'
+		return 0
+	fi
+	if stale_fetch_precedes_read "$copy" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the predicate accepted it anyway.\n' "control: $label"
+		return 0
+	fi
+	printf '  ok    %-40s it refuses a pass whose fetch lands after the\n' "control: $label"
+	printf '          repair -- the order the leg above pins, since #331 moved the read.\n'
+	# The second plant: the fetch hoisted INTO the self-report. The order check cannot see this one
+	# (the fetch is then ahead of everything), so the leg's own read-only assertion is what has to
+	# refuse it. This is the shape a well-meant fix takes -- "the printed behind= is stale, fetch in
+	# the loop that prints it" -- and it is the shape the leg must refuse.
+	local label2='the fetch hoisted into the self-report' copy2 sr2
+	copy2=$dir/factory-hoisted.sh
+	sed -e 's#^factory_self_report() {$#factory_self_report() {\n\tfactory_refresh_origin "$FACTORY_HARNESS"#' \
+		"$HERE/factory.sh" >"$copy2" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy could not be written\n' "control: $label2"
+		return 0
+	}
+	if cmp -s "$copy2" "$HERE/factory.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant changed nothing; the assertion\n' "control: $label2"
+		printf '          has stopped pinning the block'"'"'s read-only shape.\n'
+		return 0
+	fi
+	sr2=$(awk '/^factory_self_report\(\) \{/,/^\}/' "$copy2")
+	printf '%s\n' "$sr2" | grep -q 'factory_refresh_origin' || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant did not land inside the function, so the\n' "control: $label2"
+		printf '          refusal above would be the awk being blind, not the leg working.\n'
+		return 0
+	}
+	if stale_fetch_precedes_read "$copy2" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the predicate accepted it: the fetch is then ahead\n' "control: $label2"
+		printf '          of every line, so only the read-only assertion refuses it -- and it did not.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses a self-report that fetches.\n' "control: $label2"
+	return 0
+}
+
+mkdir -p -- "$r342_work"
+gen_leg 'the clean behind tree is moved and the pass re-execs' \
+	'HEAD reaches origin/main and the exit is FACTORY_EXIT_RERUN' \
+	stale_repair_moves_a_clean_behind_tree
+stale_repair_rerun_return_control
+gen_leg 'a dirty tree is refused by condition, unmoved' \
+	'dirty=N token, HEAD unmoved, streak 1 naming the condition' \
+	stale_repair_refuses_dirty_tree
+stale_repair_dirty_guard_control
+gen_leg 'a forked tree is refused by condition, unmoved' \
+	'diverged ahead=N token; a fork is not a fast-forward' \
+	stale_repair_refuses_forked_tree
+stale_repair_fork_guard_control
+gen_leg 'git can still refuse: not-ff-only quotes git' \
+	'the separated token, git own words, the tree unmoved' \
+	stale_repair_refused_by_git_anyway
+gen_leg 'a current read clears the streak and the reason' \
+	'silence, streak 0, reason gone' \
+	stale_repair_current_tree_clears_streak
+gen_leg 'an activation that saw nothing touches neither' \
+	'no unit, unreadable tree: streak unmoved both ways' \
+	stale_repair_blind_activation_touches_nothing
+gen_leg 'dry run prints the merge and writes no ledger' \
+	'the exact declined command; no streak file (H-0017)' \
+	stale_repair_dry_run_writes_nothing
+stale_repair_dry_run_ledger_control
+gen_leg 'the verdict word STALE, and the order of the words' \
+	'escalates at the knob, STALLED first, HALTED above both' \
+	stale_verdict_escalates_and_orders
+stale_verdict_order_control
+gen_leg 'the AT line carries main= and behind= together' \
+	'the trunk short-sha and the live count; ? is the no-base polarity' \
+	stale_position_line_carries_trunk_pair
+gen_leg 'the pass fetches the harness tree before it compares' \
+	'fetch, then the repair that compares, then any tick; the hoisted read never fetches' \
+	stale_fetch_precedes_read
+stale_fetch_position_control
 
 # ---------------------------------------------------------------- the mirror of unpushed commits
 

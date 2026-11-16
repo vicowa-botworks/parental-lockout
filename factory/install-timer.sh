@@ -167,7 +167,13 @@ fi
 # the harness is installed from a linked worktree, which is what the `-x` check above tells you to do.
 pos_rc=0
 pos=$(factory_supervisor_position "$FACTORY_ROOT") || pos_rc=$?
-IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+# Six fields, and the sixth is read into the void on purpose (#342 review, item 2): `read` gives the
+# LAST variable the rest of the line, so five names make `pos_dirty` the string "0\t<base-sha>" on a
+# clean tree -- a shape that is invisible to the guards below (they ask `pos_behind`/`pos_ahead`,
+# fields 3-4, which stay aligned) and ruinous to the two sentences that print it: the refusal said
+# `..., 0 f6689ab uncommitted` about a clean tree and the `TIMER-FORCED` journal line embedded a tab
+# in the U+001F-delimited world's neighbour. Same shape as the pass body's own read of this row.
+IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty _ <<EOF
 $pos
 EOF
 pos_base=$(factory_supervisor_base)
@@ -220,7 +226,9 @@ describe_installed() {
 	ipos=$(factory_supervisor_position "$inst_tree") || irc=$?
 	case "$irc" in
 	0)
-		IFS=$'\t' read -r isha ibran ibehind iahead idirty <<EOF
+		# Six fields here too, and the same void (#342 review, item 2): this is the sentence that told
+		# an operator about a clean tree that it had "0 <sha> uncommitted" changes.
+		IFS=$'\t' read -r isha ibran ibehind iahead idirty _ <<EOF
 $ipos
 EOF
 		printf '  That tree is at %s on %s: %s %s behind %s' "$isha" "$ibran" "$ibehind" \
@@ -355,7 +363,8 @@ render() {
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
 		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
-		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
+		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g" \
+		-e "s#@RERUN_EXIT@#$(sed_replacement "$FACTORY_EXIT_RERUN")#g"
 }
 
 service_unit=$(cat <<'UNIT' | render
@@ -449,7 +458,29 @@ TimeoutStartSec=@STOP@
 # repository sees, and when it is wrong it does not merely fail to help, it points away from the cause.
 # The reason and the resume command stay in the log line, which is where the halt's content belongs; the
 # unit's job is only to say whether the pass did what it was told.
-SuccessExitStatus=@HALT_EXIT@
+#
+# The second code is the stale-tree repair's (#342, H-0194). A pass that fast-forwards the tree the
+# unit execs stops itself with FACTORY_EXIT_RERUN -- the merge replaced the bytes of the script bash
+# reads incrementally, so continuing would run a mix of old and new code -- and hands the queue to the
+# next activation, which `OnUnitInactiveSec=` fires seconds later on the merged code. That stop is a
+# decision, exactly like the halt, and it must not read as `Failed with result 'exit-code'`: this
+# line is the whole reason the halt code was added in the first place, and a repair that journalled
+# as a crash would re-create the defect #246 measured, one code later.
+#
+# Separated by SPACES, and that is not a style choice: `systemd.service(5)` says exit statuses are
+# "separated by spaces", and a comma does not degrade to one bad code, it discards the whole setting.
+# Measured on this box (systemd 259.9) on the two renderings of this very line:
+#
+#	SuccessExitStatus=8,9	  -> `unit.service:7: Failed to parse value, ignoring: 8,9`
+#	SuccessExitStatus=8 9	  -> no complaint
+#
+# and the parse failure leaves NEITHER code listed, so the comma form is a regression of exit 8 as
+# much as a no-op for exit 9: re-running the installer would hand the operator a unit where a
+# deliberate halt reads `Failed with result 'exit-code'` again -- the exact defect the paragraph
+# above exists to prevent. It also exits 0, which is why the leg `unit_exit_status_codes` renders this
+# template through its own throwaway repo and asks systemd to load the result -- and plants a
+# comma-separated copy of the same unit in the same run, refusing if systemd loads that one quietly.
+SuccessExitStatus=@HALT_EXIT@ @RERUN_EXIT@
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
