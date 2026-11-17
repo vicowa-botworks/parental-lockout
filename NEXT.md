@@ -880,3 +880,27 @@ failure wearing a number.
   `factory/next-decision-id.sh factory/DECISIONS.md` at merge time if a review proposes an id
   for you — the allocator's answer belongs to the moment it was taken (both clauses carried
   from `main`'s hand-off, `H-0232`).
+
+## What the `#362` unit shipped (branch `issue-362`, PR #434, ticks 1–2 on 2026-11-17)
+
+Appended here rather than folded into the `issue-341` header above because that header and its rows
+are that unit's hand-off and this tree inherited them by merge; the next sync re-cuts this file and
+owns the zero-loss census — **it owes the fact that nothing above this section describes `#362`**,
+which is how a carried hand-off silently becomes the tree's only self-description.
+
+- Tick 1 (`e1590b6`, `H-0240`): the undelivered-stop arm asks the ticket when the delivery read finds
+  no open pull request, so a satisfied-by-main close journals `TICK-CLOSED` and spends no budget; ten
+  legs, four controls, the whole account in the entry and in the PR body.
+- Tick 2 (`aa43c9c`, `H-0242`): the review at 12:21:07Z measured that the shipped prose lied about the
+  ledger — the `closed` arm has no `return` and the shared clean-stop tail stamps `last-tick` — and was
+  right. Chosen remedy: correct the prose, pin the ledger with a new leg
+  (`a closed ticket leaves a stamped clean ledger`, `factory/selftest.sh:22266`), reject `return 0`
+  because it deletes `TICK-DONE` and re-creates the shape `factory/common.sh`'s liveness census reads
+  as dangerous. Measured at `aa43c9c` sanitized: suite 817/0, `verify: OK`, 847 mutants apply,
+  `check-decisions` debt 546 unchanged. Control: option-2 mutant reads 816/1, sole red the new leg.
+- Owed by this unit's head, re-measurable: (1) the PR sits `CHANGES_REQUESTED` at `aa43c9c` — the
+  re-ask belongs to the supervisor's poke (`factory_request_review`), not to a unit; (2) `H-0242`
+  collides on purpose with a blind allocator read journalled by `issue-364` at 12:08:13Z — if that
+  branch commits the same id first, the merge-time duplicate rule decides, exactly as `H-0240`'s
+  precedent; (3) the four other open pull requests remain in the base-sync queue this branch only
+  re-measures, never carries.
