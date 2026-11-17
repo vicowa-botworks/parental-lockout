@@ -120,6 +120,8 @@ verify:
 	echo "==> commit-message claims"; ./scripts/check-commit-verbs.sh; \
 	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
 	echo "==> decision log"; python3 scripts/check-decisions.py; \
+	echo "==> hand-off contract"; bash scripts/check-next-md.sh --self-test; \
+	echo "==> hand-off file"; bash scripts/check-next-md.sh; \
 	echo "==> factory dirt verdict"; bash factory/selftest.sh; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
 	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test; python3 scripts/check-denies.py; \
@@ -147,6 +149,7 @@ verify:
 			fi; \
 		done; \
 	done; \
+	echo "==> fixture window guard"; ./scripts/check-fixture-window.sh; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
