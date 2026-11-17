@@ -3678,6 +3678,9 @@ proc_ticks=''
 proc_out=''
 proc_journal=''
 proc_rc=0
+# Set by `proc_kill_enable` (#364) and read by `proc_run` as the pass's `BASH_ENV`: a file that SIGKILLs
+# the supervisor at a named sentence. Empty means no trap, which is every fixture but two.
+proc_kill=''
 proc_new() {
 	local name=$1
 	proc_repo=$proc_work/$name
@@ -3720,7 +3723,13 @@ proc_run() {
 	proc_ticks=$proc_work/ticks-$tag.log
 	: >"$proc_ticks"
 	proc_rc=0
-	env PATH="$proc_bin:$PATH" \
+	# `BASH_ENV` reaches the pass only when a kill is armed (#364's two fixtures). An empty value is
+	# ignored by bash, but it is a variable this suite did not set before #364 and every other leg here
+	# starts its pass with exactly the environment it started with before, so the variable is added to
+	# the call rather than set to nothing.
+	local pass_kill=()
+	[ -z "$proc_kill" ] || pass_kill=(BASH_ENV="$proc_kill")
+	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
 		PROC_DIRTY="${proc_dirty:-}" \
@@ -5789,6 +5798,7 @@ proc_rank_run young-number 1 3
 proc_leg '…and the older one is not the lower number' \
 	'B stamped 3s ago ticked before A stamped 1s ago -- the age decides, not the key' proc_older_first 901
 
+
 # proc_mutate_sort -> the fixture's factory.sh with the age key put back the way it shipped until #307:
 # `-k2,2nr` becomes `-k2,2n`, one character, on the one line that ranks. The anchor carries the key's
 # neighbour (`-k2,2nr -k3,3n)`) because the comment above the line quotes the same flags, and a mutant
@@ -6592,6 +6602,270 @@ printf '        note: the third control is the one #263 described. Its journal e
 printf '        while the shipped dispatcher reaches B with the same failing session. So the property\n'
 printf '        "the pass continued past the quarantine" is held by TWO lines -- tree_stop returning 0\n'
 printf '        on a rescue, and the `|| rc_tick=$?` that keeps a spent tick from ending the pass.\n'
+
+# ------------------------------------- one home for the conflict stream (#364)
+
+# #351 gave `factory_worktree`'s stderr a name that says what it is, taught both arms of both call sites
+# to delete it, and kept the `-mmin +180` sweep at the top of `factory/factory.sh` for the one pass that
+# cannot delete anything: a supervisor killed between opening the stream and reading it. #364 found that
+# the sweep did not cover the arm most likely to die in that window, because the two call sites each
+# spelled out their own name. `factory_tick` wrote `$FACTORY_RUN/worktree-stderr.$$`, which the sweep
+# reads; `factory_resolve_conflict` wrote `$(mktemp)`, which lands under `$TMPDIR`, where nothing in this
+# repository ever looks. And there was no second copy: the `tr '\n' ' ' <"$worktree_err"` inside the
+# `CONFLICT-BLOCKED` line is that file's only reader, so a pass killed before the line runs has journaled
+# nothing AND preserved nothing -- the sweep's promise unmet in exactly the case it was written for. Both
+# arms now take the name from `factory_worktree_stream` (common.sh): one home, inside the swept directory.
+#
+# The legs below do not read the two arms. They run the supervisor as a process over the fixture and
+# SIGKILL it inside that window, because "is the reason still on disk, and does it still say why" is a
+# fact about a filesystem after a kill, not a fact about a line of source.
+#
+# The sweep itself is not re-measured here on purpose. The legs above already pin that a pass takes an
+# hour-old `worktree-stderr.*` out of `$FACTORY_RUN`, spares a three-minute-old one, and still matches
+# the retired `worktree-error.` name. #364 changes only which directory the conflict arm writes, so what
+# composes into the fix is "the sweep reads $FACTORY_RUN" (pinned above) and "the conflict stream lives
+# in $FACTORY_RUN" (pinned below, in the state where it is the difference).
+
+# The kill, as a file `proc_run` hands the pass through `BASH_ENV`. `set -o functrace` is what carries
+# the trap INTO `factory_resolve_conflict` -- without it the trap is silent inside every function and the
+# leg would report a fix it never exercised. The `case` on `$0` is the trigger's bounds: only the
+# supervisor's own file may pull it, so the child `bash` running `triage.sh` -- whose `$0` is its own
+# name -- cannot fire on the queue row that says `CONFLICTING`. The needle has to be in
+# `$BASH_COMMAND`, so the kill lands at one sentence and not at the first thing that mentions the class.
+# A DEBUG trap fires BEFORE the command runs, which is the whole point: firing after `CONFLICT-BLOCKED`
+# would test a window where the reason has already been journaled, and the window the sweep exists for is
+# the one before it. `kill -9 $$` cannot be trapped, swept or `set -e`d past. Measured on this machine's
+# bash 5.3.9 before it was written into a fixture: the trap fires on that line inside a function, the
+# pass dies at 137, and the stream file the line was about to read is still in the directory.
+proc_kill_enable() { # <needle> -- SIGKILL the pass at the first supervisor command carrying needle
+	local f=$proc_work/kill-trap.sh
+	cat >"$f" <<KILLTRAP
+set -o functrace
+trap 'case \$0 in *factory.sh) case \$BASH_COMMAND in *$1*) kill -9 -- "\$\$" ;; esac ;; esac' DEBUG
+KILLTRAP
+	proc_kill=$f
+}
+
+# The state that makes `factory_worktree` refuse, in the box built last: the branch exists locally, it is
+# checked out in a tree this supervisor did not build, and `$FACTORY_TREES/issue-900` does not exist -- so
+# the arm cannot take its early return and must reach `die`. A live session holding its own worktree is
+# precisely how that happens in the field: AGENTS.md tells a unit to work in `../wt/<branch>` and remove
+# the tree only when the branch merges. The refusal is also the one sentence this component writes with
+# no second copy anywhere, because `die` inside a command substitution dies the subshell: the words can
+# survive only in the stream.
+proc_branch_elsewhere() {
+	git -C "$proc_repo" branch -q issue-900 origin/main || return 1
+	proc_elsewhere=$proc_work/elsewhere-${proc_repo##*/}
+	git -C "$proc_repo" worktree add -q "$proc_elsewhere" issue-900 || return 1
+	# The precondition checked rather than assumed: a `worktree list` that does not name the other holder
+	# would let `factory_worktree` build a tree, and the pass would then reach no refusal and no kill.
+	git -C "$proc_repo" worktree list --porcelain | grep -qF -- "$proc_elsewhere"
+}
+
+# The queue row that sends pr:900 down the conflict arm. `CONFLICTING` is the only class the dispatcher
+# hands to `factory_resolve_conflict`, and `headRefName` is the branch it passes on as the one to build a
+# tree for. The row goes through the fixture's `gh pr list` so the class arrives the way a real one does:
+# out of triage's own classification, not out of a stub. `pr-open.json` is a payload shared by every box
+# in this family, so it is put back after the two runs below.
+proc_conflict_row() {
+	local oid
+	oid=$(git -C "$proc_repo" rev-parse issue-900) || return 1
+	jq -c -n --arg o "$oid" \
+		'[{number:900, title:"fixture: the pull request that does not merge", headRefName:"issue-900",
+		   isDraft:false, reviewDecision:"APPROVED", mergeable:"CONFLICTING", mergeStateStatus:"DIRTY",
+		   updatedAt:"2026-11-17T00:00:00Z", headRefOid:$o, statusCheckRollup:[]}]' \
+		>"$proc_fix/pr-open.json"
+}
+
+# Both boxes register a sibling worktree inside their own clone, and `proc_new` for the NEXT box does not
+# expect one: its cleanup removes the tree it made under `$proc_trees` and then `rm -rf`s the clone, and
+# a clone holding a registered tree outside itself answers that removal with "… is a working tree, use
+# remove --force", so the box after a conflict box would die building its own fixture. The sibling
+# therefore goes before the box does. `remove --force` while git still answers to the path; `prune` for
+# the case where a sibling's cleanup took the clone, and the registration with it, and left the
+# directory -- the registration outliving the box is the other half of the same trap, because a clone
+# with a stale entry refuses any later `worktree add`. `rm -rf` cleans neither half. A run that dies
+# between here and the call leaves nothing on the machine: the registration lives inside `$proc_repo`,
+# which the suite's own EXIT trap deletes along with `$proc_work`.
+proc_kill_teardown() {
+	if [ -n "${proc_elsewhere:-}" ]; then
+		if git -C "$proc_repo" worktree list --porcelain 2>/dev/null | grep -qF -- "$proc_elsewhere"; then
+			git -C "$proc_repo" worktree remove --force "$proc_elsewhere" 2>/dev/null || true
+		fi
+		rm -rf "$proc_elsewhere"
+		git -C "$proc_repo" worktree prune 2>/dev/null || true
+		proc_elsewhere=''
+	fi
+}
+
+# Box A -- shipped code, killed between the refusal and the journal line.
+proc_new stream-shipped
+proc_branch_elsewhere && proc_kill_planted_a=1 || proc_kill_planted_a=0
+proc_conflict_row
+proc_kill_enable CONFLICT-BLOCKED
+proc_run stream-kill-1
+proc_kill=''
+proc_kill_rc_a=$proc_rc
+proc_kill_journal_a=$proc_journal
+proc_kill_markers_a=$(proc_markers)
+# And the bytes, taken NOW: `proc_new` for the control box moves `$proc_rundir` somewhere else, and
+# where the reason was left is the thing under test. One line per surviving stream file.
+proc_kill_body_a=$(proc_markers | while IFS= read -r mk; do
+	[ -n "$mk" ] && tr '\n' ' ' <"$proc_rundir/$mk" 2>/dev/null | cut -c1-220
+done || true)
+
+proc_killed_conflict_pass_keeps_its_reason() {
+	[ "${proc_kill_planted_a:-0}" = 1 ] || {
+		printf '            the refusal could not be planted (issue-900 is not held by another tree),\n' >&2
+		printf '            so nothing below was ever blocked and nothing below was ever killed.\n' >&2
+		return 1
+	}
+	[ "$proc_kill_rc_a" = 137 ] || {
+		printf '            the pass exited %s, not 137: the kill never landed, which means the conflict\n' "$proc_kill_rc_a" >&2
+		printf '            arm never reached its `CONFLICT-BLOCKED` line -- no refusal, no window. Journal:\n' >&2
+		sed 's/^/              /' "$proc_kill_journal_a" | cut -c1-150 >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$proc_kill_journal_a" 'CONFLICT-')" ] || {
+		printf '            the journal carries a CONFLICT- line, so the pass was NOT killed inside the\n' >&2
+		printf '            window this leg is about -- it got as far as writing the verdict, which is\n' >&2
+		printf '            the state where the reason is already safe:\n' >&2
+		proc_journal_line "$proc_kill_journal_a" 'CONFLICT-' | sed 's/^/              /' >&2
+		return 1
+	}
+	local got count name body
+	got=$(printf '%s\n' "$proc_kill_markers_a" | grep . || true)
+	count=$(printf '%s\n' "$got" | grep -c . || true)
+	[ "$count" = 1 ] || {
+		printf '            the killed pass left %s stream file(s) in the run directory. The sweep cannot\n' "$count" >&2
+		printf '            have taken it -- the pass died seconds after creating it and the bound is\n' >&2
+		printf '            180 minutes -- so zero means the conflict arm wrote its reason somewhere\n' >&2
+		printf '            else, and more than one means something other than this arm is writing here.\n' >&2
+		printf '            The directory:\n' >&2
+		printf '%s\n' "${got:-(empty)}" | sed 's/^/                /' >&2
+		return 1
+	}
+	name=$got
+	case "$name" in
+	'worktree-stderr.'[1-9]*) : ;;
+	*) printf '            the surviving file is named %s, not worktree-stderr.<pid>: the sweep matches\n' "$name" >&2
+	printf '            this name and no other, so any other name is a file nothing will ever take.\n' >&2
+	return 1 ;;
+	esac
+	body=$proc_kill_body_a
+	case "$body" in
+	*'branch issue-900 is checked out in'*) : ;;
+	*) printf '            the preserved stream holds no reason -- it reads: %s\n' "${body:-(nothing)}" >&2
+	printf '            A sweep that keeps bytes containing no explanation keeps nothing: the sentence\n' >&2
+	printf '            is written by the same line that was killed, so this file is its only copy.\n' >&2
+	return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'killed conflict pass keeps its reason' \
+	'SIGKILL between the refusal and the journal line, and the reason survives to be swept' \
+	proc_killed_conflict_pass_keeps_its_reason
+
+# Box B -- the same fixture with the shipped pre-#364 line back: `mktemp`, in a directory the sweep does
+# not read. This is the line as it stood at the parent of the checkpoint, character for character; the
+# mutant is planted in the fixture's copy of factory.sh, so the run is the same run with one name
+# different -- not a different queue, not a different tree, not a different reason for being blocked.
+# The sibling goes before the next box is built, for the reason `proc_kill_teardown`'s comment gives.
+proc_kill_teardown
+
+proc_new stream-mktemp
+proc_branch_elsewhere && proc_kill_planted_b=1 || proc_kill_planted_b=0
+proc_mutate_factory 'worktree_err=$(factory_worktree_stream)' \
+	'	worktree_err=$(mktemp) # MUTANT-364' || proc_kill_control_planted=0
+proc_conflict_row
+proc_kill_enable CONFLICT-BLOCKED
+proc_run stream-kill-2
+proc_kill=''
+printf '[]\n' >"$proc_fix/pr-open.json"
+proc_kill_rc_b=$proc_rc
+proc_kill_journal_b=$proc_journal
+
+proc_mktemp_is_the_difference() {
+	if [ "${proc_kill_planted_b:-0}" != 1 ] || [ "${proc_kill_control_planted:-1}" != 1 ]; then
+		printf '            the control did not reach its state (refusal planted %s, mutant planted\n' \
+			"$([ "${proc_kill_planted_b:-0}" = 1 ] && printf 'yes' || printf 'no')" >&2
+		printf '            %s), so its empty run directory is the empty of a run that was never blocked.\n' \
+			"$([ "${proc_kill_control_planted:-1}" = 1 ] && printf 'yes' || printf 'no')" >&2
+		return 1
+	fi
+	[ "$proc_kill_rc_b" = 137 ] || {
+		printf '            the mutant pass exited %s, not 137, so it is not the same fixture as the one\n' "$proc_kill_rc_b" >&2
+		printf '            above and its silence about the stream means nothing:\n' >&2
+		sed 's/^/              /' "$proc_kill_journal_b" | cut -c1-150 >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$proc_kill_journal_b" 'CONFLICT-')" ] || {
+		printf '            the mutant journaled a verdict, so it was not killed in the window either:\n' >&2
+		proc_journal_line "$proc_kill_journal_b" 'CONFLICT-' | sed 's/^/              /' >&2
+		return 1
+	}
+	proc_no_markers 'the killed pass over the mktemp arm' || {
+		printf '            That is #364, measured. `mktemp` wrote the reason under `$TMPDIR`, where it\n' >&2
+		printf '            is still sitting -- and the sweep that exists to catch exactly this kill\n' >&2
+		printf '            searches $FACTORY_RUN, so it never saw a file it could have preserved. The\n' >&2
+		printf '            operator gets a run directory with nothing in it and a journal with nothing\n' >&2
+		printf '            in it, which is the same outage as no file at all.\n' >&2
+		return 1
+	}
+}
+proc_leg 'mktemp is the difference' \
+	'the pre-#364 arm killed at the same sentence leaves NOTHING in the swept directory' \
+	proc_mktemp_is_the_difference
+
+# The third thing the ticket asks for is that this cannot drift again: two call sites that each spell the
+# path out are how the two streams came to live apart, and a rename of the pattern would silently put the
+# conflict arm back outside the sweep while every leg above still went green -- the marker names in those
+# legs come from the arm's own writing, so they follow a rename rather than resisting one.
+proc_both_arms_name_one_stream() {
+	local tick conflict maker got
+	tick=$(grep -cF -- 'werr=$(factory_worktree_stream)' "$HERE/factory.sh" || true)
+	conflict=$(grep -cF -- 'worktree_err=$(factory_worktree_stream)' "$HERE/factory.sh" || true)
+	# A code line, not a mention: the sentence that explains why `mktemp` went away necessarily names
+	# it, and a leg that reddens on the word would be a leg someone deletes the sentence for.
+	maker=$(grep -v '^[[:space:]]*#' "$HERE/factory.sh" | grep -c 'mktemp' || true)
+	[ "$tick" = 1 ] || {
+		printf '            factory_tick takes its stream name from factory_worktree_stream %s time(s).\n' "$tick" >&2
+		return 1
+	}
+	[ "$conflict" = 1 ] || {
+		printf '            factory_resolve_conflict takes its stream name from factory_worktree_stream\n' >&2
+		printf '            %s time(s), so it is naming the file itself again.\n' "$conflict" >&2
+		return 1
+	}
+	[ "$maker" = 0 ] || {
+		printf '            factory/factory.sh calls mktemp on a code line %s time(s) again. A stream\n' "$maker" >&2
+		printf '            written to $TMPDIR is outside the sweep, which is the whole of #364.\n' >&2
+		return 1
+	}
+	# The name itself, from the shipped helper, in a scratch home: the file must sit inside the
+	# directory the sweep reads AND carry the pattern the sweep matches. Both halves of the fix are
+	# worth a sentence each -- a swept directory with an unmatched name preserves nothing, and an
+	# unmatched name in an unswept directory is #364 again.
+	got=$(FACTORY_DIR=$proc_work/stream-home FACTORY_LOG=$proc_work/stream-home/log \
+		FACTORY_LEDGER=$proc_work/stream-home/ledger FACTORY_RUN=$proc_work/stream-home/run \
+		factory_worktree_stream)
+	[ "$got" = "$proc_work/stream-home/run/worktree-stderr.$$" ] || {
+		printf '            factory_worktree_stream answered: %s\n' "$got" >&2
+		printf '            Expected %s/run/worktree-stderr.<the caller pid>.\n' "$proc_work/stream-home" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'both arms name one stream' \
+	'no call site spells the path out, and the helper names the file the sweep matches' \
+	proc_both_arms_name_one_stream
+
+printf '        note: two `Killed  env PATH=…` lines with a pid belong to the two legs above. The kill\n'
+printf '        IS the leg: the fixture SIGKILLs its own supervisor between the refusal and the journal\n'
+printf '        line. SIGKILL because it is the death being simulated -- `timeout --kill-after` delivers\n'
+printf '        it, and so does the OOM killer -- and the only one a shell cannot talk itself out of on\n'
+printf '        its way out: `kill -9` is the only way to ask the question that has no answer written by\n'
+printf '        the dying process. rc 137 is what the legs require. Those lines are not a crash.\n'
 
 # ------------------------------------------------------- the reaping a pass reports about itself (#246)
 #

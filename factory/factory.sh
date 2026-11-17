@@ -945,7 +945,10 @@ factory_resolve_conflict() {
 	# the 600 s clock -- and the next four passes then logged `CONFLICT-SKIPPED attempted Ns ago` over
 	# the one line that explained why, turning a hard block into a wait.
 	local worktree_err
-	worktree_err=$(mktemp)
+	# One home with the tick's stream, named by the same helper (#364): this used to be `mktemp`, so
+	# the reason this pass writes down landed under `$TMPDIR` while the sweep that exists for a pass
+	# killed mid-line searches `$FACTORY_RUN`. See `factory_worktree_stream` in common.sh.
+	worktree_err=$(factory_worktree_stream)
 	if ! tree=$(factory_worktree "$branch" 2>"$worktree_err"); then
 		# `factory_worktree` refuses with `die`, and a `die` inside a command substitution dies the
 		# subshell: the status reaches here, the sentence does not reach the journal (measured 6 Nov --
@@ -1063,8 +1066,10 @@ factory_tick() {
 	local unit tree log id_line werr
 	unit="$class:$(factory_slug "$key")"
 	# `factory_worktree`'s stderr, in a file named for what it is while it is still only a stream. It
-	# earns a verdict word only once something has read it and journaled one (#351).
-	werr="$FACTORY_RUN/worktree-stderr.$$"
+	# earns a verdict word only once something has read it and journaled one (#351). The name comes
+	# from `factory_worktree_stream`, the same helper the conflict pass now takes it from, because two
+	# call sites spelling the path out twice is what let the two streams live apart (#364).
+	werr=$(factory_worktree_stream)
 
 	case "$class" in
 	unclaimed)
