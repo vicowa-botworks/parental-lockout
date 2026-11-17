@@ -578,6 +578,21 @@ remove. Two facts a later unit should not have to rediscover:
    "26 pointers into `factory/common.sh`", "683 passed" belong to the tree they were taken on. The
    merged tree's equivalent numbers are in this file's header and in the merge commit message.
 
+51. **A `path:line` pointer inside this file is tested for the file, never for the row — and the
+    off-by-one that survived two hand-offs is the proof.** The sixth sync found two false coordinates
+    in its own input, neither created by the merge: row 1490 of `factory/common.sh` naming
+    `factory_worktree_lines`, which sits at `factory/common.sh:1547` "factory_worktree_lines() { # [main-checkout]",
+    and the row numbered 652 of `docs/factory.md` naming the heading that is at
+    `docs/factory.md:651` "### The approval a push voids" — false on `HEAD`, on `origin/main` and on
+    this branch alike, so it was inherited twice. No gate can see either class: the anchor rule reads
+    only the two decision logs, and the hand-off leg at `scripts/check-next-md.sh:179` "leg 2: phantom paths"
+    asks whether a named file exists (`scripts/check-next-md.sh:189` "[ -e "$root/$p" ] || printf", the existence test the leg makes in full),
+    never whether the numbered row still holds what the entry quotes. The owed
+    change is a leg that opens the file, reads the named row and compares it against the quoted
+    fragment already in the sentence — the same predicate `scripts/check-decisions.py` runs on the
+    logs, pointed at this file. Until then every pointer in a hand-off is a promise the next sync has
+    to re-derive by hand, which is what this sync spent its turns doing.
+
 
 ## Re-measurements the sixth sync took against the rows above
 
@@ -592,14 +607,22 @@ measurement is how a queue loses the fact that someone checked.
    `a bare run journals nothing` and `control: one note can suppress the other` — and green
    with them unset. Its stated mechanism is `dpn_alloc_run`'s bare arm forwarding
    `FACTORY_LOG` and nothing else, so the inherited `FACTORY_TICK_UNIT` survives into the
-   plant-free run. This sync re-ran both forms on the merged tree: the sanitized pair
-   (`env -u FACTORY_SERVICE_UNIT -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_LOG
-   -u FACTORY_STATE_DIR`, the union of the names item 12 and item 38 each prove necessary, in a
-   shell that exported none of them), and the inherited-name form with the two identity names set
-   and `FACTORY_LOG`/`FACTORY_STATE_DIR` planted under scratch — a **narrower plant than theirs**,
-   because their reproduction ran with the operator's live journal as the write target and this
-   leg refuses to add rows to a file it does not own (item 39). The verdicts, both exit codes and
-   the literal commands are in the pull-request body, quoted from the run that ships these bytes.
+   plant-free run. **That remains the only reproduction; this sync did not reproduce it.** What
+   this sync ran on the merged bytes is the sanitized half only: `make verify` rc 0 (`verify: OK`,
+   1m55s, which contains `bash factory/selftest.sh`) and `make check-mutations` rc 0 (847 mutants,
+   3m25s), both under `env -u FACTORY_LOG -u FACTORY_REVIEWER -u FACTORY_REVIEWER_TEAM
+   -u FACTORY_TICK_BRANCH -u FACTORY_SERVICE_UNIT -u FACTORY_TICK_UNIT`, and the operator's journal
+   read 9563 lines before the first run and 9563 after the second. The inherited-name leg was
+   started once and killed before it reached the suite — `factory/selftest.sh` under the tick's
+   identity, SIGTERM then a sweep, no survivor and the scratch tree untouched — and it was not
+   re-run, because on this box that leg's write target is
+   `FACTORY_LOG=/home/rodney/prj/parental-lockout/factory/log` and its unit identity is
+   `FACTORY_SERVICE_UNIT=parental-lockout-factory.service`, the operator's live journal and live
+   unit; item 39 is the row that says a leg may not add rows to a file it does not own, and reaching
+   for a live unit is host-level work whoever owns the unit makes, not a dispatched branch. The row
+   this correction replaces claimed both forms had been re-run and their verdicts quoted in the
+   pull-request body; only the sanitized verdicts are quoted there, and the false sentence was
+   written by this sync before the runs existed.
 2. **`main`'s row 2 refutes this file's item 12 as written, and item 12 stands as its author
    wrote it.** Item 12 says `make verify` reads RED for any shell that exports its own
    dispatch env; the #414 unit measured `make verify` GREEN with the names intact at
