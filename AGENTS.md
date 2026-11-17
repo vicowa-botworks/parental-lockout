@@ -71,6 +71,17 @@ delete can also delete unmerged work. Remove one when its branch merges
 (`git worktree remove`), and run `git worktree prune` after a machine restart. Six abandoned
 worktrees, two of them on the same commit, are what happens otherwise.
 
+Before removing a tree a *tick* may own, ask the supervisor's journal: run
+`factory_worktree_busy <path>` (factory/common.sh) and do not remove while it answers busy — it
+reads the journal, so the answer is about the tree, not about a process you may have looked for a
+minute too early. 13 Nov: a session checked `pgrep` for a live factory run, correctly saw none,
+and removed the tree of a tick that started between the check and the removal — seven minutes into
+a 2700 s budget, with `bash` cwd gone and the tick dying on a path that no longer existed.
+`git worktree remove` refuses a dirty tree and `--force` answers "you are sure", never "someone is
+home". A tree owned by a live *session* fails closed too: its work is dirty by construction until
+the push, so the dirty refusal is that guard. The rule covers `git worktree remove`, `prune` and
+`rm -rf` alike — the journal answers for the path whichever verb you reach for.
+
 The harness now also takes inventory: every supervisor pass censuses `git worktree list --porcelain`,
 journals `WORKTREE-ORPHAN <path> head=<sha> reason=…` for each tree that is provably dead — head an
 ancestor of `origin/main`, content verdict clean, and not a tree an existing branch owns under
