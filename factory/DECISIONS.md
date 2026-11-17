@@ -12697,11 +12697,20 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   file the same miss again and charge a second budget for the same delivery. `unchecked` is kept
   apart from `undelivered` because the doctrine already attached to that name says a read that failed
   is not a delivery that failed, and folding the two lets one `gh` blip move a ticket from
-  "unknowable" to "wasted". What lost, stated plainly. **The close is not made a delivery**: no
-  `last-tick` stamp, no mirror row, no notice to whoever filed the ticket, so a person who reads only
-  the mirror sees nothing for that unit and has to read the journal for `TICK-CLOSED`; it was refused
-  because a mirror row would have to carry a pull-request URL that does not exist, and stamping a
-  ticket that has left the queue permanently is a write for a reader who will never ask. **The pass
+  "unknowable" to "wasted". What lost, stated plainly — and stated again below with a 17 Nov
+  correction, because the first writing of this passage got the ledger wrong (`H-0242` measured a
+  live fixture pass). **The close is not made a delivery**: no mirror row and no notice to whoever
+  filed the ticket, so a person who reads only the mirror sees nothing for that unit and has to read
+  the journal for `TICK-CLOSED`; it was refused because what the close declines to call is
+  `factory_preserve_unpushed`, whose artifact is a git bundle under `$FACTORY_AT_RISK` carrying no
+  pull request anywhere — and a satisfied-by-main ending has nothing ahead of `origin/main` to
+  bundle, and the leg at `factory/selftest.sh:17829` "mirror_leg 'nothing ahead mirrors nothing'"
+  already pins that nothing is written then. **What this passage first listed as refused — the `last-tick`
+  stamp — was never refused**: the `closed` arm has no `return`, it falls through the shared
+  clean-stop tail beginning at `factory/factory.sh:1440` "TICK-DONE $unit see" and its
+  `factory/factory.sh:1442` "factory_ledger_now", so a closed ticket journals `TICK-DONE`, stamps
+  `last-tick` and clears `stuck-since`; the leg `a closed ticket leaves a stamped clean ledger`
+  (`H-0242`) now pins that ledger instead of a sentence denying it. **The pass
   does not decide whether THIS pass did the closing** — it hands the reader `closedAt` to compare
   against the line's own `TICK-START`, because deciding would need a second read of one ticket, and
   the reason one read is the rule is this file's own:
@@ -12715,8 +12724,11 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `2026-11-14T01:15:25Z` and `gh issue view 316` answered `MERGED` `2026-11-12T04:02:42Z`. Borrowing
   that helper would also inherit the casing question #424 counts on the close-check side, in a
   harness where the REST read is refused outright and so could not be re-measured by whoever comes
-  next. **`stateReason` is not askable here**: `/usr/bin/gh` 2.46.0 answers `--json stateReason` with
-  `Unknown JSON field: "stateReason"` at exit 1, so #426's question is answered by the field list
+  next. **`stateReason` is not askable on the box the timer runs on**: `/usr/bin/gh` 2.46.0 answers
+  `--json stateReason` with `Unknown JSON field: "stateReason"` at exit 1 — re-confirmed at this
+  tick, and the review box of 17 Nov running gh 2.67.0 answers the same call `COMPLETED` (`H-0242`) —
+  so the claim is of the box, not of gh everywhere, and the field list stands because it is the
+  answer both binaries give; so #426's question is answered by the field list
   rather than by a judgement — the sentence carries `state` and `closedAt` and no reason word, and
   `closedAt` is what a reader compares against `TICK-START` to see whether this pass is the one that
   closed it. **Triage was not touched**: the claim column drives dispatch, quarantine and the
@@ -12758,8 +12770,9 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   arm back into what the file said at `883b5e8` and moves 900 into `TICK-UNDELIVERED`; the unchecked
   arm deleted turns a failed read into a miss;
   `factory/selftest.sh:22217` "proc_leg 'control: a field gh refuses is a failed read'" rewrites the
-  call site to ask `stateReason` and lands in `TICK-UNCHECKED`, which pins the read to the gh that is
-  actually installed; and a planted anchor that is in no `factory.sh` on this machine is refused AND
+  call site to ask `stateReason` and lands in `TICK-UNCHECKED` — the refusing `gh` there is the
+  fixture's own stub, so the leg pins the call site to the field list and NOT the installed binary,
+  as `H-0242` corrects; and a planted anchor that is in no `factory.sh` on this machine is refused AND
   leaves the box copy byte-identical, which is the leg that keeps the other three honest.
   `docs/factory.md:2091` "TICK-CLOSED <unit> exit=0 issue #N reads CLOSED" is the published word.
   Measured tallies, with the world each was counted in: `bash factory/selftest.sh` in this shell,
@@ -12773,3 +12786,90 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `the mirror box is the fixture's` says 5 patches one way and 6 the other, and
   `the bundle is a bundle` says 414 bytes then 416 — which is a suite whose leg count depends on
   ambient environment, recorded as the follow-up it is rather than explained by inheritance.
+
+## H-0242 — the review of #434 says it in three places and the code says it in one: a closed stop takes the shared clean-stop tail and stamps `last-tick`; the prose is corrected, the tail is not
+
+Question: the review at 2026-11-17T12:21:07Z on `e1590b6` measured — and this tick reproduced it on
+the shipped fixture — that the `closed` arm falls through `esac`/`fi`/`esac` into the shared clean-
+stop tail and stamps `last-tick`, while three shipped sentences — the PR body, corrected at
+`docs/factory.md:2092` "TICK-DONE` journalled, `last-tick` stamped", and `H-0240`'s first "What
+lost" — claimed the stop writes no stamp. One sentence has to move and the question is which.
+Options: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
+tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
+add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
+claim is re-runnable rather than re-asserted | (b) keep the prose and make it true — `return 0` from
+the closed arm before the tail, which takes the `TICK-DONE` line with it | (c) delete the contested
+clauses and say nothing about what a closed stop writes.
+
+Chose: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
+tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
+add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
+claim is re-runnable rather than re-asserted.
+
+Why: the review itself settled the behavioural half — "stamping is the consistent thing for a tick
+that ran and stopped clean" — so (b) buys prose by changing what the journal reader sees: the mutant
+this tick ran (a `return 0` after the `TICK-CLOSED` log line) leaves `TICK-START` followed by
+`TICK-CLOSED` and no end line — the census at `factory/common.sh:1469` "105 `TICK-START` against 104"
+is what says clean-end markers carry reading weight. (c) is what let the first claim ship:
+the sentence was an argument, and deleting arguments removes the reader's ability to check them.
+Tie-breaker 3: (a) adds a leg, every alternative leaves the ledger unpinned — the review named
+exactly that blind spot, that this family's journal-word assertions cannot see the ledger. Tie-breaker 4:
+(a) touches no shipped behaviour, so the merge surface is prose plus an appended leg. And per this
+repository's own hardest-won rule, a prose claim is only as good as a re-runnable check behind it:
+what was wrong was never the behaviour, it was a claim with no leg. The same review's
+non-blocking pair ships in the same stroke because both were true statements about this branch's
+prose: `docs/factory.md:2103` "stubbed `gh`, pinning the call site and not the installed binary"
+replaces "pins the read to the gh that is actually installed" — the `stateReason` control runs the
+fixture's own stub `gh`, pinning the call site, not the binary — and the `stateReason` fact is
+qualified to its box: this box's `/usr/bin/gh` 2.46.0 answers `--json stateReason` with `Unknown
+JSON field: "stateReason"` at exit 1 (re-measured at this tick), while the review box on gh 2.67.0
+answers `COMPLETED`, so the claim is of the box and the field list stands because it is the answer
+both binaries give; `factory/factory.sh:1376` "2.67.0 review box" is the same qualification in the
+shipped comment. The `H-0240` passage that lost: its refused list first named the `last-tick`
+stamp and a "pull-request URL that does not exist" — corrected above in that entry's own words, with
+the true reason for the absent bundle (nothing ahead of `origin/main`, already pinned) and the true
+ledger. The false lead this repair nearly shipped: extending the existing cost leg in place would
+have moved the `H-0240` anchors that number rows in that file — eight of them, the family's leg rows
+from the queue-seed leg up — and the anchor gate refuses the entry; the new leg is a sibling appended
+below the last cited line, and the
+`docs/factory.md` and `factory/factory.sh` rewrites are line-count neutral (8/8, 2/2) because that
+file carries 111 incoming citations. Second false lead: the new leg's first draft asserted only
+"stamp exists", which is vacuous in this family — every pass shares one stash dir, so a stamp can be
+stale from an earlier pass, and the `unchecked` arm falls through the same tail, so even a closed arm
+that returned early would leave both units stamped by the later `cdec-noread` and `cdec-merged`
+passes; the leg therefore resets both units' rows, plants a `stuck-since` whose disappearance proves
+the tail ran, and reads the ledger through the explicit `FACTORY_LEDGER` the pass writes to rather
+than the ambient variable.
+
+Confidence: high — the corrected sentences describe behaviour pinned by a leg that was seen red on
+the option-2 mutant and green on the shipped code.
+
+Revisit: if the closed arm is ever given its own `return`, the leg goes red first; decide then whether
+a closed stop should journal `TICK-START` with no end line.
+
+Scope: shipped code touched only in comment prose; behaviour unchanged.
+
+Status: decided.
+
+Checkpoint: 7205087ea874548479d9eb8e77c72c14046405c8
+
+Effect: `docs/factory.md:2092` "TICK-DONE` journalled, `last-tick` stamped" is the published
+phrase; the new leg `factory/selftest.sh:22266` "proc_leg 'a closed ticket leaves a stamped clean ledger'"
+runs the shipped supervisor over both family tickets CLOSED with both ledger rows cleared and a
+`stuck-since` planted, and asserts `last-tick` present for both units, the planted row gone,
+`TICK-DONE` journalled for both, and no `PRESERVED` line and no `.bundle` under `$FACTORY_AT_RISK` —
+the ledger the review's live pass left, pinned for the first time. Measured at this tick: full suite
+`env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH bash factory/selftest.sh` → **817 passed, 0 failed**,
+exit 0 (tmpfs, git 2.53.0); the option-2 mutant run in a scratch repo → **816 passed, 1 failed**, the
+only red this new leg, its diagnostic showing `TICK-CLOSED` then no `TICK-DONE` and no stamp;
+`gh issue view 315 --json stateReason` at `/usr/bin/gh` 2.46.0 → `Unknown JSON field: "stateReason"`,
+exit 1, re-measured here while the review box answers `COMPLETED`; `python3 scripts/check-decisions.py`
+→ 303 entries, 856 citations, 546 owing an anchor (the recorded debt, unchanged), 0 unopenable, rc 0;
+`env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_REVIEWER
+-u FACTORY_REVIEWER_TEAM make verify` → `verify: OK`, exit 0, sanitized as the hand-off requires while
+#425 stands open. `Id:` allocator journalled twice: `2026-11-17T12:08:13Z
+DECISION-ID H-0242 unit=unclaimed:364 branch=issue-364` (`REFRESH-BLIND 724s`) and this tick's
+`2026-11-17T12:25:43Z DECISION-ID H-0242 unit=address_review:434 branch=issue-362` (`REFRESH 0s`
+union, immediately after `git fetch --prune origin`); `H-0240`'s precedent holds — ids are owned only
+when committed, the blind read was 17 minutes stale, and if `issue-364` lands its own `H-0242` first
+the duplicate-id rule at merge decides, as it did for `H-0240` itself.

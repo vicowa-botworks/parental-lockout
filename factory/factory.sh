@@ -1372,8 +1372,8 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 				# side, where a lowercase answer meets an uppercase comparison and nothing says so;
 				# borrowing that helper here would inherit that question instead of the answer, and
 				# the raw REST read is refused in this harness (`:763`) so a unit could not even
-				# re-measure it. `stateReason` is not askable at the shipped gh -- 2.46.0 answers
-				# `--json stateReason` with `Unknown JSON field: "stateReason"` -- so the sentence
+				# re-measure it. `stateReason` is not askable at the gh on the box the timer runs on: 2.46.0
+				# at `/usr/bin/gh` answers `Unknown JSON field`; a 2.67.0 review box answers `COMPLETED`, so the sentence
 				# carries `state` and `closedAt` and no reason word, which is also the answer to
 				# #426's "state or stateReason?": neither is needed, because `closedAt` is what a
 				# reader compares against this line's own `TICK-START` to see whether this pass is

@@ -22232,6 +22232,41 @@ proc_leg 'control: an anchor that is not there is refused' \
 	'the plant refuses rather than handing back an unmutated tree to be called a control' \
 	cdec_ctl_refuse
 
+# The ledger the closed arm really leaves behind (H-0242, review 17 Nov). The shipped prose claimed a
+# `TICK-CLOSED` stop stamps no `last-tick`; the `closed` arm has no `return` -- it falls through
+# `esac`/`fi`/`esac` into the shared clean-stop tail (factory.sh:1440-1443) -- so the honest claim is
+# the tail's: `TICK-DONE` journalled, `last-tick` stamped, `stuck-since` cleared, exit 0, no bundle.
+# The reset before the pass is load-bearing twice over. This family shares ONE stash (`ledger-cdec`)
+# across every pass it runs, so a stamp present afterwards may have been written by any earlier pass
+# -- and the unchecked arm falls through the same tail, so even a closed arm that returned early
+# would leave both units stamped by the later cdec-noread/cdec-merged passes. The witness has to be
+# a stamp only THIS pass can have written. `stuck-since` is planted so the tail's own clear is
+# visible: an arm that returned before the tail would leave the planted row in place.
+rm -f -- "$proc_stash/unclaimed:900.last-tick" "$proc_stash/unclaimed:901.last-tick"
+FACTORY_LEDGER="$proc_stash" factory_ledger_set 'unclaimed:900' stuck-since 2026-11-10T00:00:00Z
+find "$proc_risk" -mindepth 1 -delete 2>/dev/null || true
+cdec_state 900 CLOSED 2026-11-14T01:15:25Z
+cdec_state 901 CLOSED 2026-11-16T09:00:00Z
+cdec_pass cdec-ledger
+cdec_leg_ledger() {
+	{ [ -s "$proc_stash/unclaimed:900.last-tick" ] &&
+		[ -s "$proc_stash/unclaimed:901.last-tick" ] &&
+		[ ! -e "$proc_stash/unclaimed:900.stuck-since" ] &&
+		grep -qF -- 'TICK-DONE unclaimed:900' "$proc_journal" &&
+		grep -qF -- 'TICK-DONE unclaimed:901' "$proc_journal" &&
+		! grep -qF -- 'PRESERVED' "$proc_journal" &&
+		[ -z "$(find "$proc_risk" -name '*.bundle' -print -quit 2>/dev/null)" ]; } || {
+		printf '            the closed pass left this ledger:\n' >&2
+		find "$proc_stash" -maxdepth 1 -name 'unclaimed:90[01]*' -printf '%f %s\n' 2>/dev/null | sort | sed 's/^/              /' >&2
+		printf '            and this journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+}
+proc_leg 'a closed ticket leaves a stamped clean ledger' \
+	'closed falls through the clean-stop tail: last-tick stamped, stuck-since gone, no bundle' \
+	cdec_leg_ledger
+
 # Leave the shared fixture as this family found it: `pr-head.json` belongs to the family, and a
 # family appended after this one would inherit an empty delivery read and call it a delivered tick.
 cdec_unplant
