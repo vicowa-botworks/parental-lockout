@@ -254,6 +254,17 @@ FACTORY_HALT_NOTICE_AFTER=${FACTORY_HALT_NOTICE_AFTER:-3600}
 # resume is a human with the `HALT-STUBBORN` line in hand. See `factory_halt_reprobe`.
 FACTORY_HALT_RELEASES=${FACTORY_HALT_RELEASES:-2}
 
+# What a unit's SECOND mirrorable quarantine costs the queue (#341 demand 3). `0`, the default, costs
+# the queue nothing: by the time the streak is read the work is already in a stash AND a mirror, so the
+# shape no longer asks the harness to guess -- the unit loses its own turn (`UNIT-QUARANTINED`, exit 6
+# from `factory_tree_stop`) and every other unit is still ticked by the same pass. `1` restores the
+# pre-#341 escalation, where attempt 2 wrote `factory/HALT` and stopped every unit in the repository
+# until a person removed it -- the outage measured on #302 (14h34m, 77 activations), and the escape
+# hatch for an operator who wants one unit's second accident to stop everything. Dirt that CANNOT be
+# mirrored ignores this knob and halts whatever the streak says, because there the work really is
+# nowhere else. See `factory_tree_stop` and the section under "Stopping it" in `docs/factory.md`.
+FACTORY_STREAK_HALT=${FACTORY_STREAK_HALT:-0}
+
 # Longer than this with no pass at all, and `--status` calls it STALLED. The timer's own cadence is
 # `OnUnitInactiveSec=600`, so one hour is roughly five missed activations: enough that a single slow
 # pass is not reported as a stall, short enough that tonight's 91-minute freeze (#246, a leaked
@@ -3070,13 +3081,22 @@ factory_notice_halt() {
 # Mirror it, clean it, let the rest of the queue run; and if either half cannot be done, halt with the
 # tree untouched exactly as before. A dirty unit loses its turn instead of everyone else's evening.
 #
-# The streak is the exception, and the reason it exists: a SECOND quarantine of the same unit says
-# something keeps dying in that tree, and a third guess is how 801 lines of half-finished work get
-# thrown away. So the streak halts -- now with the notice above making sure somebody hears it.
+# The streak is the exception, and since #341 demand 3 its scope is the unit's, not the queue's. What
+# the pass cannot tell is whether unfinished work was left by a killed tick or by a model that ran out
+# of room halfway through, and guessing wrong a second time means editing on top of somebody's
+# half-finished change. But by the time the streak is read that work is in a stash AND a mirror, so the
+# shape no longer asks for a guess: attempt 2 refuses to start a tick in that tree, journals
+# `UNIT-QUARANTINED`, and the pass moves on to every other unit -- halting the whole repository over
+# work the harness is holding in two places is what froze the queue for 14h34m on #302. Set
+# `FACTORY_STREAK_HALT=1` to get the old queue-wide halt back. Dirt that cannot be mirrored is the
+# other case and keeps its escalation: there the work really is nowhere else, so a refusal still halts
+# whatever the streak says, at attempt 1 and with no counter required.
 #
 # usage: factory_tree_stop VERB UNIT TREE
 # exit:  0 this unit's tree is clean and the pass carries on;
-#        4 (tick) or 2 (conflict) the pass stops, as `factory_tree_halt` decided.
+#        4 (tick) or 2 (conflict) the pass stops, as `factory_tree_halt` decided;
+#        6 this unit's work was preserved for the SECOND time with no tick in between and the mirror
+#          took it: the unit loses its turn, the pass carries on, and no halt is written (#341).
 # The counter is what turns "halt on the second accident" into a rule that cannot eventually freeze a
 # two-year-old unit for an honest accident it has never had before -- so it has to come back down, and
 # where it comes back down is the whole design. A resolved conflict clears it here (`CONFLICT-RESOLVED`
@@ -3111,6 +3131,13 @@ factory_quarantine_reset() { # unit
 # tree is not evidence that the tree is fine, and the next pass refuses at `factory_tree_stop` before
 # anything is stashed, so arming costs a halt that was the right answer anyway.
 #
+# What arming costs on the OTHER shape changed with #341 demand 3: when the next pass can mirror the
+# work, the second quarantine journals `UNIT-QUARANTINED` and takes that unit's turn instead of the
+# queue's pass. This arm is not that shape -- a tree git will not answer for cannot be mirrored, so the
+# refusal fires and the escalation this sentence was written for is still the arm that runs. The armed
+# line below therefore names the consequence its own configuration will produce, because a journal that
+# promises the wrong scope is the defect this file keeps being about.
+#
 # Not guarded on `--dry-run`, because there is nothing to guard: a rehearsal never reaches
 # `factory_tick` at all (`factory.sh`'s dispatcher prints and continues), and a dead guard here would
 # be a claim about a path that does not exist.
@@ -3118,15 +3145,19 @@ factory_quarantine_reset() { # unit
 # usage: factory_quarantine_after_tick UNIT TREE
 # exit:  0 always. What the tick achieved is the tick's own answer; this one must not overwrite it.
 factory_quarantine_after_tick() {
-	local unit=$1 tree=$2 verdict="" rc=0
+	local unit=$1 tree=$2 verdict="" rc=0 armed=""
 	verdict=$(factory_tree_dirt "$tree") && rc=0 || rc=$?
+	# The scope of what the next pass does is `FACTORY_STREAK_HALT`'s answer, so the armed line says
+	# that answer instead of promising one of them. Both tails are leg-pinned (#341 demand 3).
+	armed='the next quarantine of this unit is the second, and a second one takes that unit'"'"'s turn, not the queue'"'"'s pass'
+	[ "$FACTORY_STREAK_HALT" = "1" ] && armed='the next quarantine of this unit is the second and halts'
 	case "$rc" in
 	1)
 		factory_quarantine_reset "$unit"
 		log_event "TREE-AFTER-TICK $unit streak=cleared the tree is clean, so this tick did not repeat the accident"
 		;;
 	0)
-		log_event "TREE-AFTER-TICK $unit streak=armed the tick left ${verdict:-git named nothing}; the next quarantine of this unit is the second and halts"
+		log_event "TREE-AFTER-TICK $unit streak=armed the tick left ${verdict:-git named nothing}; $armed"
 		;;
 	*)
 		log_event "TREE-AFTER-TICK $unit streak=armed the tree could not be read after the tick (${verdict:-git gave no reason}); the streak stays armed on an unreadable verdict"
@@ -3269,10 +3300,25 @@ factory_tree_stop() {
 		factory_ledger_set "$unit" quarantine-count "$n"
 		factory_ledger_now "$unit" quarantined-at
 		log_event "TREE-QUARANTINED $unit ${dirt:-no finding returned} attempt=$n $q"
-		if [ "$n" -ge 2 ]; then
+		if [ "$n" -lt 2 ]; then
+			return 0
+		fi
+		if [ "$FACTORY_STREAK_HALT" = "1" ]; then
+			# The pre-#341 escalation, kept one knob away: an operator can still ask for one unit's
+			# second accident to stop the repository, and this is the shape the re-probe legs (#405)
+			# drive -- a machine-written halt over work the mirror already holds.
 			log_event "TREE-STREAK $unit attempt $n without a tick in between; halting rather than guessing again"
 		else
-			return 0
+			# Demand 3 (#341). The streak is still the read, and it still says something keeps dying in
+			# this tree; what changed is the price. The line above has just put the work in a stash AND a
+			# mirror, so the streak no longer describes a guess about bytes -- it describes a unit that
+			# has now twice stopped short of delivery. That unit loses its turn and nothing else does:
+			# exit 6 tells the dispatcher to leave it in the queue unticked, and the queue-wide halt
+			# stays reserved for the refusal below, where the work really is nowhere else. Measured cost
+			# of the old scope on #302: 14h34m, 77 activations, 34 idle units behind one unit's 2 files.
+			log_event "UNIT-QUARANTINED $unit attempt=$n others-continue $q"
+			factory_notice_unit_quarantine "$unit" "$n" "$q"
+			return 6
 		fi
 	elif [ "$qrc" -eq 1 ]; then
 		# The action found nothing to stash. Clean is clean; what the line has to get right is WHY,
@@ -4691,5 +4737,77 @@ factory_main_tree_inspect() {
 	else
 		log_event "MAIN-CHECKOUT-RESTORE-INCOMPLETE $tree cause=post-read-unreadable git checkout exited 0 and the tree could not be read back (${dirt2:-git gave no reason}); the restore is unconfirmed and nothing further was touched"
 	fi
+	return 0
+}
+
+# Tell whoever owns the unit that it lost its turn, once per FACTORY_HALT_NOTICE_AFTER (#341 demand 4).
+#
+# The halt notice exists because a halt written into a directory nobody opens is an outage nobody sees.
+# The same argument covers the shape demand 3 created, only quieter: an unticked unit does not stop the
+# journal, so a pass that skipped it reads as a healthy one -- `IDLE` never appears, `QUEUED` shrinks,
+# and nothing anywhere says this unit has now twice declined to deliver. So this says it on the object
+# that is stuck, on the same throttle and the same transport as `factory_notice_halt` (`gh issue
+# comment` answers for an issue and a pull request alike), and it names where the work is -- demand 3's
+# whole claim is that nothing was lost, and a notice that cannot say where the bytes are is not that
+# claim. Numbered units only, for the same reason the halt notice is: `unclaimed:341` has an issue to
+# comment on and `selftest` does not.
+#
+# usage: factory_notice_unit_quarantine UNIT ATTEMPT QFINDING
+#        (0 always: a notice that cannot be posted must not cost the unit its turn a second time --
+#        the `UNIT-QUARANTINED` line the caller printed is the record either way)
+factory_notice_unit_quarantine() {
+	local unit=$1 attempt=${2:-} qf=${3:-} number='' tmp='' out='' rc=0 stash='' mirror=''
+	[ "$DRY_RUN" = "1" ] && return 0
+	number=${unit##*:}
+	case "$number" in
+	('' | *[!0-9]*) return 0 ;;
+	esac
+	if [ -z "$attempt" ]; then
+		# There is deliberately no default on the parameter. The `:-2` that used to sit there is
+		# half of why a mis-shifted call site survived a whole branch: a caller that dropped the
+		# count got a silently substituted one, so the notice rendered whatever landed in slot 2
+		# -- the finding -- where the number belongs. A missing count is a caller defect and the
+		# journal has to say so; guessing a count is not this function's to do.
+		log_event "UNIT-QUARANTINE-NOTICE-FAILED $unit #$number cause=no-attempt"
+		return 0
+	fi
+	[ "$(factory_age "$unit" quarantine-notice)" -ge "$FACTORY_HALT_NOTICE_AFTER" ] || return 0
+
+	# Both fields come off the quarantine's own finding line (`stash=<9> mirror=<path>`, or the merge
+	# arm's longer row) rather than off a re-read: the tree has been cleaned by now, so the tree cannot
+	# be asked what used to be in it. Empty means the finding did not carry the field, and the sentence
+	# says where to look instead of printing a path that is not one.
+	stash=${qf##*stash=}
+	stash=${stash%%[[:space:]]*}
+	mirror=${qf##*mirror=}
+	mirror=${mirror%%[[:space:]]*}
+	factory_paths
+	tmp="$FACTORY_RUN/unit-quarantine-notice.$$"
+	{
+	# One printf with one format, as `factory_notice_halt` learned: a `\`-continued chain of printf
+	# arguments has shellcheck reading the first fragment as a format with no placeholder and reporting
+	# the rest of the sentence as ignored -- a notice to a human that silently loses its second half.
+	printf 'The delivery supervisor has **skipped this unit %s times in a row** without starting a tick.\n\nIts working tree was found with uncommitted work, twice, with no completed tick between the two, so this pass refused to work in it again and moved on to every other unit. The queue is running; this ticket is not being worked.\n\nNothing was discarded, and the queue-wide halt switch was not written -- a second accident whose work the harness could preserve costs this unit its turn, not every other unit its pass. The stash is `%s`, named on the `TREE-QUARANTINED` line of the supervisor journal, and a byte-for-byte mirror sits at `%s`.\n\nWhat ends it: a tick that runs to delivery -- the streak and the release budget both reset the moment the tree is read clean after a session (`H-0193`). Two ticks have now stopped short here, so the next one should begin from what is already preserved: adopt it as a commit on the branch, or say what to throw away.\n' \
+		"$attempt" "${stash:-named on the TREE-QUARANTINED journal line}" \
+		"${mirror:-named on the TREE-QUARANTINED journal line}"
+	} >"$tmp" 2>/dev/null || {
+		# The house shape for a reason carries a `cause=` token too. A refused write used to
+		# return 0 with no line at all, which reads exactly like a throttled notice that had
+		# nothing to say -- the difference (a run directory no one can write) is operationally
+		# visible only from this line.
+		log_event "UNIT-QUARANTINE-NOTICE-FAILED $unit #$number cause=local-write"
+		rm -f -- "$tmp"
+		return 0
+	}
+
+	out=$(gh issue comment "$number" --body-file "$tmp" 2>&1) || rc=$?
+	if [ "$rc" -eq 0 ]; then
+		factory_ledger_now "$unit" quarantine-notice
+		log_event "UNIT-QUARANTINE-NOTICED $unit #$number"
+	else
+		# No ledger stamp: the next pass has to try again, and the throttle has to stay armed.
+		log_event "UNIT-QUARANTINE-NOTICE-FAILED $unit #$number gh exit=$rc :: $(printf '%s' "$out" | tr '\n\r' '  ' | cut -c1-140)"
+	fi
+	rm -f -- "$tmp"
 	return 0
 }

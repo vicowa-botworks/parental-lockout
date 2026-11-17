@@ -1809,6 +1809,10 @@ q_journal_has() { # needle -> 0 when the fixture journal carries it
 }
 
 # expect_quarantine LABEL TREE WANT [UNIT] [NEEDLES] [ATTEMPT] [WHY]
+#   WANT is what the stop cost: `QUARANTINE` (attempt 1, the unit keeps its turn), `STREAK` (attempt 2
+#   with FACTORY_STREAK_HALT=1 -- the pre-#341 queue-wide halt the knob still buys), `SKIP` (attempt 2
+#   on the default: exit 6, the unit loses its turn, NO halt file and the pass carries on -- #341
+#   demand 3), `HALT` (a quarantine that was refused), `UNREADABLE`, `PROCEED`, `DRYRUN`.
 #   NEEDLES is a comma-separated list of paths the mirror has to contain -- the edit-and-untracked leg
 #   asks for both, the untracked-only leg for one. Hard-coding both in the arm made that leg fail for
 #   the wrong reason: it is the leg whose whole subject is a tree with nothing tracked to diff.
@@ -1888,6 +1892,36 @@ expect_quarantine() { # label tree want [unit] [needles] [attempt] [why]
 		[ "$(q_dirt "$tree")" = 0 ] || bad="${bad:+$bad; }the tree was left dirty while the queue was halted"
 		# The work is in a stash AND named by the journal, so the halt is not the only copy.
 		[ -n "$m" ] && [ -s "$m" ] || bad="${bad:+$bad; }the halt names no usable mirror, so the work is only in a stash"
+		;;
+	SKIP)
+		# #341 demand 3. The streak is still read at attempt 2; what changed is its SCOPE, so this arm is
+		# the STREAK arm with the two queue-wide consequences inverted -- a marker written and a pass
+		# stopped are precisely what a preserved second accident may no longer cost. Exit 6 is the
+		# dispatcher's word for "this unit keeps its row and loses this turn" (`factory.sh`'s
+		# `TICK-SKIPPED`/`CONFLICT-DEFERRED` arms), and nothing here may satisfy itself on the STREAK
+		# arm's sentences: the knob's line is asserted by the knob's own leg below.
+		want_rc=6
+		[ "$rc" = "$want_rc" ] ||
+			bad="the tick left $rc, want $want_rc -- an attempt that still stops the queue is the outage this demand was filed against"
+		[ ! -e "$FACTORY_HALT" ] ||
+			bad="${bad:+$bad; }a mirrorable second quarantine wrote the halt marker, so every other unit stopped with it"
+		q_journal_has 'UNIT-QUARANTINED' ||
+			bad="${bad:+$bad; }the journal never says the unit lost its turn, so a pass that ran nothing here left no trace of it"
+		q_journal_has 'others-continue' ||
+			bad="${bad:+$bad; }the skip line does not say the queue carried on, which is the claim its reader needs"
+		if q_journal_has 'TREE-STREAK'; then
+			bad="${bad:+$bad; }the default printed the queue-wide escalation line -- that sentence belongs to FACTORY_STREAK_HALT=1"
+		fi
+		q_journal_has 'TREE-QUARANTINED' || bad="${bad:+$bad; }the second quarantine was not journaled either"
+		q_journal_has "attempt=$want_n" ||
+			bad="${bad:+$bad; }the journal never counted this as attempt $want_n, so the streak is not being counted"
+		[ "$(factory_ledger_get "$unit" quarantine-count)" = "$want_n" ] ||
+			bad="${bad:+$bad; }the streak counter reads $(factory_ledger_get "$unit" quarantine-count), want $want_n"
+		[ "$(q_dirt "$tree")" = 0 ] || bad="${bad:+$bad; }the tree was left dirty while its unit was skipped"
+		# The work is in a stash AND named by the journal. This is the precondition the whole scope change
+		# rests on: narrowing the escalation to one unit is only honest when that unit kept its bytes.
+		q_stash_is_ours "$tree" "$unit" || bad="${bad:+$bad; }nothing is in refs/stash under our own subject"
+		[ -n "$m" ] && [ -s "$m" ] || bad="${bad:+$bad; }the skip names no usable mirror, so the work is only in a stash"
 		;;
 	UNREADABLE)
 		# #267's third arm: `factory_tree_dirt` could not answer the halt, answered the action, and the
@@ -2066,13 +2100,29 @@ for tree in "$repo" "$wt"; do
 	q_dirty "$tree"
 	expect_quarantine "[$where] edit + untracked" "$tree" QUARANTINE selftest "tracked.txt,scratch-notes.txt" 1
 
-	# The second accident on the unit that has just had one, with the ledger deliberately left alone:
-	# two accidents in a row on the same unit is the pattern that means a person should look, so this
-	# is the leg where the halt is the right answer -- and the only place the streak can be shown to
-	# halt, because a halt that re-asks whether the tree is dirty after cleaning it evaporates.
+	# The second accident on the unit that has just had one, with the ledger deliberately left alone: two
+	# accidents in a row on the same unit is the pattern that means a person should look -- and since
+	# #341 demand 3 what it costs is THAT UNIT'S TURN, not the queue's pass. The read is unchanged; the
+	# scope is the whole difference, and the precondition for narrowing it is in the SKIP arm: by the
+	# time the streak fires, the work is in a stash AND a mirror, so a queue-wide stop over it is what
+	# froze the repository on #302 (14h34m, 34 idle units behind one unit's 2 files). This is also the
+	# only place the escalation can be shown to fire at all, because a streak that re-asked whether the
+	# tree was dirty after cleaning it evaporated before it could count anything.
 	q_state "$tree"
 	q_dirty "$tree"
-	expect_quarantine "[$where] the same unit again" "$tree" STREAK selftest tracked.txt 2
+	expect_quarantine "[$where] the same unit again" "$tree" SKIP selftest tracked.txt 2
+
+	# The knob, on the tree and the counter the leg above just made: one thing changed -- `FACTORY_STREAK_HALT`
+	# -- so what the two legs print differently is the knob and not the fixture. This is the pre-#341
+	# escalation and the escape hatch an operator keeps: the marker gets written, every other unit stops,
+	# and the re-probe legs of #405 (#341's first two demands) have a halt to re-ask. The counter is at 2,
+	# so this is attempt 3. Restored under its own name because bash leaves an assignment that precedes a
+	# function call in the shell afterwards, and the legs below belong to the shipped default.
+	q_dirty "$tree"
+	q_knob_saved=$FACTORY_STREAK_HALT
+	FACTORY_STREAK_HALT=1
+	expect_quarantine "[$where] knob=1 halts the queue" "$tree" STREAK selftest tracked.txt 3
+	FACTORY_STREAK_HALT=$q_knob_saved
 
 	# The control for the leg above, and it is a real control: a tick entering the unit clears the
 	# streak, so after it the very same shape is absorbed again instead of halting. Without this the
@@ -2770,14 +2820,23 @@ streak_composed_with_a_tick() { # tree where -> the counter and the tick that fo
 		bad="${bad:+$bad; }the journal never says the streak stayed armed after the tick"
 
 	# Pass 2: exactly the same opening -- the tree is dirty, nobody cleaned it, this is what the dead
-	# tick left -- and this is the pass that is allowed to conclude that something keeps dying here.
+	# tick left -- and this is the pass that has to decide what a unit that keeps killing ticks costs.
+	# Since #341 demand 3 the answer is its own turn, not the queue's pass: the mirror line has already
+	# been written, so nothing is being guessed about the work any more, and the 14h34m #302 outage is
+	# what the old scope cost. Exit 6, no marker, every other unit still ticked.
 	rc=0
 	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || rc=$?
-	[ "$rc" = 4 ] || bad="${bad:+$bad; }the second pass left $rc, want 4: the streak cannot fire, so a tree that keeps killing ticks quarantines forever"
-	[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }the second accident did not halt the queue"
-	q_journal_has 'TREE-STREAK' || bad="${bad:+$bad; }the journal does not name the streak as the reason"
+	[ "$rc" = 6 ] || bad="${bad:+$bad; }the second pass left $rc, want 6: 4 is the queue-wide halt demand 3 removed from this shape, and 0 means the streak cannot fire at all"
+	[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }the second accident wrote the marker, so a unit that stopped short twice still freezes every other unit"
+	q_journal_has 'UNIT-QUARANTINED' || bad="${bad:+$bad; }the journal does not name the unit's own skip as what happened"
+	q_journal_has 'TREE-STREAK' &&
+		bad="${bad:+$bad; }the shipped default printed the queue-wide escalation line"
 	q_journal_has 'attempt=2' ||
 		bad="${bad:+$bad; }the journal never counted attempt=2; the counter reads $(factory_ledger_get selftest quarantine-count)"
+	# The armed line has to promise the scope this configuration actually produces, or the journal tells
+	# the next operator a lie about what the next accident costs. Both tails are pinned, one per mode.
+	q_journal_has "takes that unit's turn, not the queue's pass" ||
+		bad="${bad:+$bad; }the armed line did not name the unit's turn as the price, so a reader of the journal cannot tell skip from halt"
 
 	# The control, and it is the same shape with one thing changed: the tick finishes and leaves the
 	# tree clean. Without it every assertion above is satisfied by a function that always halts -- the
@@ -2817,13 +2876,38 @@ streak_composed_with_a_tick() { # tree where -> the counter and the tick that fo
 	git -C "$tree" config --unset core.excludesFile >/dev/null 2>&1 || true
 	q_state "$tree"
 
+	# The knob's control, and it re-runs the COMPOSITION rather than a bare pair of calls, because a
+	# shape the shipped pass never has is what let `attempt=2` go unreachable on the tick path once
+	# already. With `FACTORY_STREAK_HALT=1` these same two passes must produce the pre-#341 escalation:
+	# marker written, exit 4, `TREE-STREAK` -- the shape #405's re-probe legs (this issue's first two
+	# demands) drive, and the escape hatch an operator keeps. One variable separates this from the two
+	# passes above, so the two halves of this leg differ by the knob and by nothing else.
+	q_dirty "$tree"
+	q_knob_saved=$FACTORY_STREAK_HALT
+	FACTORY_STREAK_HALT=1
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || true
+	printf 'the next tick died here too\n' >>"$tree/tracked.txt"
+	factory_quarantine_after_tick selftest "$tree"
+	q_journal_has 'the next quarantine of this unit is the second and halts' ||
+		bad="${bad:+$bad; }with the knob on, the armed line still promised the unit's turn -- a journal that names the wrong scope is the defect this file is about"
+	rc=0
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || rc=$?
+	FACTORY_STREAK_HALT=$q_knob_saved
+	[ "$rc" = 4 ] || bad="${bad:+$bad; }knob=1 left $rc, want 4: the queue-wide halt an operator asked for did not fire"
+	[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }knob=1 wrote no marker, so #405's re-probe has nothing to re-ask"
+	q_journal_has 'TREE-STREAK' || bad="${bad:+$bad; }knob=1 did not print the queue-wide sentence"
+	q_journal_has 'attempt=2' ||
+		bad="${bad:+$bad; }knob=1 did not count attempt=2; the counter reads $(factory_ledger_get selftest quarantine-count)"
+	q_state "$tree"
+
 	if [ -n "$bad" ]; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-34s %s\n' "$label" "$bad"
 		return 0
 	fi
 	pass=$((pass + 1))
-	printf '  ok    %-34s quarantine, tick, verdict, next pass -> attempt=2 halts\n' "$label"
+	printf '  ok    %-34s quarantine, tick, verdict, next pass -> attempt=2 takes the unit, not the queue\n' \
+		"$label"
 	return 0
 }
 
@@ -3403,6 +3487,26 @@ rec=${PROC_GH_REC:?PROC_GH_REC names the record file}
 # shellcheck disable=SC1090 -- installed by install_gh_fields, beside the payloads it projects
 . "$here/fields.sh"
 printf '%s\n' "$*" >>"$rec"
+# A `--body-file` payload is deleted by its producer the moment this fake returns, so a leg
+# that pins what a notice actually SAID can only take the bytes at call time. Content names
+# the file: `$rec` is one path shared by every box in this family and `proc_new` truncates
+# it per box, so ordinal names would collide and a later fixture would silently overwrite an
+# earlier box's payload -- the same trap the `cp` of the record below exists for. #432: the
+# transport line proves a comment was ASKED FOR; these copies are what let a leg pin the
+# attempt count, the stash sha and the mirror path inside it.
+case "$*" in
+*--body-file*)
+	_bfprev=''
+	_bfile=''
+	for _barg in "$@"; do
+		[ "$_bfprev" = '--body-file' ] && _bfile=$_barg
+		_bfprev=$_barg
+	done
+	if [ -n "$_bfile" ] && [ -f "$_bfile" ]; then
+		mkdir -p -- "$rec.bodies" 2>/dev/null || true
+		cp -- "$_bfile" "$rec.bodies/$(cksum <"$_bfile" | cut -d' ' -f1)" 2>/dev/null || true
+	fi ;;
+esac
 
 case "$1:$2" in
 'pr:merge' | 'pr:review' | 'pr:edit' | 'pr:request-reviewers' | 'issue:close' | 'issue:reopen' | 'issue:edit')
@@ -20490,14 +20594,28 @@ ask_prompt_rendered_control
 # One fixture walked to the halt: three activations of shipped code with a tick that leaves its work
 # uncommitted in unit A's tree. Activation one arms the streak (tree dirty after the tick), two
 # quarantines at attempt=1 and arms again, three quarantines at attempt=2 -- TREE-STREAK, and the
-# shipped `factory_tree_halt` writes the marker over a tree the quarantine itself just cleaned.
+# shipped `factory_tree_halt` writes the marker over a tree the quarantine itself just cleaned. That
+# last step needs the knob, which is what the function says: since demand 3 the default skips the unit
+# instead, so the queue-wide halt #405 re-probes is the operator's escalation now.
 # Leaves the fixture in the post-halt state and the third journal in $hp_j3.
 hp_walk_to_halt() { # <fixture-name>
+	# Demand 3 moved the default, so the halt these legs release now has to be bought with the knob --
+	# and that is not a workaround around the code under test. Demand 3 says in terms that an operator
+	# can still ask one unit's second accident to halt the queue, and #405's re-probe (this issue's
+	# first two demands) is only REACHABLE through that shape now: on the default, attempt 2 preserves
+	# the work and skips the unit, so no marker is ever written and there is nothing to re-ask. Every
+	# byte below is shipped code at the shipped default except this one variable, and what the shipped
+	# default does at attempt 2 is what the new legs at the end of this file drive end to end.
 	proc_dirty=unclaimed:900
+	hp_knob_saved=$FACTORY_STREAK_HALT
+	# Exported, because `common.sh` reads it with `:-` and `proc_run`'s `env` only carries what the
+	# shell has exported -- an assignment here alone would be a knob no activation ever saw.
+	export FACTORY_STREAK_HALT=1
 	proc_new "$1"
 	proc_run "$1-1"
 	proc_run "$1-2"
 	proc_run "$1-3"
+	FACTORY_STREAK_HALT=$hp_knob_saved
 	proc_dirty=''
 	hp_j3=$proc_journal
 	hp_tree=$proc_trees/issue-900
@@ -20592,10 +20710,17 @@ proc_leg 'the next activation releases it' \
 proc_new rectl
 proc_mutate '	local tgt unit cause mirror tree' \
 	'	return 1 # MUTANT-341A: trust the marker, never the tree' || proc_halt_control_planted=0
+# The same walk as `hp_walk_to_halt`, so the same knob: this control holds the marker a re-probe is
+# asked about, and since demand 3 the default never writes one at attempt 2. Without the export the
+# mutant would be measured against a queue that was never halted, and "the marker stands" would be
+# true of a marker that was never written.
 proc_dirty=unclaimed:900
+hp_knob_saved=$FACTORY_STREAK_HALT
+export FACTORY_STREAK_HALT=1
 proc_run rectl-1
 proc_run rectl-2
 proc_run rectl-3
+FACTORY_STREAK_HALT=$hp_knob_saved
 proc_dirty=''
 proc_run rectl-4
 
@@ -20781,6 +20906,445 @@ hp_w7_human_hold() {
 }
 proc_leg 'a hand-written halt is never released' \
 	'no target to ask: no release, marker stands, #237 clause verbatim, exit 8' hp_w7_human_hold
+
+
+# --------------------------------------------------------------- #341 demand 3 the streak keeps, the queue keeps
+#
+# Everything above this line is the halt that demand 3 took OUT of this shape. These legs drive the same
+# shipped supervisor, the same two-unit queue, and the same stub that leaves finished, verified,
+# UNCOMMITTED work in unit A's tree -- at the shipped default, where a second accident whose work the
+# harness can mirror costs THAT UNIT its turn and nothing else. The outage they exist to keep from coming
+# back is the measured one on #302: 14h34m and 77 activations of `HALTED`, 34 units idle, behind one
+# unit's 2 files, with a marker no code was allowed to remove.
+#
+# A fixture of its own, because the `shipped` box near the top of this family never reaches attempt 2:
+# activation one rescues A's planted dirt, so activation two finds a clean tree and ticks it. Here the
+# stub puts the work back every time a session runs in A, which is the model behaviour the ticket
+# describes -- it exits 0 with the work finished and uncommitted, and the next pass finds it again.
+proc_new streak341
+proc_plant
+proc_dirty=unclaimed:900
+proc_run s341-1
+hs_j1=$proc_journal
+hs_t1=$proc_ticks
+hs_rc1=$proc_rc
+proc_run s341-2
+hs_j2=$proc_journal
+hs_t2=$proc_ticks
+hs_rc2=$proc_rc
+hs_tree=$proc_trees/issue-900
+# The stub stops dirtying: activation three asks whether the skip parked the unit or only cost it a
+# turn, and the only honest way to ask is to let this one deliver.
+proc_dirty=''
+hs_rec_src=$proc_rec
+proc_run s341-3
+hs_j3=$proc_journal
+hs_t3=$proc_ticks
+hs_rc3=$proc_rc
+# Three paths the legs below read, taken now: `proc_new` rebinds `$proc_halt`, `$proc_stash` and
+# `$proc_rec` for the next box, and the control fixture below creates one. The gh record is COPIED for
+# the same reason -- `proc_new` truncates it, and a leg that greps it afterwards would be grepping an
+# empty file and reporting a notice that was never sent.
+hs_halt=$proc_halt
+hs_stash=$proc_stash
+hs_rec=$proc_work/gh-record-streak341.txt
+cp -- "$hs_rec_src" "$hs_rec"
+# The copied `--body-file` payloads live beside the record (shared path, content-named — see
+# the shim). They are NOT copied here: nothing truncates a directory, and the pins below
+# select our notice by the run's own stash sha, which no other box can carry.
+hs_bodies=$proc_rec.bodies
+
+hs_line() { printf '%s\n' "$(proc_journal_line "$1" "$2")"; }
+
+# The fixture's own precondition, in the house's shape: a demand-3 leg that never reached attempt 1
+# would report a skip it never earned. Activation one must look exactly like the rescue #248 shipped --
+# attempt=1, A ticked after its own quarantine, no skip line, no marker.
+hs_setup() {
+	if [ -z "$(hs_line "$hs_j1" 'TREE-QUARANTINED unclaimed:900')" ]; then
+		printf '            activation one never quarantined unit A, so activation two is not a\n' >&2
+		printf '            second accident and every leg below measures nothing:\n' >&2
+		sed -n 's/^/              /p' "$hs_j1" | cut -c1-150 >&2
+		return 1
+	fi
+	case "$(hs_line "$hs_j1" 'TREE-QUARANTINED unclaimed:900')" in
+	*'attempt=1'*) : ;;
+	*) printf '            the first accident was not attempt=1, so the streak arithmetic the\n' >&2
+		printf '            skip is supposed to read is already wrong here.\n' >&2
+		return 1 ;;
+	esac
+	if [ -n "$(hs_line "$hs_j1" 'UNIT-QUARANTINED')" ]; then
+		printf '            activation one skipped a unit that had only been quarantined once --\n' >&2
+		printf '            the price moved to attempt 2, and a leg below would pass on a queue\n' >&2
+		printf '            that never reached the streak.\n' >&2
+		return 1
+	fi
+	[ -n "$(hs_line "$hs_j1" 'TREE-AFTER-TICK unclaimed:900 streak=armed')" ] || {
+		printf '            A'"'"'s tick left the tree dirty and the streak was not armed, so the\n' >&2
+		printf '            next quarantine would be attempt 1 again, not 2:\n' >&2
+		sed -n 's/^/              /p' "$hs_j1" | cut -c1-150 >&2
+		return 1
+	}
+	[ -e "$hs_halt" ] && {
+		printf '            the FIRST accident wrote a halt marker; #248'"'"'s whole claim is that it\n' >&2
+		printf '            does not, and then nothing below tests the second.\n' >&2
+		return 1
+	}
+	grep -qF 'unclaimed:900' "$hs_t1" || {
+		printf '            no session was ever opened for A, so the streak has no tick to have\n' >&2
+		printf '            been armed by:\n' >&2
+		sed -n 's/^/              /p' "$hs_t1" >&2
+		return 1
+	}
+	[ "$hs_rc1" = 0 ] || {
+		printf '            the activation that ARMED the streak exited %s, not 0. Attempt 1 is the\n' "$hs_rc1" >&2
+		printf '            rescue and the pass carries on; 8 is a marker'"'"'s exit code, and no\n' >&2
+		printf '            marker was written here.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'activation one is the plain rescue' \
+	'attempt=1, the streak armed by A'"'"'s own tick, no skip line, no marker' hs_setup
+
+# The demand, in one line each: the unit is skipped, the queue is not, and the halt switch is not touched.
+hs_skips_and_carries_on() {
+	local line order_skip order_b
+	line=$(hs_line "$hs_j2" 'UNIT-QUARANTINED unclaimed:900')
+	[ -n "$line" ] || {
+		printf '            the second accident did not skip the unit -- no `UNIT-QUARANTINED`\n' >&2
+		printf '            line. That activation'"'"'s journal:\n' >&2
+		sed -n 's/^/              /p' "$hs_j2" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'attempt=2'*'others-continue'*) : ;;
+	*) printf '            the skip line does not carry `attempt=2 others-continue`, so the\n' >&2
+		printf '            journal does not say which accident this was or that the queue ran on:\n' >&2
+		printf '              %s\n' "${line:0:180}" >&2
+		return 1 ;;
+	esac
+	[ -e "$hs_halt" ] && {
+		printf '            a preserved second accident wrote the halt marker: 34 idle units behind\n' >&2
+		printf '            one unit'"'"'s work is the #302 outage, which is what demand 3 removes.\n' >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j2" 'TREE-STREAK')" ] && {
+		printf '            the default printed the queue-wide escalation line. That sentence is\n' >&2
+		printf '            the knob'"'"'s, and the control leg below owns it.\n' >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j2" 'HALTED ')" ] && {
+		printf '            the pass journalled a halt at all.\n' >&2
+		return 1
+	}
+	# The queue's own sentences, not this leg's inference: `--status` reads the END line, and a pass
+	# that skipped a unit while reporting zero ticks started would be the quiet half of the outage.
+	case "$(hs_line "$hs_j2" 'END rc=')" in
+	*'ticks_started=1'*) : ;;
+	*) printf '            the pass did not report one tick started, so the queue did not carry on:\n' >&2
+		printf '              %s\n' "$(hs_line "$hs_j2" 'END rc=')" >&2
+		return 1 ;;
+	esac
+	[ "$hs_rc2" = 0 ] || {
+		printf '            the activation exited %s, not 0: a skipped unit must not cost the pass\n' "$hs_rc2" >&2
+		printf '            the halt'"'"'s own exit code.\n' >&2
+		return 1
+	}
+	order_skip=$(awk -v n='UNIT-QUARANTINED unclaimed:900' 'index($0,n){print NR; exit}' "$hs_j2")
+	order_b=$(awk -v n='TICK-START unclaimed:901' 'index($0,n){print NR; exit}' "$hs_j2")
+	[ -n "$order_b" ] || {
+		printf '            unit B was never ticked, so "others-continue" is a claim the journal\n' >&2
+		printf '            made and the pass did not keep:\n' >&2
+		sed -n 's/^/              /p' "$hs_j2" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$order_b" -gt "${order_skip:-0}" ] || {
+		printf '            B was ticked at line %s and the skip happened at %s: the queue ran on\n' "$order_b" "${order_skip:-never}" >&2
+		printf '            BEFORE the decision, so nothing here shows a pass continuing past it.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the second accident skips the unit, not the queue' \
+	'UNIT-QUARANTINED attempt=2 others-continue, no marker, no HALTED, B ticked after it, exit 0' hs_skips_and_carries_on
+
+# And the other half of the scope: the skipped unit ran NOTHING. A `TICK-START` beside a skip would mean
+# the harness went into the tree it had just refused, which is the guess the streak exists to stop.
+hs_ran_nothing() {
+	local sessions_for_a sessions
+	sessions=$(grep -c '^tick ' "$hs_t2" 2>/dev/null || true)
+	sessions_for_a=$(grep -c 'unclaimed:900' "$hs_t2" 2>/dev/null || true)
+	[ "${sessions_for_a:-0}" = 0 ] || {
+		printf '            a session was opened in the tree this pass refused -- %s line(s) name\n' "${sessions_for_a:-0}" >&2
+		printf '            the unit in the tick record:\n' >&2
+		sed -n 's/^/              /p' "$hs_t2" >&2
+		return 1
+	}
+	[ "${sessions:-0}" = 1 ] || {
+		printf '            %s session(s) opened on a queue of two where one unit was skipped; one\n' "${sessions:-0}" >&2
+		printf '            was expected, for unit B:\n' >&2
+		sed -n 's/^/              /p' "$hs_t2" >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j2" 'TICK-SKIPPED unclaimed:900')" ] || {
+		printf '            the dispatcher took exit 6 without journalling what it did with it, so\n' >&2
+		printf '            `--status` and a reader of the log would disagree about the unit:\n' >&2
+		sed -n 's/^/              /p' "$hs_j2" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j2" 'TICK-START unclaimed:900')" ] && {
+		printf '            the journal says a tick started for the unit it had just skipped.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and the skipped unit ran no session' \
+	'one session on a two-unit queue, none of it in A'"'"'s tree, TICK-SKIPPED journalled' hs_ran_nothing
+
+# The precondition the scope change rests on: the work is in two places, both named by the line that
+# skipped the unit. A skip that lost the bytes would be a quieter outage, not a smaller one.
+hs_work_preserved() {
+	local line mirror
+	line=$(hs_line "$hs_j2" 'UNIT-QUARANTINED unclaimed:900')
+	mirror=$(printf '%s\n' "$line" | sed -n 's/.*mirror=\([^ ]*\).*/\1/p')
+	[ -n "$(printf '%s\n' "$line" | sed -n 's/.*stash=\([^ ]*\).*/\1/p')" ] || {
+		printf '            the skip line names no stash, so the sentence "the unit keeps its work"\n' >&2
+		printf '            is not in the record a person reads:\n              %s\n' "${line:0:200}" >&2
+		return 1
+	}
+	[ -n "$mirror" ] || {
+		printf '            the skip line names no mirror path:\n              %s\n' "${line:0:200}" >&2
+		return 1
+	}
+	[ -f "$mirror" ] || {
+		printf '            the mirror it names, %s, is not a file.\n' "$mirror" >&2
+		return 1
+	}
+	[ -s "$mirror" ] || {
+		printf '            the mirror %s is zero bytes -- a rescue that is an empty file.\n' "$mirror" >&2
+		return 1
+	}
+	grep -qF 'undelivered-work.txt' "$mirror" || {
+		printf '            the mirror does not carry the file the tick died with, so it is not a\n' >&2
+		printf '            mirror of THIS accident: %s\n' "$mirror" >&2
+		return 1
+	}
+	[ "$(q_dirt "$hs_tree")" = 0 ] || {
+		printf '            the tree the unit was skipped for is still dirty (%s path(s)), so the\n' "$(q_dirt "$hs_tree")" >&2
+		printf '            skip was not the end of the rescue.\n' >&2
+		return 1
+	}
+	q_stash_is_ours "$hs_tree" 'unclaimed:900' || {
+		printf '            nothing is in the tree'"'"'s refs/stash under our own subject, so the\n' >&2
+		printf '            stash the line names is not this unit'"'"'s work.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and the work is in the stash and the mirror it names' \
+	'stash= and mirror= on the skip line, the patch non-empty and naming the file, tree clean' hs_work_preserved
+
+# Demand 4 asks the unit's owner to be told. The journal is the record for an operator who opens the
+# box; an unticked unit is otherwise invisible in the one place anyone looks -- `IDLE` never appears,
+# because the queue is healthy, and `QUEUED` just stops shrinking. The shim's record file is read as
+# well as the journal: `UNIT-QUARANTINE-NOTICED` is a claim that a write happened, and this harness
+# does not take that claim from the code that made it. And since #432 the claim is read at BOTH
+# depths: the record proves a comment was ASKED FOR, and the payload the shim copied proves what it
+# SAID. The measurement that earned this: the shipped call site passed the finding where the contract
+# names the attempt count, every notice rendered `skipped this unit stash=… cause=mirror times in a
+# row` and printed the fallback sentence in both location slots, and nothing here could see it --
+# neither the journal line, nor the record line, nor `issue comment 900` carries one byte of the body.
+hs_owner_told() {
+	[ -n "$(hs_line "$hs_j2" 'UNIT-QUARANTINE-NOTICED unclaimed:900 #900')" ] || {
+		printf '            the unit was skipped and nobody was told. The activation'"'"'s journal:\n' >&2
+		sed -n 's/^/              /p' "$hs_j2" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j2" 'UNIT-QUARANTINE-NOTICE-FAILED')" ] && {
+		printf '            the notice reported a failure and the leg above still found the ok line.\n' >&2
+		return 1
+	}
+	grep -qF 'issue comment 900' "$hs_rec" || {
+		printf '            the gh shim was never asked to comment on #900, so the journal line is\n' >&2
+		printf '            a claim about a write the transport did not make. Its record:\n' >&2
+		sed -n 's/^/              /p' "$hs_rec" | tail -n 8 >&2
+		return 1
+	}
+	if grep -q 'UNIT-QUARANTINE-NOTICE-FAILED' "$hs_j2"; then
+		printf '            the notice refused itself on the healthy path; the journal says:\n' >&2
+		grep 'UNIT-QUARANTINE-NOTICE-FAILED' "$hs_j2" | sed -n 's/^/              /p' >&2
+		return 1
+	fi
+	# The transport proves a comment was asked for. The bytes are demand 4's actual claim --
+	# that the notice names the count and WHERE THE WORK IS -- so pin the copied body against
+	# the journal's own skip line: the count from `attempt=`, the stash sha and the mirror path
+	# from the same line that skipped the unit. The selection keys on the run's mirror path
+	# (unique to this box's tmp root, present in any rendering, broken ones included), so a
+	# mis-rendered notice is still FOUND and then named for what it failed, not missed with the
+	# blander "no payload" message.
+	local jline n stash mirror body='' f
+	jline=$(hs_line "$hs_j2" 'UNIT-QUARANTINED unclaimed:900')
+	n=$(printf '%s\n' "$jline" | sed -n 's/.*attempt=\([^ ]*\).*/\1/p')
+	stash=$(printf '%s\n' "$jline" | sed -n 's/.*stash=\([^ ]*\).*/\1/p')
+	mirror=$(printf '%s\n' "$jline" | sed -n 's/.*mirror=\([^ ]*\).*/\1/p')
+	for f in "$hs_bodies"/*; do
+		[ -f "$f" ] || continue
+		if grep -qF 'skipped this unit' "$f" && [ -n "$mirror" ] && grep -qF -- "$mirror" "$f"; then
+			body=$f
+			break
+		fi
+	done
+	[ -n "$body" ] || {
+		printf '            no copied --body-file payload holds this run'"'"'s quarantine notice\n' >&2
+		printf '            (the skip line'"'"'s mirror path is %s). The notice body was never\n' "${mirror:-unknown}" >&2
+		printf '            captured, so the sentence above rests on the journal alone:\n' >&2
+		find "$hs_bodies" -maxdepth 1 -type f -printf '%f %s\n' 2>/dev/null | sed -n 's/^/              /p' >&2
+		return 1
+	}
+	grep -qF "skipped this unit $n times in a row" "$body" || {
+		printf '            the notice does not carry the attempt count the journal just stated\n' >&2
+		printf '            (`attempt=%s`), so the number it blames the unit for is not the streak.\n' "$n" >&2
+		printf '            The body it sent:\n' >&2
+		sed -n 's/^/              /p' "$body" | cut -c1-160 >&2
+		return 1
+	}
+	grep -qF -- "$stash" "$body" || {
+		printf '            the notice does not name the stash the skip line names (%s), so its\n' "$stash" >&2
+		printf '            "nothing was discarded" sentence points at a paragraph, not the work.\n' >&2
+		return 1
+	}
+	grep -qF -- "$mirror" "$body" || {
+		printf '            the notice does not name the mirror the skip line names (%s).\n' "$mirror" >&2
+		return 1
+	}
+	if grep -qF 'named on the TREE-QUARANTINED journal line' "$body"; then
+		printf '            the notice fell back to its look-in-the-journal placeholders -- the\n' >&2
+		printf '            fields were never rendered, which is the #432 shape: a notice whose\n' >&2
+		printf '            "nothing was discarded" paragraph says only where to go looking.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '…and the owner is told on the issue' \
+	'UNIT-QUARANTINE-NOTICED for #900, the record proves the comment was asked for, and the copied body names the count, the stash and the mirror' hs_owner_told
+
+# A skip that never ended is the outage with the delay built in, which is the objection #248 filed
+# against the streak itself. Activation three is the same box with the stub no longer dirtying A: the
+# unit has to be ticked again, and the tick that delivers has to take the counter back to zero.
+hs_turn_not_a_park() {
+	[ -n "$(hs_line "$hs_j3" 'TICK-START unclaimed:900')" ] || {
+		printf '            the activation after a skip refused to tick the unit at all -- that is a\n' >&2
+		printf '            park, which demand 3 refuses to write, and it is invisible next to a\n' >&2
+		printf '            queue that is otherwise running:\n' >&2
+		sed -n 's/^/              /p' "$hs_j3" | cut -c1-150 >&2
+		return 1
+	}
+	grep -qF 'unclaimed:900' "$hs_t3" || {
+		printf '            the journal says A was started and the runtime stub says nobody opened\n' >&2
+		printf '            a session for it:\n' >&2
+		sed -n 's/^/              /p' "$hs_t3" >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j3" 'TREE-AFTER-TICK unclaimed:900 streak=cleared')" ] || {
+		printf '            a tick that left the tree clean did not clear the streak, so the next\n' >&2
+		printf '            honest accident is a skip away from being a permanent one.\n' >&2
+		return 1
+	}
+	[ "$(cat "$hs_stash/unclaimed:900.quarantine-count" 2>/dev/null)" = 0 ] || {
+		printf '            the counter still reads %s after a clean tick.\n' \
+			"$(cat "$hs_stash/unclaimed:900.quarantine-count" 2>/dev/null || printf 'nothing')" >&2
+		return 1
+	}
+	[ "$hs_rc3" = 0 ] || {
+		printf '            the activation after a skip exited %s, not 0.\n' "$hs_rc3" >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hs_j3" 'UNIT-QUARANTINE-NOTICED')" ] && {
+		printf '            the unit was noticed again on an activation that did not skip it -- the\n' >&2
+		printf '            throttle exists so a person is not mailed once a minute.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and the next activation ticks it again' \
+	'skip is a turn, not a park: A ticked, streak cleared to 0, exit 0, no second notice' hs_turn_not_a_park
+
+# The control, and the scope is what it varies. The same queue, the same stub, the same activations, with
+# `FACTORY_STREAK_HALT=1` -- the escape hatch demand 3 says an operator keeps -- and attempt 2 is the
+# queue-wide halt again: the marker written, the `TREE-STREAK` sentence, the pass exiting with the halt's
+# own code. Without this leg the six above are satisfied by a streak that never halts anything, which is
+# the other way this component has failed before.
+#
+# What the halt costs is read on the activation AFTER it, and that is the shipped shape, measured here
+# rather than assumed: a pass that halts on one unit finishes its batch -- the loop's `*)` arm sets
+# `rc=4` and moves on to the next unit -- so the halt stops the NEXT activation from dispatching
+# anything. That is why the outage demand 3 is written against is counted in activations (77 of them,
+# 14h34m) and not in passes. Activation three is the queue standing still behind a cause nobody rescued:
+# A's tree is planted dirty by hand, because the tick stub cannot dirty it -- nothing dispatches once the
+# marker stands -- and without a surviving cause demand 1 asks the tree, finds it clean and releases the
+# halt, which is #405's subject and the `hp_*` family above's legs.
+proc_new streak341knob
+proc_plant
+proc_dirty=unclaimed:900
+hk_saved=$FACTORY_STREAK_HALT
+export FACTORY_STREAK_HALT=1
+proc_run s341k-1
+proc_run s341k-2
+hk_j2=$proc_journal
+hk_rc2=$proc_rc
+hk_halt=$proc_halt
+hk_tree=$proc_trees/issue-900
+printf 'the work nobody rescued this time\n' >>"$hk_tree/tracked.txt"
+proc_run s341k-3
+hk_j3=$proc_journal
+hk_rc3=$proc_rc
+hk_t3=$proc_ticks
+FACTORY_STREAK_HALT=$hk_saved
+proc_dirty=''
+
+hs_knob_halts_the_queue() {
+	[ -n "$(hs_line "$hk_j2" 'TREE-STREAK unclaimed:900')" ] || {
+		printf '            with the knob on, attempt 2 did not print the queue-wide sentence --\n' >&2
+		printf '            the operator'"'"'s escalation is unreachable, and #405'"'"'s re-probe has\n' >&2
+		printf '            nothing to re-ask:\n' >&2
+		sed -n 's/^/              /p' "$hk_j2" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hk_j2" 'UNIT-QUARANTINED')" ] && {
+		printf '            the knob on skipped the unit instead of halting the queue.\n' >&2
+		return 1
+	}
+	[ -e "$hk_halt" ] || {
+		printf '            the knob on wrote no marker, so the activation after it dispatched as\n' >&2
+		printf '            though nothing had happened.\n' >&2
+		return 1
+	}
+	[ "$hk_rc2" = 4 ] || {
+		printf '            the attempt-2 activation exited %s; 4 is the halt'"'"'s own code.\n' "$hk_rc2" >&2
+		return 1
+	}
+	[ -n "$(hs_line "$hk_j3" 'HALTED ')" ] || {
+		printf '            the activation after the halt printed no halt line, so the queue was\n' >&2
+		printf '            not standing still behind the cause:\n' >&2
+		sed -n 's/^/              /p' "$hk_j3" | cut -c1-150 >&2
+		return 1
+	}
+	local sessions
+	sessions=$(grep -c '^tick ' "$hk_t3" 2>/dev/null || true)
+	[ "${sessions:-0}" = 0 ] || {
+		printf '            %s session(s) opened on an activation the halt stops -- unit B is\n' "${sessions:-0}" >&2
+		printf '            ticked behind a marker, which is the scope the default gives back.\n' >&2
+		sed -n 's/^/              /p' "$hk_t3" >&2
+		return 1
+	}
+	[ "$hk_rc3" = 8 ] || {
+		printf '            the held activation exited %s; 8 is what a standing halt costs a pass.\n' "$hk_rc3" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: knob=1 halts the queue instead' \
+	'TREE-STREAK plus the marker, exit 4; the next activation ticks nothing and exits 8' hs_knob_halts_the_queue
 
 
 # --------------------------------------------------------------------------- #346 the main checkout's own tree

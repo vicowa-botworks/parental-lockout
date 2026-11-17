@@ -1733,6 +1733,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_HALT_RELEASES` | `2` | how many times one unit's machine-written halt may remove itself when the tree it names is provably past its cause (#341); see the section under "Stopping it" |
+| `FACTORY_STREAK_HALT` | `0` | whether one unit's second preserved accident halts the whole repository as well as costing that unit its turn (#341 demand 3). `0` is the shipped scope: the unit loses its pass and every other unit is ticked. `1` is the pre-#341 escalation, kept reachable because it is the shape the halt re-probe is written against and because an operator may decide one unit's repeats are worth stopping the queue for |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_STALE_ESCALATE` | `3` | how many consecutive activations may report the installed tree behind and not repair it before `--status`'s verdict reads `STALE` (#342). Three: enough to ride out one pass whose refusal cause clears, short enough that nobody reads 92 journal lines to call the outage a defect |
@@ -1753,6 +1754,55 @@ enough on its own: a tick can hold a worktree for 45 minutes, and inside that wi
 that can hear you is the agent. The supervisor also writes this file itself when it finds a dirty
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
+
+**What the supervisor stops for (#341 demand 3).** It writes the marker itself over two shapes, and
+they have one thing in common: the work is nowhere else. A tree whose rescue was **refused** -- git
+would not stash it, or the tree cannot be read back clean afterwards -- journals
+`TREE-QUARANTINE-REFUSED` and then halts, `cause=dirty` or `cause=unreadable`, at whichever call site
+found it (`TICK-HALTED` before a tick, `CONFLICT-HALTED` before a conflict resolution). And, with
+`FACTORY_STREAK_HALT=1`, a unit whose tick has now stopped short of delivery twice in a row.
+
+A second accident whose work the harness **did** preserve is no longer a repository-wide stop. The
+first is absorbed silently (`TREE-QUARANTINED … attempt=1`, work in a stash and a patch, the queue
+ticked on); the second used to be `TREE-STREAK` and a marker, and it is now
+`UNIT-QUARANTINED <unit> attempt=2 others-continue stash=<sha> mirror=<path>`. The dispatcher takes
+that as exit `6` for the one unit: no session is opened in the tree it just refused -- the journal
+carries `TICK-SKIPPED` and no `TICK-START` for it -- the unit keeps its row in the queue, every other
+unit is ticked by the same pass, and the pass exits `0`. The tick's `6` never leaves the pass, so
+monitoring gains no code: `4` is still a failed tick and `8` is still a standing halt.
+
+Why that shape specifically lost the halt: by the time the streak fires, the bytes are in a stash
+**and** in a patch under `FACTORY_AT_RISK`, so the halt was no longer protecting anything -- it was
+only refusing to guess again about work it had already copied in two places. And the streak was the one
+halt whose cause was false in the same breath as the file: the stop had just stashed and mirrored the
+bytes and cleaned the tree, so the marker went down over work it had itself made safe -- which is why
+#405's re-probe can only mop this up one activation later, having stopped every other unit for the
+interval and only twice per unit before `HALT-STUBBORN` leaves the resume to a person. Measured cost of
+the old scope on #302: 14h34m and 77 activations of `HALTED` with 34 units idle, behind one unit's 2
+files, until a person ran `rm`.
+
+What replaces the halt's *visibility* is a notice, because an unticked unit is otherwise invisible in
+the one place anyone looks: `IDLE` never appears while the rest of the queue is healthy, and `QUEUED`
+merely stops shrinking. So the skip also posts on the unit's own issue --
+`UNIT-QUARANTINE-NOTICED <unit> #<n>` in the journal, and a comment naming the attempt count, the stash
+sha and the mirror path, because demand 3's whole claim is that nothing was lost and a notice that
+cannot say where the bytes are is not that claim. It is throttled by `FACTORY_HALT_NOTICE_AFTER`, the
+halt notice's own window, and the ledger stamp `quarantine-notice` is written only when `gh` exited 0: a
+unit that keeps stopping short reaches a second accident again every time it has been ticked twice since
+the last clean read, so a notice fired on each one would mail whoever owns it on the queue's own cadence,
+and a stamp written on a failed post would silently retire the only sentence telling anyone the unit is
+not being worked. A failed post journals
+`UNIT-QUARANTINE-NOTICE-FAILED` with `gh`'s exit and its own words, and costs the unit nothing -- the
+`UNIT-QUARANTINED` line is the record either way. Numbered units only, same as the halt notice:
+`unclaimed:341` has an issue to comment on and `selftest` does not.
+
+Nothing here is resumed by hand, because there is no marker to remove: `factory/factory.sh --status`
+prints the unit's `ledger:` line with `quarantine-count=2` and `quarantined-at=…`, the journal's
+`UNIT-QUARANTINED` line names the stash and the patch, and the unit is still a waiting row of the
+queue -- the activation after a skip ticks it again, which is the difference between losing a turn and
+being parked. What a person acts on is the work in `FACTORY_AT_RISK`. The halt path above is for the
+case where there is no copy to read, and if the queue-wide stop is what you want anyway, the knob is
+one `Environment=` line in the timer's unit file.
 
 Nothing halted and the queue still is not moving: read the `code:` line of
 `factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
@@ -1793,6 +1843,19 @@ A dry run never re-probes: a release is a write, and dry runs write nothing to t
 switch. The `HALT-NOTICED` issue comment stays the halt-write moment's, throttled once per hour; a
 notice posted over a mirrored halt now names the stash and the mirror path and says plainly that
 removing the marker loses nothing, because for that shape removing the marker loses nothing.
+
+**Which markers exist to be re-asked, after demand 3.** Nothing in the four outcomes above changed, and
+one knob-width changed what writes a marker at all -- worth naming here, because the fixture this
+section's legs walk to is the streak halt, which the shipped default no longer produces; those legs set
+`FACTORY_STREAK_HALT=1` to reach it, and the self-test pins both scopes. A halt is written now when the
+work is **nowhere else**: a rescue that was refused (`TREE-QUARANTINE-REFUSED`, over the verdict's own
+`cause=dirty` or `cause=unreadable`), from either call site -- before a tick, or before a conflict
+resolution. A halt standing over a tree with a merge in it never releases on the dirt question, because
+the re-probe asks git's index state as well and a half-merged tree is not clean however empty
+`git status` reads. And a second
+preserved accident writes one only under the knob. Under the shipped default that shape journals
+`UNIT-QUARANTINED`, spends the unit its turn, tells its owner once, and lets the pass finish; the
+section above, "Stopping it", carries the scope and the reason for it.
 
 ## What "dirty" means, because the test decides when the queue stops
 
