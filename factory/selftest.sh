@@ -21171,6 +21171,225 @@ CLAIMJ
 claim_leg 'the claims dispatch asks only its own unit journal' ask_journal_unit_is_its_own
 
 
+# --------------------------------------------------------------------------- the worktree census (#348)
+# #348 measured what a tree outside the convention costs: `/home/rodney/prj/.wt-armcheck` sat
+# detached-at-a-merged-commit and clean for six days, listed by every tick's `git worktree list`
+# and reachable by no arm, because the merge-time cleanup is keyed to `$FACTORY_TREES/<slug of the
+# merged branch>` and nothing else; `wt/wt/verify-343` was the second shape -- one directory under
+# the trees, invisible to the same key, and it left its admin row behind for part of a minute
+# where the next `git worktree add` would have tripped on it. The census in `common.sh` now
+# reports both shapes and prunes only what git itself marks prunable. These legs pin the report:
+# what makes a tree PROVASLY dead (ancestor of trunk, silent clean read, off the live-branch
+# path), the two `reason` arms, the skips that are not verdicts (main checkout, live conventional
+# branch, locked, vanished-and-marked), the prune and its DRY-RUN arm, the idempotence of the
+# second pass, the measured fact that a lock protects a vanished row from BOTH arms (git 2.53.0:
+# prune rc 0, silent, row intact), and the one honest line a census that could not run prints.
+# The dirty control is the load-bearing leg: it is what keeps the line safe for a future edit to
+# key auto-cleanup against -- open the deadness gate and this leg goes red before that edit merges.
+wtc_work=$work/wtcensus
+wtc_up=$wtc_work/up
+wtc_m=$wtc_work/m
+wtc_trees=$wtc_work/trees
+wtc_arm=$wtc_work/.wt-arm950
+wtc_base=$wtc_trees/base-950
+wtc_live=$wtc_trees/issue-950
+wtc_deep=$wtc_trees/nested/deep950
+wtc_free=$wtc_work/free950
+wtc_lock=$wtc_work/lock950
+mkdir -p "$wtc_up" "$wtc_trees"
+git init -q "$wtc_up"
+git -C "$wtc_up" config user.email fixture@invalid
+git -C "$wtc_up" config user.name fixture
+git -C "$wtc_up" checkout -qb main
+printf 'fixture trunk\n' >"$wtc_up/f.txt"
+git -C "$wtc_up" add -A
+git -C "$wtc_up" commit -qm 'fixture trunk: the one commit every census head is an ancestor of'
+git clone -q "$wtc_up" "$wtc_m"
+git -C "$wtc_m" config user.email fixture@invalid
+git -C "$wtc_m" config user.name fixture
+wtc_merged=$(git -C "$wtc_m" rev-parse origin/main)
+git -C "$wtc_m" worktree add -q -b issue-950 "$wtc_live" origin/main
+git -C "$wtc_m" worktree add -q --detach "$wtc_base" "$wtc_merged"
+git -C "$wtc_m" worktree add -q --detach "$wtc_arm" "$wtc_merged"
+git -C "$wtc_m" worktree add -q --detach "$wtc_deep" "$wtc_merged"
+git -C "$wtc_m" worktree add -q --detach "$wtc_free" origin/main
+printf 'work nobody merged\n' >"$wtc_free/w.txt"
+git -C "$wtc_free" add -A
+git -C "$wtc_free" commit -qm 'an unmerged head: the census cannot prove this one dead'
+git -C "$wtc_m" worktree add -q --detach "$wtc_lock" "$wtc_merged"
+git -C "$wtc_m" worktree lock "$wtc_lock"
+
+# wtc_run [DRY_RUN] -> the shipped census over the fixture, in a fresh bash that sources common.sh
+# the way the mirror legs do, so the fixture's FACTORY_TREES -- not this suite's real one -- is
+# what the census compares against.
+wtc_run() {
+	env FACTORY_TREES="$wtc_trees" DRY_RUN="${1:-0}" HOME=/home/fixture bash -c \
+		"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; factory_worktree_lines '$wtc_m'"
+}
+
+wtc_leg() { # wtc_leg <label> <requires> <needle> <lines> -- a ! prefix means the needle must be absent
+	local label=$1 requires=$2 needle=$3 lines=$4
+	local want=1 pat=$needle hit=1
+	case $needle in
+	'!'*)
+		want=0
+		pat=${needle#!}
+		;;
+	esac
+	if printf '%s\n' "$lines" | grep -qF -- "$pat"; then
+		hit=0
+	fi
+	if { [ "$hit" = 0 ] && [ "$want" = 1 ]; } || { [ "$hit" = 1 ] && [ "$want" = 0 ]; }; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" "$requires"
+		printf '\tthe census printed:\n'
+		printf '%s\n' "$lines" | sed 's/^/\t\t/'
+	fi
+	return 0
+}
+
+wtc_count_leg() { # wtc_count_leg <label> <requires> <fixed-needle> <want-count> <lines>
+	local label=$1 requires=$2 pat=$3 want=$4 lines=$5 got
+	got=$(printf '%s\n' "$lines" | grep -cF -- "$pat" || true)
+	if [ "$got" = "$want" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s (printed %s line(s) carrying the needle, wanted %s)\n' \
+			"$label" "$requires" "$got" "$want"
+		printf '\tthe census printed:\n'
+		printf '%s\n' "$lines" | sed 's/^/\t\t/'
+	fi
+	return 0
+}
+
+# Pass one: every shape exists at once, so an over-report by any arm lands in the count, not in a
+# silent extra line nobody asked about.
+wtc_lines=$(wtc_run)
+wtc_count_leg 'the census counts the dead, exactly' \
+	'three dead trees and not the live branch, main, the unmerged head, or the locked one' \
+	'WORKTREE-ORPHAN' 3 "$wtc_lines"
+wtc_leg 'the in-trees orphan names its arm' \
+	'a direct child of the trees no branch names reads merged-and-clean' \
+	"WORKTREE-ORPHAN $wtc_base head=$wtc_merged reason=merged-and-clean" "$wtc_lines"
+wtc_leg 'the off-convention orphan names its arm' \
+	'the ticket shape -- detached, merged, clean, not under the trees -- reads outside-trees' \
+	"WORKTREE-ORPHAN $wtc_arm head=$wtc_merged reason=outside-trees" "$wtc_lines"
+wtc_leg 'the misnested tree is outside the convention' \
+	'one directory deeper than the naming can produce still reads outside-trees' \
+	"WORKTREE-ORPHAN $wtc_deep head=$wtc_merged reason=outside-trees" "$wtc_lines"
+wtc_leg 'the convention is silent about its live tree' \
+	'a tree a branch still owns at the conventional path prints no line, clean or not' \
+	"!$wtc_live head=" "$wtc_lines"
+wtc_leg 'the main checkout is never an orphan' \
+	'main is clean and IS trunk, and the census still does not name it' \
+	"!$wtc_m head=" "$wtc_lines"
+wtc_leg 'unmerged silence' \
+	'a clean detached head the trunk does not hold prints no line' \
+	"!$wtc_free head=" "$wtc_lines"
+wtc_leg 'a hand-parked tree is not judged' \
+	'a locked worktree prints no line: a person put that lock there' \
+	"!$wtc_lock head=" "$wtc_lines"
+
+# The load-bearing control: dirty the merged off-convention tree and the line disappears. The
+# census's safety claim is "this line means provably dead"; a future edit that keys auto-removal
+# to it inherits that claim, and this leg is what breaks if the deadness gate is ever widened.
+printf 'scratch nobody committed\n' >"$wtc_arm/wtc-scratch.txt"
+wtc_lines=$(wtc_run)
+wtc_leg 'the dirty control goes silent' \
+	'one untracked byte in the orphan, and the line is gone -- the report is deadness, not location' \
+	"!$wtc_arm head=" "$wtc_lines"
+wtc_count_leg 'and only that line goes' \
+	'the other two dead trees are unaffected by this tree getting dirty' \
+	'WORKTREE-ORPHAN' 2 "$wtc_lines"
+rm -f -- "$wtc_arm/wtc-scratch.txt"
+
+# The prune arms. A vanished directory first: git marks it, the census reports the mark, prunes,
+# and confirms with git's own removal count.
+wtc_gone=$wtc_trees/gone950
+git -C "$wtc_m" worktree add -q --detach "$wtc_gone" "$wtc_merged"
+mv -- "$wtc_gone" "$wtc_work/gone950-moved"
+wtc_lines=$(wtc_run)
+wtc_leg 'the marked row is named before it is taken' \
+	'WORKTREE-PRUNABLE carries the vanished path and git reason' \
+	"WORKTREE-PRUNABLE $wtc_gone " "$wtc_lines"
+wtc_leg 'the prune confirms with git' \
+	'WORKTREE-PRUNED counts git -v removals, not marked rows' \
+	'WORKTREE-PRUNED 1 ' "$wtc_lines"
+if git -C "$wtc_m" worktree list --porcelain | grep -qF -- "$wtc_gone"; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the pruned row is still in the list\n' 'the row leaves the registry'
+else
+	pass=$((pass + 1))
+	printf '  ok    %-40s a stale row no longer makes the next add refuse\n' 'the row leaves the registry'
+fi
+wtc_count_leg 'the prune arm invents no orphan' \
+	'the vanished row is the prune arm sentence and never an orphan line too; the three standing dead trees stay counted, the scratch file having gone back' \
+	'WORKTREE-ORPHAN' 3 "$wtc_lines"
+
+# Idempotence: the second pass over the cleaned registry says nothing about pruning at all.
+wtc_lines=$(wtc_run)
+wtc_leg 'the second pass finds nothing to prune' \
+	'no WORKTREE-PRUNE line of any kind after the registry is clean' \
+	'!WORKTREE-PRUNE' "$wtc_lines"
+
+# The DRY-RUN arm: the mark is reported, the count is promised, and the registry is NOT touched.
+wtc_gone2=$wtc_trees/gone951
+git -C "$wtc_m" worktree add -q --detach "$wtc_gone2" "$wtc_merged"
+mv -- "$wtc_gone2" "$wtc_work/gone951-moved"
+wtc_lines=$(wtc_run 1)
+wtc_leg 'dry-run reports and refuses to act' \
+	'DRY-RUN names the prune it will not run, beside the marked row' \
+	"DRY-RUN  git worktree prune in $wtc_m " "$wtc_lines"
+wtc_leg 'dry-run takes nothing' \
+	'WORKTREE-PRUNED is absent and the marked row survives the pass' \
+	'!WORKTREE-PRUNED' "$wtc_lines"
+if git -C "$wtc_m" worktree list --porcelain | grep -qF -- "$wtc_gone2"; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s the dry-run pass changed nothing\n' 'the row survives a dry run'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a DRY_RUN pass removed a row it only promised\n' 'the row survives a dry run'
+fi
+wtc_lines=$(wtc_run) # clear it for real, so the locked probe below measures one row, not two
+
+# The measured lock: a vanished directory UNDER a lock is marked by neither arm. git 2.53.0 leaves
+# it out of `prunable`, out of the prune (rc 0, silent), and out of this census -- pinned as fact,
+# because a lock is the instrument a person uses to park a tree, and the census header says so.
+wtc_lgone=$wtc_work/lockgone950
+git -C "$wtc_m" worktree add -q --detach "$wtc_lgone" "$wtc_merged"
+git -C "$wtc_m" worktree lock "$wtc_lgone"
+mv -- "$wtc_lgone" "$wtc_work/lockgone950-moved"
+wtc_lines=$(wtc_run)
+wtc_leg 'a locked vanished row is pruned by nobody' \
+	'measured: git does not mark it and prune does not take it -- no WORKTREE-PRUNE line at all' \
+	'!WORKTREE-PRUNE' "$wtc_lines"
+wtc_leg 'and the census does not orphan-report it either' \
+	'locked is a skip that is not a verdict: no line names the path' \
+	"!$wtc_lgone" "$wtc_lines"
+if git -C "$wtc_m" worktree list --porcelain | grep -qF -- "$wtc_lgone"; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s the lock is still protecting the row it was set on\n' 'the lock survives both arms'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a locked row vanished\n' 'the lock survives both arms'
+fi
+
+# And the honest failure: a census aimed at a tree that is not there prints one line, git-shaped,
+# and no verdicts -- silence is the sentence this component exists to stop being free.
+wtc_lines=$(env FACTORY_TREES="$wtc_trees" DRY_RUN=0 HOME=/home/fixture bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; factory_worktree_lines '$wtc_work/no-such-checkout'")
+wtc_leg 'no checkout, one sentence' \
+	'WORKTREE-CENSUS-FAILED says the path it could not open' \
+	"WORKTREE-CENSUS-FAILED no checkout at $wtc_work/no-such-checkout" "$wtc_lines"
+wtc_count_leg 'and that sentence is the whole output' \
+	'a census that could not run prints no orphan and prune lines beside its failure' \
+	'WORKTREE-' 1 "$wtc_lines"
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not

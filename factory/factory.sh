@@ -1501,7 +1501,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0
+	local rows rc=0 started=0 census_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -1536,6 +1536,17 @@ factory_body() {
 	# #346: the tree these very git commands run in was the one tree the pass never read. Once per
 	# activation, beside the refresh; advisory always-0 by design (H-0197), so it cannot halt a pass.
 	factory_main_tree_check "$(factory_main_checkout)"
+	# The census of every tree this repository can see, and the prune of admin rows whose
+	# directories are gone (#348). After the refresh on purpose: the deadness verdict compares each
+	# tree's head against `origin/main`, and a pass must judge against the refs it just fetched, not
+	# the last time this clone looked -- the same thesis as the H-0075 refresh above it. Before triage
+	# for the other half: a pass that cannot reach the queue is exactly the pass whose trees an
+	# operator goes looking for, and the census needs no network. Reported, not removed: see the
+	# function's header in common.sh for why a tree this arm names must stay a person's call.
+	while IFS= read -r census_line; do
+		[ -n "$census_line" ] || continue
+		log_event "$census_line"
+	done < <(factory_worktree_lines "$(factory_main_checkout)")
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
