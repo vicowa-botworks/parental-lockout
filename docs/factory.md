@@ -2482,6 +2482,60 @@ So the contract for a bound, in the order someone will implement it:
    `journal <bytes>; <N> files, <bytes> under <dir>; oldest <file> <age>`. A bound that prunes should
    make its own answer visible there, because a silently-shrinking audit trail is the thing this section
    exists to prevent.
+ 5. **Name the clock, and the zone, or refuse the answer.** "Keep N days of transcripts" is not yet a
+   predicate, and three of the six spellings an implementer reaches for are wrong in three different ways.
+   One read of one directory -- 227 transcripts, 58,792,819 B, the cut taken once into one variable, at
+   2026-11-17T19:37:42Z against cut 2026-11-10T19:37:42Z -- and "keep 7 days" removes **11** files
+   (2,766,311 B) on the seconds in the filename stamp, **11** on `mtime` read in UTC, **19** on the
+   `YYYYMMDD` prefix against the cut day with `<=`, **0** with `<`, **0** on `find -mtime +7`, and **19**
+   on `find ! -newermt` with the cut stamped bare. The three faults, in the order they bite. `+7` is not a
+   seven-day predicate at all: GNU truncates an age to whole 24-hour periods, so it asks for *eight* days,
+   and it answered empty at the same instant the seconds predicate answered 11 while `-mtime +6` named
+   the `mtime` predicate's exact set, the two lists diffed and asserted non-empty first. The bare `! -newermt` stamp is parsed as **local time** -- this box is `-0500`,
+   `/etc/localtime` being `America/Toronto` -- and answered 19, where the identical command under `TZ=UTC`
+   and the same stamp written `2026-11-10T19:37:42+00:00` answered 11: eight files for three characters of
+   suffix. And the day comparison is not a loose reading of the policy, it is another policy -- `<=` takes
+   the whole 10 Nov cohort, `<` refuses every file in it, and both read as "seven days". Nothing in the
+   tick's own environment settles the zone: the installed unit carries five `Environment=` lines and no
+   `TZ=` anywhere in the file, so a pass inherits whatever zone the activation happens to arrive with.
+   Therefore the answer this ticket asks a person for must name the number **and** the clock **and** the
+   zone, and a bound must refuse an answer that names only the number rather than defaulting the rest --
+   the tie-break this harness already applies to a missing input ("the option that refuses rather than
+   proceeding when input is missing or empty"). A defaulted clock is a retention decision taken in a code
+   review nobody convened, and `H-0188` is the record of why a tick does not get to take it.
+
+Clause 5's re-measure, because those numbers are of one minute rather than of a head. From the repository
+root: one epoch, six predicates, nothing written but `stat`:
+
+```
+cd factory/log && pat='2*T*Z.*.log' && t=$(( $(date -u +%s) - 7*86400 ))
+cut=$(date -u -d "@$t" +%Y%m%dT%H%M%SZ); cutm=$(date -u -d "@$t" +%Y-%m-%dT%H:%M:%S)
+printf 'total transcripts  %s\n' "$(find . -maxdepth 1 -name "$pat" -type f | wc -l)"
+printf 'A filename-seconds %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="$cut" 'substr($0,1,15)<c' | wc -l)"
+printf 'B mtime-seconds    %s\n' "$(TZ=UTC find . -maxdepth 1 -name "$pat" -type f ! -newermt "$cutm" | wc -l)"
+printf 'C day-string <=    %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="${cut:0:8}" 'substr($0,1,8)<=c' | wc -l)"
+printf 'D day-string <     %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="${cut:0:8}" 'substr($0,1,8)< c' | wc -l)"
+printf 'E find -mtime +7   %s\n' "$(find . -maxdepth 1 -name "$pat" -type f -mtime +7 | wc -l)"
+printf 'F -newermt, no TZ  %s\n' "$(find . -maxdepth 1 -name "$pat" -type f ! -newermt "$cutm" | wc -l)"
+```
+
+The `total` line is the block's precondition, printed because the block's worst answer is a quiet one: six
+zeroes beside `total 227` is the finding, and six zeroes beside `total 0` means the glob or the working
+directory is wrong -- a failed `cd` on the first line takes the whole `&&` chain with it and leaves every
+predicate counting an empty directory. That is the ordinary outcome of running the block anywhere but
+here: `factory/log` is not tracked, `git ls-files factory/log` answering nothing even in the checkout
+that holds it, so a fresh clone or a sibling worktree prints six zeroes for a directory it has never
+written.
+
+A and B are one predicate under two clocks, and they agree only while no transcript was written long
+after it began. They agreed at the read above, 11 and 11; 86 seconds later the same block answered
+**A 12, B 11**. What separated them is `20261110T193817Z.conflict:269.log`, named 19:38:17Z and last
+written 20:05:48Z -- 27 minutes of appending after its own stamp -- so every cut inside that 27-minute
+window calls the file old by name and young by `mtime`, and a bound that runs nightly crosses into such a
+window at the same clock time each day. Which clock the answer names decides whether that file is
+deleted. The directory is not a fixture while this is read either: it gained 86,213 B of transcripts in
+the four minutes between the two reads the clause quotes, so a count copied out of this page is a
+timestamp, and `total` is the line that says whether the six numbers below it mean anything.
 
 Re-measure the inventory rather than trusting this page; it is one grep over the shipped files, and it
 was true at one head:
