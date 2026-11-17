@@ -1,153 +1,102 @@
-# NEXT — issue-348 unit (PR #410, dispatched `conflict:410`)
+# NEXT — issue-341 unit (branch `issue-341`, dispatched `unclaimed:341`)
 
-State at push: branch `issue-348`, **sixth** base sync for PR #410, recorded as
-`Decision: H-0233` (checkpoint `57b78cd`, cut before the merge started). The fifth sync is
-`Decision: H-0231` (checkpoint `1e93365`), the fourth `H-0228` (`fa96ba4`), the third
-`H-0225` (`674cb95`), and the prose round that answered the review `H-0227` (`ac0879b`). This
-merge takes `origin/main` `6e069eb` — PR #414, the `fix/journal-test-isolation` merge, whose
-second parent is `3406b50` — carrying `H-0232`, on merge base `1c385b7`. It is the sync this
-file's own item 20 named as owed the moment the fifth landed.
+This unit was cut for demands 3 and 4 of #341. A unit's second tick that ends with its tree still dirty —
+the first one already preserved into a stash and a patch — wrote `factory/HALT` and stopped every unit in
+the repository until a person deleted the file. It now costs **that unit** its turn: `UNIT-QUARANTINED
+<unit> attempt=2 others-continue stash=<sha> mirror=<path>`, tick exit `6`, no marker, every other unit
+ticked by the same pass, and a comment on the unit's own issue throttled by `FACTORY_HALT_NOTICE_AFTER`.
+The repository-wide halt is kept for the one shape where the work has no second copy — a quarantine git
+**refused** (`TREE-QUARANTINE-REFUSED`), which still writes the marker from both call sites — and
+`FACTORY_STREAK_HALT=1` buys the old scope back from the timer's environment. Decided as `H-0236` on
+checkpoint `97901b7`; this branch stands on `origin/main` and carries two commits.
 
-`H-0232` is an id the allocator burned **between** this branch's two syncs: the fifth tick
-journalled `H-0232 REFRESH-BLIND` and never used it, `fc2245b`'s pre-flight fetch still
-answered `H-0232`, and by this tick's post-fetch read the id had landed on `main` with PR
-#414. The allocator answered `H-0233` twice, the same id both times — `REFRESH 10s union` at
-`2026-11-17T02:38:45Z` and `REFRESH 36s union` at `2026-11-17T02:52:05Z`, both journalled in the
-operator's `factory/log/supervisor.log` at rows 9515 and 9563 — so this is the second time in four syncs a `REFRESH-BLIND` answer
-was a false promise, and the fetch, not the memory, is the only authority on an id.
+One claim in the ticket's framing is measured false and is corrected here before anyone builds on it. The
+streak halt is **not** unreleasable: #405's re-probe removes it on the next activation, which is exactly
+what the control leg it shares with this issue prints on every suite run (`cause=tree-quarantine-streak
+released by a clean tree`). What the halt actually does is stop every other unit for that interval, twice
+per unit at most (`FACTORY_HALT_RELEASES`), after which `HALT-STUBBORN` leaves the resume to a person —
+and its stated cause, work with no other copy, is false in the same breath as the file, because the stop
+has just copied the bytes twice and cleaned the tree. The outage on #302 — 14h34m, 77 activations of
+`HALTED`, 34 units idle, behind 2 files in one tree, ended by a human `rm` — is the pre-#405 cost of the
+same scope. The price was always the defect; the release only shortens its sentence.
 
-Everything below is this unit's hand-off, plus every still-true line from the file this unit
-overwrote **and** from `main`'s hand-off (`origin/main` at `6e069eb`, 40 owed rows against this
-file's 35). **20** of theirs were already here, **15** are new below as items 36–50, and **4**
-are re-measurements of this file's rows, placed in their own section so no author's sentence is
-edited, and 1 is this file's own non-blocking section. Of their 8 hard rules 5 were already here in
-substance and 3 are added in their own words. Every mapping is in the
-ledger at the end. Deleting another unit's owed item because your branch did not write it is
-the failure this file exists to end. `make verify`'s and `factory/selftest.sh`'s verdicts are
-quoted in the pull-request body from the run that ships these bytes, naming the exact
-`FACTORY_*` sanitization that was in force, never from here (#1180). Coordinates marked
-**re-measured** were opened on this merged tree; the rest are carried in their authors' words
-and were not re-run.
+## What this unit shipped (#341 demand 3 and demand 4)
 
-## What this unit shipped
-
-- The fifth base sync for PR #410, `H-0231`: **two** conflicted files — `NEXT.md` and
-  `factory/DECISIONS.md` — resolved as a union that keeps both parents, on `origin/main` `1c385b7`
-  with merge base `5aaa9a7`. The two shell files that conflicted at the fourth sync
-  (`factory/selftest.sh`, `factory/factory.sh`) auto-merged this time; the log conflict is the same
-  family shape — both sides appended whole entries at the tail — and the resolution is one
-  ascending-id union, reassembled by script from the two parent blobs rather than by hand-cutting
-  markers.
-- Proof the union lost nothing, measured not asserted: the additive census over **all 16 paths either
-  parent touched** since base, counted non-blank with digits folded against `git merge-base HEAD MERGE_HEAD` — for `factory/DECISIONS.md`,
-  base 11459 non-blank lines, **ours added 123 and 0 are absent, theirs added 49 and 0 are absent,
-  and 0 lines belong to neither parent**, digits folded so a re-pointed coordinate still counts as
-  present; and the same three zeros on the other 14 auto-merged paths (`cmd/plock/*`,
-  `factory/common.sh`, `factory/selftest.sh`, `Makefile`, `scripts/check-fixture-window.sh`, …),
-  862 ours-added and 461 theirs-added lines with **no path losing a line**. The census ran on the
-  splice; on the shipped log it holds unchanged, because with digits stripped that file is
-  byte-identical to the splice (`diff <(sed 's/[0-9]\+/ /g' …)` prints nothing). The one path the
-  census reports against is `NEXT.md` itself — by design: 67 of this branch's 415 added rows and 162
-  of main's 184 are absent, 182 rows are new, and every one of those is accounted in the wording
-  ledger rather than silently dropped. 224
-  `## H-` rows, unique and ascending (`H-0001`..`H-0229`; gaps `H-0031`, `H-0032`, `H-0057`,
-  `H-0122`, `H-0203`), from main's 218 and this branch's 222. `DECISIONS.md` carries 71 `## D-`
-  rows, unique, and the splice touched nothing there.
-- Sixteen drifted anchored citations repaired by row identity against the parent blobs, each
-  digits-only and re-opened afterwards; `python3 scripts/check-decisions.py` reads **rc 0** on these
-  bytes — 295 entries, 787 citations, `POINTER_DEBT` 546 unchanged, 0 pointing somewhere a reader
-  cannot open. The drift is not one offset: `H-0213`'s heading is row **11385** on this branch's blob
-  and **11328** on main's, and both resolve to **11429** here (folded-identical, offsets +44 and +101),
-  while the number `11385` itself names a third row on each of the three trees — so a repair resolves
-  per row, never per side. All 16 resolved to **one** candidate row inside their own entry (worst
-  case 1), which is a property of these rows and not of the method: the console refusal caps its list
-  at `MAX_LISTED = 12` and prints `... and N more` (`scripts/check-decisions.py:1000` "problems.extend(\"    \" + g for g in group[:MAX_LISTED])"), so a
-  refusal read off stdout is a floor and `--citations` is the census.
-- The class the anchor rule cannot open, counted rather than assumed. Of the **51** citations in the
-  two logs aimed at `factory/DECISIONS.md`: 31 anchored (16 moved, all repaired), **11 bare and
-  non-inheriting — 0 moved**, because every one sits above the splice and each was opened at its
-  number on base, ours, theirs and the merged tree; 9 inherit their file from earlier on the line or
-  are ranges, left alone as the known mis-aim class. Over *every* bare citation with base provenance
-  in both logs — 382 — 369 still land on the same row digits folded and **4 moved**, all four into
-  `factory/common.sh`, which main grew: 2 repaired by unique row identity (`common.sh:1649`→`:1820`,
-  `common.sh:2614`→`:2785`) and 2 unplaceable because base's row there folds to a bare `#` and the
-  merged file holds 189 copies of it. Item 35.
-- `NEXT.md` — rewritten by this unit (overwriting, per the contract). This time the overwrite had to
-  **add**: `main`'s hand-off held 6 owed items and one hard-rule clause this branch's copy never
-  carried, so they are in below as items 29–34 and an extended restore rule, mapped in the wording
-  ledger rather than deleted with the file.
-- The feature #348 asked for, unchanged by the sync: `factory_worktree_lines` in
-  `factory/common.sh:1547` "factory_worktree_lines() {" — **re-measured on the sixth sync's merged
-  tree**, where it moved from `:1490` because trunk's `factory_worktree_busy` block was grafted above
-  it — a census that **reports**
-  dead worktrees (`WORKTREE-ORPHAN <path> head=<sha> reason=merged-and-clean|outside-trees`), prunes
-  git's admin rows in the same pass (`WORKTREE-PRUNABLE`/`WORKTREE-PRUNED`, `DRY-RUN` under
-  `DRY_RUN=1`), and says `WORKTREE-CENSUS-FAILED` rather than being silent; plus its legs in
-  `factory/selftest.sh`, including the control that dirties the planted tree and requires the line to
-  be absent.
-- Nothing was removed. `git worktree remove` is refused to this session (the permission-refusal class
-  #1180 names) and forced removal of a directory someone may be standing in is the reserved act #348
-  itself declines.
-
-
-- **The sixth base sync**, `Decision: H-0233` (checkpoint `57b78cd`): `origin/main`
-  `6e069eb` grafted over merge base `1c385b7`. Four files conflicted — `factory/DECISIONS.md`
-  (4 hunks), `factory/common.sh`, `AGENTS.md`, `NEXT.md` — and for the first time in this
-  family both code conflicts were **both-sides-kept insertions at a single anchor each**:
-  `factory/common.sh` at base `@@ -1444,6 +1444,N @@ factory_worktree() {` (ours +165 added
-  rows, theirs +56) and `AGENTS.md` at `@@ -70,3 +70,N @@` (ours +5, theirs +10), so both blocks
-  survive in both files, trunk first: the trunk's `factory_worktree_busy` still sits at
-  `factory/common.sh:1478` and this branch's `factory_worktree_lines` moved to
-  `factory/common.sh:1547` (**re-measured**, both opened on the merged tree). Which side of a
-  shared anchor goes first only decides who pays for a row *inside* a block: of the 18
-  `factory/common.sh` coordinates this merge moved, 17 are base rows below the anchor and move
-  by the same offset in either order, and exactly 1 is a row inside this branch's own block —
-  that one is `factory_worktree_lines`, base `:1490` → `:1547`, the +57 of trunk's block landing
-  above it. Measured consequence of the order: trunk-first moves 18 coordinates, ours-first would
-  have moved 17, so this ordering buys nothing and costs one move; it is recorded here so the next
-  sync does not have to re-derive it. The log went through an entry-level union keyed by id, built
-  from the three blobs, never by cutting markers.
+- **The streak skips; the halt stays where the work is nowhere else** (`factory/common.sh`,
+  `factory/factory.sh`). `factory_tree_stop`'s attempt-2 arm returns `6` instead of falling through to
+  `factory_tree_halt`, and the tick dispatch's new arm journals `TICK-SKIPPED` and spends no tick slot —
+  reachable because `factory_tick` calls the stop three lines before it logs `TICK-START`, so the journal
+  keeps the shape its exec-bit leg pins: a skip line and no start line for the unit the pass refused. The
+  conflict arm widens `2` to `2 | 6` with `CONFLICT-DEFERRED`. `factory_quarantine_after_tick` still only
+  arms the streak; its armed sentence now names the scope the configuration actually produces
+  (`takes that unit's turn, not the queue's pass`, or `…is the second and halts` under the knob), and
+  `factory_tree_stop`'s header finally states its return contract (0 continue · 2 halt written or refused
+  · 6 this unit's turn spent).
+- **The owner is told** (`factory_notice_unit_quarantine`): the unit's own issue, once per
+  `FACTORY_HALT_NOTICE_AFTER` (3600s, the halt notice's window), nothing written under `--dry-run`, no
+  ledger stamp unless `gh` exited 0 so a failed post may be retried, and the notice names the stash sha
+  and the mirror path because demand 3's claim is that nothing was lost. A unit whose suffix is not an
+  issue number is skipped silently; the journal row is the only record then.
+- **Seven legs** (`factory/selftest.sh`) over three activations of the shipped supervisor, with a stub
+  that exits 0 leaving finished, uncommitted work in unit A's tree every time a session runs there:
+  activation one is the plain rescue (attempt=1 armed by A's own tick, no skip line, no marker, exit 0);
+  the second accident skips the unit and not the queue (no marker, no `TREE-STREAK`, no `HALTED`,
+  `END … ticks_started=1`, exit 0, unit B started after A's skip); the skipped unit opened no session;
+  the bytes are in the stash and the mirror the line names; the owner is told
+  (`UNIT-QUARANTINE-NOTICED unclaimed:900 #900`, the `gh` record proving the comment was asked for, no
+  `…-NOTICE-FAILED`); activation three, stub allowed to deliver, starts A again, journals
+  `streak=cleared`, returns the counter to 0 and sends no second notice; and a `FACTORY_STREAK_HALT=1`
+  control over the same three activations that does write the marker and does stop the pass — one
+  variable between the two walks.
+- **The quarantine family re-pointed** (`factory/selftest.sh`): a `SKIP` want-mode in `expect_quarantine`
+  (rc 6, no marker, `UNIT-QUARANTINED` and `others-continue`, no `TREE-STREAK`, `attempt=<n>` in the
+  journal *and* the ledger, tree clean afterwards, and a stash under the unit's own subject beside a
+  non-empty mirror — the precondition the narrowing rests on, asserted rather than assumed); the second
+  accident moved `STREAK` → `SKIP` with the knob's own control beside it on the same tree and counter
+  (attempt 3); the two-pass composition leg moved 4 → 6 with a knob mirror that must produce rc 4, a
+  marker, `TREE-STREAK` and `attempt=2`.
+- **#405's two re-probe fixtures now `export FACTORY_STREAK_HALT=1`** — after demand 3 the queue-wide
+  halt a re-probe re-asks is reachable only through the operator's escalation, and an un-exported knob
+  would measure the mutant against a queue that was never halted. Their release assertions are otherwise
+  untouched and still pass on these bytes.
+- **Docs** (`docs/factory.md`): both knobs in the table, a "What the supervisor stops for" block under
+  "Stopping it", and a paragraph inside #405's re-probe section naming which shape still writes a marker
+  and why that fixture has to buy the halt with the knob.
+- **`H-0236`** in `factory/DECISIONS.md`, plus 83 anchored decision-log pointers re-stamped digit-only
+  (93 token writes in three passes; 0 lines whose non-digit text moved).
 
 ## What this unit did not deliver
 
-- **Nothing on the merged tree was re-run for behaviour.** The additive census holds for both
-  conflicted files, `bash -n` parses `factory/selftest.sh`, and
-  `python3 scripts/check-decisions.py` reads rc 0 — those are presence and parse checks, not
-  behaviour. main's `D-0084`/`D-0085`/`H-0201`..`H-0229` legs and this branch's own census legs were
-  not executed by this unit; `make verify` and `make check-mutations` on these bytes are the first
-  runs and their verdicts ship in the pull-request body.
-- **`main`'s fresh entries are carried as their author's numbers.** `D-0084`, `D-0085` and
-  `H-0201`..`H-0229` — including `H-0229`'s own census claims and `D-0085`'s single-clock doctor
-  join — were not re-derived here, and #355's `D-0085`/`H-0202` fixture work now sits beside this
-  branch's census code for the first time in this tree (item 32). Re-measure before acting on one.
-- **The two carried limitations stand unchanged.** `factory_main_tree_check` still reads one tree
-  (#342 ask 5 made it narrower than the pass's own reach), and the census is still report-only in fact:
-  `H-0197`'s *What lost* (three race arms, no planted leg) and `H-0225`'s (the prune arm has never run
-  live) are both still true, and item 17 below is the live instance.
+- **`--stuck` has no line for a skipped unit.** The ticket asked where the halt "used to be visible";
+  what shipped is a journal row, a comment on the unit's issue and `quarantine-count=2` on the ledger.
+  `--stuck` still reports halts, waits and the tree census and gained nothing. If the queue ever needs
+  "who is being skipped" at a glance, that line is the place and it is not written.
+- **Two shipped arms have no leg of their own**: the conflict path's `2 | 6`, which names
+  `CONFLICT-DEFERRED` only in a comment, and the notice's failure arm
+  (`UNIT-QUARANTINE-NOTICE-FAILED`), pinned only negatively — that no such line appears when `gh`
+  answered 0. The second is the arm whose silence retires the only sentence telling anyone a unit is not
+  being worked.
+- **The halt's legibility is gone at the new default and no knob restores it per unit.** `IDLE` never
+  appears while the rest of the queue is healthy and `QUEUED` only stops shrinking; a person who wants
+  the loud version sets `FACTORY_STREAK_HALT=1` and pays with the other 34 units.
+- **The notice is not a blocker and nothing treats it as one.** A unit skipped four times looks to the
+  queue like a unit skipped once, except for `quarantine-count` and the notice throttle. Whether a fourth
+  skip should escalate to the label class is a decision this unit did not make.
+- **`TREE-STREAK` now means two things depending on a variable the journal does not print** — the
+  same two words in an old line and a new line are different scopes. Only the knob, or this entry, says
+  which.
+- **Nothing changed about a halt a person wrote.** `factory_halted` still refuses a marker with no
+  `# HALT:` line and #405's "the halt a person wrote is the one marker that stays" leg passes on these
+  bytes.
 
+## Where the previous unit's hand-off went
 
-For the sixth sync specifically:
-
-- It did not re-derive any measurement inside `H-0232`'s entry — the #414 unit's own
-  numbers (822 printed verdict lines against 774 counted, the 604 `LOG-MOVED` rows, the
-  9458→9461 journal growth) are carried as that unit's rows, not confirmed here. What this
-  tick did count on its own box: `grep -c 'LOG-MOVED'` over the operator's
-  `factory/log/supervisor.log` answers **868** at 9563 lines (**re-measured** at
-  `2026-11-17T02:55Z`), a live count on a growing file, not a contradiction of theirs.
-- It repaired pointers, it did not gate them: the instrument still has no leg (item 41), and
-  the bare-pointer debt it moved is unchanged in kind.
-- It pushed only this branch's own ref and asked no reviewer; it merged nothing and published
-  nothing.
-- `main`'s hand-off carried five did-not-deliver bullets and none is reproduced here as its
-  author's row; that is stated rather than left to the census. Three are the same class as the
-  three above and have a live home in this file now — it did not fix #425 (item 12), it
-  re-derived no behaviour beyond the suite (the first bullet above), it re-measured none of
-  `main`'s fresh entries (the second bullet above). The two with a live consequence are carried
-  as their owed rows, not as apologies: their "`make verify` at `67c05e3` with the env unset is
-  not yet run" is item 38, and their disclosure that **their own control run added `LOG-MOVED`
-  rows to the operator's `factory/log/supervisor.log` and the journal was not cleaned** is item
-  39. This sync ran no fixture that appends to that file; what it wrote there is the allocator's
-  two `DECISION-ID` rows (9515 and 9563), which is what the allocator is for.
+This file's two sections before these — `issue-348`'s "What this unit shipped" for the sixth base sync of
+PR #410 and its "What this unit did not deliver" — are replaced above by this unit's, and their full text
+is preserved in a commit on this branch: `git show ef3bab3:NEXT.md` (verified: that commit is an ancestor
+of this branch's head and carries both headings). Everything from the next section down is carried
+forward verbatim, including the owed list, the sixth sync's re-measurements, PR #402's three non-blocking
+review items, `origin/main`'s hand-off summary, the wording ledger and the hard rules.
 
 ## Queue state the fifth tick read (16 Nov, ~23:55Z — stale as of the sixth sync)
 

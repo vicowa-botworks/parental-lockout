@@ -1599,7 +1599,11 @@ factory_body() {
 			case "$rc_conflict" in
 			0) : ;;
 			1) workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s\037%s' conflict "$key" "$detail" "$branch" "$issue" '' "$unit")"$'\n' ;;
-			2) log_event "CONFLICT-DEFERRED pr:$key nothing to attempt this activation; the reason is the line above" ;;
+			# 2 is `factory_resolve_conflict` declining (nothing to attempt); 6 is
+			# `factory_tree_stop` taking that unit's turn after its second mirrorable quarantine
+			# (#341 demand 3). Both are waits, and neither is a halt: the reason is the line above --
+			# `CONFLICT-RESUME-REFUSED`/`TREE-QUARANTINE-REFUSED` for 2, `UNIT-QUARANTINED` for 6.
+			2 | 6) log_event "CONFLICT-DEFERRED pr:$key nothing to attempt this activation; the reason is the line above" ;;
 			*)
 				log_event "CONFLICT-UNKNOWN pr:$key unexpected status $rc_conflict"
 				rc=4
@@ -1810,6 +1814,13 @@ factory_body() {
 		case $rc_tick in
 		0) started=$((started + 1)) ;;
 		5) log_event "NOT-STARTED $bclass:$bkey ran nothing, so the tick budget is unchanged" ;;
+		# Demand 3 (#341): this unit's work was preserved for the second time with no completed tick in
+		# between, so it keeps its row in the queue and loses this turn. Neither of the two existing
+		# consequences fits it: no `started`, because nothing ran and a unit that ran nothing must not
+		# eat one of the three slots (the reason 5 has its own arm); and no `rc=4`, because the queue is
+		# healthy -- the units behind this one are still being ticked, which is the whole point. The
+		# reason is the `UNIT-QUARANTINED` line above, and it names the stash and the mirror.
+		6) log_event "TICK-SKIPPED $bclass:$bkey the unit keeps its row in the queue and loses this turn; the reason is the line above" ;;
 		*)
 			started=$((started + 1))
 			rc=4
