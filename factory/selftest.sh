@@ -21397,11 +21397,56 @@ jc_leg_earned_id_above_the_window() { # the earned set is a whole-file read, pin
 	# and the honest branch is accused. The finding is a regression shape, not a fiction -- #260
 	# already reads this journal through FACTORY_LOG_TAIL, so "read the last 400 lines" is a change
 	# someone will make for the reason #334 files: the whole-file walk gets linearly more expensive.
-	local ea el
+	# The plant rewrites BOTH physical lines of the shipped read, and that is the whole control. The
+	# read is `awk 'PROG' \` on one line with its file operand `"$journal"` on the next, and `dpn_mut`
+	# replaces one line: rewriting only the first leaves `awk` handed the file as an operand, so it
+	# never reads the pipe and its answer is the whole-file set -- a mutant that measures nothing. The
+	# trap is spelled out for the other mutant of this same read at `factory/selftest.sh:15925` ("the
+	# anchor is the FIRST line of a two-line command ... the mutant must rewrite that whole line");
+	# this leg did not carry that lesson until #431's red said so. What made the one-line mutant report
+	# UNEARNED anyway was signal 13 and not a window: `awk` exits without draining its stdin, the piped
+	# `tail` takes SIGPIPE, `pipefail` -- line 69, which the leg subshell's `set -eu` does not clear --
+	# turns that into rc 141 for the command substitution, and the shipped `|| earned=''` arm then
+	# clears the set `awk` had already printed. Measured through this leg's own runner over this fixture
+	# (a 1,201-line journal, window 400): the one-line plant refused the id in 16 of 20 runs, and in 17
+	# of 20 in a second block -- 7 of 40 runs earned it -- while the two-line plant below refused 20 of 20. The
+	# substitution's exit says which arm ran, 141 when `tail` took the signal and 0 when it did not, and
+	# the set `awk` printed held `D-0007` either way. So the leg was not pinning the contract, it was
+	# timing a race, and the runner lost it.
+	local ea el eb ec n1 n2
 	ea='earned=$(awk'
 	el="	earned=\$(tail -n \"\$FACTORY_LOG_TAIL\" \"\$journal\" | awk -v b=\"\$branch\" '\$2 == \"DECISION-ID\" && \$5 == \"branch=\" b {print \$3}' \\"
-	if ! dpn_mut "$HERE/common.sh" "$ea" "$el" "$d/earned-tail.sh"; then
-		printf '            control failed: the tail-window mutant could not be planted\n' >&2
+	if ! dpn_mut "$HERE/common.sh" "$ea" "$el" "$d/earned-window.sh"; then
+		printf '            control failed: the window could not be planted on the first line of the read\n' >&2
+		return 1
+	fi
+	eb="		\"\$journal\" 2>/dev/null | sort -u | tr '\\n' ' ') || earned=''"
+	ec="		2>/dev/null | sort -u | tr '\\n' ' ') || earned=''"
+	# The operand line goes second, or the mutant is handed the whole file and reads the very set it is
+	# accused of reading. `dpn_mut` refuses a plant whose anchor is not exactly one line, so a future
+	# edit that moves the operand off this line is refused here rather than measured as a pass.
+	if ! dpn_mut "$d/earned-window.sh" "$eb" "$ec" "$d/earned-tail.sh"; then
+		printf '            control failed: the file operand survived the plant, so the mutant had the\n' >&2
+		printf '            whole file in front of it and no window at all\n' >&2
+		return 1
+	fi
+	# The plant's SHAPE, asserted before its verdict is trusted, in two greps over the planted bytes.
+	# The mutant can be wrong in either direction: a read that never got the window is not a windowed
+	# reader, and a read that still names the journal as an `awk` operand reads the whole file whatever
+	# it prints -- which is the shape #431 shipped, where the refusal came from signal 13 on the piped
+	# `tail` and not from a window. Static on purpose: the width test below can only say something about
+	# a read whose shape has already been established, because a set cleared by a signal is empty at
+	# every width and so answers the width question the same way a genuine window does not.
+	if ! grep -qF -- 'tail -n "$FACTORY_LOG_TAIL" "$journal" | awk' "$d/earned-tail.sh"; then
+		printf '            control failed: the planted read does not carry the window, so nothing below\n' >&2
+		printf '            measures a windowed reader at all\n' >&2
+		return 1
+	fi
+	if grep -qF -- "$eb" "$d/earned-tail.sh"; then
+		printf '            control failed: the planted read still names the journal as an `awk` operand,\n' >&2
+		printf '            so it reads the whole file and its answer is the very set it is accused of\n' >&2
+		printf '            reading. #431 shipped this shape and looked right in 33 of the 40 runs\n' >&2
+		printf '            measured here, because the set the read computed was cleared by a signal.\n' >&2
 		return 1
 	fi
 	dpn_prove "$d/earned-tail.sh" unclaimed:p2 issue-p2 "$d/unit" "$d/log" "$d/state-mutant" \
@@ -21411,11 +21456,36 @@ jc_leg_earned_id_above_the_window() { # the earned set is a whole-file read, pin
 		printf '            the assertion above is not pinned to the window at all\n' >&2
 		return 1
 	fi
+	# The width test, the arm that makes the refusal above a measurement of the window and not of the
+	# pipeline. Same mutant, same journal, a window longer than the file: a read that is really windowed
+	# finds the allocation again, while one that died on a signal -- or that still holds the file
+	# operand -- answers the same way at every width. Counted, not merely present: the narrow run above
+	# has already journalled one refusal, so a second refusal line is this arm's failure. The window is
+	# exported inside a subshell and not as a prefix assignment: bash 5.3.9 is measured here to restore a
+	# prefix assignment once the function returns, but a shell reading the other POSIX arm would leave
+	# 1,203 in the environment for every leg registered below, and this leg being the last one is an
+	# accident of the file's order, not a property anyone maintains.
+	n1=$(grep -c 'DECISION-ID-UNEARNED D-0007' "$j" || true)
+	(
+		export FACTORY_LOG_TAIL=$((n + 2))
+		dpn_prove "$d/earned-tail.sh" unclaimed:p2 issue-p2 "$d/unit" "$d/log" "$d/state-wide"
+	) >"$d/wide.out" 2>&1 || true
+	n2=$(grep -c 'DECISION-ID-UNEARNED D-0007' "$j" || true)
+	if [ "$n2" != "$n1" ]; then
+		printf '            control failed: the same mutant refused the id at a window of %s lines over a\n' \
+			"$((n + 2))" >&2
+		printf '            %s-line file as well (%s refusal(s), up from %s), so the refusal above is not\n' "$n" "$n2" "$n1" >&2
+		printf '            the width of the window. It is the pipeline: either `awk` was handed the file\n' >&2
+		printf '            operand and read the whole journal, or `tail` took SIGPIPE and `pipefail` let\n' >&2
+		printf '            the || arm on the read clear the set before the comparison ran.\n' >&2
+		sed 's/^/              /' "$d/wide.out" >&2
+		return 1
+	fi
 	rm -f -- "$j"
 	return 0
 }
 dpn_leg 'an id above the window stays earned' \
-	'a DECISION-ID line 3x FACTORY_LOG_TAIL above the end still earns its id, and the same journal through a read narrowed to that window reports it UNEARNED -- so the earned set is pinned to the whole file, which is what a branch of 6 days needs' \
+	'a DECISION-ID line 3x FACTORY_LOG_TAIL above the end still earns its id, and the same journal through a read narrowed to that window reports it UNEARNED -- so the earned set is pinned to the whole file, which is what a branch of 6 days needs. The plant rewrites both lines of the read, and the same mutant at a window wider than the file must earn the id again: that is what says the refusal is the width of the window and not a pipeline that died' \
 	jc_leg_earned_id_above_the_window
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
