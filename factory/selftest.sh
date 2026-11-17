@@ -18044,19 +18044,56 @@ worktree_exec_problems() { # <dir> <name>... -> the names that are not executabl
 	printf '%s' "${bad# }"
 }
 index_exec_problems() { # <repo> <name>... -> the names git does not hold at 100755
-	local repo=$1 f mode bad=''
+	local repo=$1 f reason bad=''
 	for f in "${@:2}"; do
-		mode=$(git -C "$repo" ls-files -s -- "factory/$f" 2>/dev/null | awk '{print $1}' || true)
-		[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"
+		# Stage 0 is the ONLY row that answers "what mode is held here". A conflicted path has
+		# stages 1, 2 and 3 and no stage 0, so collecting a mode per INDEX ENTRY -- the shape
+		# this carried until #368 -- made the comparison value the three-line string
+		# `100755\n100755\n100755`, the equality test failed, and the leg refused a file whose
+		# mode it printed as 100755 in the same sentence. Measured again on git 2.53.0, by hand
+		# and through a real `git merge` conflict, after four recorded sightings on conflict
+		# ticks (`H-0090`, `H-0111`, `H-0168`, `H-0228`) where the repair each time was `git
+		# add` and the line read as a permissions defect no permissions change had caused. An
+		# unmerged path now gets a word of its own: it is not a mode reading, and it must not
+		# print as one. It still refuses -- an unread staged mode has not proved 0755, and the
+		# hazard this header names is a 0644 reaching `main` and a tick that never starts.
+		# The `|| true` is load-bearing under `set -euo pipefail`: an index git will not read
+		# has to reach the `(untracked)` arm below rather than stop the suite mid-pipeline.
+		reason=$({ git -C "$repo" ls-files -s -- "factory/$f" 2>/dev/null || true; } | awk '
+			$3 == 0 { held = $1; next }
+			{
+				if (!($1 in seen)) { seen[$1] = 1; modes = modes (modes ? "," : "") $1 }
+				stages = stages (stages ? "/" : "") $3
+			}
+			END {
+				if (held != "") { if (held != "100755") printf "(%s)", held }
+				else if (NR) printf "(unmerged at stage %s, mode %s)", stages, modes
+				else printf "(untracked)"
+			}')
+		if [ -n "$reason" ]; then bad="$bad $f$reason"; fi
 	done
 	printf '%s' "${bad# }"
+}
+exec_index_verdict() { # <what index_exec_problems returned> -> the sentence the leg prints
+	local bad=$1
+	case "$bad" in
+	*'(unmerged '*)
+		printf 'the index holds no stage 0 for: %s -- a conflicted path is held at stages 1/2/3,\n' "$bad"
+		printf '          so there is no staged mode to read yet: resolve it, `git add` the path and re-run.\n'
+		printf '          The modes git does hold are printed beside the name, so a real 0644 is still named.'
+		;;
+	*)
+		printf 'not 100755 in the index: %s -- the unit execs this path, and a tick that will not start\n' "$bad"
+		printf '          looks like a machine that is idle.'
+		;;
+	esac
 }
 exec_bits() { # the shipped four, in the tree and in the index
 	local bad
 	bad=$(worktree_exec_problems "$HERE" factory.sh triage.sh selftest.sh install-timer.sh)
-	[ -n "$bad" ] && { printf 'not executable in the worktree: %s' "$bad"; return 1; }
+	[ -n "$bad" ] && { printf 'not executable in the worktree: %s -- the unit execs this path, and a tick that will not start looks\n          like a machine that is idle.' "$bad"; return 1; }
 	bad=$(index_exec_problems "$HERE/.." factory.sh triage.sh selftest.sh install-timer.sh)
-	[ -n "$bad" ] && { printf 'not 100755 in the index: %s' "$bad"; return 1; }
+	[ -n "$bad" ] && { exec_index_verdict "$bad"; return 1; }
 	return 0
 }
 if bad_modes=$(exec_bits); then
@@ -18064,9 +18101,7 @@ if bad_modes=$(exec_bits); then
 	printf '  ok    %-40s all four, in the worktree and in the index\n' "the timer's scripts are executable"
 else
 	fail=$((fail + 1))
-	printf '  FAIL  %-40s %s -- the unit execs this path, and a tick that will not start looks\n' \
-		"the timer's scripts are executable" "$bad_modes"
-	printf '          like a machine that is idle.\n'
+	printf '  FAIL  %-40s %s\n' "the timer's scripts are executable" "$bad_modes"
 fi
 mkdir -p "$work/execmodes"
 cp "$HERE/factory.sh" "$work/execmodes/factory.sh" && chmod 644 "$work/execmodes/factory.sh"
@@ -18076,6 +18111,142 @@ if [ -n "$(worktree_exec_problems "$work/execmodes" factory.sh)" ]; then
 else
 	fail=$((fail + 1))
 	printf '  FAIL  %-40s a 0644 copy read as executable.\n' "control: the mode predicate"
+fi
+# ---- the index half, planted four ways (issue #368) -----------------------------------------
+#
+# The repair above is one stage-0 read and one new word, and neither is worth anything without a
+# plant: the leg is green on every clean tree whether or not the arm that fires mid-merge still
+# exists, and the three sightings of this defect all came from a state nobody had ever planted in
+# a fixture. Each arm below asserts its own planting first (`H-0043`'s rule -- a leg must not be
+# able to pass on a tree where the plant did not happen), because the whole defect is an index
+# state, and an index state is exactly what a fixture silently fails to create.
+idx_exec_repo() { # <dir> -> a repository holding two factory scripts at stage 0 / 100755
+	local d=$1
+	mkdir -p "$d/factory" || return 1
+	printf '#!/bin/sh\n' >"$d/factory/factory.sh" || return 1
+	printf '#!/bin/sh\n' >"$d/factory/triage.sh" || return 1
+	chmod 755 "$d/factory/factory.sh" "$d/factory/triage.sh" || return 1
+	git init -q -- "$d" || return 1
+	git -C "$d" config user.email selftest@invalid || return 1
+	git -C "$d" config user.name selftest || return 1
+	git -C "$d" add -- factory/factory.sh factory/triage.sh || return 1
+}
+idx_exec_stage() { # <dir> <path> <mode> <stage> -> rewrite one index entry at that stage
+	local d=$1 p=$2 m=$3 s=$4 sha
+	sha=$(git -C "$d" hash-object -w -t blob --stdin <<<"planted $p stage $s") || return 1
+	printf '%s %s %s\t%s\n' "$m" "$sha" "$s" "$p" |
+		git -C "$d" update-index --index-info || return 1
+}
+idx_exec_unmerge() { # <dir> <path> <m1> <m2> <m3> -> drop stage 0 and plant the three conflict stages
+	local d=$1 p=$2
+	shift 2
+	git -C "$d" update-index --force-remove -- "$p" || return 1
+	idx_exec_stage "$d" "$p" "$1" 1 || return 1
+	idx_exec_stage "$d" "$p" "$2" 2 || return 1
+	idx_exec_stage "$d" "$p" "$3" 3 || return 1
+}
+idx_exec_stages() { # <dir> <path> -> every stage git holds for it, ascending, space-separated
+	git -C "$1" ls-files -s -- "$2" | awk '{printf "%s ", $3}' | sed 's/ $//'
+}
+# A. the case the repair must not lose: two names held at stage 0 / 100755 report NOTHING. This is
+#    also the state every other arm starts from, so it is asserted before any of them is planted.
+if idx_exec_repo "$work/exec-index/clean"; then
+	ix_stages=$(idx_exec_stages "$work/exec-index/clean" factory/triage.sh)
+	ix_out=$(index_exec_problems "$work/exec-index/clean" factory.sh triage.sh)
+	if [ "$ix_stages" = "0" ] && [ -z "$ix_out" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s stage 0/100755 held, nothing reported\n' "fixture: a clean index says nothing"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s stages=[%s] reported=[%s]\n' "fixture: a clean index says nothing" "$ix_stages" "$ix_out"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the scratch repository would not build\n' "fixture: a clean index says nothing"
+fi
+# B. the arm #368 is about: three stages, every one of them 100755. The word must be `unmerged`,
+#    the mode must still be printed, and the untouched sibling must stay out of the sentence.
+if idx_exec_repo "$work/exec-index/unmerged" &&
+	idx_exec_unmerge "$work/exec-index/unmerged" factory/triage.sh 100755 100755 100755; then
+	ix_stages=$(idx_exec_stages "$work/exec-index/unmerged" factory/triage.sh)
+	ix_out=$(index_exec_problems "$work/exec-index/unmerged" factory.sh triage.sh)
+	case "$ix_out" in
+	'triage.sh(unmerged at stage 1/2/3, mode 100755)') ix_shape=ok ;;
+	*) ix_shape="reported [$ix_out]" ;;
+	esac
+	if [ "$ix_stages" = "1 2 3" ] && [ "$ix_shape" = ok ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s stages 1/2/3, no stage 0 -> %s\n' "fixture: three stages read unmerged" "$ix_out"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s stages=[%s] %s\n' "fixture: three stages read unmerged" "$ix_stages" "$ix_shape"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the three-stage plant would not build\n' "fixture: three stages read unmerged"
+fi
+# C. the modes are reported as the SET the stages hold, not as the first row's value. A repair that
+#    printed `head -n 1` would pass arm B and hide a 0644 inside a conflicted path, so this arm is
+#    what keeps `mode` meaning "every mode held here".
+if idx_exec_repo "$work/exec-index/mixed" &&
+	idx_exec_unmerge "$work/exec-index/mixed" factory/triage.sh 100644 100755 100755; then
+	ix_stages=$(idx_exec_stages "$work/exec-index/mixed" factory/triage.sh)
+	ix_out=$(index_exec_problems "$work/exec-index/mixed" factory.sh triage.sh)
+	case "$ix_out" in
+	'triage.sh(unmerged at stage 1/2/3, mode 100644,100755)') ix_shape=ok ;;
+	*) ix_shape="reported [$ix_out]" ;;
+	esac
+	if [ "$ix_stages" = "1 2 3" ] && [ "$ix_shape" = ok ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s a 0644 stage is named, not skipped\n' "fixture: both stage modes are reported"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s stages=[%s] %s\n' "fixture: both stage modes are reported" "$ix_stages" "$ix_shape"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the mixed-mode plant would not build\n' "fixture: both stage modes are reported"
+fi
+# D. the hazard the leg exists for, which the stage-0 read must still catch: a held-at-0644 script
+#    and a name with no entry at all. Exact bytes, because this is the sentence that stops a
+#    `0644 factory.sh` reaching main, and `unmerged` must not appear in it.
+if idx_exec_repo "$work/exec-index/mode" &&
+	idx_exec_stage "$work/exec-index/mode" factory/factory.sh 100644 0; then
+	ix_stages=$(idx_exec_stages "$work/exec-index/mode" factory/factory.sh)
+	ix_out=$(index_exec_problems "$work/exec-index/mode" factory.sh triage.sh absent-script.sh)
+	if [ "$ix_stages" = "0" ] && [ "$ix_out" = "factory.sh(100644) absent-script.sh(untracked)" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "fixture: a held 0644 is still named" "$ix_out"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s stages=[%s] reported=[%s]\n' "fixture: a held 0644 is still named" "$ix_stages" "$ix_out"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the 0644 plant would not build\n' "fixture: a held 0644 is still named"
+fi
+# E. the sentence itself. The defect was not only a false red: it printed `not 100755 in the index:
+#    triage.sh(100755`, so the line denied what its own parentheses asserted and a reader had to go
+#    run `git ls-files` to learn which half to believe. This arm renders both verdicts through the
+#    shipped function and refuses either contradiction in either direction.
+ix_unmerged=$(exec_index_verdict 'triage.sh(unmerged at stage 1/2/3, mode 100755)')
+ix_mode=$(exec_index_verdict 'factory.sh(100644)')
+case "$ix_unmerged" in
+*'not 100755'*) ix_says=contradicts ;;
+*'no stage 0'*'git add'*) ix_says=ok ;;
+*) ix_says="said [$ix_unmerged]" ;;
+esac
+case "$ix_mode" in
+*unmerged*) ix_mode_says=contaminated ;;
+*'not 100755 in the index: factory.sh(100644)'*) ix_mode_says=ok ;;
+*) ix_mode_says="said [$ix_mode]" ;;
+esac
+if [ "$ix_says" = ok ] && [ "$ix_mode_says" = ok ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s the unmerged line never denies a mode it prints\n' "fixture: each verdict keeps its word"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s unmerged arm %s; mode arm %s\n' "fixture: each verdict keeps its word" "$ix_says" "$ix_mode_says"
 fi
 # ------------------------------------------------- the --jq programs the skill quotes
 #

@@ -821,6 +821,42 @@ Four of them, each aimed at a row above, and none a re-mark of a verdict.
   pushing, because a sha in your own notes is a claim, not a read (#1180), and the review the notes date at
   12:25:56Z is one the API dates at 14:18:30Z on the unmoved head.
 
+## Re-measurements the tenth sync took against the rows above (17 Nov, `H-0246`, at the merge of `92bb18e` and `449d6e7`)
+
+Nothing here edits another unit's sentence; each row names the row it measured.
+
+1. **Item 28 and row 56's exec-bit leg is repaired on this branch, so both rows are history now.** The
+   leg reads stage 0 alone and an unmerged path gets a verdict word of its own, `unmerged at stage
+   1/2/3` (`H-0243`, `factory/selftest.sh:18070` "unmerged at stage %s, mode %s"). Re-measured on the
+   merged tree, not inherited: with this sync's five paths staged, `git ls-files -s` answers one
+   stage-0 row per path and the leg reads one mode. **The "stage the resolution before any gate" rule
+   still stands, for a reason neither row gives** — the leg is no longer it; the suite's own counts read
+   the index, and an unmerged path now refuses with a true word instead of a false one, which is a
+   correct refusal either way. Do not un-stage to watch it fail.
+2. **Item 51's allocator, re-read on this pair.** `factory/next-decision-id.sh factory/DECISIONS.md`
+   answered `H-0246` at `REFRESH 228s union` (inside its own 300s bound, so a clean read but a stale
+   one), then again after the `git fetch --prune origin` its own line names at `REFRESH 0s union` with
+   no `PENDING` note and the ceiling unmoved. `H-0244` is held on `refs/heads/issue-364` and off trunk,
+   which is why main's run jumps `H-0242` → `H-0245` and why nothing here renumbers.
+3. **The citation sweep's reach, measured rather than assumed.** On the resolved-but-unrepaired tree the
+   gate named 64 pointers in 45 rows a reader could not open, all of them at `factory/selftest.sh`:
+   **27 sat inside conflict hunks, where at least git asked, and 18 auto-merged with no word from
+   anyone.** Row 56's mutant discipline is the reason the 18 were found at all, and the price it names
+   is still owed — this is the ninth measurement of it (#381).
+4. **The wrong tail order that deletes a whole entry passes the gate at rc 0.** Appending ours' entry
+   after main's run is refused (`H-0243 is out of order (H-0245 came before it)`, rc 1); taking main's
+   tail whole reads **rc 0 — `check-decisions: 238 entries`** against the union's 239, 718 anchored
+   citations against 728, while deleting all 122 rows of `H-0243`. The two whole-side orders are not
+   symmetric, so run both and read the numbers, and treat the additive plus/minus and zero-absent
+   census as the only check that sees the silent one. This is `H-0225`'s finding from the other side.
+5. **A pointer's digits belong to the tree that published it.** Both parents had re-aimed the same
+   anchors at their own syncs — this branch at main+146, main at its own +171 — so for **55 of 55**
+   main-published pointers the merged number belongs to neither parent, and taking either side whole
+   ships a pointer to a line that does not hold its quote. Choose the publishing parent by the parent
+   whose blob line at the cited number still holds the anchor, then re-aim by row identity; a
+   nearest-number rule aimed three of this sync's own pointers 25 lines low because their publishing
+   parent was this branch, not main.
+
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab
