@@ -2079,6 +2079,31 @@ which was shown to be transient, and it would have had to decide whether the fir
 half-applied work -- the question `TICK-HALTED` exists to stop a tick from answering. What a retry buys
 is throughput, and the timer is already the thing that provides it.
 
+**A pull request is not the only thing a unit can be owed, and reading for only one filed a delivery as
+a miss (#362, `H-0240`).** The gate a unit runs under ends its last turn by closing its issue when the
+ticket is already satisfied by `main` (`.opencode/skills/factory/SKILL.md`, "When the ticket is already
+satisfied by `main`"), and `factory/triage.sh` counts an issue claimed only by an **open** pull request:
+that close claims nothing, so the read above answers empty and the one shape of done the read could not
+tell from a miss was filed as a miss. Measured on `unclaimed:315` -- `TICK-UNDELIVERED … it stays where it
+was` at `2026-11-14T01:21:41Z`, in the same minute that `gh issue view 315 --json state,closedAt` answered
+`CLOSED` at `01:15:25Z` and `gh pr list --head issue-315 --state all` answered only the MERGED #316, the
+historical delivery two days old. So an empty pull-request read asks the ticket as well. `CLOSED` journals
+`TICK-CLOSED <unit> exit=0 issue #N reads CLOSED (<closedAt>)` and takes the shared clean-stop tail:
+`TICK-DONE` journalled, `last-tick` stamped, `stuck-since` cleared, exit `0` -- the one write it skips
+is the bundle. There was no pull request to owe; the line carries `` `gh issue reopen N` `` because a
+verdict naming its own undo is one command from correct and the day's date is none to reconstruct.
+`OPEN` keeps the old sentence unchanged. A ticket that could not be read, and a state word that is neither
+-- `gh issue view` on a pull-request number answers `MERGED` -- journals `TICK-UNCHECKED` naming the read
+that failed and renders no verdict, per the doctrine of that name: a read that failed is not a delivery
+that failed. The read is gh's own projection, which answers the state UPPERCASE; REST, which
+`factory_close_read` parses, answers lowercase, and that is the live defect #424 counts, so nothing here
+borrows that helper. `stateReason` is not askable at the gh on the box the timer runs on: this box's
+`/usr/bin/gh` 2.46.0 answers `Unknown JSON field: "stateReason"`; a 2.67.0 review box answers it
+`COMPLETED`, so the claim is of its box and the field list holds on both. The mutating leg runs a
+stubbed `gh`, pinning the call site and not the installed binary. Asking costs one view per stop,
+which is not a rate worth protecting when the alternative is a six-minute-old close journalled as a
+wasted 45-minute budget.
+
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed

@@ -73,25 +73,43 @@ the push is a required call, not a courtesy (`docs/factory.md`, "The approval a 
 - **Nothing was merged, no label was written, no reviewer was asked, no machine-level configuration was
   touched, and only this branch's own ref was pushed.**
 
-## Queue state this round read (17 Nov, ~11:00Z — raw JSON counted in python, never a `-q` template)
+## Queue state the ninth sync read (17 Nov, ~15:40Z — raw JSON counted in python, `gh pr list --state open` written to a file and parsed, never a `-q` template; `gh issue list --state open` at 1126 rows and no truncation warning, so this is the live queue, not a page of it)
 
-- 2 open pull requests, 0 drafts (#431 `APPROVED`/`CONFLICTING`/`DIRTY`, #434
-  `issue-362` no-decision/`MERGEABLE`/`BLOCKED`); 52 open issues. Every older queue row under any
-  later heading in this file is history, not the queue — do not quote its counts as current.
-**The approval this branch holds is one review row, and the push spends it.** `reviews[]` reads
-  four rows by `hermesvicowa`: `CHANGES_REQUESTED` at 06:59:36Z, 07:20:31Z and 08:29:01Z, then
-  `APPROVED` at 2026-11-17T09:31:38Z, all of them against head `670df88`; `reviewRequests` is
-  empty, so there is nothing outstanding to withdraw and nobody to re-ask until the new head is
-  read.
-- **Merge order costs nobody a renumber this round, and that is new.** `refs/heads/issue-362` and its
-  `origin` twin hold `H-0240`; this unit's id is `H-0241`, above it. So whichever of #434 and #431
-  lands second, trunk receives `H-0240` before `H-0241` and the merged sequence stays ascending — the
-  debt `H-0236`'s row predicted for the other order does not come due. Re-read before believing this:
-  `for r in refs/heads/issue-362 refs/remotes/origin/issue-362; do git show $r:factory/DECISIONS.md |
-  grep -c '^## H-0240'; done`.
-- What the merge made false in prose is listed in `H-0241`'s `What lost:` with the number each
-  parent-relative `grep` answers here; neither parent's entry text was rewritten, per the
-  dated-measurement convention `H-0238` states.
+- **3** open pull requests, **51** open issues, measured 15:52Z. All three pull requests are `CONFLICTING`/`DIRTY`
+  against `origin/main`, which is what this unit exists for: **#431** (`issue-334`, `APPROVED` — `hermesvicowa`
+  at 14:18:30Z on head `fba73df`, three `CHANGES_REQUESTED` at 06:59:36Z, 07:20:31Z and 08:29:01Z beneath it in
+  the same `reviews` array), **#435** (`issue-368`, `APPROVED` at 15:18:53Z, carries `H-0243`), **#436**
+  (`issue-364`, `reviewDecision` empty — no review has been asked or given — carries `H-0244`).
+- **The issue count depends on the flag, and the default page lies by 21.** `gh issue list --state open
+  --json number` answers **30** rows and exits 0; the same call with `--limit 1000` answers **51**. A one-line
+  queue sweep on the default is therefore a 30-issue queue, and nothing in the output says a page ended — this
+  is the `-q`-dropped-rows family (#1180) arriving from the other direction: the rows are real, the template is
+  honest, and the page is short. Ask with `--limit 1000`; if the count comes back exactly 1000 you have a
+  paging problem rather than a queue, and any count below that is the whole queue.
+- `H-0243` and `H-0244` sit on those two branches **below** this branch's `H-0242` and above the next
+  allocation, so neither sync may append: both splice by entry id, and the ascending rule is what refuses a
+  cheap append. `H-0245` is this sync's id, journalled twice (`15:27:22Z` and `15:33:51Z`, both
+  `REFRESH` union reads with no `PENDING` note), absent from all **82** refs, and — the finding worth
+  carrying — journalled at `15:11:16Z` for `unit=unclaimed:365 branch=issue-365` 966s before this unit's
+  first read. Ids are owned only when committed (`H-0242`'s row in the log), so that is a prospective
+  collision for the duplicate-id rule at merge, not a re-number this unit can settle.
+- **The one number a sync cannot read off the API: which of the five paths that differ actually conflict.**
+  #431 reports `mergeable: CONFLICTING` on **5** paths, and **3** of them conflict:
+  `git merge-tree --write-tree --name-only origin/main HEAD` lists `factory/DECISIONS.md`,
+  `factory/selftest.sh` and `NEXT.md`; `docs/factory.md` and `factory/factory.sh` differ between the parents
+  and arrive from trunk whole. Read `mergeable` and you know to work; read `merge-tree` and you know where.
+  Re-measured here rather than inherited: the eighth sync's sentence, that the set was three files, is true
+  of this round's geometry too and was true for a different three-file set, so the number is a property of
+  a round and never of the branch.
+- **#431's approval is the thing this push spends.** A `git push` into a pull that reads `APPROVED` dismisses
+  that review without either command saying so, so the post-push
+  `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus` is quoted in the pull-request
+  comment, and re-asking `FACTORY_REVIEWER_TEAM` (`workers`, id `13878026`) is the supervisor's
+  `factory_request_review` poke (#310). The body write goes through both type reads first and the verb that
+  survives them — `gh pr view 431 --json headRefName` and `gh issue view 431 --json url` must both name the
+  pull — because `gh pr edit --body-file` dies on this account's retired `projectCards` field and `gh issue
+  edit` is the verb measured to write a pull's body (#2027); the read-back is raw JSON with the md5 of
+  `json.load(raw)['body']` compared against the source, never a projection's byte count. Nothing here merges.
 
 ## Where the two parents' hand-offs went (stated scope, not deleted)
 
@@ -596,6 +614,52 @@ remove. Two facts a later unit should not have to rediscover:
     applied file-wide re-points pointers onto copies of their quoted text while their anchors keep passing.
 
 
+54. **Make `scripts/check-decisions.py` read an entry whose separator it does not know.** Trunk's
+    `H-0242` heading separates id from title with U+2014, and the shipped `ENTRY` pattern admits only the
+    middle dot, the pipe and the hyphen, so `factory/DECISIONS.md` carries **239** `^## [DH]-<four digits>`
+    rows and the shipped parser yields **238** entries. `H-0242` is the only heading either log the parser
+    skips — the root log's 71 rows all parse — so neither the duplicate-id rule nor the ordering rule can
+    look at it, and a second `H-0242` could land on trunk and be reported clean. Falsified twice against the
+    shipped checker on a copy: replace that one character with a middle dot and the file is read as **239**
+    entries and then refused at the row (`H-0242 is missing Question, Options, Chose, Why, Checkpoint`);
+    leave it and the entry's bare `Question:` lines with no leading dash are a second, independent reason
+    `FIELD` declines the block. So widening the heading grammar alone moves the blindness rather than ending
+    it, and the repair is the checker's, not a rewrite of somebody else's committed entry — decide whether
+    the separator set widens, whether the authoring side gains a refusal that fires before a merge has to
+    adjudicate a heading it cannot parse, or both.
+55. **The 27 bare pointers this sync displaced, and the sweep that can hand them to a human.** The census
+    reads every unanchored `path:line` in `factory/DECISIONS.md` — **364** resolve to a file — and asks what
+    sits at the named row in the merged tree, in this branch's copy and in trunk's: **337** are the same row
+    in all three, **27** name a row this branch's tip did not have, **0** differ from both parents. The 27
+    are **23** into `factory/selftest.sh` and **4** into `factory/factory.sh`; they sit in **8** entries
+    (`H-0112` 3, `H-0130` 2, `H-0136` 1, `H-0139` 6, `H-0142` 2, `H-0145` 1, `H-0169` 9, `H-0200` 3), and
+    **7** of those 8 entries are byte-identical to the merge base — the eighth, `H-0169`, carries this
+    branch's copy. So this is not text either parent edited: it is old unanchored coordinates whose targets
+    moved under the union's numbering, and whether any of the 27 still reads true cannot be answered from
+    the tree, because a bare pointer carries no quoted text and every one of them names a row of ordinary
+    code (`\t}`, `\t\treturn 1`, a comment fragment) rather than a blank or an out-of-range row. Same dead
+    end owed item 53 describes, with a number and a per-entry address; `make verify` reads none of them. The
+    instrument is `H-0245`'s `What lost:`, and the work is to make it emit the 27 rows for a person to
+    re-point by reading the code — the only tool that works where there is no anchor.
+56. **Give the selftest legs that exercise a merged line the merge's own shape.** Two legs assert on the
+    *file* rather than on the *ref*, so both fail on a correct tree in the middle of a merge — measured on
+    this tree, unsanitized run first, before anything was staged: `the timer's scripts are executable`
+    compares `git ls-files -s -- factory/selftest.sh` against `100755` and a mid-merge index answers **three**
+    stage rows (stages 1/2/3) where a clean tree answers one, so the leg's `[ "$mode" = "100755" ]` is handed
+    a three-line value and refuses. The mode is not the cause and was falsified rather than assumed:
+    `git ls-tree` holds `factory/selftest.sh` at `100755` in the base and in both parents, and the leg's own
+    shell re-run says one row of `100755` passes where three rows of `100755` do not — it is the count of
+    index rows, so the leg fails on any conflicted file and on nothing else about the bytes; and the allocator legs
+    (`a bare run journals nothing`, `control: one note can suppress the other`) read `FACTORY_LOG`, so a
+    journal inherited from the tick supplies a `PENDING` heading the fixtures do not plant — `H-0230`
+    sanitizes the environment and this round re-measured that the leak is still live, **818 passed
+    3 failed** where the same tree with `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH` and `FACTORY_LOG` unset
+    passes. Two repairs, and they are different: the mode leg should ask the index for the mode of the stage
+    zero row, or the leg should compare against the ref it is describing, so that a leg stops depending on
+    whether some other process happens to be mid-merge in the same tree; and the legs that read a journal
+    should plant their own root (as the `mktemp -d` legs do) or name the sanitization in their own label, so
+    a leak says so at the leg instead of looking like a broken allocator.
+
 ## Re-measurements the sixth sync took against the rows above
 
 These four are `main`'s rows 1, 2, 4 and 12. They are placed here rather than written into
@@ -720,6 +784,42 @@ Four of them, each aimed at a row above, and none a re-mark of a verdict.
    (`docs/factory.md`, `factory/common.sh`, `factory/factory.sh`), and the gate reads 0 broken anchors at
    these bytes with `POINTER_DEBT` held at 546.
 
+
+## Re-measurements the ninth sync took against the rows above (17 Nov, `H-0245`, at the merge of `fba73df` and `54610ca`)
+
+- Item 53's **32** bare pointers, re-measured on this tree by the same parent-attributed census, come out as
+  **27** moved against this branch's tip, **337** identical in both parents and **0** moved against both —
+  the same shape at a different number, because the base moved from `883b5e8` to `54610ca` and trunk's rows
+  moved with it. Item 55 carries the per-entry breakdown, because that is the number that fits in an owed
+  line; the 32-vs-27 spread is what makes a bare pointer unclosable, and it is restated in `H-0245`'s
+  `What lost:` with the census command beside it.
+- Item 53's six-entry sample is true, and it under-counts. All six of its entries are still byte-identical
+  to the merge base, so none of that drift was authored here, exactly as the row says — but the sample was
+  taken by looking at the entries whose pointers had already been complained about, and the census over all
+  27 lands on **8** entries, one of which (`H-0169`) is not base-identical. A sample chosen from the rows
+  that already hurt cannot tell you the shape of the whole set.
+- The eighth sync's **7** moved bare pointers against its own base are now **27** against ours. Nothing
+  re-aimed them in between — every one of the 8 owning entries is either base-identical (7) or carried from
+  this branch (`H-0169`) — so the count grew by the base moving twice, not by work: each sync inherits the
+  last one's residue and adds its own.
+- `POINTER_DEBT` is quoted in `H-0245`'s `Effect:` as **546**, because that is the number the shipped gate's
+  own summary line prints; `scripts/check-decisions.py`'s `POINTER_DEBT` constant is **545** and has not
+  moved since `H-0239`. The gate holds (rc 0, nothing added) and the entry reports the gate's figure rather
+  than the constant's, which is the conservative read: nobody has to explain a number that only a source
+  file carries. Closing the gap is a one-line commit that re-measures with `--citations`, and it is owed
+  because a held-at number that is not the constant makes the next sync's arithmetic wrong by one.
+- This sync adds owed items **54**, **55** and **56**: an entry the citation gate cannot parse, the 27 bare
+  pointers with their per-entry addresses, and the two legs that fail on a tree in the middle of a merge.
+  All three were found by re-measuring rather than by being told, and all three are unfixed by design —
+  `H-0143` and `H-0144` keep a conflict resolution to the resolution, so each is a branch of its own.
+- **A head sha this unit carried in its own notes names a commit that does not exist.** The notes say #431
+  stood at `12f70b1` with an approval at 12:25:56Z. `git cat-file -t 12f70b1` answers `Not a valid object
+  name`; `git ls-remote origin refs/heads/issue-334` and `gh pr view 431 --json headRefOid` both answer
+  `fba73df`; and the remote-tracking reflog for that branch is `4d81c15`, `670df88`, `fba73df` with nothing
+  between, so the remote never held the named sha — and a push from this worktree would have left both an
+  object and a reflog line, of which there is neither. Re-read the head in its own call immediately before
+  pushing, because a sha in your own notes is a claim, not a read (#1180), and the review the notes date at
+  12:25:56Z is one the API dates at 14:18:30Z on the unmoved head.
 
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
@@ -1043,3 +1143,27 @@ failure wearing a number.
   records the measurement.
 - Read the review after the push, not before. `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus`
   after the push is what the body may claim, and `gh pr checks 431` at rc 8 means pending, not failed.
+
+## What the `#362` unit shipped (branch `issue-362`, PR #434, ticks 1–2 on 2026-11-17)
+
+Appended here rather than folded into the `issue-341` header above because that header and its rows
+are that unit's hand-off and this tree inherited them by merge; the next sync re-cuts this file and
+owns the zero-loss census — **it owes the fact that nothing above this section describes `#362`**,
+which is how a carried hand-off silently becomes the tree's only self-description.
+
+- Tick 1 (`e1590b6`, `H-0240`): the undelivered-stop arm asks the ticket when the delivery read finds
+  no open pull request, so a satisfied-by-main close journals `TICK-CLOSED` and spends no budget; ten
+  legs, four controls, the whole account in the entry and in the PR body.
+- Tick 2 (`aa43c9c`, `H-0242`): the review at 12:21:07Z measured that the shipped prose lied about the
+  ledger — the `closed` arm has no `return` and the shared clean-stop tail stamps `last-tick` — and was
+  right. Chosen remedy: correct the prose, pin the ledger with a new leg
+  (`a closed ticket leaves a stamped clean ledger`, `factory/selftest.sh:22266`), reject `return 0`
+  because it deletes `TICK-DONE` and re-creates the shape `factory/common.sh`'s liveness census reads
+  as dangerous. Measured at `aa43c9c` sanitized: suite 817/0, `verify: OK`, 847 mutants apply,
+  `check-decisions` debt 546 unchanged. Control: option-2 mutant reads 816/1, sole red the new leg.
+- Owed by this unit's head, re-measurable: (1) the PR sits `CHANGES_REQUESTED` at `aa43c9c` — the
+  re-ask belongs to the supervisor's poke (`factory_request_review`), not to a unit; (2) `H-0242`
+  collides on purpose with a blind allocator read journalled by `issue-364` at 12:08:13Z — if that
+  branch commits the same id first, the merge-time duplicate rule decides, exactly as `H-0240`'s
+  precedent; (3) the four other open pull requests remain in the base-sync queue this branch only
+  re-measures, never carries.
