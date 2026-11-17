@@ -21352,11 +21352,14 @@ jc_leg_earned_id_above_the_window() { # the earned set is a whole-file read, pin
 	fi
 	printf '## D-0007 · an id the allocator journalled far above the window\nbody\n' \
 		>>"$d/unit/DECISIONS.md"
-	git -C "$d/unit" add -A >/dev/null 2>&1 &&
-		git -C "$d/unit" commit -qm 'fixture: one new heading, earned above the window' || {
+	# Two statements, one guard, and no `A && B || C`: the linter is right that the third arm runs
+	# when A is true and B is what failed, and a fixture whose refusal could also fire on the
+	# `add` is a refusal that misreports its own step.
+	if ! git -C "$d/unit" add -A >/dev/null 2>&1 ||
+		! git -C "$d/unit" commit -qm 'fixture: one new heading, earned above the window'; then
 		printf '            the new heading could not be committed\n' >&2
 		return 1
-	}
+	fi
 	mkdir -p -- "$d/log"
 	stamp=$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)
 	printf '%s DECISION-ID D-0007 unit=unclaimed:p2 branch=issue-p2 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
