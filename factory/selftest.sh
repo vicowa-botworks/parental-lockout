@@ -3487,6 +3487,26 @@ rec=${PROC_GH_REC:?PROC_GH_REC names the record file}
 # shellcheck disable=SC1090 -- installed by install_gh_fields, beside the payloads it projects
 . "$here/fields.sh"
 printf '%s\n' "$*" >>"$rec"
+# A `--body-file` payload is deleted by its producer the moment this fake returns, so a leg
+# that pins what a notice actually SAID can only take the bytes at call time. Content names
+# the file: `$rec` is one path shared by every box in this family and `proc_new` truncates
+# it per box, so ordinal names would collide and a later fixture would silently overwrite an
+# earlier box's payload -- the same trap the `cp` of the record below exists for. #432: the
+# transport line proves a comment was ASKED FOR; these copies are what let a leg pin the
+# attempt count, the stash sha and the mirror path inside it.
+case "$*" in
+*--body-file*)
+	_bfprev=''
+	_bfile=''
+	for _barg in "$@"; do
+		[ "$_bfprev" = '--body-file' ] && _bfile=$_barg
+		_bfprev=$_barg
+	done
+	if [ -n "$_bfile" ] && [ -f "$_bfile" ]; then
+		mkdir -p -- "$rec.bodies" 2>/dev/null || true
+		cp -- "$_bfile" "$rec.bodies/$(cksum <"$_bfile" | cut -d' ' -f1)" 2>/dev/null || true
+	fi ;;
+esac
 
 case "$1:$2" in
 'pr:merge' | 'pr:review' | 'pr:edit' | 'pr:request-reviewers' | 'issue:close' | 'issue:reopen' | 'issue:edit')
@@ -20929,6 +20949,10 @@ hs_halt=$proc_halt
 hs_stash=$proc_stash
 hs_rec=$proc_work/gh-record-streak341.txt
 cp -- "$hs_rec_src" "$hs_rec"
+# The copied `--body-file` payloads live beside the record (shared path, content-named — see
+# the shim). They are NOT copied here: nothing truncates a directory, and the pins below
+# select our notice by the run's own stash sha, which no other box can carry.
+hs_bodies=$proc_rec.bodies
 
 hs_line() { printf '%s\n' "$(proc_journal_line "$1" "$2")"; }
 
@@ -21124,7 +21148,12 @@ proc_leg '…and the work is in the stash and the mirror it names' \
 # box; an unticked unit is otherwise invisible in the one place anyone looks -- `IDLE` never appears,
 # because the queue is healthy, and `QUEUED` just stops shrinking. The shim's record file is read as
 # well as the journal: `UNIT-QUARANTINE-NOTICED` is a claim that a write happened, and this harness
-# does not take that claim from the code that made it.
+# does not take that claim from the code that made it. And since #432 the claim is read at BOTH
+# depths: the record proves a comment was ASKED FOR, and the payload the shim copied proves what it
+# SAID. The measurement that earned this: the shipped call site passed the finding where the contract
+# names the attempt count, every notice rendered `skipped this unit stash=… cause=mirror times in a
+# row` and printed the fallback sentence in both location slots, and nothing here could see it --
+# neither the journal line, nor the record line, nor `issue comment 900` carries one byte of the body.
 hs_owner_told() {
 	[ -n "$(hs_line "$hs_j2" 'UNIT-QUARANTINE-NOTICED unclaimed:900 #900')" ] || {
 		printf '            the unit was skipped and nobody was told. The activation'"'"'s journal:\n' >&2
@@ -21141,10 +21170,63 @@ hs_owner_told() {
 		sed -n 's/^/              /p' "$hs_rec" | tail -n 8 >&2
 		return 1
 	}
+	if grep -q 'UNIT-QUARANTINE-NOTICE-FAILED' "$hs_j2"; then
+		printf '            the notice refused itself on the healthy path; the journal says:\n' >&2
+		grep 'UNIT-QUARANTINE-NOTICE-FAILED' "$hs_j2" | sed -n 's/^/              /p' >&2
+		return 1
+	fi
+	# The transport proves a comment was asked for. The bytes are demand 4's actual claim --
+	# that the notice names the count and WHERE THE WORK IS -- so pin the copied body against
+	# the journal's own skip line: the count from `attempt=`, the stash sha and the mirror path
+	# from the same line that skipped the unit. The selection keys on the run's mirror path
+	# (unique to this box's tmp root, present in any rendering, broken ones included), so a
+	# mis-rendered notice is still FOUND and then named for what it failed, not missed with the
+	# blander "no payload" message.
+	local jline n stash mirror body='' f
+	jline=$(hs_line "$hs_j2" 'UNIT-QUARANTINED unclaimed:900')
+	n=$(printf '%s\n' "$jline" | sed -n 's/.*attempt=\([^ ]*\).*/\1/p')
+	stash=$(printf '%s\n' "$jline" | sed -n 's/.*stash=\([^ ]*\).*/\1/p')
+	mirror=$(printf '%s\n' "$jline" | sed -n 's/.*mirror=\([^ ]*\).*/\1/p')
+	for f in "$hs_bodies"/*; do
+		[ -f "$f" ] || continue
+		if grep -qF 'skipped this unit' "$f" && [ -n "$mirror" ] && grep -qF -- "$mirror" "$f"; then
+			body=$f
+			break
+		fi
+	done
+	[ -n "$body" ] || {
+		printf '            no copied --body-file payload holds this run'"'"'s quarantine notice\n' >&2
+		printf '            (the skip line'"'"'s mirror path is %s). The notice body was never\n' "${mirror:-unknown}" >&2
+		printf '            captured, so the sentence above rests on the journal alone:\n' >&2
+		find "$hs_bodies" -maxdepth 1 -type f -printf '%f %s\n' 2>/dev/null | sed -n 's/^/              /p' >&2
+		return 1
+	}
+	grep -qF "skipped this unit $n times in a row" "$body" || {
+		printf '            the notice does not carry the attempt count the journal just stated\n' >&2
+		printf '            (`attempt=%s`), so the number it blames the unit for is not the streak.\n' "$n" >&2
+		printf '            The body it sent:\n' >&2
+		sed -n 's/^/              /p' "$body" | cut -c1-160 >&2
+		return 1
+	}
+	grep -qF -- "$stash" "$body" || {
+		printf '            the notice does not name the stash the skip line names (%s), so its\n' "$stash" >&2
+		printf '            "nothing was discarded" sentence points at a paragraph, not the work.\n' >&2
+		return 1
+	}
+	grep -qF -- "$mirror" "$body" || {
+		printf '            the notice does not name the mirror the skip line names (%s).\n' "$mirror" >&2
+		return 1
+	}
+	if grep -qF 'named on the TREE-QUARANTINED journal line' "$body"; then
+		printf '            the notice fell back to its look-in-the-journal placeholders -- the\n' >&2
+		printf '            fields were never rendered, which is the #432 shape: a notice whose\n' >&2
+		printf '            "nothing was discarded" paragraph says only where to go looking.\n' >&2
+		return 1
+	fi
 	return 0
 }
 proc_leg '…and the owner is told on the issue' \
-	'UNIT-QUARANTINE-NOTICED for #900, and the gh record proves the comment was asked for' hs_owner_told
+	'UNIT-QUARANTINE-NOTICED for #900, the record proves the comment was asked for, and the copied body names the count, the stash and the mirror' hs_owner_told
 
 # A skip that never ended is the outage with the delay built in, which is the objection #248 filed
 # against the streak itself. Activation three is the same box with the stub no longer dirtying A: the

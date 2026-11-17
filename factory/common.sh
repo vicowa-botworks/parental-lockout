@@ -3317,7 +3317,7 @@ factory_tree_stop() {
 			# stays reserved for the refusal below, where the work really is nowhere else. Measured cost
 			# of the old scope on #302: 14h34m, 77 activations, 34 idle units behind one unit's 2 files.
 			log_event "UNIT-QUARANTINED $unit attempt=$n others-continue $q"
-			factory_notice_unit_quarantine "$unit" "$q"
+			factory_notice_unit_quarantine "$unit" "$n" "$q"
 			return 6
 		fi
 	elif [ "$qrc" -eq 1 ]; then
@@ -4756,12 +4756,21 @@ factory_main_tree_inspect() {
 #        (0 always: a notice that cannot be posted must not cost the unit its turn a second time --
 #        the `UNIT-QUARANTINED` line the caller printed is the record either way)
 factory_notice_unit_quarantine() {
-	local unit=$1 attempt=${2:-2} qf=${3:-} number='' tmp='' out='' rc=0 stash='' mirror=''
+	local unit=$1 attempt=${2:-} qf=${3:-} number='' tmp='' out='' rc=0 stash='' mirror=''
 	[ "$DRY_RUN" = "1" ] && return 0
 	number=${unit##*:}
 	case "$number" in
 	('' | *[!0-9]*) return 0 ;;
 	esac
+	if [ -z "$attempt" ]; then
+		# There is deliberately no default on the parameter. The `:-2` that used to sit there is
+		# half of why a mis-shifted call site survived a whole branch: a caller that dropped the
+		# count got a silently substituted one, so the notice rendered whatever landed in slot 2
+		# -- the finding -- where the number belongs. A missing count is a caller defect and the
+		# journal has to say so; guessing a count is not this function's to do.
+		log_event "UNIT-QUARANTINE-NOTICE-FAILED $unit #$number cause=no-attempt"
+		return 0
+	fi
 	[ "$(factory_age "$unit" quarantine-notice)" -ge "$FACTORY_HALT_NOTICE_AFTER" ] || return 0
 
 	# Both fields come off the quarantine's own finding line (`stash=<9> mirror=<path>`, or the merge
@@ -4782,6 +4791,11 @@ factory_notice_unit_quarantine() {
 		"$attempt" "${stash:-named on the TREE-QUARANTINED journal line}" \
 		"${mirror:-named on the TREE-QUARANTINED journal line}"
 	} >"$tmp" 2>/dev/null || {
+		# The house shape for a reason carries a `cause=` token too. A refused write used to
+		# return 0 with no line at all, which reads exactly like a throttled notice that had
+		# nothing to say -- the difference (a run directory no one can write) is operationally
+		# visible only from this line.
+		log_event "UNIT-QUARANTINE-NOTICE-FAILED $unit #$number cause=local-write"
 		rm -f -- "$tmp"
 		return 0
 	}
