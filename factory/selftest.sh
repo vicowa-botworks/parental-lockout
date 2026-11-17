@@ -21403,9 +21403,9 @@ wtc_count_leg 'and that sentence is the whole output' \
 #   `factory_file_age`          the live file's mtime -- a fresh file answers fresh
 #   `factory_journal_age`       the NEWEST line matching a key: a kept tail answers it correctly
 #   `factory_worktree_busy`     the TICK-START line of a tick STILL RUNNING, which is the OLDEST
-#                               line of that tick -- measured over the 200 completed ticks in the
-#                               live journal: median 48 journal lines from the start to the
-#                               release, p90 78, max 159
+#                               line of that tick -- measured over the 171 released ticks of
+#                               the 2026-11-17 journal: start-to-release median 1 line, p90
+#                               16, max 109 -- mid-tick the journal is nearly frozen (H-0238)
 #   `factory_decision_provenance`  EVERY `DECISION-ID` line for a branch, and a branch outlives a
 #                               pass (6 days for the oldest branch in the live journal), so the
 #                               earned set is a whole-file read

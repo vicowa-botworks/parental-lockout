@@ -2310,9 +2310,11 @@ two unrelated legs read red for a reason that is not yours.
 
 **A running tick's `TICK-START` is the oldest line of its own tick, and the guard that reads it has no
 code call site -- its caller is the rule `AGENTS.md` gives a session before it removes a tree.** Over
-the 198 paired ticks in the live journal (199 `TICK-START`, 137 `TICK-DONE`, 34 `TICK-FAILED`) the
-start-to-release distance is 1 line at the median, 16 at p90, 109 at the maximum: the supervisor is
-single-threaded and writes almost nothing while the agent runs, so the journal is nearly frozen during
+the 171 released ticks in the live journal at 2026-11-17 (199 `TICK-START`, 137 `TICK-DONE`, 34
+`TICK-FAILED`; 28 of the 199 starts have no release line at that date, and the census pairs each
+release with its own `TICK-START`, counting the lines strictly between) the start-to-release
+distance is 1 line at the median, 16 at p90, 109 at the maximum: the supervisor is single-threaded
+and writes almost nothing while the agent runs, so the journal is nearly frozen during
 a tick. That is why a *window* is not this guard's hazard -- 400 lines is above the maximum observed
 distance. The hazard is any bound that **moves the whole file away**, which is what a rename-rotation
 does and what `internal/audit/audit.go`'s five-generation scheme does -- and copying that scheme here
