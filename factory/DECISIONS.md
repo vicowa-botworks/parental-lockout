@@ -12498,7 +12498,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 
 - Chose: (c) keep both sides, re-open every pointer at the row its anchor names in the merged tree, and prove the splice by a per-path added-line census against the merge base
 
-- Why: the merge is `origin/main` `cf00b44` (PR #427, `H-0235`) into this branch at `8b01175`, merge
+- Why: the merge is `origin/main` `cf00b44` (PR #410, `H-0233`) into this branch at `8b01175`, merge
   base `6e069eb`, and the pre-merge read of the artifact was `OPEN`, non-draft, `headRefOid 8b01175`,
   `mergeable CONFLICTING`, `mergeStateStatus DIRTY` with `gh pr view 431 --json commits` answering **9**.
   `git merge-tree --write-tree --name-only refs/heads/issue-334 cf00b44` names **exactly two** paths and
@@ -12550,7 +12550,11 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   - **`factory/DECISIONS.md` ships as the ascending-id union, 12632 rows** (12479 at the pure union, before
     this entry). `merged[:12451]` is trunk's whole 12451-row file verbatim **except row 3113**, and
     `merged[12451]` is the blank trunk's own file ends with — the row the union used as its separator, so
-    trunk's tail was not even re-flowed. `## H-0234` begins at 12453, this entry at 12481. Heading census,
+    trunk's tail was not even re-flowed. `## H-0234` begins at 12453, this entry at 12482, both read off a
+    tree rather than recalled: `grep -n '^## H-0237' factory/DECISIONS.md` is the recipe, and it travels with
+    the number because either coordinate moves the day a line is appended above it and no gate opens a
+    self-coordinate -- it is not a `path:line` citation, so it is in neither the 546 anchors nor the debt.
+    Heading census,
     additive on both sides: `^## ` **224** base → 226 ours → 230 trunk → **233**; `^## H-` 223 / 225 / 229 /
     **232 = 229 + 3**; the root log untouched at 72 `^## ` and **71** `^## D-` rows in all four trees,
     because trunk did not edit it. The 7 `##`-without-blank-above rows (2315, 3737, 4907, 6936, 8670, 8998,
@@ -12631,6 +12635,47 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
     `8b01175`. In a repository with a dozen sibling worktrees alive at once, a chained probe's output is not
     this branch's state; the rule this sync wrote into the hand-off is one command per call, and read the
     name of the ref you asked for before quoting its value.
+- Correction (17 Nov, on #431's third review, aimed at this row as shipped at `4d81c15`): two coordinates are
+  restamped here and they are two different failures, worth keeping apart because only one of them is this
+  row's own slip. **The merge's provenance, in the `Why:`.** It read `(PR #427, `H-0235`)` beside
+  `origin/main` `cf00b44`, and both tokens were recalled rather than read. `git log -1 --format='%s' cf00b44`
+  answers `Merge pull request #410 from vicowa-botworks/issue-348`, so this merge is PR #410's landing; there
+  is no pull request 427 in this repository at all — `gh pr list --state all --json number` reads 217 pull
+  requests and 414 is the last number beneath this PR's 431, and 427 is an open *issue*, the
+  `DECISION-ID-UNEARNED` baseline thread, which carries nothing of any merge; and trunk's top id at `cf00b44`
+  is `H-0233` (`git show cf00b44:factory/DECISIONS.md | grep -oE '^## H-[0-9]+' | tail -1`) while `H-0235` is
+  this branch's own row two above. So the pair, which names the pull request whose merge produced the trunk
+  commit and trunk's top decision id at it, is (PR #410, `H-0233`). Nothing else in the sentence moved: the
+  merge base re-reads `6e069eb` from `git merge-base cf00b44 0da656f`, and "this branch at `8b01175`" is the
+  content head — `0da656f` is the empty checkpoint over it, `git diff --stat 0da656f 8b01175` answering empty,
+  and the pre-merge PR read quoted `headRefOid 8b01175`, so either name is true of the branch side. Why no
+  gate saw it: a pull-request number is not a `path:line` citation, so `scripts/check-decisions.py` had no
+  row to open and read rc 0 over it, in the same blind spot this row's own third bullet had just recorded for
+  the merge's anchors — by `H-0238`'s thesis a number you ship is a number you owe, and nothing collects a PR
+  number. The shape of the miss is a transcript, the one source this row's declared standard rules out.
+  **A coordinate this entry wrote true, which this branch then moved.** "this entry at 12481" held where it
+  was written: `git show d8467a7:factory/DECISIONS.md | grep -n '^## H-0237'` answers **12481** there and
+  **12482** here. `4d81c15` then added one line inside `H-0234`'s entry — the dated Correction bullet #431's
+  second review asked for — and every row beneath it slid by one, so the sentence went false on the head that
+  shipped it, with no merge and no other hand in it. That is the class `H-0139` prices, the row whose own
+  pointer into `AGENTS.md` a merge slid down without a word of the entry changing, and the reason the rule is
+  to quote the sentence beside the coordinate; here the coordinate quotes nothing, because it names this row
+  to itself. The review measured the shipped number correctly and attributed the drift to the draft rather
+  than to the commit above it. Restamped with its `grep` beside it for exactly that reason.
+  Kept, and what lost: the `Why:` prose is otherwise untouched, per this log's Correction convention as
+  `H-0234`'s two bullets above ship it and `660acb8` and `8b01175` practise it. Unlike those two, the false
+  tokens are replaced rather than left standing beside their correction: a drifted measurement was true once
+  and a reader gains something by seeing what the correction cost, while a provenance that never held buys
+  nothing and this row is the sync's provenance. Two figures in the entry stay as written and both belong to a
+  named tree, not to this head — the `12632 rows` is `d8467a7`'s copy, which is what "ships" meant there
+  (this head's copy is longer by every bullet appended since), and the heading census reads the four merge
+  inputs. No id was taken for this correction: the union ceiling is `H-0238` with `H-0236` held by
+  `issue-341`, re-read at this write as `^## H-0236` answering 0 in `HEAD` and 0 in `origin/main` and 1 in
+  `refs/heads/issue-341` and 1 in its `refs/remotes` twin — and the allocator journals an allocation for
+  whatever it hands out, so spending an id to repair a false number would manufacture the earned-in-form,
+  unearned-in-substance journal line issue 427 exists to price. The re-measurement decides both tokens, so the
+  only judgement left was where to record it, and `H-0234` and `H-0235` already settle that. Roll back with
+  `git revert` of the commit this bullet rides; `d6aea17` is the checkpoint beneath it.
 
 ## H-0238 · #431's review caught two shipped tick counts in contradiction -- re-measurement says both number sets are true of the journal, of two different quantities, so the busy guard's quantity ships once and the docs count ships honest
 
