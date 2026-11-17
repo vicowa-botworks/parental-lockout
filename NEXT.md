@@ -43,24 +43,40 @@ stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the insta
 3. **A park for a waiting escalation is #437's, not this unit's.** Until that lands, expect #334 to be
    dispatched again and again; if you are that dispatch, read the ticket's comments first — the last three
    units each found something the previous one did not, and none of them chose the number.
-4. **The red you will see on your first `make verify` is already ticketed: #425.** Not this unit's doing —
-   the untouched base tree read red in this dispatch too (`control: one note can suppress the other` and `a
-   bare run journals nothing`). #425 already names the cause, and this unit re-derived it independently
-   rather than inheriting the ticket's verdict: a tick's shell inherits six `FACTORY_*` exports from its
-   dispatch, among them `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` (read `env | grep ^FACTORY` where you
-   are standing and count them), and a fixture whose question is "a bare run journals nothing" cannot answer
-   it with a unit name in its environment. Three runs, one tree, `factory/selftest.sh` alone:
-   **830/0 rc 0** with the pair unset, **830/0 rc 0** with all six unset, **829/1 rc 1** with the inherited
-   environment — so the pair is the cause and the other four variables are not. Three more runs (the same
-   command again, then each of the pair alone) are in `/tmp/opencode/i334/env-attrib2.log`; the second
-   variable matters because #425's title claims `FACTORY_TICK_UNIT` alone. Two things this unit did **not**
-   do: it did not touch the harness on this docs branch, and it did not assume #425's diagnosis was right
-   about the single variable. Also read before blaming your tree: **#371**, `selftest.sh` printing `FAIL`
-   where it means `SKIP` when `$TMPDIR` resolves inside a repository — check `echo $TMPDIR` before you
-   believe a red leg. And correct the record on this hand-off: an earlier draft of this row named #374,
-   which is the citation-ratchet ticket, because the number was recalled instead of read. #425 is what the
-   measurement is about. A referent named from memory is the same class of defect as a coordinate that was
-   never opened.
+4. **The red you will see on your first `make verify` is already ticketed: #425, and its title is right
+   about the variable.** Not this unit's doing — the untouched base tree read red in this dispatch too. Six
+   `FACTORY_*` exports are inherited from a dispatch, among them `FACTORY_TICK_UNIT=unclaimed:334` and
+   `FACTORY_TICK_BRANCH=issue-334` (read `env | grep ^FACTORY` where you are standing and count them), and a
+   fixture whose question is "a bare run journals nothing" cannot answer it with a unit name in its
+   environment. Five runs of `factory/selftest.sh` alone on one tree, each ~90 s:
+
+   | run | environment | legs failed | result |
+   |---|---|---|---|
+   | A | inherited minus `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` | — | 828 passed, **0 failed** |
+   | B | inherited minus all six `FACTORY_*` | — | 828 passed, **0 failed** |
+   | C | inherited as-is | both | 827 passed, **2 failed** |
+   | D | inherited as-is, repeated | both | 827 passed, **2 failed** |
+   | G | inherited minus `FACTORY_TICK_UNIT` **only** | — | 828 passed, **0 failed** |
+   | H | inherited minus `FACTORY_TICK_BRANCH` **only** | both | 827 passed, **2 failed** |
+
+   G against H says `FACTORY_TICK_UNIT` alone is sufficient and `FACTORY_TICK_BRANCH` contributes nothing;
+   C against D says it is deterministic, not flaky — the same two legs, `control: one note can suppress the
+   other` and `a bare run journals nothing`, every time. So #425's title is exact and the repair is to scrub
+   `FACTORY_TICK_UNIT` in the journalling fixture's bare arm the way other legs scrub `PATH`. This unit did
+   **not** touch the harness on this docs branch, and it did not assume #425's diagnosis was correct until
+   run G tested it. Rule out **#371** (`selftest.sh` printing `FAIL` where it means `SKIP` when `$TMPDIR`
+   resolves inside a repository) before blaming your tree for any *other* red leg: `echo $TMPDIR`.
+
+   Own this too, because it is the reason the row exists: the first version of it reported "830 passed / 0
+   failed" and "829 passed / 1 failed", called the pair the cause, and described a leg as intermittent. The
+   logs say 828, 828, 827-with-two, 827-with-two, 828, 827-with-two. The numbers were read off a
+   half-remembered grep of a running job instead of the finished file, and the two conclusions built on them
+   were both wrong. A claim about a run is a claim about a file — `grep -o '[0-9]* passed, [0-9]* failed'`
+   and `grep '  FAIL  '` on the completed log, before the sentence.
+
+   And correct the record on this hand-off: an earlier draft named #374, which is the citation-ratchet
+   ticket, because the number was recalled instead of read. #425 is what the measurement is about. A
+   referent named from memory is the same class of defect as a coordinate that was never opened.
 
 ## Two things a stranger will break here
 
