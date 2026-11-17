@@ -42,7 +42,7 @@ func TestCensusKeepsTheRowsItRead(t *testing.T) {
 		err: errors.New("session c1: loginctl show-session: exit status 1"),
 	}
 
-	census := unenforcedCandidates(cfg, src)
+	census := unenforcedCandidates(time.Date(2023, 11, 14, 18, 13, 20, 0, time.UTC), cfg, src)
 
 	if census.Missing == nil {
 		t.Fatal("the shortfall was dropped: the census claims the listing was complete")
@@ -64,7 +64,7 @@ func TestAnIncompleteCensusIsNeverACleanBillOfHealth(t *testing.T) {
 	// accounts than the one the operator asked about, and it has to say so.
 	accounts := []unenforcedCandidate{{Username: "casey", Managed: true, InWindow: true,
 		HasSession: true, Lockable: true, Locked: true}}
-	got := checkUnenforced(time.Now(), sessionCensus{
+	got := checkUnenforced(sessionCensus{
 		People:  accounts,
 		Missing: errors.New("loginctl list-sessions: 1 of 2 session rows could not be read"),
 	})
@@ -89,7 +89,7 @@ func TestAnIncompleteCensusRidesOnAFailingVerdict(t *testing.T) {
 	// operator reading it as the whole machine is the failure this issue is about.
 	accounts := []unenforcedCandidate{{Username: "casey", Managed: true, InWindow: true,
 		HasSession: true, Lockable: true, Locked: false}}
-	got := checkUnenforced(time.Now(), sessionCensus{
+	got := checkUnenforced(sessionCensus{
 		People:  accounts,
 		Missing: errors.New("session c9: bus error"),
 	})

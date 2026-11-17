@@ -224,7 +224,13 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 			"fix the spelling, or install the backend that provides it"))
 	}
 
-	rep.add(checkUnenforced(time.Now(), unenforcedCandidates(cfg, chain)))
+	// One clock read decides this report's unenforced verdict (#355): the old line read the
+	// clock twice and the reading that decided anything was inside the join, where no test
+	// could pin it. nowFunc is the package's existing seam (cmd/plock/status.go:55, "a var
+	// rather than a time.Now call so" the clock "can be" pinned), so the acceptance tests can
+	// answer inside the minute that made this check red.
+	now := nowFunc()
+	rep.add(checkUnenforced(unenforcedCandidates(now, cfg, chain)))
 
 	if *tryUser != "" {
 		return runDoctorTry(stdout, stderr, chain, *tryUser, rep)

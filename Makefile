@@ -149,6 +149,7 @@ verify:
 			fi; \
 		done; \
 	done; \
+	echo "==> fixture window guard"; ./scripts/check-fixture-window.sh; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
