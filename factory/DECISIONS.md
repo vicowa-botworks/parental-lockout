@@ -12206,3 +12206,95 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 - Checkpoint: bbb30c65cb41da0a232822e6c1696cc484e74c2d
 - Effect: the merge of `origin/main` (`1c385b7`) into `issue-361`, the two conflicted files resolved by hand and twenty other paths that differ between `a961b7e` and this merge arriving from `main` without a conflict, measured on the bytes this entry ships. `python3 scripts/check-decisions.py` reads rc 0 over 292 entries, 761 citations, `POINTER_DEBT` held at 539 -- it did not move, so no anchor was lost to buy a green -- and 0 pointers pointing somewhere a reader cannot open. Against `main`'s copy of this log the branch is the 78-line `H-0203` block, this entry, and 26 rewritten rows, and all 26 differ from `main`'s row in digits alone (rows removed vs main's copy: 26, of which digits-only rewrites: 26, content changes: 0); against this branch's own copy the log is +2715/-40 and all 40 rows deleted from it reappear with digits folded, so they are `main`'s own drift rewrites landing rather than a loss; over the four paths this branch touched its census is 328 added rows, 0 absent from the merged tree with digits folded, and the 3 that are digits-folded are the `H-0173` rows that had named the streamed test at `a961b7e:factory/common.sh:3073`. `factory/selftest.sh` is `+196 -0` against `main`'s copy and 21128 lines = 20932 + 196 exactly, so `main`'s 974 lines and every line before them are untouched; the union kept one closer, not two -- the tally comment that closes the suite occurs exactly once on each of the four trees -- and it kept both sides' tests: ours' guard leg `factory/selftest.sh:20134` "busy_guard_refuses_a_live_tree" calling the definition at `factory/selftest.sh:19980` "busy_guard_refuses_a_live_tree() {", `main`'s four `claim_leg` legs in the block beginning `factory/selftest.sh:20135` "# #334 -- the footprint line.". The suite's own leg census is additive and blind in a way worth recording: `grep -cE '^[[:space:]]*[a-z_]+_leg\b'` minus definitions is 487 / 487 / 563 / 563 (base / ours / main / merged) and `^claim_leg ` counts 381 / 381 / 385 / 385, so this branch's leg -- registered by a bare call, not a `*_leg` verb -- is invisible to the census; the census is evidence that neither side's registered legs shadow the other's, never evidence that this branch's test ran. Two coordinates the merge moves are named here and left in place because the shared `H-0167` row is `main`'s prose: the `TICK-UNDELIVERED` marker call `factory/factory.sh:1332` "factory_stop_marker TICK-UNDELIVERED" and this branch's own removal guard at `factory/common.sh:1478` "factory_worktree_busy() {", whose `TREE-AFTER-TICK` release arm is `factory/common.sh:1493` "delete run[$3]; delete line[$3]" -- both opened on the merged tree at the numbers given. `make verify` and `bash scripts/check-next-md.sh` are quoted with their exit statuses in the pull-request body from the run that ships these bytes, never here. One slip, disclosed: the first resolution run was thrown away, not because it was wrong but because the checkpoint this entry names had to precede the merge -- the resolution was replayed from the three stage blobs and the shipped files are byte-identical to the discarded run, `b9f0e248b957b228c259a17ce7595a38e0695045af51ed2f3065f704b22c64a7` for this log and `31226478df80de1cad3f2d4b4c2d8ef5ce39a61d0e04c7ef5f059bbe6b385ead` for the suite, hashes taken before the checkpoint and re-taken after the replay. Allocator, two reads both answering `H-0230` with a `REFRESH` line and no `PENDING` note (union 259s old on the first, re-fetched and 0s old on the second, `origin/main` unmoved at `1c385b7`), re-read once more immediately before this row was written: `H-0230`. The four ids the merged sequence does not hold, `H-0031`, `H-0032`, `H-0057`, `H-0122`, are old and named by `H-0229` as predating the allocator; `H-0200` is named there as a collision; `H-0225` and `H-0228` are `issue-348`'s; and `H-0227`/`H-0229` arrived from `main`, whose own allocator runs ahead of this branch's by design (#425).
 - What lost: this entry decides only this sync. Nothing of `main`'s 115 commits was re-derived for behaviour -- the guard's own claims (the journal pairing between `factory/factory.sh:1216` "TICK-START $unit tree=" and the `TREE-AFTER-TICK` writer, and what `factory_worktree_busy` returns for a tree it cannot judge) were written against the pre-sync tree and `make verify` over the combined tree is the only verdict this merge has run on them. 34 coordinates across fifteen entries -- fourteen of them other units', `H-0203` this branch's own (`H-0185`, `H-0191`, `H-0198`, `H-0199`, `H-0203`, `H-0210`, `H-0216`, `H-0218`, `H-0219`, `H-0221`, `H-0222`, `H-0223`, `H-0224`, `H-0226`, `H-0229`) -- were rewritten digit-only and each was opened on the parent that published it before it was moved: that is another unit's prose edited here and it is owned here. The nine inherited pointers that name a line past the end of the file they name -- five of them the `README.md` family this log itself discloses at `factory/DECISIONS.md:7215` "pre-existing, unowned", four more whose targets have since moved below their files' present length, nine on all four trees so this splice authors none of them -- and the `H-0167` row's `TICK-UNDELIVERED` coordinate are left as found: repairing the first edits files this branch has no business touching and rewriting the second edits a row whose measurement was true at the head that wrote it. Rollback: `git revert -m 1` of THIS merge retires the whole sync, and this entry rides the merge commit, so the same revert retires the erratum with it; the checkpoint `bbb30c65` pre-dates the merge and the merge is `HEAD`, so nothing else is entangled. No GitHub write beyond the pull request this branch already has, no merge, no governing file edited by this decision.
+
+## H-0232 · A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its log-move record into the operator's live supervisor journal, so a fixture's isolation is not complete until it owns its unit identity
+
+- Id: this entered the harness log as `H-0204` on `fix/journal-test-isolation`, and the review of PR
+  #414 blocked on that number: `main` had meanwhile merged a *different* H-0204 — *PR #400's base sync
+  has exactly one legal splice … with the erratum riding the merge commit as H-0181 set the shape* —
+  and a merged entry's id never moves, so this one, unmerged, is the one that can yield. It took
+  `H-0232` rather than the `H-0208` the review proposed, because the census was re-run at re-land time
+  and `H-0208` is published on `main` too; across every `refs/heads` and `refs/remotes` after
+  `git fetch --prune origin` the union topped out at `H-0231` (on `issue-348`), so `H-0232` is the
+  first free id above the ceiling and not a gap. The two decisions that share `H-0204` share nothing
+  but the digit: this one is *A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its
+  log-move record into the operator's live supervisor journal*. What the yield cannot move: `0924bff`
+  keeps `Decision: H-0204` in its message and `2af486e` keeps `pre-H-0204` in its subject, because
+  rewriting a pushed branch is the denied force-push and a merge commit makes both permanent. So
+  `git log --grep='Decision: H-0232'` finds this record and not the work, and a grep for the retired
+  trailer now arrives at this fixture from a change whose own number is `main`'s base sync; the
+  mapping lives in this line and in the merge commit alone.
+- Question: the factory selftest writes into production state. One suite appends a 3-line
+  `LOG-MOVED` record naming a deleted `/tmp/plock-factoryselftest-*/claims/dlog` as the new log
+  directory, and it appends it into `factory/log/supervisor.log` — the operator's live tail, which
+  held 604 such lines out of 7006 when counted. Measured: the claims `ask_dispatch` makes 6
+  `journalctl` asks and every one of them names a unit the fixture never chose. What does the test
+  owe, and does anything in shipped code have to change?
+- Options: pin the unit in the claims setup and in `ask_dispatch`'s own env list so the log-move read
+  resolves the fixture | make the shipped `factory_service_unit` refuse a unit whose journal is not
+  under its own `FACTORY_LOG` root | make `journal_hints` fail when `FACTORY_LOG` is outside the repo
+  root | give each fixture a unique `FACTORY_NAME` so the derived name is unique by construction |
+  leave the read alone and stop only the append
+- Chose: pin the unit in the claims setup and in `ask_dispatch`'s own env list so the log-move read
+  resolves the fixture
+- Why: `factory_service_unit`'s first arm honours `FACTORY_SERVICE_UNIT` ahead of any derivation, and
+  the installed unit exports `Environment=FACTORY_SERVICE_UNIT=parental-lockout-factory.service`,
+  which every process under a tick inherits verbatim — caught twice by scanning `/proc` descriptors
+  while appending (pids 495790, 495823). So redirecting `FACTORY_LOG` alone cannot produce
+  production-free state: the same fixture reads production journald and then appends into the
+  journal that read names. Options 2 and 3 are refused because `factory/common.sh` is pointer-locked
+  the same way this file is — 26 pointers into it, highest 3016 of 3181 — and because the log-move
+  legs pin a five-clause refusal legend that any new shipped clause cascades into; they would also
+  break `reap_leg_live`, which reads this box's journal deliberately for shape-only assertions.
+  Option 4 is refused because it does not touch the arm that outranks derivation, so it changes
+  nothing under the tick. Option 5 is refused as half a fix: the read is what selects the append
+  target. Tie-break 1: bash only, no new dependency. Tie-break 2: no lockout semantics move.
+  Tie-break 4: one variable, one env list, plus one leg — the smallest surface that makes the
+  fixture own its identity. Tie-break 5: `git revert` of the effect commit retires fix and entry
+  together, with the checkpoint above as the target. Tie-break 6: H-0125 established that the
+  journald stub must honour its own flags, and the `proc_*` log-move fixtures already plant a
+  fixture-local previous log directory; this only extends the sanctioned pattern to the claims
+  fixture that omitted it.
+- Checkpoint: 2af486e66f5a894e2be35b3f0f676905faaf19a3
+- Effect: `claim_unit` is defined once in the claims setup and exported in `ask_dispatch`'s env list,
+  and that is the only env-list edit this branch makes: the pin rides `ask_dispatch` itself, so every
+  caller is covered by the one edit — each of the claims fixture's callers, and the isolated control
+  leg alike, whose own subshell deliberately exports an operator-shaped name that this env list then
+  overrides for the dispatched supervisor. All three body edits are 1-for-1 line swaps (net 0 at
+  3529, 7139, 9177) and the control leg `ask_journal_unit_is_its_own` is appended at 21110-21171,
+  below the highest pointer into this file (20786), so no pointer parts from its text. Those five
+  digits are the merged tree's, taken in the merge that carries the union and mapped in the
+  `Correction:` below; the gate was read back at `0924bff`, the head the legs were written at:
+  `bash factory/selftest.sh` 683 passed, 0 failed, and `make verify` green
+  with the citation checker reporting 0 moved and 0 unopenable; under a tick-shaped environment the
+  6 dispatch asks now name `plock-claims-selftest.service` and the production journal gained 0 lines
+  across four runs. Reproduced at the unpatched checkout under the same environment: 679 passed, 0
+  failed and +3 lines of exactly the `new=/tmp/plock-factoryselftest-*/claims/dlog` shape — stated
+  as reproduced there, not as a same-tree A/B, because that control ran at a different HEAD (679
+  legs against this tree's 683). Deleting only the pin here fails 4 legs, this one among them, which
+  is what makes the pin load-bearing rather than decorative. What lost, as the cost of the choice:
+  the leg guards the dispatch path and the other ask sites are not census-enforced; the surviving
+  production-name ask belongs to `reap_leg_live` and is left alone on purpose, so isolation is
+  asserted over writes, not over every read; and the polluted journal is not cleaned — 604 lines are
+  history and the file is gitignored, which makes tidying it the operator's call, not this branch's.
+  No GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
+- Correction (`H-0232`, 16 Nov, on #414's review): two sentences of this entry describe an edit that
+  was never made, and the review caught them, so they are corrected here rather than left standing.
+  The `Effect:` said "the isolated-leg env list carries it too" and the `Why:` priced tie-break 4 as
+  "one variable in two env lists"; at this head `claim_unit` exists at exactly two places in
+  `factory/selftest.sh` -- its definition in the claims setup and `ask_dispatch`'s env list -- plus the
+  two assertions inside the new leg, so there is no second env list for it to ride. The coverage those
+  sentences meant is real and is now stated by its actual mechanism: the pin is on `ask_dispatch`, the
+  one function every caller reaches, so the operator-shaped name the leg plants in its own subshell is
+  overridden before the shipped supervisor starts. That is the property the reviewer verified
+  independently, and the leg still passes; nothing about the pin, the leg or the measured counts moved
+  with the wording. Also corrected in the merge commit that carries the union: the five bare
+  coordinates here were the pre-merge ones and main's 121 commits move them, so the digits are
+  re-stamped on the merged tree while the measurements around them stay stamped at the tree they were
+  taken on -- `H-0181`'s shape, restated by `H-0169`'s `Id:` line. The mapping, measured on the merged
+  tree: 3146 -> 3529 (the stub's comment), 5266 -> 7139 (`claim_unit`'s definition), 7304 -> 9177
+  (`ask_dispatch`'s env list), 16304-16365 -> 21110-21171 (the control leg), and the highest pointer
+  into this file 15569 -> 20786, so the leg is still appended below every pointer that names a
+  `selftest.sh` line -- the property that sentence was asserting, re-derived rather than assumed. The
+  pushed message at `0924bff` keeps the false sentence and is not rewritten, because that is the denied
+  force-push.
