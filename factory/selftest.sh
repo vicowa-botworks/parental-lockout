@@ -3556,6 +3556,31 @@ case "$1 $2" in
 # above: a fake that answers less than the code asks for is a different GitHub, not a smaller one.
 'label list') emit "$here/labels.json" ;;
 'issue comment') exit 0 ;;
+'issue view')
+	# (#362) `gh issue view <n> --json state,closedAt --jq <expr>`, addressed per number the way
+	# `issue comment <n>` is. The projection is ONE OBJECT here, not a list of rows: `gh issue view`
+	# answers a single issue and hands `--jq` that object, so routing this through `emit` -- which
+	# builds the array the `list` reads need -- would hand the shipped filter an array, and it would
+	# read a jq index error as a gh that refused. The field list is still obeyed, by wrapping the
+	# object for `gh_json_payload` and unwrapping the row it returns: asking for `stateReason`, which
+	# the shipped gh 2.46.0 refuses outright, fails HERE the way it fails THERE -- `Unknown JSON
+	# field` at exit 1. No payload for the number is no answer: exit 8, as `emit` refuses.
+	_num=${3:-}
+	_obj="$here/issue-$_num.json"
+	if [ ! -f "$_obj" ]; then
+		printf 'proc-shim: no payload for this call: %s\n' "$_obj" >&2
+		exit 8
+	fi
+	_wrap=$(mktemp)
+	printf '[%s]\n' "$(cat "$_obj")" >"$_wrap"
+	_rows=$(gh_json_payload "$_wrap" "$jsonf") || { rm -f "$_wrap"; exit 1; }
+	rm -f "$_wrap"
+	if [ -n "$jqprog" ]; then
+		printf '%s\n' "$_rows" | jq -r ".[0] | ($jqprog)"
+	else
+		printf '%s\n' "$_rows" | jq -c '.[0]'
+	fi
+	exit 0 ;;
 'pr list')
 	# One read, three payloads, told apart by the flag that differs between them -- the same rule
 	# CLAIMSHIM records and for the same reason: a shim that serves the body payload to the field
@@ -21953,6 +21978,265 @@ wtc_leg 'no checkout, one sentence' \
 wtc_count_leg 'and that sentence is the whole output' \
 	'a census that could not run prints no orphan and prune lines beside its failure' \
 	'WORKTREE-' 1 "$wtc_lines"
+
+# ------------------------------------ the ticket the delivery read never asked about (#362)
+#
+# A tick that stops clean is judged by one read: is a pull request open on its branch. The gate a
+# unit runs under ends its LAST turn by closing the issue when the ticket is already satisfied by
+# `main` -- `.opencode/skills/factory/SKILL.md`, "When the ticket is already satisfied by `main`" --
+# and `factory/triage.sh` counts an issue claimed only by an OPEN pull request, so that close claims
+# nothing, the read answers empty, and the one shape of done the read could not tell from a miss is
+# filed as a miss. Measured on `unclaimed:315`: `TICK-UNDELIVERED … it stays where it was` at
+# 2026-11-14T01:21:41Z, in the same minute that `gh issue view 315 --json state,closedAt` answered
+# `CLOSED` at `2026-11-14T01:15:25Z` and `gh pr list --head issue-315 --state all` answered only the
+# MERGED #316 -- the historical delivery, two days old. (#362, H-0240.)
+#
+# Only the process fixture can reach this verdict: it is taken after a real `opencode run` exits, and
+# the shipped stub is what stands in for that process. The stub already answers `pr list --head` from
+# a planted payload, and an EMPTY one is exactly the state the closed-by-close ticket arrives in, so
+# the family gains one payload shape it did not have -- `issue view <n>`, by number, addressed the way
+# `issue comment <n>` is -- which is what lets ONE activation hold a closed ticket and an open ticket
+# and read both polarities off one dispatch instead of two runs differing by more than the thing
+# under test.
+#
+# cdec_new <name> -> a fresh proc box in which neither branch has an open pull request.
+cdec_new() {
+	local name=$1
+	proc_new "$name"
+	# The dispatch exports its own unit into this session's environment and `proc_run` hands `env` a
+	# list it never subtracts from, so a read that journals against the unit inside a fixture pass
+	# journals the SESSION's unit -- #425 counts that leak live, in this file's journalling family.
+	# Emptied rather than unset, because `proc_run` only re-exports names it is told: an empty value
+	# is what the shipped `[ -n … ]` tests read as absent.
+	FACTORY_TICK_UNIT=
+	FACTORY_TICK_BRANCH=
+	export FACTORY_TICK_UNIT FACTORY_TICK_BRANCH
+	# A sibling family leaves these set and every pass here inherits them: a dirty stub dirties the
+	# tree each tick runs in, and a failing stub changes the exit code the fourth leg reads.
+	proc_dirty='' proc_tick_fails=''
+	# No open pull request on either branch -- the state the ticket arrives in, not a fixture
+	# convenience. `[]` is what gh really answers for a branch whose only pull request MERGED two
+	# days ago, which is the read #315 got. The queue itself is the family's own two open issues,
+	# so this box is two `unclaimed` rows and nothing else.
+	printf '%s\n' '[]' >"$proc_fix/pr-head.json"
+}
+
+# cdec_state <number> <state> <closedAt|-> -> what `gh issue view <number> --json state,closedAt`
+# answers in this fixture. `-` plants `closedAt: null`, the OPEN shape measured on the live API
+# (`gh issue view 424` answers `OPEN` and a null closedAt), so the empty-field case is planted
+# rather than hoped for.
+cdec_state() {
+	if [ "$3" = '-' ]; then
+		printf '%s\n' "{\"state\":\"$2\",\"closedAt\":null}" >"$proc_fix/issue-$1.json"
+	else
+		printf '%s\n' "{\"state\":\"$2\",\"closedAt\":\"$3\"}" >"$proc_fix/issue-$1.json"
+	fi
+}
+cdec_unplant() { rm -f -- "$proc_fix/issue-900.json" "$proc_fix/issue-901.json"; }
+cdec_shipped() { cp -- "$HERE/factory.sh" "$proc_dir/factory.sh"; }
+
+# cdec_pass <tag> -> the shipped factory.sh back in the box, then one activation. Restoring first is
+# what keeps a control's mutant from being the fixture the NEXT leg reads.
+cdec_pass() { cdec_shipped; proc_run "$1"; }
+
+# cdec_mutate <anchor> <line> -> the shipped factory.sh with the anchor line REPLACED by <line>.
+# Replaces, where `proc_mutate` inserts: the mutant here has to make an arm say something ELSE, not
+# the same thing twice. Refuses unless the anchor occurs exactly once, and confirms the copy changed,
+# because a control that planted nothing reports the shipped verdict and reads as a pass. Anchor and
+# line travel through ENVIRON, never `awk -v`, which eats backslashes (H-0196).
+cdec_mutate() {
+	local anchor=$1 line=$2 hits
+	hits=$(CMUT_ANCHOR=$anchor awk 'index($0, ENVIRON["CMUT_ANCHOR"]) { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	[ "$hits" = 1 ] || {
+		printf '            the mutant anchor occurs %s time(s) in factory/factory.sh, so it would\n' "$hits" >&2
+		printf '            not be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	CMUT_ANCHOR=$anchor CMUT_LINE=$line awk \
+		'{ if (index($0, ENVIRON["CMUT_ANCHOR"])) print ENVIRON["CMUT_LINE"]; else print }' \
+		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
+	grep -qF -- "$line" "$proc_dir/factory.sh" || {
+		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	return 0
+}
+
+cdec_new cdec
+# 900 is #315's shape: closed by its own unit's exit six minutes before this pass stopped on it, with
+# no open pull request anywhere on its branch. 901 is an ordinary open ticket.
+cdec_state 900 CLOSED 2026-11-14T01:15:25Z
+cdec_state 901 OPEN -
+cdec_pass cdec-both
+cdec_j=$proc_journal
+
+cdec_leg_closed() {
+	proc_journal_line "$cdec_j" 'TICK-CLOSED unclaimed:900' |
+		grep -qF -- 'issue #900 reads CLOSED (2026-11-14T01:15:25Z)' &&
+		! grep -qF -- 'TICK-UNDELIVERED unclaimed:900' "$cdec_j"
+}
+proc_leg 'a closed ticket is a delivery' \
+	'TICK-CLOSED names 900 with the closedAt it read, and 900 is nowhere filed as a miss' \
+	cdec_leg_closed
+
+cdec_leg_open() {
+	grep -qF -- 'TICK-UNDELIVERED unclaimed:901 exit=0 with no pull request on issue-901' "$cdec_j" &&
+		grep -qF -- 'it stays where it was' "$cdec_j" &&
+		! grep -qF -- 'TICK-CLOSED unclaimed:901' "$cdec_j"
+}
+proc_leg 'an open ticket is still a miss' \
+	'the undelivered sentence keeps its own words for 901 in the same pass that read 900 closed' \
+	cdec_leg_open
+
+cdec_leg_undo() {
+	proc_journal_line "$cdec_j" 'TICK-CLOSED unclaimed:900' | grep -qF -- 'gh issue reopen 900'
+}
+proc_leg 'the line says how to put it back' \
+	'a ticket read closed by the wrong read is one command from correct, and the line names it' \
+	cdec_leg_undo
+
+# The cost the ticket was filed about: an activation whose every unit is out of the queue must not be
+# charged for it. `END rc=0 ticks_started=2` is the whole claim -- the pass worked both units, owed no
+# pull request for either, and left the exit code a supervisor reads as an ordinary activation.
+cdec_state 901 CLOSED 2026-11-16T09:00:00Z
+cdec_pass cdec-closed
+cdec_leg_rc() {
+	if grep -qE -- 'TICK-(UNDELIVERED|UNCHECKED)' "$proc_journal" ||
+		! grep -qF -- 'END rc=0 ticks_started=2' "$proc_journal" ||
+		[ "$proc_rc" != 0 ]; then
+		printf '            the activation exited %s over this journal:\n' "$proc_rc" >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	fi
+}
+proc_leg 'a closed ticket costs the pass nothing' \
+	'no miss and no unchecked line anywhere, END rc=0, and the activation exits 0' \
+	cdec_leg_rc
+
+# A read that fails is neither verdict: nothing is planted for either number, so `gh issue view`
+# refuses, and the one thing this arm may NOT do is answer the question it could not ask.
+cdec_unplant
+cdec_pass cdec-noread
+cdec_leg_unread() {
+	grep -qF -- 'TICK-UNCHECKED unclaimed:900 issue #900 could not be read (gh exit=' "$proc_journal" &&
+		grep -qF -- 'TICK-UNCHECKED unclaimed:901 issue #901 could not be read (gh exit=' "$proc_journal" &&
+		! grep -qE -- 'TICK-(CLOSED|UNDELIVERED)' "$proc_journal"
+}
+proc_leg 'a ticket that cannot be read is neither answer' \
+	'one unchecked line per unit naming the read that failed, and neither verdict printed' \
+	cdec_leg_unread
+
+# The shape a pull-request number arrives in: measured on the live API, `gh issue view 316` answers
+# `MERGED` and `2026-11-12T04:02:42Z`. No row `factory/triage.sh` emits puts a pull request in the
+# ticket column -- `address_review` takes its number from `closingIssuesReferences`, which answers
+# issues only -- so this leg pins the guard on what the API can ANSWER rather than on a row shape:
+# a state word the arm was not written for has to name itself instead of picking a verdict. #424
+# counts the same class on the REST side, where a lowercase answer meets an uppercase comparison and
+# nothing says so.
+cdec_state 900 MERGED 2026-11-12T04:02:42Z
+cdec_state 901 OPEN -
+cdec_pass cdec-merged
+cdec_leg_merged() {
+	grep -qF -- 'TICK-UNCHECKED unclaimed:900 issue #900 read back state=MERGED, which is neither answer' "$proc_journal" &&
+		! grep -qF -- 'TICK-CLOSED' "$proc_journal"
+}
+proc_leg 'a state word nobody asked about says so' \
+	'MERGED is reported as MERGED, not filed as a closed delivery and not filed as a miss' \
+	cdec_leg_merged
+
+# --- controls: does this section bite? ------------------------------------------------------------
+# Each control is the shipped tree with ONE arm made to say something else, over the SAME planted
+# state as the leg it answers. A control that reports the shipped verdict is the only witness that
+# the leg above it can fail; a control that cannot be planted is the only witness that the leg is
+# pinned to the arm and not to the fixture.
+
+# Control for legs 1-3: the arm turned back into the verdict this ticket was filed about -- a closed
+# ticket filed as a miss. That is not a hypothetical mutant; it is `factory.sh` at `883b5e8`.
+cdec_ctl_closed() {
+	cdec_mutate 'CLOSED) iss_verdict=closed ;;' \
+		'CLOSED) iss_verdict=undelivered ;; # MUTANT-362 the arm that was not there before #362' ||
+		return 1
+	cdec_state 900 CLOSED 2026-11-14T01:15:25Z
+	cdec_state 901 OPEN -
+	proc_run cdec-ctl-closed
+	cdec_shipped
+	{ grep -qF -- 'TICK-UNDELIVERED unclaimed:900' "$proc_journal" &&
+		! grep -qF -- 'TICK-CLOSED' "$proc_journal"; } || {
+		printf '            with the closed arm made to say undelivered -- what the file said at\n' >&2
+		printf '            `883b5e8` -- the pass still did not file 900 as a miss, so legs 1 to 3\n' >&2
+		printf '            are not pinned to that arm. Journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+}
+proc_leg 'control: the closed arm is what files it' \
+	'say undelivered where the arm says closed and 900 is a miss again -- legs 1-3 can fail' \
+	cdec_ctl_closed
+
+# Control for leg 5: delete the unchecked arm and a gh that could not answer becomes a miss.
+cdec_ctl_unread() {
+	cdec_mutate 'unchecked)' \
+		'verdict-unchecked) # MUTANT-362 the arm that catches a failed read, deleted' ||
+		return 1
+	cdec_unplant
+	proc_run cdec-ctl-unread
+	cdec_shipped
+	{ grep -qF -- 'TICK-UNDELIVERED unclaimed:900' "$proc_journal" &&
+		! grep -qF -- 'could not be read' "$proc_journal"; } || {
+		printf '            a failed read that silently became a miss is the whole reason the\n' >&2
+		printf '            unchecked arm exists, and this mutant could not produce it:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+}
+proc_leg 'control: a failed read is not a miss' \
+	'only the unchecked arm keeps a gh blip off the undelivered count, and deleting it moves the line' \
+	cdec_ctl_unread
+
+# Control for the read itself: `stateReason` is not askable at the shipped gh -- measured,
+# `/usr/bin/gh` 2.46.0 answers `Unknown JSON field: "stateReason"` and exits 1 -- so a call site
+# that reached for it must land in the unchecked arm, not in a silent blank. The fixture's `gh`
+# refuses an unasked-for field the same way (`fields.sh`), which is what makes this leg about the
+# call site rather than about the shim.
+cdec_ctl_field() {
+	cdec_mutate "gh issue view \"\$issue\" --json state,closedAt \\" \
+		"iss_state=\$(gh issue view \"\$issue\" --json state,stateReason \\" ||
+		return 1
+	cdec_state 900 CLOSED 2026-11-14T01:15:25Z
+	cdec_state 901 OPEN -
+	proc_run cdec-ctl-field
+	cdec_shipped
+	{ grep -qF -- 'TICK-UNCHECKED unclaimed:900 issue #900 could not be read (gh exit=' "$proc_journal" &&
+		! grep -qF -- 'TICK-CLOSED' "$proc_journal"; } || {
+		printf '            a read asking a field this gh refuses still reached a verdict, which is\n' >&2
+		printf '            the silent blank the field list exists to prevent:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+}
+proc_leg 'control: a field gh refuses is a failed read' \
+	'asking stateReason instead of closedAt lands in the unchecked arm, so the read is the one gh answers' \
+	cdec_ctl_field
+
+# The mutator's own refusal, as a leg rather than a silent skip: a control planted on an anchor that
+# is not in the file reports the shipped verdict and reads as a pass forever.
+cdec_ctl_refuse() {
+	cdec_mutate 'this anchor is in no factory.sh on this machine' 'echo mutant' && return 1
+	cmp -s "$HERE/factory.sh" "$proc_dir/factory.sh" || {
+		printf '            the refusal still rewrote the box copy, so the next leg reads a tree\n' >&2
+		printf '            that was mutated by a control that said it planted nothing.\n' >&2
+		return 1
+	}
+}
+proc_leg 'control: an anchor that is not there is refused' \
+	'the plant refuses rather than handing back an unmutated tree to be called a control' \
+	cdec_ctl_refuse
+
+# Leave the shared fixture as this family found it: `pr-head.json` belongs to the family, and a
+# family appended after this one would inherit an empty delivery read and call it a delivered tick.
+cdec_unplant
+printf '%s\n' '[{"number":9001}]' >"$proc_fix/pr-head.json"
+cdec_shipped
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

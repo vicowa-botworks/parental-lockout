@@ -1292,7 +1292,7 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		# pass re-offers the same issue while the work sits invisible in one worktree. A tick's authority
 		# ends at an open or updated pull request (#1823), so a pull request on that branch is the only
 		# evidence that the unit moved forward, and the cheapest thing to ask for.
-		local pr_now pr_read=0
+		local pr_now pr_read=0 iss_state='' iss_closed='' iss_read=0 iss_verdict=undelivered
 		# `checks_failing` is deliberately absent: a failing check is not a unit that was expected
 		# to produce a pull request, and the branch it sits on may already have one whose checks are red.
 		case "$class" in
@@ -1329,13 +1329,111 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 				# run inside the same pass buys nothing when the cause is a typo in a tool name, and
 				# #241's tree was clean with four finished commits -- neither of tonight's stops was
 				# shown to be transient, so an immediate retry would be correct only by luck.
-				log_event "$(factory_stop_marker TICK-UNDELIVERED "$unit" "$branch" "$log")"
-				# Mirror what it left behind, here and now: everything after this point is somebody
-				# else's chance to prune the tree. The mirror's own failure never changes the tick's
-				# verdict -- the unit goes back to the queue either way -- but it gets its own line.
-				factory_preserve_unpushed "$unit" "$tree" "$branch" || true
-				factory_ledger_now "$unit" last-tick
-				return 4
+				# A pull request is not the only thing a unit can be owed, and 14 Nov measured what
+				# reading for only one costs. The gate this file dispatches under ENDS a tick by
+				# closing its issue -- `.opencode/skills/factory/SKILL.md`, "When the ticket is
+				# already satisfied by `main`" -- and `factory/triage.sh` counts an issue claimed
+				# only by an OPEN pull request, so that close claims nothing and the read above
+				# answers empty. `unclaimed:315`: `TICK-UNDELIVERED … it stays where it was` at
+				# 2026-11-14T01:21:41Z, in the same minute that `gh issue view 315 --json
+				# state,closedAt` answered `CLOSED` at `2026-11-14T01:15:25Z` and `gh pr list --head
+				# issue-315 --state all` answered only `[{"number":316,"state":"MERGED"}]` --
+				# the historical delivery, two days old. The ticket had just left the queue
+				# permanently and the journal said the one sentence a reader chases when looking
+				# for a tick that burned its ceiling for nothing (#313). (#362)
+				#
+				# So ask the ticket too, and let a read that fails be its own answer -- the same
+				# `pr_read` posture above, where a read that failed is not a delivery that failed.
+				# Only a ticket that reads OPEN keeps the undelivered verdict: `CLOSED` is out of
+				# the queue, a row that names no ticket has no closure to have been the deliverable,
+				# and anything else -- a gh that could not answer, a state word nobody asked about --
+				# says it could not tell. Asking costs one `gh issue view` per undelivered stop,
+				# which is not a rate to throttle when the alternative is a four-day-old close
+				# journalled as a wasted 45-minute budget.
+				#
+				# The pass reports the closure; it never performs one. That is a deliberate limit and
+				# the gate's own: `.opencode/skills/factory/SKILL.md:346-347` "a close that is wrong
+				# deletes work nobody will look for again", and its step 5 (`:344` "Name `gh issue
+				# reopen`") calls the undo "the whole reason this ending is permitted" -- so the line
+				# below carries the number, the date, and that verb, and no arm of this block reaches
+				# for `gh issue close`.
+				#
+				# `gh issue view`, not `factory_close_read`: this file measured the discriminator at
+				# `:762-763` -- "the REST `state` a pull request carries is `closed`", so the REST read
+				# cannot tell a closed ticket from a merged pull request, while gh's own projection
+				# answers one `CLOSED` and the other `MERGED` (measured here: #315 → `CLOSED`
+				# `2026-11-14T01:15:25Z`, #316 → `MERGED` `2026-11-12T04:02:42Z`, both with
+				# `--json state,closedAt --jq …join("\u001f")`, and `OPEN` answers `OPEN` then
+				# nothing). So the neither-answer arm below is planted and legged rather than
+				# assumed. It is a guard on what the API can ANSWER, not on a row shape: every row
+				# `factory/triage.sh` emits carries an issue number or `-` in the ticket column,
+				# because `address_review` takes its number from `closingIssuesReferences`, which
+				# answers issues only. #424 counts the casing of the REST word on the close-check
+				# side, where a lowercase answer meets an uppercase comparison and nothing says so;
+				# borrowing that helper here would inherit that question instead of the answer, and
+				# the raw REST read is refused in this harness (`:763`) so a unit could not even
+				# re-measure it. `stateReason` is not askable at the shipped gh -- 2.46.0 answers
+				# `--json stateReason` with `Unknown JSON field: "stateReason"` -- so the sentence
+				# carries `state` and `closedAt` and no reason word, which is also the answer to
+				# #426's "state or stateReason?": neither is needed, because `closedAt` is what a
+				# reader compares against this line's own `TICK-START` to see whether this pass is
+				# the one that closed it. The separator is U+001F for the reason recorded at
+				# `:770-773` -- a tab is IFS whitespace and collapses an empty field -- and an
+				# invented sentinel word, the other alternative there, is a word that can collide
+				# with a value.
+				case "$issue" in
+				'' | '-' | *[!0-9]*)
+					# `branch_without_pr` emits `-` in the ticket column: nothing was asked, so
+					# nothing failed and the plain verdict stands. Not `TICK-UNCHECKED`.
+					iss_verdict=undelivered
+					;;
+				*)
+					# `cmd || rc=$?`, never `if ! cmd; then rc=$?`: inside the `then` branch of a
+					# NEGATED test `$?` is the negated status, which is 0 whatever gh exited --
+					# measured, `bash -c 'if ! (exit 8); then echo $?; fi'` prints `0`. A failed read
+					# would have journalled `(gh exit=0)` and taken the wrong arm.
+					iss_state=$(gh issue view "$issue" --json state,closedAt \
+						--jq '[.state, .closedAt // ""] | join("\u001f")' 2>/dev/null) || iss_read=$?
+					if [ "$iss_read" -ne 0 ]; then
+						iss_verdict=unchecked
+					else
+						IFS=$'\x1f' read -r iss_state iss_closed <<<"$iss_state"
+						case "$iss_state" in
+						CLOSED) iss_verdict=closed ;;
+						OPEN) iss_verdict=undelivered ;;
+						*) iss_verdict=unchecked ;;
+						esac
+					fi
+					;;
+				esac
+				case "$iss_verdict" in
+				closed)
+					# Out of the queue, so there was nothing left to dispatch and no pull request
+					# owed. Whether this pass closed it or somebody else did is the reader's
+					# arithmetic -- `closedAt` against this line's `TICK-START` -- so the sentence
+					# says the undo rather than guessing the author: `gh issue reopen` is how a
+					# mis-read ticket gets back, which is the other half of why naming the number
+					# on this line costs nothing.
+					log_event "TICK-CLOSED $unit exit=0 issue #$issue reads CLOSED${iss_closed:+ ($iss_closed)} -- the ticket is out of the queue, so no pull request was owed; \`gh issue reopen $issue\` puts it back if this pass was not the one that closed it"
+					;;
+				unchecked)
+					# Neither verdict, and it does not charge the unit for a gh blip.
+					if [ "$iss_read" -ne 0 ]; then
+						log_event "TICK-UNCHECKED $unit issue #$issue could not be read (gh exit=$iss_read), so this pass cannot say whether a closure was the delivery"
+					else
+						log_event "TICK-UNCHECKED $unit issue #$issue read back state=${iss_state:-<nothing>}, which is neither answer"
+					fi
+					;;
+				*)
+					log_event "$(factory_stop_marker TICK-UNDELIVERED "$unit" "$branch" "$log")"
+					# Mirror what it left behind, here and now: everything after this point is somebody
+					# else's chance to prune the tree. The mirror's own failure never changes the tick's
+					# verdict -- the unit goes back to the queue either way -- but it gets its own line.
+					factory_preserve_unpushed "$unit" "$tree" "$branch" || true
+					factory_ledger_now "$unit" last-tick
+					return 4
+					;;
+				esac
 			fi
 			;;
 		esac
