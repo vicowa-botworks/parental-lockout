@@ -2276,3 +2276,101 @@ python3 scripts/check-decisions.py                      # the counts, in the ref
 python3 scripts/check-decisions.py --citations          # what the debt is made of, by target file
 python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed at one file: ask BEFORE editing it
 ```
+
+## The journal's retention contract, written down before anything bounds it
+
+`factory/log/supervisor.log` is the harness's audit trail: which decision id was handed to which unit
+and branch, which tree a tick was holding, where the log directory went when a self-test moved it.
+Before this section the only prose about it was `docs/factory.md:1229` "the journal lives inside the
+tree (`factory/log/supervisor.log`)" -- and #334 cites that sentence at `docs/factory.md:874`, which
+the log's own growth had already slid 355 lines, which is why the sentence is quoted here beside its
+number (`H-0139`'s rule). Nothing bounds the journal today -- no code rotates, truncates or prunes --
+and bounding it is escalated, not owed by a tick (`H-0188`: deleting the operator's records is one of
+the four classes a human keeps). What was owed is the sentence #334 wrote as "an accident of the
+current readers, not a guarantee anybody wrote down". It is a guarantee now. Anyone who lands a bound
+-- a size cap with `head -c`, a `tail -n`, a rename-rotation in the shape `internal/audit/audit.go`
+already ships for the product, a keep-N prune -- must satisfy it.
+
+Six readers were inventoried at one head. Four tolerate bounded history; two do not, and both of the
+two are guards, so the failure mode is silent: the harness keeps running and merely stops refusing to
+do something dangerous.
+
+| reader | what it needs from `supervisor.log` | survives a bound? |
+| --- | --- | --- |
+| `factory_file_age` | the live file's mtime | yes -- a fresh file answers fresh |
+| `factory_journal_age` | the **newest** line matching a key | yes -- it takes the last match |
+| `factory_log_move_lines` | a tail window (`FACTORY_LOG_TAIL=400`) | yes -- it is already bounded |
+| `factory_log_footprint` | no content at all, one `find` and stat (`H-0187`) | yes |
+| `factory_worktree_busy` | the `TICK-START` line of a tick **still running** | **no** |
+| `factory_decision_provenance` | **every** `DECISION-ID` line for a branch | **no** |
+
+Both failures are pinned by legs in `factory/selftest.sh` that name the shape that breaks them. Run the
+suite as `env -u FACTORY_TICK_UNIT bash factory/selftest.sh` -- the scrubbing #425 owes, and without it
+two unrelated legs read red for a reason that is not yours.
+
+**A running tick's `TICK-START` is the oldest line of its own tick, and the guard that reads it has no
+code call site -- its caller is the rule `AGENTS.md` gives a session before it removes a tree.** Over
+the 198 paired ticks in the live journal (199 `TICK-START`, 137 `TICK-DONE`, 34 `TICK-FAILED`) the
+start-to-release distance is 1 line at the median, 16 at p90, 109 at the maximum: the supervisor is
+single-threaded and writes almost nothing while the agent runs, so the journal is nearly frozen during
+a tick. That is why a *window* is not this guard's hazard -- 400 lines is above the maximum observed
+distance. The hazard is any bound that **moves the whole file away**, which is what a rename-rotation
+does and what `internal/audit/audit.go`'s five-generation scheme does -- and copying that scheme here
+verbatim is precisely the mistake, because `rotate()` moves the live file and opens a new one
+(`internal/audit/audit.go:601`, called at `:236`) while the product has no running-tick claim to strand.
+The harness does. Measured, four polarities: journal holding the line answers `0` busy; rename the
+journal and keep the generation answers `1` free; rename it and prune the generation answers `1` free;
+and the refusing arm, `2` unknown, comes from the guard's shape judgement -- not a regular file, or not
+readable (the family pins a directory there; `chmod 000` measured `2` here too). The first three are
+this section's leg; the fourth is pinned by the guard's own family (#361's control C, "an unreadable
+journal must read 2, not 1"). **No rotation shape
+produces `2`.** Every one produces `1` -- the answer that authorises the removal -- so the fix #334
+files restores the 13 Nov incident `AGENTS.md` records rather than preventing it: a session asks the
+journal, the journal has moved away with the running tick's only line in it, the session removes the
+tree. A reader aimed at `supervisor.log*` recovers the claim when a generation was kept and still reads
+free with none kept, so keeping `.1` is necessary and not sufficient.
+
+**The earned set is a whole-file read, and a branch outlives a pass.** A `DECISION-ID` line written when
+a unit earns an id is the whole proof, for that branch, that a later heading was not taken by eye;
+`factory_decision_provenance` reads every one of them, and ids are earned on a branch's first pass and
+read on its last. The live journal needs no synthetic plant to show what a window costs: it holds 36
+`DECISION-ID` lines over 7 branches, and **25 of the 36 sit outside the 400-line window the harness
+already ships for a different question** (`FACTORY_LOG_TAIL`, #260's `LOG-AT`) -- 6 of the 7 branches
+have at least one earned id above it, the furthest 1,252 lines from the end. Narrow the earned-set scan
+to that window and honest branches start being reported `DECISION-ID-UNEARNED`, which is the report
+that tells a human an id was fabricated. The reason to reach for the window is the reason #334 files:
+a whole-file walk is assumed to get linearly more expensive. It is not the problem -- 50 whole-file
+`grep -F` scans of the live journal (1,907,580 B) cost 34 ms, and of the same bytes replayed 15x
+(28,613,700 B) 40 ms, warm -- and the control says the timer is not reading zero: `sha256sum` of that
+28.6 MB costs 16 ms.
+
+So the contract for a bound, in the order someone will implement it:
+
+1. **Rotate at a tick boundary, after the release line, never mid-tick** -- or make
+   `factory_worktree_busy` read the whole generation set (`supervisor.log*`) and treat the record as
+   absent only when no generation holds it. Do not count on the `unknown` arm as a safety net: it
+   answers for an *unreadable* journal, and a rotated journal is empty or missing, which answers free.
+2. **Never narrow `factory_decision_provenance`'s earned-set scan to a window.** If the walk becomes
+   expensive, bound it by *age* over the named generation set -- the requirement is that every
+   `DECISION-ID` line for a branch stays reachable, not that one pass reads one file.
+3. **Keep the newest bytes; a bound that keeps the head is worse than no bound.** `head -c` on a size
+   cap keeps the *oldest* N bytes: it deletes every current reader's answer, including the live tick's
+   `TICK-START` and the `LOG-AT` line `#260` needs to say where the record went.
+4. **Keep a rotation's own trail legible.** #334's constraint -- a rotation that leaves an empty live
+   file must still answer fresh to `factory_file_age`, and one that moves the file must not strand the
+   `LOG-AT`/`LOG-MOVED` pair -- plus the `--status` line `H-0187` shipped, which prints
+   `journal <bytes>; <N> files, <bytes> under <dir>; oldest <file> <age>`. A bound that prunes should
+   make its own answer visible there, because a silently-shrinking audit trail is the thing this section
+   exists to prevent.
+
+Re-measure the inventory rather than trusting this page; it is one grep over the shipped files, and it
+was true at one head:
+
+```
+grep -n 'supervisor\.log' factory/common.sh factory/factory.sh | grep -v ':[0-9]*:[[:space:]]*#'
+```
+
+Every number above is from the live journal on 2026-11-17: `journal 1907580 B; 239 files, 51969388 B
+under factory/log; oldest 20261110T134828Z.unclaimed:213.log 6d13h` -- the footprint line the shipped
+`factory_log_footprint` prints, which is also #334's premise measured forward: the issue opened at
+"20 MB across 100 files" in three days and this is seven.
