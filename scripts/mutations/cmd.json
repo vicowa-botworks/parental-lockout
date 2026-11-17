@@ -91,8 +91,8 @@
     {
       "id": "CD1",
       "file": "cmd/plock/doctor.go",
-      "old": "\trep.add(checkUnenforced(time.Now(), unenforcedCandidates(cfg, chain)))",
-      "new": "\trep.add(okCheck(\"unenforced\", \"not checked\"))",
+      "old": "\trep.add(checkUnenforced(unenforcedCandidates(now, cfg, chain)))",
+      "new": "\t_ = now\n\trep.add(okCheck(\"unenforced\", \"not checked\"))",
       "note": "the \"it is not working\" check disappears: a machine where every child is unlocked during a lockout reports a clean bill of health"
     },
     {
