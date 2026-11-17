@@ -81,3 +81,9 @@ a 2700 s budget, with `bash` cwd gone and the tick dying on a path that no longe
 home". A tree owned by a live *session* fails closed too: its work is dirty by construction until
 the push, so the dirty refusal is that guard. The rule covers `git worktree remove`, `prune` and
 `rm -rf` alike — the journal answers for the path whichever verb you reach for.
+
+The harness now also takes inventory: every supervisor pass censuses `git worktree list --porcelain`,
+journals `WORKTREE-ORPHAN <path> head=<sha> reason=…` for each tree that is provably dead — head an
+ancestor of `origin/main`, content verdict clean, and not a tree an existing branch owns under
+`$FACTORY_TREES` — and prunes only rows git itself marks prunable. What the census reports it does
+not remove: a tree off the convention may be a person's working directory (#348, H-0200).
