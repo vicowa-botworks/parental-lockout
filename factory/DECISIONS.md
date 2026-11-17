@@ -9453,8 +9453,23 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   named only the one-home leg; and a future hand-off that quotes a measured label value now goes red
   by design and must name the reader instead of the value, which is friction this entry accepts. No
   GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
-## H-0204 · A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its log-move record into the operator's live supervisor journal, so a fixture's isolation is not complete until it owns its unit identity
+## H-0232 · A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its log-move record into the operator's live supervisor journal, so a fixture's isolation is not complete until it owns its unit identity
 
+- Id: this entered the harness log as `H-0204` on `fix/journal-test-isolation`, and the review of PR
+  #414 blocked on that number: `main` had meanwhile merged a *different* H-0204 — *PR #400's base sync
+  has exactly one legal splice … with the erratum riding the merge commit as H-0181 set the shape* —
+  and a merged entry's id never moves, so this one, unmerged, is the one that can yield. It took
+  `H-0232` rather than the `H-0208` the review proposed, because the census was re-run at re-land time
+  and `H-0208` is published on `main` too; across every `refs/heads` and `refs/remotes` after
+  `git fetch --prune origin` the union topped out at `H-0231` (on `issue-348`), so `H-0232` is the
+  first free id above the ceiling and not a gap. The two decisions that share `H-0204` share nothing
+  but the digit: this one is *A suite run under the unit's inherited `FACTORY_SERVICE_UNIT` wrote its
+  log-move record into the operator's live supervisor journal*. What the yield cannot move: `0924bff`
+  keeps `Decision: H-0204` in its message and `2af486e` keeps `pre-H-0204` in its subject, because
+  rewriting a pushed branch is the denied force-push and a merge commit makes both permanent — so
+  `git log --grep='Decision: H-0232'` finds this record and not the work, `git log --grep='Decision:
+  H-0204'` arrives at this fixture from a change whose own number is now `main`'s base sync, and the
+  mapping lives in this line and in the merge commit alone.
 - Question: the factory selftest writes into production state. One suite appends a 3-line
   `LOG-MOVED` record naming a deleted `/tmp/plock-factoryselftest-*/claims/dlog` as the new log
   directory, and it appends it into `factory/log/supervisor.log` — the operator's live tail, which
@@ -9480,19 +9495,21 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   Option 4 is refused because it does not touch the arm that outranks derivation, so it changes
   nothing under the tick. Option 5 is refused as half a fix: the read is what selects the append
   target. Tie-break 1: bash only, no new dependency. Tie-break 2: no lockout semantics move.
-  Tie-break 4: one variable in two env lists plus one leg — the smallest surface that makes the
+  Tie-break 4: one variable, one env list, plus one leg — the smallest surface that makes the
   fixture own its identity. Tie-break 5: `git revert` of the effect commit retires fix and entry
   together, with the checkpoint above as the target. Tie-break 6: H-0125 established that the
   journald stub must honour its own flags, and the `proc_*` log-move fixtures already plant a
   fixture-local previous log directory; this only extends the sanctioned pattern to the claims
   fixture that omitted it.
 - Checkpoint: 2af486e66f5a894e2be35b3f0f676905faaf19a3
-- Effect: `claim_unit` is defined once in the claims setup and exported in `ask_dispatch`'s env list;
-  the isolated-leg env list carries it too, so a leg that runs the shipped binary does not resolve
-  the operator's unit either. All three body edits are 1-for-1 line swaps (net 0 at 3146, 5266,
-  7304) and the control leg `ask_journal_unit_is_its_own` is appended at 16304-16365, below the
-  highest pointer into this file (15569), so no pointer parts from its text. Read back after the
-  gate ran, on this tree: `bash factory/selftest.sh` 683 passed, 0 failed, and `make verify` green
+- Effect: `claim_unit` is defined once in the claims setup and exported in `ask_dispatch`'s env list,
+  and that is the only env-list edit this branch makes: the pin rides `ask_dispatch` itself, so every
+  caller is covered by the one edit — each of the claims fixture's callers, and the isolated control
+  leg alike, whose own subshell deliberately exports an operator-shaped name that this env list then
+  overrides for the dispatched supervisor. All three body edits are 1-for-1 line swaps (net 0 at
+  3146, 5266, 7304) and the control leg `ask_journal_unit_is_its_own` is appended at 16304-16365,
+  below the highest pointer into this file (15569), so no pointer parts from its text. Read back
+  after the gate ran, on this tree: `bash factory/selftest.sh` 683 passed, 0 failed, and `make verify` green
   with the citation checker reporting 0 moved and 0 unopenable; under a tick-shaped environment the
   6 dispatch asks now name `plock-claims-selftest.service` and the production journal gained 0 lines
   across four runs. Reproduced at the unpatched checkout under the same environment: 679 passed, 0
@@ -9505,3 +9522,18 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   asserted over writes, not over every read; and the polluted journal is not cleaned — 604 lines are
   history and the file is gitignored, which makes tidying it the operator's call, not this branch's.
   No GitHub write, no label, no merge, no governing file outside this tree's test script was touched.
+- Correction (`H-0232`, 16 Nov, on #414's review): two sentences of this entry describe an edit that
+  was never made, and the review caught them, so they are corrected here rather than left standing.
+  The `Effect:` said "the isolated-leg env list carries it too" and the `Why:` priced tie-break 4 as
+  "one variable in two env lists"; at this head `claim_unit` exists at exactly two places in
+  `factory/selftest.sh` -- its definition in the claims setup and `ask_dispatch`'s env list -- plus the
+  two assertions inside the new leg, so there is no second env list for it to ride. The coverage those
+  sentences meant is real and is now stated by its actual mechanism: the pin is on `ask_dispatch`, the
+  one function every caller reaches, so the operator-shaped name the leg plants in its own subshell is
+  overridden before the shipped supervisor starts. That is the property the reviewer verified
+  independently, and the leg still passes; nothing about the pin, the leg or the measured counts moved
+  with the wording. Also corrected, in the merge commit that carries the union: the bare coordinates
+  in this entry are the pre-merge ones and the base sync moves them, so the digits are re-stamped on
+  the merged tree while the measurements around them stay stamped at the tree they were taken on --
+  `H-0181`'s shape, restated by `H-0169`'s `Id:` line. The pushed message at `0924bff` keeps the false
+  sentence and is not rewritten, because that is the denied force-push.
