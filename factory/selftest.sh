@@ -21410,9 +21410,9 @@ jc_leg_earned_id_above_the_window() { # the earned set is a whole-file read, pin
 	# clears the set `awk` had already printed. Measured through this leg's own runner over this fixture
 	# (a 1,201-line journal, window 400): the one-line plant refused the id in 16 of 20 runs, and in 17
 	# of 20 in a second block -- 7 of 40 runs earned it -- while the two-line plant below refused 20 of 20. The
-	# substitution's exit says which arm ran, 141 when `tail` took the signal and 0 when it did not, and
-	# the set `awk` printed held `D-0007` either way. So the leg was not pinning the contract, it was
-	# timing a race, and the runner lost it.
+	# substitution's exit says which arm ran, and `PIPESTATUS` from inside it names the stage that dies:
+	# 141 on the piped `tail`, 0 on `awk`, `sort` and `tr` (17 of 20 runs), with `D-0007` present in the
+	# set `awk` printed in all 20. The leg was timing a race, not pinning the contract.
 	local ea el eb ec n1 n2
 	ea='earned=$(awk'
 	el="	earned=\$(tail -n \"\$FACTORY_LOG_TAIL\" \"\$journal\" | awk -v b=\"\$branch\" '\$2 == \"DECISION-ID\" && \$5 == \"branch=\" b {print \$3}' \\"
