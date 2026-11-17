@@ -21171,6 +21171,250 @@ CLAIMJ
 claim_leg 'the claims dispatch asks only its own unit journal' ask_journal_unit_is_its_own
 
 
+# --------------------------------------------------------- #334 the journal's retention contract
+#
+# #334's premise for why bounding `supervisor.log` is safe, in its own words: "Nothing is lost by
+# bounding history *today*, because no read needs more than the newest occurrence of a key -- but
+# that is an accident of the current readers, not a guarantee anybody wrote down." Measuring that
+# sentence is not a retention decision, so this unit measures it and pins what it found. The
+# deletion stays escalated (`H-0188`), and nothing below deletes, rotates, truncates or prunes.
+#
+# The inventory, read at this head, with what each reader needs from the journal:
+#
+#   `factory_file_age`          the live file's mtime -- a fresh file answers fresh
+#   `factory_journal_age`       the NEWEST line matching a key: a kept tail answers it correctly
+#   `factory_worktree_busy`     the TICK-START line of a tick STILL RUNNING, which is the OLDEST
+#                               line of that tick -- measured over the 200 completed ticks in the
+#                               live journal: median 48 journal lines from the start to the
+#                               release, p90 78, max 159
+#   `factory_decision_provenance`  EVERY `DECISION-ID` line for a branch, and a branch outlives a
+#                               pass (6 days for the oldest branch in the live journal), so the
+#                               earned set is a whole-file read
+#   `factory_log_move_lines`    a tail window, `FACTORY_LOG_TAIL=400` -- the one bounded reader
+#   `factory_log_footprint`     no content at all, one `find` and stat only (`H-0187`)
+#
+# So the premise holds for four readers and fails for two, and both of the two are guards. The legs
+# pin the failures so a future retention pass cannot break them by accident: a rotation that renames
+# the live journal away takes a running tick's claim on its tree with it, and an earned-set read
+# narrowed to a tail window accuses honest branches of taking ids by eye.
+
+mkdir -p -- "$work/jc"
+
+jc_seed_journal() { # -> an empty fixture journal, keeping the directory log_event expects
+	mkdir -p -- "$FACTORY_LOG"
+	printf '' >"$FACTORY_LOG/supervisor.log"
+}
+
+jc_busy_rc() { # <common.sh> <tree> -> factory_worktree_busy's exit status under the fixture journal
+	local common=$1 tree=$2 rc=0
+	(
+		# shellcheck disable=SC1090,SC1091  # a control sources a mutated copy; that is the point
+		. "$common" >/dev/null 2>&1 || exit 9
+		factory_worktree_busy "$tree" >/dev/null 2>&1
+	)
+	rc=$?
+	printf '%s\n' "$rc"
+}
+
+jc_leg_age_wants_the_newest_line() { # the rotation-safe reader, pinned as rotation-safe
+	local now old_a out bad=""
+	now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	old_a=$(date -u -d '15 days ago' +%Y-%m-%dT%H:%M:%SZ)
+	jc_seed_journal
+	{
+		printf '%s TICK-START jc:old tree=%s log=old.log\n' "$old_a" "$work/jc/tree"
+		printf '2026-11-16T00:00:00Z NOISE between the two\n'
+		printf '%s TICK-START jc:new tree=%s log=new.log\n' "$now" "$work/jc/tree"
+	} >>"$FACTORY_LOG/supervisor.log"
+	out=$(factory_journal_age 'TICK-START ')
+	case "$out" in
+	(*[!0-9]*) bad="the age read printed a non-number: '$out'" ;;
+	(*) [ "$out" -lt 120 ] || bad="with a young line present the read answered ${out}s, want the newest line" ;;
+	esac
+
+	# Control one, the pin's own subject: drop the OLDER occurrence. Same answer, so this reader is
+	# indifferent to what a bounded journal throws away -- which is what makes it safe to bound.
+	jc_seed_journal
+	{
+		printf '2026-11-16T00:00:00Z NOISE between the two\n'
+		printf '%s TICK-START jc:new tree=%s log=new.log\n' "$now" "$work/jc/tree"
+	} >>"$FACTORY_LOG/supervisor.log"
+	out=$(factory_journal_age 'TICK-START ')
+	case "$out" in
+	(*[!0-9]*) bad="${bad:+$bad; }the age read printed a non-number after the drop: '$out'" ;;
+	(*) [ "$out" -lt 120 ] || bad="${bad:+$bad; }dropping the older line changed the answer to ${out}s" ;;
+	esac
+
+	# Control two, so the first assertion is not "grep matched something": keep ONLY the old line
+	# and the same read must go huge. A leg that prints a small number whatever it is planted with
+	# is a leg that reads nothing.
+	jc_seed_journal
+	printf '%s TICK-START jc:old tree=%s log=old.log\n' "$old_a" "$work/jc/tree" >>"$FACTORY_LOG/supervisor.log"
+	out=$(factory_journal_age 'TICK-START ')
+	case "$out" in
+	(*[!0-9]*) bad="${bad:+$bad; }the old-line-only plant printed a non-number: '$out'" ;;
+	(*) [ "$out" -gt 1209600 ] ||
+		bad="${bad:+$bad; }with only the 15-day-old line present the read answered ${out}s, want > 14 days" ;;
+	esac
+	jc_seed_journal
+
+	if [ -n "$bad" ]; then
+		printf '            %s\n' "$bad" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the age read wants only the newest line' \
+	'a young TICK-START answers young with a 15-day-old one above it, and the same number with that line deleted -- while the old line ALONE answers 15 days, so the leg is reading the newest occurrence and not merely finding a match' \
+	jc_leg_age_wants_the_newest_line
+
+jc_leg_busy_needs_the_start_line() { # the guard a renaming rotation disarms, pinned where it stands
+	local x=$work/jc/busy-tree bad="" rc=0 rc_pair=0 rc_solo=0 now
+	local anchor line
+	mkdir -p -- "$x"
+	jc_seed_journal
+	bw_plant_start 'jc:900' "$x"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="the unrotated journal read $rc, want busy (0): the leg's own precondition"
+
+	# The rotation #334's fix 2 describes, in the only shape that cannot lose a line mid-write:
+	# rename the live journal away, then create the next one. Nothing here deletes -- `$FACTORY_LOG`
+	# is the suite's fixture directory, and the file is removed at the end of this leg.
+	now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	mv -- "$FACTORY_LOG/supervisor.log" "$FACTORY_LOG/supervisor.log.1"
+	printf '%s NOISE the pass that rotated wrote this line\n' "$now" >"$FACTORY_LOG/supervisor.log"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }after the rename the guard read $rc, want free (1): THIS is the pin"
+
+	# Control one, the fixture's precondition: the claim SURVIVED the rename. If the line were gone
+	# from the kept generation too, the free above would be a lost record and not a blind reader --
+	# and the distinction is the whole finding.
+	grep -qF -- "TICK-START jc:900 tree=$x" "$FACTORY_LOG/supervisor.log.1" ||
+		bad="${bad:+$bad; }control: the kept generation does not hold the TICK-START line, so this plant is not a rotation"
+
+	# Control two: the shipped guard's free answer is the file list, not the data. Aim the same
+	# function at BOTH generations through a mutated copy and the claim comes back -- so the repair
+	# a rotation owes this guard is a reader change, and a kept generation is not enough on its own.
+	anchor='"$FACTORY_LOG/supervisor.log" 2>/dev/null) || rc=$?'
+	line="	' \$(printf '%s\\n' \"\$FACTORY_LOG\"/supervisor.log*) 2>/dev/null) || rc=\$?"
+	if ! dpn_mut "$HERE/common.sh" "$anchor" "$line" "$work/jc/busy-pair.sh"; then
+		bad="${bad:+$bad; }control: the pair-read mutant could not be planted, so the finding is unmeasured"
+	else
+		rc_pair=$(jc_busy_rc "$work/jc/busy-pair.sh" "$x")
+		[ "$rc_pair" = 0 ] ||
+			bad="${bad:+$bad; }control: a reader that scans supervisor.log* still read $rc_pair, want busy (0) -- the pair read is not what recovers the claim"
+		# And the pair read is necessary but not sufficient: with NO kept generation -- the
+		# whole-directory move #260's LOG-MOVED exists for, 1 real move measured in the live
+		# journal -- it reads free exactly like the shipped one.
+		mv -- "$FACTORY_LOG/supervisor.log.1" "$work/jc/kept-generation"
+		rc_solo=$(jc_busy_rc "$work/jc/busy-pair.sh" "$x")
+		[ "$rc_solo" = 1 ] ||
+			bad="${bad:+$bad; }control: the pair read with no kept generation answered $rc_solo, want free (1) like the shipped reader"
+		# And the shipped reader on that same directory: nothing kept at all is the shape a `mv`
+		# rotation leaves when it prunes the generation. It reads free, NOT unknown -- measured,
+		# because the refusing arm is what a reader would hope for: an unreadable journal (chmod 000)
+		# answers 2, and no rotation shape produces an unreadable journal, only an absent or empty one.
+		rc=0
+		factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+		[ "$rc" = 1 ] ||
+			bad="${bad:+$bad; }with no generation left in the journal directory the shipped guard answered $rc, want free (1): the refusing arm is for an UNREADABLE journal, which no rotation shape produces"
+		mv -- "$work/jc/kept-generation" "$FACTORY_LOG/supervisor.log.1"
+	fi
+
+	# Control three: put the start line back in the live file and the same journal turns busy again.
+	# Without it the free above could be a matcher that never fires (the busy family's control B),
+	# and this leg would be pinning a coincidence.
+	printf '%s TICK-START jc:900 tree=%s log=selftest-busy.log\n' "$now" "$x" >>"$FACTORY_LOG/supervisor.log"
+	rc=0
+	factory_worktree_busy "$x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }control: re-writing the TICK-START into the live journal did not make the guard read busy ($rc)"
+
+	rm -f -- "$FACTORY_LOG/supervisor.log.1" "$work/jc/busy-pair.sh"
+	jc_seed_journal
+	if [ -n "$bad" ]; then
+		printf '            %s\n' "$bad" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the busy guard needs the start line back' \
+	'a TICK-START with no release reads busy; rename the journal away the way a size rotation must and the SAME running tick reads free (1), not unknown -- while the kept generation still holds the line, a reader aimed at supervisor.log* reads busy again, and with no kept generation it reads free too' \
+	jc_leg_busy_needs_the_start_line
+
+jc_leg_earned_id_above_the_window() { # the earned set is a whole-file read, pinned against a tail window
+	local d=$work/jc/earned j n bad='' stamp pad tailw
+	tailw=${FACTORY_LOG_TAIL:-400}
+	if ! dpn_repo "$d" issue-p2; then
+		printf '            the fixture repo could not be built, so the comparison read nothing\n' >&2
+		return 1
+	fi
+	printf '## D-0007 · an id the allocator journalled far above the window\nbody\n' \
+		>>"$d/unit/DECISIONS.md"
+	git -C "$d/unit" add -A >/dev/null 2>&1 &&
+		git -C "$d/unit" commit -qm 'fixture: one new heading, earned above the window' || {
+		printf '            the new heading could not be committed\n' >&2
+		return 1
+	}
+	mkdir -p -- "$d/log"
+	stamp=$(date -u -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)
+	printf '%s DECISION-ID D-0007 unit=unclaimed:p2 branch=issue-p2 (allocator, DECISIONS.md, REFRESH 1s union)\n' \
+		"$stamp" >"$d/log/supervisor.log"
+	# The padding is the leg. Three times the window, so the allocation is unambiguously OUTSIDE any
+	# tail window a later reader might narrow this read to -- and the control below asserts that.
+	pad=$((tailw * 3))
+	awk -v n="$pad" 'BEGIN { for (i = 0; i < n; i++) printf "2026-11-16T00:00:00Z NOISE filler %d\n", i }' \
+		>>"$d/log/supervisor.log"
+	j=$d/log/supervisor.log
+	n=$(wc -l <"$j")
+	[ "$n" -gt "$tailw" ] || {
+		printf '            the planted journal holds %s lines, not more than the %s-line window: the\n' "$n" "$tailw" >&2
+		printf '            fixture has no outside-the-window to test against\n' >&2
+		return 1
+	}
+	if tail -n "$tailw" "$j" | grep -qF -- 'DECISION-ID D-0007'; then
+		printf '            control failed: the allocation IS inside the last %s lines, so nothing here\n' "$tailw" >&2
+		printf '            separates a whole-file read from a tail-window one\n' >&2
+		return 1
+	fi
+	dpn_prove "$HERE/common.sh" unclaimed:p2 issue-p2 "$d/unit" "$d/log" "$d/state-shipped" \
+		>"$d/shipped.out" 2>&1 || {
+		printf '            the shipped comparison exited non-zero (it returns 0 by contract)\n' >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNEARNED D-0007' "$j"; then
+		printf '            an id journalled for this branch 3x the window above the end was reported\n' >&2
+		printf '            UNEARNED, so the earned set is no longer a whole-file read:\n' >&2
+		sed 's/^/              /' "$j" | tail -n 5 >&2
+		return 1
+	fi
+
+	# Control, the mutant this leg exists to catch: narrow the SAME read to the shipped tail window
+	# and the honest branch is accused. The finding is a regression shape, not a fiction -- #260
+	# already reads this journal through FACTORY_LOG_TAIL, so "read the last 400 lines" is a change
+	# someone will make for the reason #334 files: the whole-file walk gets linearly more expensive.
+	local ea el
+	ea='earned=$(awk'
+	el="	earned=\$(tail -n \"\$FACTORY_LOG_TAIL\" \"\$journal\" | awk -v b=\"\$branch\" '\$2 == \"DECISION-ID\" && \$5 == \"branch=\" b {print \$3}' \\"
+	if ! dpn_mut "$HERE/common.sh" "$ea" "$el" "$d/earned-tail.sh"; then
+		printf '            control failed: the tail-window mutant could not be planted\n' >&2
+		return 1
+	fi
+	dpn_prove "$d/earned-tail.sh" unclaimed:p2 issue-p2 "$d/unit" "$d/log" "$d/state-mutant" \
+		>"$d/mutant.out" 2>&1 || true
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0007' "$j"; then
+		printf '            control failed: the tail-window read did NOT report the earned id either, so\n' >&2
+		printf '            the assertion above is not pinned to the window at all\n' >&2
+		return 1
+	fi
+	rm -f -- "$j"
+	return 0
+}
+dpn_leg 'an id above the window stays earned' \
+	'a DECISION-ID line 3x FACTORY_LOG_TAIL above the end still earns its id, and the same journal through a read narrowed to that window reports it UNEARNED -- so the earned set is pinned to the whole file, which is what a branch of 6 days needs' \
+	jc_leg_earned_id_above_the_window
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
