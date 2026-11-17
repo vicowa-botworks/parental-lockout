@@ -43,15 +43,24 @@ stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the insta
 3. **A park for a waiting escalation is #437's, not this unit's.** Until that lands, expect #334 to be
    dispatched again and again; if you are that dispatch, read the ticket's comments first — the last three
    units each found something the previous one did not, and none of them chose the number.
-4. **`make verify` is red on trunk for a reason that is not this unit** (#374). Two `selftest.sh` legs —
-   `control: one note can suppress the other` and `a bare run journals nothing` — failed on the untouched
-   base tree as well, and this unit has a specific theory, still unproven at the time of writing and
-   settled by three runs in `/tmp/opencode/i334/env-attrib.log`: a tick's shell inherits
-   `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH` and `FACTORY_LOG` from the dispatch (read `env | grep
-   ^FACTORY` here and you will see six), and a fixture whose whole question is "a bare run journals
-   nothing" cannot answer that question with a unit name in its environment. If the runs confirm it, the
-   repair is in the harness — the allocator legs must scrub `FACTORY_TICK_*` the way other legs scrub
-   `PATH` — and it belongs on #374, not folded into #334.
+4. **The red you will see on your first `make verify` is already ticketed: #425.** Not this unit's doing —
+   the untouched base tree read red in this dispatch too (`control: one note can suppress the other` and `a
+   bare run journals nothing`). #425 already names the cause, and this unit re-derived it independently
+   rather than inheriting the ticket's verdict: a tick's shell inherits six `FACTORY_*` exports from its
+   dispatch, among them `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` (read `env | grep ^FACTORY` where you
+   are standing and count them), and a fixture whose question is "a bare run journals nothing" cannot answer
+   it with a unit name in its environment. Three runs, one tree, `factory/selftest.sh` alone:
+   **830/0 rc 0** with the pair unset, **830/0 rc 0** with all six unset, **829/1 rc 1** with the inherited
+   environment — so the pair is the cause and the other four variables are not. Three more runs (the same
+   command again, then each of the pair alone) are in `/tmp/opencode/i334/env-attrib2.log`; the second
+   variable matters because #425's title claims `FACTORY_TICK_UNIT` alone. Two things this unit did **not**
+   do: it did not touch the harness on this docs branch, and it did not assume #425's diagnosis was right
+   about the single variable. Also read before blaming your tree: **#371**, `selftest.sh` printing `FAIL`
+   where it means `SKIP` when `$TMPDIR` resolves inside a repository — check `echo $TMPDIR` before you
+   believe a red leg. And correct the record on this hand-off: an earlier draft of this row named #374,
+   which is the citation-ratchet ticket, because the number was recalled instead of read. #425 is what the
+   measurement is about. A referent named from memory is the same class of defect as a coordinate that was
+   never opened.
 
 ## Two things a stranger will break here
 
