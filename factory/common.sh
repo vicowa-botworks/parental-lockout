@@ -4811,3 +4811,35 @@ factory_notice_unit_quarantine() {
 	rm -f -- "$tmp"
 	return 0
 }
+
+# --------------------------------------------------------------------------- the worktree stream
+
+# The name to point `factory_worktree`'s stderr at for one call, from one place, so that both of its
+# call sites in `factory/factory.sh` -- `factory_tick` and `factory_resolve_conflict` -- open the same
+# file under the same name. Choosing the name, deleting it on every arm and reading it back into the
+# journal line are #351's rules and this does not touch them; this answers only *where*.
+#
+# Because `where` was the whole of #364. The conflict pass built its stream with `mktemp` while the
+# tick built its own in `$FACTORY_RUN`, and the sweep that exists for the one pass that cannot delete
+# anything -- a pass killed between the open and the read, which is exactly what a wall-clock ceiling
+# does -- searches `$FACTORY_RUN` and nothing else. So a conflict pass killed at its own journal line
+# left the reason under `$TMPDIR`, in a directory no sweep and no person looking at the queue ever
+# opens, and the sentence had no second copy: the `tr` inside the `CONFLICT-BLOCKED` line is that
+# file's only reader, so a pass that dies before the line runs has journaled nothing and preserved
+# nothing either. One home, inside the directory the sweep reads.
+#
+# `$$` rather than a random suffix, as the tick's stream has always been: the pid names the activation
+# that wrote the file, so a leftover answers "which pass died" with no other evidence and
+# `ls factory/run/worktree-stderr.*` is the whole investigation. A `mktemp` name answers nothing.
+#
+# usage: stream=$(factory_worktree_stream)
+#            ... 2>"$stream" ...  rm -f -- "$stream"
+factory_worktree_stream() {
+	# The directory is created before the name is returned, because the redirect that consumes it
+	# happens inside a command substitution and a failed redirect there does not stop the assignment:
+	# a missing run directory would hand the caller an empty stream and the journal line would blame
+	# `factory_worktree` for giving no reason. `log_event` calls this same function on every line it
+	# writes, which is why every other writer here can assume the directories exist (#329).
+	factory_paths
+	printf '%s/worktree-stderr.%s\n' "$FACTORY_RUN" "$$"
+}

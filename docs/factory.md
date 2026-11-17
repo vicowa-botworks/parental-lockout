@@ -1432,6 +1432,35 @@ symptom: it leaves three hours of alarms standing in the directory at all times.
 `factory_journal_age`: a file that has to be maintained, and asserts something nobody confirmed, is itself the
 defect.
 
+### The conflict arm's stream lived outside that sweep (#364)
+
+The sweep searches `$FACTORY_RUN` and nothing else. That was one of two places the stream could be written,
+because the two call sites each named their own: `factory_tick` wrote `$FACTORY_RUN/worktree-stderr.$$`, and
+`factory_resolve_conflict` wrote `$(mktemp)`, which lands under `$TMPDIR` — a directory the sweep does not
+read, that is chosen per invocation by whatever `$TMPDIR` happens to say, and that on this machine is a
+tmpfs. The conflict arm is the one that most often dies with the reason unwritten — it is the arm that
+*blocks*, and `CONFLICT-BLOCKED` is the line that reads the file — so the pass that needed the backstop
+was the one standing outside it. There was no second copy either: `die` inside a command substitution dies the
+subshell, so the stream holds the reason once, and a pass SIGKILLed between the refusal and that line lost it
+in the directory nobody opens **and** in the journal. That is the same outage as never writing it: the sweep is
+what #351 called "the backstop for the one pass that cannot delete anything", and this pass could not delete
+anything while getting no backstop at all.
+
+Both arms now take the name from `factory_worktree_stream` (`factory/common.sh`), so there is one home and it
+is the swept one. The legs in `factory/selftest.sh` do not read the two arms; they run the supervisor as a
+process — a real conflict activation, `pr:900` with `mergeable: CONFLICTING` through the fixture's own `gh`
+and `issue-900` held by a tree the supervisor did not build, so `factory_worktree` must refuse for its own
+reason — and SIGKILL it at the `CONFLICT-BLOCKED` sentence through a `DEBUG` trap delivered by `BASH_ENV`. In
+shipped code the run directory then holds exactly one `worktree-stderr.<pid>` containing `branch issue-900 is
+checked out in …`, with no `CONFLICT-` line in the journal; the control puts the `mktemp` line back and the
+same kill at the same sentence leaves the swept directory empty. A third leg refuses the drift that would undo
+it: neither call site may spell the path out again, `factory/factory.sh` may not call `mktemp` on a code line
+again, and the helper must answer with the swept path and the matched pattern, both.
+
+`factory_worktree_lines` still writes its stderr with `mktemp`, on purpose and unchanged: it is not this
+stream, and its failure arm prints git's own sentence straight into `WORKTREE-CENSUS-FAILED`, so those bytes
+are not anybody's only copy of anything.
+
 ## Decision ids are allocated against refs, not prose
 
 `DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
