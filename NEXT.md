@@ -1,32 +1,49 @@
-# NEXT — issue-334 unit (unclaimed:334, the journal's retention contract gains clause 5)
+# NEXT — issue-334 unit (the retention census becomes a tool: `factory/retention-census.sh`)
 
-State read before this file wrote a byte, at **2026-11-17T19:40:51Z**, raw JSON counted in python and
-never a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 19:00:46Z`, **7**
-comments with that same instant as the newest — so the escalation this ticket waits on has still not been
-answered, and the newest thing on it is the sixth unit's correction. **0** open pull requests on the whole
-repository (`--limit 1000`), **50** open issues, `origin/main` at `3d3c65c`, and this branch **2** commits
-ahead of it: `406d1b5` the pre-H-0248 checkpoint, then the one effect commit carrying
-`Decision: H-0248`. Re-read all of it before acting; a queue that empty is a queue that fills in minutes,
-and #334 in particular gets dispatched by every tick that has nothing else, because nothing parks a
-waiting escalation (#437).
+State read before this file wrote a byte, at **2026-11-18T00:08:17Z**, raw JSON counted in python and never
+a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 2026-11-17T23:37:31Z`,
+**11** comments, and a `^retention:` answer line among them: **0** — the twentieth dispatch's paste-ready
+line is still the newest thing on the ticket and `H-0188`'s `Awaiting:` stands unanswered. **0** open pull
+requests on the whole repository (`--limit 1000`, and `--json number -q length` agrees at 0); **50** open
+issues; `gh label list --limit 200` **18** labels, `needs-human` among them: **no**. `origin/main` at
+`3c09d6b`, which is the merge of this branch's own #438, so this branch is **1** commit ahead of it and
+**1** behind until the sync commit. Two corrections to what an earlier hand-off said, both re-measured
+rather than inherited: `gh issue list` shows **0** issues carrying an `unclaimed:*` label because
+`unclaimed` has never been a label — it is `factory/triage.sh`'s own class (`factory/triage.sh:71`
+`unclaimed | parked | delivered | branch_without_pr`), and the live table at this instant reads **43**
+`unclaimed` issue rows, **8** `delivered`, **8** `branch_without_pr`; and **#311 now reads `delivered`**
+(merged PR #382, `Refs #311`, 14 Nov) while its GitHub state is `OPEN` with `blocked` and the marker name
+still does not exist — so the label creation that would park both escalations is still a withheld verb,
+not a dropped ball. Read all of it again before acting: #334 is dispatched by every tick that has nothing
+else, because nothing parks a waiting escalation (#437).
 
 ## What this unit shipped
 
-`docs/factory.md` and nothing else: clause **5** of "The journal's retention contract" — *Name the clock,
-and the zone, or refuse the answer* — plus the probe that re-derives its numbers, plus the paragraph that
-says when those numbers have stopped meaning anything. `Decision: H-0234` put the contract in that section
-instead of in the ticket thread, and this follows it. No script, no test, no production behaviour, no
-bound: **the number and the clock are still a maintainer's to give**, and the decision class stays
-withheld (publishing, deleting data, security semantics), so `H-0188` remains the open half.
+`factory/retention-census.sh`, one `verify` step, four paragraphs in the contract's own section, and
+nothing else. The script is clause 5's block turned into a tool: six clocks named and priced in one pass
+of one directory, `total` before any cut, `zone:` naming the offset a bare stamp parses at, `differ:`
+counting the rows two policies disagree about, and refusals where the block used to print zeroes —
+exit 2 for no number and for a `--now` that would price row E off a clock it has not pinned, exit 3 for a
+directory that holds no transcripts. `Decision: H-0249`.
 
-The measurement is one directory at one instant, and the unit's most useful finding is that the two
-clocks an implementer would choose diverged *while it was writing*: 227 transcripts and 58,792,819 B
-against cut `2026-11-10T19:37:42Z` answer **11 / 11 / 19 / 0 / 0 / 19** for filename-seconds,
-mtime-in-UTC, day-string `<=`, day-string `<`, `find -mtime +7`, and `find ! -newermt` with the cut
-stamped bare; 86 seconds later the same block answers **12 / 11 / …**, and the file that separated them is
-named by `stat` — stamped `19:38:17Z`, last written `20:05:48Z`. Zone is eight files on its own: the bare
-stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the installed user unit carries five
-`Environment=` lines and **no `TZ=` anywhere in it**.
+Two things about it a reader should know before trusting a row. The self-test is **falsified, not just
+green**: a battery of single-line mutants — the `>` of row E's age compare, the widened transcript glob,
+the `<=` of row C, the newest-first sort that chooses what a byte cap evicts, a renamed `quiet:` line, a
+stray warning on stderr, the deleted `--days`/`--bytes` guard — each forces a non-zero self-test, and the
+control run stays green; the leg itself is pinned by `rc_leg_makefile`, which reads `Makefile` and refuses
+a `verify` that lost the step or carries it twice. And `bash -x` is refused for `--self-test` at the top
+of `main`, before `rc_main`, because a traced function returns its trace on stdout and the legs read rows
+with `awk`: measured 13 legs failing 67 of 79 row assertions while the untraced run was green in the same
+minute. `bash -x` on an ordinary census still traces normally, so it is the assertion that is guarded, not
+the tool.
+
+What it does **not** do, so nobody reaches for it and finds a hole: it prices transcripts only, never a
+`supervisor.log` rotation (that is owed item 2 — the script prints the journal's bytes and line count on
+the `journal:` line and stops there); it cannot price row E at a pinned `--now` (`find -mtime` reads the
+real clock and takes no reference time, so `pinned:` says which rows are measurements and which is
+arithmetic); and the doc's `for p in …` block stays in `docs/factory.md` unchanged as the audit path —
+this unit deliberately did not convert prose it does not need to convert, and left the page line-neutral
+so no `docs/factory.md:NNNN` pointer moved.
 
 ## What is still owed (all of it, carried forward; none of it silent)
 
@@ -78,6 +95,30 @@ stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the insta
    ticket, because the number was recalled instead of read. #425 is what the measurement is about. A
    referent named from memory is the same class of defect as a coordinate that was never opened.
 
+
+5. **The census tool's own two gaps, both stated in its output and neither repaired here.** Row **E**
+   cannot be priced at a pinned `--now` — `find -mtime` reads the real clock and takes no reference time,
+   so the tool refuses (exit 2) rather than print a row off two clocks; a future change that wants E at a
+   `--now` has to set the fixture's mtimes to that instant, which is exactly what `rc_live_fixture` does
+   for the live-fault leg. And `--bytes` prices the **transcript** set only: `journal:` prints
+   `supervisor.log`'s bytes and line count so an operator can see what a cap would do, but the
+   keep-newest-B-bytes arithmetic and the generation/rotation-point rules are owed item 2's, and the
+   script says `journal line: 1 of 7 rows` for that reason. Anyone who implements 1 and 2 should extend
+   this script rather than write a second instrument, or the two will disagree in production the way the
+   six clocks disagree in the fixture.
+6. **A `bash -x` self-test is refused, and the refusal is the only thing that keeps that leg honest.**
+   If a future unit finds the guard inconvenient, the fix is not to widen it: a traced function returns
+   its trace on stdout (`rc_row` and `rc_find_cut` are command substitutions), so the legs read rows that
+   are not rows — measured at 13 failed legs and 67 of 79 row assertions, all of them naming the leading
+   `+ local tz=…` line as a row whose first field was not one of A–F. Run `bash factory/retention-census.sh
+   --self-test`, or `bash -B`/`set -u`, both of which stay allowed and stay green.
+7. **The park is still #437's, and #311's merged PR did not create the marker.** Re-measured at
+   `00:08:17Z`: 18 labels, no `needs-human`; `blocked` on exactly 334 and 311; triage's own stderr —
+   `nothing is parked, and `needs-human` is not a label in this repository, so no issue can be parked at
+   all -- #311`. Creating the label is a human verb and no unit here ran it; until it happens, expect this
+   ticket to be dispatched again, and read the ticket's eleven comments before measuring anything — the
+   last five units each found something the previous one missed, and none of them chose the number.
+
 ## Two things a stranger will break here
 
 - **Line numbers in these logs are live coordinates, and an insertion moves them.** `make verify` re-opens
@@ -85,11 +126,13 @@ stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the insta
   twice inside ten minutes, once by two lines and once by three. So add to the *end* of the section you are
   editing, then re-aim: `python3 scripts/check-decisions.py --citations docs/factory.md` lists every
   pointer aimed at a page before you touch it, and `POINTER_DEBT` may only fall.
-- **The probe in clause 5 is documentation, and it fails quietly rather than loudly.** Its worst answer is
-  six zeroes at exit 0, which is what it prints wherever the journal directory is not — and it is not
-  tracked, so it exists only in the one checkout where the harness has actually run. `total` is printed for
-  exactly that reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is
-  your own working directory.
+- **The probe in clause 5 is still documentation and still fails quietly; the tool is what refuses.** The
+  block prints six zeroes at exit 0 wherever the journal directory is not — measured again on an empty
+  directory at this head, every one of the six arms printing `0` — and the probe is not tracked, so it
+  exists only where someone typed it. `factory/retention-census.sh` is the tracked half and it exits 3 on
+  the same directory naming the glob it found nothing behind. `total` is printed by both for exactly that
+  reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is your own
+  working directory.
 
 ## What this unit pruned out of the hand-off it inherits, and how to get it back
 
