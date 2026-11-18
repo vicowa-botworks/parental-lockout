@@ -1,32 +1,55 @@
-# NEXT — issue-334 unit (unclaimed:334, the journal's retention contract gains clause 5)
+# NEXT — issue-366 unit (unclaimed:366, `H-0159`'s 588 adjudicated: one coordinate, the capture README)
 
-State read before this file wrote a byte, at **2026-11-17T19:40:51Z**, raw JSON counted in python and
-never a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 19:00:46Z`, **7**
-comments with that same instant as the newest — so the escalation this ticket waits on has still not been
-answered, and the newest thing on it is the sixth unit's correction. **0** open pull requests on the whole
-repository (`--limit 1000`), **50** open issues, `origin/main` at `3d3c65c`, and this branch **2** commits
-ahead of it: `406d1b5` the pre-H-0248 checkpoint, then the one effect commit carrying
-`Decision: H-0248`. Re-read all of it before acting; a queue that empty is a queue that fills in minutes,
-and #334 in particular gets dispatched by every tick that has nothing else, because nothing parks a
-waiting escalation (#437).
+State read before this file wrote a byte, at **2026-11-18T02:17:53Z**, raw JSON counted in python and
+never a `-q` template: issue **366** `OPEN`, labels none, **0** comments, `updatedAt 2026-11-14T04:37:35Z`
+— untouched since it was filed, and the branch that answers it is the one you are reading this from.
+**2** open pull requests on the whole repository (`--limit 1000`): **#441** on
+`fix/escalation-label-question`, which carries `H-0250`, and **#439** on `issue-334`, the retention-census
+tool, whose unit owned the `NEXT.md` head this file replaces. **52** open issues. `origin/main` at
+`3c09d6b`, which is also this branch's base: `eb4c2cc` the pre-`H-0251` checkpoint, then the one effect
+commit carrying `Decision: H-0251`. Re-read all of it before acting — **#439** and **#441** each append an
+entry to `factory/DECISIONS.md`, so whichever merges second takes a coordinate re-aim across a moved
+seam, and this unit's own 18-line, 39-pointer re-aim is the template for doing it honestly.
 
 ## What this unit shipped
 
-`docs/factory.md` and nothing else: clause **5** of "The journal's retention contract" — *Name the clock,
-and the zone, or refuse the answer* — plus the probe that re-derives its numbers, plus the paragraph that
-says when those numbers have stopped meaning anything. `Decision: H-0234` put the contract in that section
-instead of in the ticket thread, and this follows it. No script, no test, no production behaviour, no
-bound: **the number and the clock are still a maintainer's to give**, and the decision class stays
-withheld (publishing, deleting data, security semantics), so `H-0188` remains the open half.
+`factory/DECISIONS.md` and `NEXT.md`, and nothing else. `H-0251` adjudicates #366 and appends the verdict
+to the foot of `H-0159`'s entry. The verdict in one line: the two rows four lines apart are **one
+coordinate spelled twice**, and the file it names is `testing/capture/README.md` — proved by the digests
+the product-log sentence quotes, which the root `README.md` has never carried in any of its revisions —
+so the provenance clause ("WAS a line when it was written") is the true one and the census clause
+("inside a 349-line README", filed there as #318's "1 broken for months", located) is the false one: it
+reports a throwaway instrument taking the first basename candidate, not what the record said. No existing
+word of `H-0152`, `H-0159`, `H-0161` or `H-0162` was rewritten; the only existing lines the commit changes
+are 18, carrying 39 re-aimed pointers, and each differs from its checkpoint line in digits alone.
 
-The measurement is one directory at one instant, and the unit's most useful finding is that the two
-clocks an implementer would choose diverged *while it was writing*: 227 transcripts and 58,792,819 B
-against cut `2026-11-10T19:37:42Z` answer **11 / 11 / 19 / 0 / 0 / 19** for filename-seconds,
-mtime-in-UTC, day-string `<=`, day-string `<`, `find -mtime +7`, and `find ! -newermt` with the cut
-stamped bare; 86 seconds later the same block answers **12 / 11 / …**, and the file that separated them is
-named by `stat` — stamped `19:38:17Z`, last written `20:05:48Z`. Zone is eight files on its own: the bare
-stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the installed user unit carries five
-`Environment=` lines and **no `TZ=` anywhere in it**.
+## What the verdict makes visible, and this unit could not touch
+
+- `docs/factory.md`'s summary of this token — the paragraph that calls it "the token this log argues
+  about most" — stops at "`H-0159` reads the same token both ways" and sends the reader to `H-0162`'s
+  Effect. Its own sentence, that the root reading is past EOF, is true; the framing is unfinished.
+  Whoever edits that file next ends the sentence with the verdict. `H-0251`'s `Follow-up:` row carries
+  this, and no issue was opened, because #366 is the right scope.
+- Four other rows carry the same token on the root reading and are untouched: `H-0152`'s, `H-0161`'s,
+  `H-0167`'s `8437eea:README.md:588` census row and `H-0177`'s Effect row. None of them becomes a defect
+  by this verdict — on the root reading they are all past EOF and say so — and none is repaired here:
+  `H-0143`/`H-0144`, the objection `H-0159` itself files, decides a measurement is not rewritten in
+  place. If a future unit re-aims them, it re-aims to the file the prose means, and says so in its own
+  entry.
+- #318's length-check gate stays unmade and `POINTER_DEBT` stays at 546. This unit added 10 citations,
+  every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
+  which is what pinning a revision costs and what it buys.
+
+## What this unit pruned, and where the last unit's own prune list still lives
+
+The issue-334 unit's `## What this unit shipped` section — its clause-5 delivery, its two-clock
+measurement, and the note that #334's escalation was still unanswered when it wrote — is dropped: it is a
+dated read of a branch whose pull request is **#439**, open at the instant above. Recover it verbatim with
+`git show 3c09d6b:NEXT.md`, lines 13 to 30. Everything from `## What is still owed` downward is carried
+forward unedited, including its 56 numbered inherited rows, PR #402's three non-blocking review items, and
+`Hard rules for whoever picks this up` — and including that unit's own prune list, the section further
+down with the near-identical heading, which is the only record of what it dropped from the 1,174-line file
+it inherited. A dropped owed line is the worse failure, and item 4 of the inherited list says so.
 
 ## What is still owed (all of it, carried forward; none of it silent)
 
