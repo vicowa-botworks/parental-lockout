@@ -1,49 +1,62 @@
-# NEXT — issue-366 unit (unclaimed:366, `H-0159`'s 588 adjudicated: one coordinate, the capture README)
+# NEXT — issue-370 unit (PR #446: pushed the H-0266 shellcheck pin; the approval the push spent is owed a re-ask)
 
-State read before this file wrote a byte, at **2026-11-18T02:17:53Z**, raw JSON counted in python and
-never a `-q` template: issue **366** `OPEN`, labels none, **0** comments, `updatedAt 2026-11-14T04:37:35Z`
-— untouched since it was filed, and the branch that answers it is the one you are reading this from.
-**2** open pull requests on the whole repository (`--limit 1000`): **#441** on
-`fix/escalation-label-question`, which carries `H-0250`, and **#439** on `issue-334`, the retention-census
-tool, whose unit owned the `NEXT.md` head this file replaces. **52** open issues. `origin/main` at
-`3c09d6b`, which is also this branch's base: `eb4c2cc` the pre-`H-0251` checkpoint, then the one effect
-commit carrying `Decision: H-0251`. Re-read all of it before acting — **#439** and **#441** each append an
-entry to `factory/DECISIONS.md`, so whichever merges second takes a coordinate re-aim across a moved
-seam, and this unit's own 18-line, 39-pointer re-aim is the template for doing it honestly.
+State read before this file wrote a byte, by this branch’s second dispatch (`checks_failing:446`), one read
+per call, raw JSON counted in python and never a `-q` template: **#446** `OPEN`, `MERGEABLE`, `UNSTABLE`,
+head `879c862` — `verify` `FAILURE` and the four other checks `SUCCESS` (run `44273321776`, job
+`134695108950`: eight SC2329 infos over `factory/selftest.sh` after the runner image rotated its stock
+shellcheck from 0.9.0 to 0.11.0, none of them content of this branch); `reviewDecision APPROVED` —
+`hermesvicowa`, filed `2026-11-18T09:35:07Z` against `879c862` — `reviewRequests` empty; **#443**
+`MERGED` at `2026-11-18T04:58:22Z`, so the issue-366 head’s state reads are history; `origin/main` at
+`1292021` after `git fetch --prune origin`, which is this branch’s own merge base, and the branch sat
+exactly **2** ahead: `735ec4b` the checkpoint, `d2d4458` the effect carrying `Decision: H-0266` — both
+pushed by this dispatch, so the tip the next reader meets is `d2d4458` plus this hand-off commit; the
+shellcheck on this box’s PATH is 0.10.0, and this dispatch’s shell exports `FACTORY_LOG`,
+`FACTORY_TICK_UNIT=checks_failing:446` and `FACTORY_TICK_BRANCH=issue-370`, so the gate was run sanitized
+as row 12 requires and every verdict quoted below names that. Re-read all of it before acting: a number
+here belongs to the clock it was taken on.
 
-State the **base-sync dispatch** read at **2026-11-18T03:24:10Z**, one read per call, raw JSON counted in
-python: `origin/main` at `38a1fe4`, which is the merge of **#439** — so `H-0249` and the census tool are
-already trunk, and this branch was **3** ahead / **6** behind at the read: `eb4c2cc` the pre-`H-0251`
-checkpoint, `2dd751a` the effect carrying `Decision: H-0251`, `fbd9474` the pre-`H-0252` checkpoint; this
-sync lands on top of those three. **3** open pull requests repository-wide
-(`--limit 1000`, raw JSON): **#444** on `issue-365`, **#443** on this branch, **#441** on
-`fix/escalation-label-question`, the one carrying `H-0250`. Issue **366** still `OPEN`, labels none,
-**1** comment — the `H-0251` unit's own delivery note at `02:27:08Z`, not an answer to anything. The
-sync conflicts in two files: this one, whole, and `factory/DECISIONS.md` in two places — the tail seam
-where main's fresh `H-0249` seats below this branch's `H-0251`, and one mid-file row of `H-0229`'s that
-both parents re-aimed their own way. What the resolution decided is `H-0252`, and this hand-off rides
-that merge commit.
+## What this dispatch pushed
 
-## What this unit shipped
+- The two commits that were sitting unpushed on this branch: `735ec4b` (the pre-`H-0266` checkpoint, the
+  rollback target) and `d2d4458` (the effect, `Decision: H-0266`, entry and change in the same commit).
+  The change makes CI’s `verify` job fetch shellcheck `v0.10.0` at the same digest the sibling
+  `shellcheck` job already verifies and hand it to `make verify` through `SHELLCHECK` with
+  `SHELLCHECK_REQUIRED=1`, so neither the version nor the verdict belongs to the runner image. That is the
+  repair for the `verify` `FAILURE` in the read above; `factory/DECISIONS.md` `H-0266` carries the measured
+  pair and the one-tree reproduction.
+- This `NEXT.md`, rewritten. What the dispatch dropped and where each piece is whole: the prune note below.
+  Every instruction section is carried forward unedited.
+- The pull-request body, rewritten for the new head. The write and its read-back are #446’s business and
+  the body itself is the evidence — not this file’s memory.
+- No merge, no label, no reviewer ask, no issue write; the queue belongs to the supervisor.
 
-`factory/DECISIONS.md` and `NEXT.md`, and nothing else. `H-0251` adjudicates #366 and appends the verdict
-to the foot of `H-0159`'s entry. The verdict in one line: the two rows four lines apart are **one
-coordinate spelled twice**, and the file it names is `testing/capture/README.md` — proved by the digests
-the product-log sentence quotes, which the root `README.md` has never carried in any of its revisions —
-so the provenance clause ("WAS a line when it was written") is the true one and the census clause
-("inside a 349-line README", filed there as #318's "1 broken for months", located) is the false one: it
-reports a throwaway instrument taking the first basename candidate, not what the record said. No existing
-word of `H-0152`, `H-0159`, `H-0161` or `H-0162` was rewritten; the only existing lines the commit changes
-are 18, carrying 39 re-aimed pointers, and each differs from its checkpoint line in digits alone.
+## What this push spent, and what it did not fix
 
-The **base-sync dispatch** adds one thing to that: the merge of `origin/main` at `38a1fe4`, with `H-0252`
-riding the merge commit. Three adjudications, all in the two conflicted files — the log's tail union
-(`H-0249` from main, then this branch's `H-0251`, ids ascending, one blank separator line at each seam so
-the "heading with a non-blank line above" census stays at its seven); `H-0229`'s one digit-war Effect row,
-where the merged truth is **main's** `Makefile:153` and **this branch's** five `factory/DECISIONS.md`
-rows, each coordinate opened on these bytes before it was kept; and this file, whose head is this
-branch's and whose owed list, stranger-warnings and inherited rows are main's. No code, no script, no
-`docs/factory.md` line, no `Makefile` line: the merge carries those from `main` unchanged.
+- The push spends #446’s approval: `APPROVED` by `hermesvicowa` at `2026-11-18T09:35:07Z`, filed against
+  `879c862`, becomes a `DISMISSED` row, and only the read-back says so
+  (`gh pr view 446 --json reviewDecision,reviews,mergeable,mergeStateStatus`). Nobody has been re-asked
+  yet; the re-ask is the supervisor’s poke.
+- The eight SC2329 infos under shellcheck 0.11.0 stay unfixed — that is `H-0266`'s own `What lost:`. They
+  sit on fixture functions `factory/selftest.sh` invokes indirectly by name, and the pin at 0.10.0 is what
+  keeps them out of the verdict; the day this repository moves the pin, those eight rows are the next
+  decision. Do not “fix” the pin by deleting the digest.
+- A box whose PATH shellcheck is 0.11.x reads `make verify` RED on these bytes with exactly those eight
+  rows. That is disclosed and known, not a regression you introduced: point `SHELLCHECK` at a 0.10.0
+  binary (the one the `shellcheck` job fetches) and the leg prints `check-shell: 0.10.0 over 33 scripts`
+  at rc 0.
+- #370 item 3 — may a red trunk refuse a `MERGE`? — stays open and is a human call: carried row 57
+  below; the shipped read is report-only, and `H-0266` did not touch that question.
+
+## What this dispatch pruned, and how to get it back
+
+| Dropped | Where it is whole | Why it is a record and not an instruction |
+|---|---|---|
+| the issue-366 head’s two dated state reads (lines 3-25 of `git show d2d4458:NEXT.md`) | that blob | each is a read of a queue that has moved: #443 merged at 04:58:22Z, #446 is this branch’s pull request |
+| `## What this unit shipped` (issue-366) | same blob, lines 27-46 | PR #443 merged; its verdicts live in `H-0251` and `H-0252` and in the merge |
+
+Everything else is carried forward unedited, except three headings renamed to name the unit whose rows
+they are. A dropped owed line is the worse failure and item 4 of the inherited list says so — so the
+drops are itemised above, and none of them is an owed line.
 
 ## What the verdict makes visible, and this unit could not touch
 
@@ -62,7 +75,7 @@ branch's and whose owed list, stranger-warnings and inherited rows are main's. N
   every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
   which is what pinning a revision costs and what it buys.
 
-## What this unit pruned, and where the two dropped hand-offs are recovered verbatim
+## What the issue-366 unit pruned, and where its two dropped hand-offs are recovered verbatim
 
 Two `## What this unit shipped` sections are dropped by this file, both of them dated reads of a pull
 request that has since merged, and both recoverable whole: the clause-5 hand-off at
@@ -79,7 +92,7 @@ rewritten here. Also carried: the 56 numbered inherited rows, PR #402's three no
 the near-identical heading, which is the only record of what it dropped from the 1,174-line file it
 inherited. A dropped owed line is the worse failure, and item 4 of the inherited list says so.
 
-## What is still owed (all of it, carried forward; none of it silent)
+## What is still owed (issue-366’s rows 1-7, carried forward; none of it silent)
 
 1. **The number, the clock and the zone for the bound, from a maintainer.** Ask it on the ticket, in one
    line, and read the answers back out of the API rather than from this page. `retention: option A` does
@@ -177,7 +190,7 @@ inherited. A dropped owed line is the worse failure, and item 4 of the inherited
   reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is your own
   working directory.
 
-## What this unit pruned out of the hand-off it inherits, and how to get it back
+## What the issue-366 unit pruned out of the hand-off it inherited, and how to get it back
 
 `NEXT.md` had been accreting since 12 Nov: `origin/main`'s copy is 1,174 lines, and `3d3c65c`'s owner was
 the issue-364 conflict unit whose PR #436 has merged. This unit keeps the four sections that are still
