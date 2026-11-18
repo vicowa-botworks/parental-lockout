@@ -593,7 +593,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 588  # citations that owe an anchor; may only fall (H-0254 measured the review corrections of H-0253 at +11 citations and NO debt move: 1 self-anchors on its own quoted line, 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
+POINTER_DEBT = 588  # citations that owe an anchor; may only fall (H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -758,8 +758,8 @@ def scan_citations(text, entries, index):
         this tree and could not be made to without reading git for what used to be tracked.
 
     The shape that stays open, because the alternative was measured to be worse: a bare `:NNN` whose
-    sentence names no file inherits nothing and is not refused -- 165 of the 302 bare rows are that
-    shape at the head that ships this rule, 157 of 294 at `adddacc`, the sync-merge tree the boundary
+    sentence names no file inherits nothing and is not refused -- 175 of the 312 bare rows are that
+    shape at `e66dc85d`, 157 of 294 at `adddacc`, the sync-merge tree the boundary
     was measured on, and refusing them would refuse true sentences that merely wrap. The cost of the
     boundary, counted in occurrences at `adddacc`: 10 rows the line rule aimed -- only by riding an
     earlier sentence's citation, the mis-aim this rule exists to stop -- fell to the open shape,
@@ -767,7 +767,7 @@ def scan_citations(text, entries, index):
     sentences name the file bare with no coordinate or name no file at all (see
     ``SENTENCE_BREAK``). What the boundary bought in the same census: 52 wrapped continuations the
     line rule left invisible became aimed and counted -- 137 aimed in all at `adddacc`, and 137 again
-    at the shipping head, where the 8 bare rows this rule's own log prose added landed in the open
+    at `e66dc85d`, where the 18 bare rows this rule's own log prose added there landed in the open
     shape themselves.
     """
     found = []

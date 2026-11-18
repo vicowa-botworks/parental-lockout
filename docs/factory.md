@@ -2346,8 +2346,8 @@ tracked?" in one read — but this rule reads no git, deliberately, so the weake
 verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
 *names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
 limit that remains, stated because it is the one a reader will hit: a bare `:NNN` whose sentence names no
-file at all is not refused, because 165 rows of these logs are that shape inside wrapped paragraphs and
-refusing them refuses 165 true sentences (occurrences, at the head that ships the sentence rule: 302 bare
+file at all is not refused, because 175 rows of these logs are that shape inside wrapped paragraphs and
+refusing them refuses 175 true sentences (occurrences, measured at `e66dc85d`: 312 bare
 rows, 137 inheriting a file from their own sentence; 294 bare, 137 inheriting at `adddacc`, where #365
 measured the move). The open shape is sentences naming the file as a bare backticked path and sentences
 naming no file at all; the inheritance itself is still `H-0153`'s.
