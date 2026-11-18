@@ -42,14 +42,37 @@ Exit 0 clean · 1 the log has problems · 2 usage.
 """
 
 import collections
+import errno
 import os
 import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGS = (os.path.join(ROOT, "DECISIONS.md"), os.path.join(ROOT, "factory/DECISIONS.md"))
+# Repo-relative, because the directories below are named the same way and a caller that points the
+# reader at a fixture tree (`--self-test`, and `factory/selftest.sh`'s behaviour legs) has to be able
+# to join all four to a different root. `LOGS` stays absolute for every existing caller.
+LOG_REL = ("DECISIONS.md", "factory/DECISIONS.md")
+LOGS = tuple(os.path.join(ROOT, p) for p in LOG_REL)
 LOG = LOGS[0]
 MAKEFILE = os.path.join(ROOT, "Makefile")
+
+# Phase 1 of one-file-per-entry (#429). The directories an entry can live in, beside the two monoliths.
+#
+# Both are optional *by design*: phase 2 is what starts writing them and phase 3 is what moves the
+# existing entries, so until then a tree with no `DECISIONS/` is the normal tree. A reader that refused
+# an absent directory would refuse every branch in flight, which is the opposite of what a reader change
+# is for -- #429's premise is that the two layouts have to validate at once so no branch is invalidated
+# when the writer changes. What is NOT optional is what a directory file must be: one entry, whose id is
+# its filename (`layout_problems`), and an id no other file in the union already carries
+# (`cross_log_problems`, which now sees directory entries as its own locations).
+#
+# The closing line still says `N entries across M log(s)` deliberately. Fifty-two entries in the two
+# logs quote it with the number filled in, on 71 lines as of this commit -- `H-0065` to `H-0226` and
+# `D-0059` to `D-0076` -- because it is the receipt each of those runs shipped with. Rewording it makes
+# every one of them describe a line no gate ever printed -- the hazard H-0192 recorded when a
+# correction rewrote a line another entry was quoting.
+ENTRY_DIRS = ("DECISIONS", "factory/DECISIONS")
+ENTRY_ID = re.compile(r"^[DH]-\d{4}$")
 
 USAGE = """usage: check-decisions.py [--self-test] [--log PATH] [--citations]
 
@@ -65,6 +88,18 @@ fabricated checkpoint survived four passes of exactly this invocation. A `--log`
 asks the duplicate-id rule, but against that file alone -- that is the only thing about `--log` that
 narrows. It also reports `path:line` citations for that file but does not judge them against
 POINTER_DEBT, which is a count over the pair; the closing line says which of the two it did.
+
+With no `--log` the run reads the union: the two monoliths, then any file filed in `DECISIONS/` or
+`factory/DECISIONS/` -- one decision per file, named by its id, so `H-0220.md` holds `## H-0220 · …`.
+Both directories are optional: until the existing entries are split out (#429 phase 3) an absent one is
+zero entries, never an error, because a reader that refused a tree that has not migrated would refuse
+every branch in flight. A file inside one is refused unless it holds exactly one entry and its filename
+is that entry's id -- the filename is what turns two branches claiming one id into a git add/add
+collision instead of a green merge that leaves both headings in place (#381). An id carried by a
+directory file and by a monolith is a duplicate and is refused; a `--log` run cannot see that, since it
+reads one file. The out-of-order rule stays what it has always been -- a comparison of headings inside
+one file -- because in this layout the sequence is a filename, and filenames have no order a merge
+respects.
 
 --citations prints what the citation rule found instead of refusing on it: the unanchored
 count by the file pointed at, the citations a reader cannot open, and the anchored ones whose
@@ -191,6 +226,11 @@ def check(entries):
         # `D-0082` exists in neither log (`DECISIONS.md` carries 39 entries and stops at `D-0052`), so
         # the sentence a person reads while the gate is red sends them looking for an entry that is
         # not there. Number and id now move together and cannot name two different decisions.
+        # Positional, and deliberately so -- but positional *within this file*. A directory of
+        # one-entry files has no order a merge honours: git sorts nothing, and two branches adding
+        # `H-0231.md` and `H-0232.md` land in either order depending on the reader. Sequence in that
+        # layout is the allocator's job (it hands out the next number and journals the claim), so the
+        # comparison a merge can violate is only ever the one between headings sharing a file (#429).
         if e["num"] < prev_num:
             problems.append("%s: %s is out of order (%s came before it); the log is a history and a "
                             "history that jumps around cannot be bisected"
@@ -241,6 +281,51 @@ def check(entries):
             problems.append("%s: %s has no checkpoint and did not escalate; the checkpoint is the "
                             "rollback target and it is taken before the decision, never after"
                             % (at, e["id"]))
+    return problems
+
+
+def layout_problems(label, entries):
+    """That a file inside an entry directory is one entry, and that its id is its filename.
+
+    Only files under `ENTRY_DIRS` are judged; a monolith takes none of this, because its whole shape is
+    the opposite -- many headings in one file, which is the thing being migrated away from.
+
+    Why the filename carries the id at all: it is the only move that makes two branches claiming one id
+    collide *in git*. #381's experiment put a `merge=union` driver on the monolith and a same-id append
+    merged green, leaving two `## H-0009` headings in one file -- and a merge here is permanent history
+    (`allow_squash_merge=false`, `allow_rebase_merge=false`), so the union hides the one alarm the log
+    exists to sound. Add/add on the same path is refused at the merge instead.
+
+    The heading stays inside the file, so `parse` needs no second code path and a reader can still grep
+    an id and land on it. Which is also why a disagreement between the two names is refused rather than
+    reconciled: `H-0220.md` holding `## H-0221` would answer a citation to `H-0220` with a different
+    decision, and answer it *silently*, because every reader that finds the file by filename and every
+    reader that finds it by heading would then be reading two different entries.
+    """
+    problems = []
+    parent = os.path.dirname(label.replace(os.sep, "/"))
+    if parent not in ENTRY_DIRS:
+        return problems
+
+    name = os.path.basename(label)
+    stem = name[:-3] if name.endswith(".md") else name
+    at = "%s:1" % label
+
+    if not ENTRY_ID.match(stem):
+        problems.append("%s: %r is not an entry id. A file in %s/ is named by the decision it records -- "
+                        "`## H-0001 · …` becomes `H-0001.md` -- and a name git can add/add against is the "
+                        "whole reason for the layout" % (at, name, parent))
+        return problems
+    if len(entries) != 1:
+        problems.append("%s: %d entry headings in one file under %s/. The filename is the id, so %d "
+                        "headings alias %d decisions onto one path, and 'revert to before the entry' "
+                        "names one file for all of them"
+                        % (at, len(entries), parent, len(entries), len(entries)))
+        return problems
+    if entries[0]["id"] != stem:
+        problems.append("%s: the heading says %s and the filename says %s. A citation read by heading and "
+                        "a file read by name would land on two different decisions, and nothing else "
+                        "here can see the pair" % (at, entries[0]["id"], stem))
     return problems
 
 
@@ -336,6 +421,96 @@ def read(path):
     except OSError as exc:
         return None, "%s cannot be read (%s); the log either does not exist or cannot be opened, " \
                      "and a run that reads nothing must not report that as clean" % (path, exc)
+
+
+def _nested_markdown(directory, prefix):
+    """Every `*.md` below `directory`, named from the repository root. Refuses a layout the reader can't judge.
+
+    Deliberately `os.walk` and deliberately exhaustive: the failure being guarded is an entry that
+    exists on disk and is validated by nothing, and a census that stops at the first level would report
+    the tidy case while the deep one sits there unread. The name is built from `prefix`, the entry
+    directory plus this subdirectory, rather than from a path relative to `directory` -- a refusal that
+    names `deep/H-0009.md` tells a reader to move a file they cannot find from the repository root, and
+    the instruction they can act on is the one that says `DECISIONS/deep/H-0009.md`.
+    """
+    deep = []
+    for dirpath, dirnames, filenames in os.walk(directory):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if name.endswith(".md"):
+                deep.append("%s/%s" % (prefix, os.path.relpath(os.path.join(dirpath, name),
+                                                               directory).replace(os.sep, "/")))
+    return deep
+
+
+def entry_dir_files(root=None):
+    """The entry files inside `ENTRY_DIRS`, repo-relative, as `(paths, problem)`.
+
+    `os.scandir`, not `git ls-files`, for the reason `tree_files` gives: the gate answers the tree in
+    front of it -- identically in CI, in the review loop and at the merge, reading no refs -- so a file
+    a unit has just written is a file the gate has to see before it is committed anywhere.
+
+    An absent directory is not a problem and says so by returning nothing: phase 1 lands while every
+    entry is still in a monolith, and refusing that tree would refuse the repository (#429). A
+    directory that cannot be *opened* for any other reason is a problem, in the shape `tree_files` uses
+    -- an unevaluated rule is not a passed rule, and ENOENT is the only errno here that means "there are
+    no entries yet". Sorting is not decoration: the log's order is a reading order, and entries added by
+    one run should print in id order rather than in whatever order the directory returns them.
+
+    Only `*.md` at the top level is taken. A subdirectory inside `DECISIONS/` is a layout this reader
+    has no rule for -- there is no id that names a path segment -- and a file the reader silently skips
+    is an entry that validates nowhere, which is the exact failure #429 phase 3 must not arrive at
+    quietly. `factory/selftest.sh`'s `decisions_unseen_entry_file` leg puts that shape in front of the
+    reader so it cannot become invisible by accident.
+    """
+    root = root or ROOT
+    paths, nested, problem = [], [], None
+    for rel in ENTRY_DIRS:
+        directory = os.path.join(root, rel)
+        try:
+            with os.scandir(directory) as handle:
+                found = sorted(handle, key=lambda e: e.name)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                continue
+            if problem is None:
+                problem = ("%s cannot be listed (%s), so any entry filed there was not read and the "
+                           "duplicate-id rule did not run over it" % (directory, exc))
+            continue
+        for entry in found:
+            try:
+                is_dir = entry.is_dir()
+            except OSError as exc:
+                # a dangling link, or a tree that moved mid-read: not "no entries"
+                if problem is None:
+                    problem = ("%s could not be examined (%s), so the reader cannot say what entries "
+                               "it holds" % (entry.path, exc))
+                continue
+            if is_dir:
+                nested += _nested_markdown(entry.path, "%s/%s" % (rel, entry.name))
+            elif entry.name.endswith(".md"):
+                paths.append("%s/%s" % (rel, entry.name))
+    if nested and problem is None:
+        problem = ("an entry file cannot live below %s/: %s. No id names a path segment, so both the "
+                   "filename rule and the duplicate-id rule would be skipped for it -- move it up "
+                   "beside the others"
+                   % (" or ".join(ENTRY_DIRS), ", ".join(sorted(nested)[:5])))
+    return paths, problem
+
+
+def log_paths(root=None):
+    """Every file the union reads, absolute, in reading order, as `(paths, problem)`.
+
+    The two monoliths first -- that is the order this file has always read in, and the closing tally
+    line prints the count -- then the entry files. `main` calls it only for the default invocation:
+    `--log PATH` narrows to exactly one file, which is the one thing about `--log` that narrows (its
+    USAGE text promises the duplicate-id rule runs against that file alone).
+    """
+    root = root or ROOT
+    extra, problem = entry_dir_files(root)
+    return [os.path.join(root, p) for p in LOG_REL + tuple(extra)], problem
 
 
 def read_tree(rel):
@@ -1224,10 +1399,17 @@ def cross_log_problems(where_seen):
     problems = []
     for ident in sorted(where_seen):
         if len(where_seen[ident]) > 1:
+            where = sorted(where_seen[ident])
+            # Which verb applies depends on the layout the second copy arrived in. Inside a monolith the
+            # fix is to renumber and re-sort; a filed entry has no neighbours to sort past -- it has to
+            # take an id nothing has allocated, which is the allocator's job and not an edit here.
+            filed = [w for w in where if os.path.dirname(w.replace(os.sep, "/")) in ENTRY_DIRS]
+            advice = ("Renumber the later entry in its own log." if not filed else
+                      "One of them keeps the id; the other takes a fresh one from "
+                      "`factory/next-decision-id.sh` and, if it stays filed, is renamed to match.")
             problems.append(
-                "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. "
-                "Renumber the later entry in its own log." %
-                (ident, " and ".join(sorted(where_seen[ident])), len(where_seen[ident])))
+                "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. %s" %
+                (ident, " and ".join(where), len(where), advice))
     return problems
 
 
@@ -1829,6 +2011,91 @@ def self_test():
         fails.append("stray-note-missing: the ambiguity refusal orders work on files it cannot tell apart "
                      "-- %s" % moved.problems)
 
+    # One-file-per-entry (#429 phase 1). `layout_problems` and `entry_dir_files` are both pure functions
+    # of a label or a root for exactly this reason: the shapes are asserted as text and as a generated
+    # tree, never as an editable fixture file -- a fixture a person can edit is a fixture that quietly
+    # stops asserting. The end-to-end pair (the shipped reader over a fixture repository, and what git
+    # does when two branches file the same id) lives in `factory/selftest.sh`, because it needs a tree.
+    counts[1] += 1
+    filed = ("## H-0042 · An entry filed as its own file\n\n- Question: does the filename carry the id?\n"
+             "- Options: it does | the heading does\n- Chose: it does, and the heading repeats it\n"
+             "- Why: two branches claiming one id then collide in git.\n- Checkpoint: n/a\n")
+    if layout_problems("DECISIONS/H-0042.md", parse(filed, "DECISIONS/H-0042.md")):
+        fails.append("filed-clean: a filed entry whose filename is its id was refused -- %s"
+                     % layout_problems("DECISIONS/H-0042.md", parse(filed, "DECISIONS/H-0042.md")))
+    counts[0] += 1
+    got = layout_problems("DECISIONS/H-0042.md", parse(filed.replace("H-0042", "H-0043"), "DECISIONS/H-0042.md"))
+    if not any("the filename says H-0042" in g for g in got):
+        fails.append("filed-id-disagrees: %r is what a heading that contradicts its filename earned; "
+                     "a reader following the name and a reader following the heading would read two "
+                     "different decisions" % (got,))
+
+    counts[0] += 1
+    two = filed + "\n" + filed.replace("H-0042", "H-0043")
+    got = layout_problems("DECISIONS/H-0042.md", parse(two, "DECISIONS/H-0042.md"))
+    if not any("2 entry headings" in g for g in got):
+        fails.append("filed-two-entries: two decisions in one filed file read %r; the filename is one id, "
+                     "so the pair would answer one citation with two decisions" % (got,))
+
+    counts[0] += 1
+    got = layout_problems("factory/DECISIONS/notes.md", parse(filed, "factory/DECISIONS/notes.md"))
+    if not any("is not an entry id" in g for g in got):
+        fails.append("filed-not-an-id: a file named nothing-a-reader-can-resolve read %r" % (got,))
+
+    # The rule is layout-scoped, and the control proves it: the monoliths hold hundreds of headings each
+    # and must answer nothing here, or every run since before this phase would be red.
+    counts[1] += 1
+    if layout_problems("factory/DECISIONS.md", parse(two, "factory/DECISIONS.md")):
+        fails.append("monolith-unaffected: the filename rule was applied to a monolith -- %s"
+                     % layout_problems("factory/DECISIONS.md", parse(two, "factory/DECISIONS.md")))
+
+    # The duplicate the layout is designed to make loud: one id, one filed file and one monolith. The
+    # message has to name both places and offer the verb that fits a filed entry (a fresh id from the
+    # allocator), while the monolith-only collision keeps the advice it has always given.
+    counts[0] += 1
+    got = cross_log_problems({"H-0042": ["DECISIONS/H-0042.md", "factory/DECISIONS.md"]})
+    if not (any("DECISIONS/H-0042.md" in g and "factory/DECISIONS.md" in g for g in got)
+            and any("next-decision-id.sh" in g for g in got)):
+        fails.append("filed-duplicate: a cross-layout duplicate read %r; it has to name both files and "
+                     "offer the allocator, which is the only thing that can give a filed entry a new id"
+                     % (got,))
+    counts[1] += 1
+    got = cross_log_problems({"H-0042": ["DECISIONS.md", "factory/DECISIONS.md"]})
+    if not any("Renumber the later entry in its own log." in g for g in got):
+        fails.append("monolith-duplicate-advice: the monolith collision lost the sentence that tells a "
+                     "person to renumber in place -- %s" % (got,))
+
+    # What the reader walks out of a tree. `log_paths` and `entry_dir_files` take a root for this case:
+    # the tree is built here and thrown away, so nothing in the repository can be edited into agreeing.
+    counts[0] += 1
+    counts[1] += 1
+    import shutil
+    import tempfile
+    sandbox = tempfile.mkdtemp(prefix="plock-layout-")
+    try:
+        os.makedirs(os.path.join(sandbox, "factory"))
+        paths, problem = log_paths(sandbox)
+        if [os.path.relpath(x, sandbox).replace(os.sep, "/") for x in paths] != list(LOG_REL) or problem:
+            fails.append("absent-dirs: a tree with no `DECISIONS/` read %r / %r -- phase 1 lands while "
+                         "every entry is still in a monolith, so this is the repository's own shape and "
+                         "must not be an error" % (paths, problem))
+        filed_dir = os.path.join(sandbox, "DECISIONS")
+        os.makedirs(os.path.join(filed_dir, "deep"))
+        for name in ("H-0002.md", "H-0001.md", "notes.txt"):
+            with open(os.path.join(filed_dir, name), "w", encoding="utf-8") as fh:
+                fh.write("x")
+        with open(os.path.join(filed_dir, "deep", "H-0003.md"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        paths, problem = entry_dir_files(sandbox)
+        if paths != ["DECISIONS/H-0001.md", "DECISIONS/H-0002.md"]:
+            fails.append("dir-scan: `%s/` read %r -- expected the two `.md` files at the top level, "
+                         "sorted, and nothing else" % ("DECISIONS", paths))
+        if not (problem and "deep/H-0003.md" in problem):
+            fails.append("nested-entry-unread: an entry filed below a directory was accepted silently "
+                         "(%r); the reader would skip it and no rule would ever run over it" % (problem,))
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
@@ -1840,8 +2107,11 @@ def self_test():
           "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
           "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
           "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
-          "pointer cannot be opened, and the refusal that names which anchor floor it applied), each "
-          "asserted both ways" % (counts[0], counts[1]))
+          "pointer cannot be opened, and the refusal that names which anchor floor it applied), the "
+          "one-file-per-entry layout (filename and heading agreeing or disagreeing, two decisions in one "
+          "file, a file named by nothing, the monolith answering none of it, the cross-layout duplicate "
+          "naming both places, and a tree with no entry directory at all), each asserted both ways"
+          % (counts[0], counts[1]))
     return 0
 
 
@@ -1869,7 +2139,14 @@ def main(argv):
         print("check-decisions: unknown argument %r\n%s" % (argv[1], USAGE), file=sys.stderr)
         return 2
 
-    paths = [path] if path != LOG else list(LOGS)
+    # `--log PATH` reads exactly one file, and that is the only thing about `--log` that narrows: the
+    # union -- the two monoliths plus whatever is filed in `DECISIONS/` and `factory/DECISIONS/` -- is
+    # the default invocation's subject. A `--log` run therefore cannot see a cross-layout duplicate, and
+    # its USAGE text says so instead of being quietly contradicted here.
+    if path != LOG:
+        paths, dirs_problem = [path], None
+    else:
+        paths, dirs_problem = log_paths(ROOT)
     # The debt is a number about THIS pair of logs. Narrowing the file narrows everything the rules
     # can see, and `POINTER_DEBT` describes the pair -- counting one log against it would refuse every
     # `--log` run with a number that means nothing. So the debt is not judged here, and the line below
@@ -1879,6 +2156,10 @@ def main(argv):
     tree, walk_problem = tree_files()
     index = tree_index(tree or [])
     problems = []
+    if dirs_problem:
+        # Fail closed in the shape of every other unreadable input here: a directory the reader could
+        # not list is an unevaluated duplicate rule, not a passed one.
+        problems.append("entry directories: %s" % dirs_problem)
     total = 0
     found = []
     where_seen = {}
@@ -1891,6 +2172,10 @@ def main(argv):
         entries = parse(text, label)
         total += len(entries)
         problems += check(entries)
+        # One entry whose id is its filename, for the files filed under `DECISIONS/`. A monolith answers
+        # nothing here: many headings in one file is the shape being migrated away from, and this is the
+        # rule that only exists because of the filename.
+        problems += layout_problems(label, entries)
         # Both of these used to sit behind `if path == LOG`, and `LOG` is this script's own default
         # path -- so `--log SOMETHING` was precisely the invocation that skipped them. Measured 8 Nov
         # while checking #229's review: the same script, the same file,

@@ -3398,6 +3398,11 @@ printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","update
 # is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
 # under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
 printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+# (#370) The trunk's newest push run, as every fixture activation reads it. GREEN and shaped the
+# way gh 2.46.0's `run list --json` actually answers (lowercase status/conclusion, measured): a
+# fixture pass must not print TRUNK-RED for a reason unrelated to its own legs, and the shape a
+# fixture serves should be the measured one. Legs of the trunk family repoint PROC_TRUNK_CI.
+printf '[{"databaseId":44240957485,"headSha":"d4559fd5de2646e6ae4ad13755e81a50289c17d3","status":"completed","conclusion":"success","createdAt":"2026-11-18T04:58:25Z"}]\n' >"$proc_fix/run-list.json"
 
 # `--json` is a field list, and a fixture that ignores it answers a question nobody asked.
 #
@@ -3597,6 +3602,14 @@ case "$1 $2" in
 		printf 'proc-shim: unhandled pr list --state %s\n' "$state" >&2
 		exit 9 ;;
 	esac ;;
+'run list')
+	# #370: the trunk's own verdict, read once per activation by `factory_trunk_ci_lines`. Seeded
+	# GREEN in the shape measured on gh 2.46.0 (lowercase status and conclusion), so no pass in
+	# any family prints TRUNK-RED for a reason unrelated to its own legs. A leg that wants red,
+	# empty or an off-contract body repoints PROC_TRUNK_CI at its own file; a missing file makes
+	# `emit` refuse at 8, which is what an integration leg aims at to exercise the UNKNOWN arm
+	# through a real activation.
+	emit "${PROC_TRUNK_CI:-$here/run-list.json}" ;;
 *)
 	printf 'proc-shim: unhandled call: %s\n' "$*" >&2
 	exit 9 ;;
@@ -6964,6 +6977,275 @@ proc_reap_clean_too() {
 proc_leg '…and a clean one, on every pass' \
 	'REAP-CLEAN on the shipped activation, with no hold word' proc_reap_clean_too
 
+
+# --------------------------- what the queue read says about itself reaches the journal (#311, H-0250)
+#
+# `triage.sh` runs inside a command substitution, so its stderr had no home: it went to the service's
+# stderr -- journald -- while `factory/log/supervisor.log`, the file #248 exists to point a person at,
+# recorded nothing. Measured 18 Nov across the harness's whole history -- and each number below names
+# the grep that produced it, because a plain `grep -o` over `factory/log/*.log` answers 73 for the
+# sentence `nothing is parked, and needs-human is not a label in this repository` while
+# `grep -rE '^triage: nothing is parked'`, the runtime emission, answers 8 in 6 files: the other 65 are
+# the harness's own source quoted back inside a unit transcript. The supervisor's own journal answers 0
+# (`grep -c TRIAGE-STDERR`), in a history where the class the sentence describes never fired once.
+# Nobody reading the journal could have told "nobody has ever escalated anything" from "the park arm has
+# never been able to run", and those two need different repairs.
+#
+# The plant is a state, not a stub: a configured name the fixture's label list does not carry, which is
+# exactly the condition the sentence describes. No leg below spells the escalation name -- its one home
+# is `factory/common.sh`, and a leg that typed it would go red on the next rename while proving nothing.
+# `export`, not a bare assignment, because `proc_run` hands the pass to `env` and a shell-local variable
+# never reaches triage three processes down: the same reason the reap leg above exports its own plant.
+proc_new said-what-it-meant
+export FACTORY_ESCALATION_LABEL=zz-not-in-the-fixture-list
+proc_run said-what-it-meant
+unset FACTORY_ESCALATION_LABEL
+
+proc_triage_stderr_journalled() {
+	local line=''
+	line=$(proc_journal_line "$proc_journal" 'TRIAGE-STDERR ')
+	[ -n "$line" ] || {
+		printf '            the queue read had something to say and the journal holds no\n' >&2
+		printf '            TRIAGE-STDERR line for it. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The planted state is a label name the fixture list does not carry, so\n' >&2
+		printf '            `triage.sh` owes one sentence on stderr. If the pass output above holds it\n' >&2
+		printf '            and the journal does not, the arm that journals it is what went missing.\n' >&2
+		return 1
+	}
+	case "$line" in
+	(*'is not a label in this repository'*) : ;;
+	*) printf '            the journalled finding is not the planted one:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the queue read says out loud what it could not do' \
+	'TRIAGE-STDERR carries the missing-label finding into the journal' proc_triage_stderr_journalled
+
+# The other polarity, and it is the half that keeps this from becoming noise: an ordinary pass has
+# nothing to say, so an arm that journalled `TRIAGE-STDERR` unconditionally -- or journalled an empty
+# line -- would fill the journal with the shape of a finding while reporting none. This fixture also
+# pins the promise that the stream is deleted on the success path: a `triage-stderr.<pid>` left behind
+# by a HEALTHY pass is a file the next activation reads as a tick that died mid-line.
+proc_new said-nothing
+proc_run said-nothing
+
+proc_triage_stderr_silent() {
+	local left=''
+	if grep -qF -- 'TRIAGE-STDERR ' "$proc_journal"; then
+		printf '            a pass with nothing to report journalled a finding:\n' >&2
+		grep -F -- 'TRIAGE-STDERR ' "$proc_journal" | sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	left=$(find "$proc_rundir" -maxdepth 1 -name 'triage-stderr.*' 2>/dev/null | head -1)
+	[ -z "$left" ] || {
+		printf '            the stream outlived the pass: %s\n' "$left" >&2
+		printf '            It is deleted on both paths and the sweep is only the backstop for a\n' >&2
+		printf '            kill, so what a healthy pass leaves behind is the file the next pass\n' >&2
+		printf '            mistakes for a killed tick.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and says nothing when the read is healthy' \
+	'no TRIAGE-STDERR line, and no stream left in $FACTORY_RUN' proc_triage_stderr_silent
+
+# The third polarity, and the one the two above cannot see: the read FAILING. That is the state the
+# `return 3` this arm guards exists for, and both legs above run a `triage.sh` that exits 0 -- so the
+# whole file stays green over a guard that cannot fire. #441's review caught exactly that: the guard
+# was shipped as `if ! rows=$(...); then triage_rc=$?; fi`, and this repository already had the
+# answer in the same file, in a comment this branch did not write -- `cmd || rc=$?`, never
+# `if ! cmd; then rc=$?`, because inside the `then` branch of a NEGATED test `$?` is the negated
+# status, `!` having reached the `then` only by succeeding. Measured again on this box:
+# `bash -c 'if ! (exit 8); then echo $?; fi'` prints 0. So the stored rc was 0 whatever the read
+# exited, `[ 0 -ne 0 ]` never held, and the arm was dead code in a harness whose own guide promises
+# rc=3. The plant below is the one state no leg in this file had: a queue read that exits 1.
+proc_new could-not-read
+printf '#!/usr/bin/env bash\nprintf "triage: the queue could not be read\\n" >&2\nexit 1\n' \
+	>"$proc_dir/triage.sh"
+chmod +x -- "$proc_dir/triage.sh"
+proc_run could-not-read
+
+proc_triage_read_fails() {
+	grep -qF -- 'exit 1' "$proc_dir/triage.sh" || {
+		printf '            the plant is not in the fixture copy, so a dead arm and a live one\n' >&2
+		printf '            report the same green: %s\n' "$proc_dir/triage.sh" >&2
+		return 1
+	}
+	proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null || {
+		printf '            the queue read exited 1 and the journal holds no TRIAGE-FAILED line.\n' >&2
+		printf '            Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The pass exited %s. If that is 0, the guard stored the exit code of the\n' "$proc_rc" >&2
+		printf '            NEGATION, which is 0 whenever the read failed -- the reviewed bug.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 3 ] || {
+		printf '            the failed read was journalled but the pass exited %s, not 3 -- and 3 is\n' "$proc_rc" >&2
+		printf '            what docs/factory.md promises whoever reads the service log.\n' >&2
+		return 1
+	}
+	awk 'index($0, " PASS ") { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
+		printf '            the pass journalled the failed read and then marched on: a PASS line sits\n' >&2
+		printf '            beside it, a pass reporting units over a queue it never read.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the queue read failing stops the pass' \
+	'TRIAGE-FAILED, exit 3, and no PASS line over an unreadable queue' proc_triage_read_fails
+
+# The control, because a green leg proves nothing until something red has been measured with it. The
+# fixture's own copy of the pass gets the reviewed line back -- the negation keeping the status --
+# and the same plant runs again. The predicate above must FAIL over it: the rc comes back 0, the arm
+# never fires, and the pass journals a PASS line over a queue it could not read. A control that also
+# stopped at 3 would mean this leg reads something other than the guard. Restoring the shipped copy
+# is the last thing it does on every path, because the legs below share this fixture directory.
+proc_triage_read_fails_control() {
+	local f=$proc_dir/factory.sh keep=$proc_work/factory-sh-shipped
+	cp -- "$f" "$keep" || {
+		printf '            the fixture pass could not be copied, so the control cannot be run\n' >&2
+		return 1
+	}
+	PMUT_OLD='rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err") || triage_rc=$?' \
+	PMUT_NEW='	if ! rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err"); then triage_rc=$?; fi' \
+	awk '{ if (index($0, ENVIRON["PMUT_OLD"])) print ENVIRON["PMUT_NEW"]; else print }' \
+		"$keep" >"$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated line could not be planted\n' >&2
+		return 1
+	}
+	grep -qF -- 'if ! rows=$(' "$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated form is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	proc_run could-not-read-mutated
+	cp -- "$keep" "$f"
+	if proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null && [ "$proc_rc" = 3 ]; then
+		printf '            the negated guard journalled TRIAGE-FAILED and exited 3 anyway, so this\n' >&2
+		printf '            leg is not aimed at the guard: it would have passed the reviewed bug.\n' >&2
+		return 1
+	fi
+	printf '        control: with the negation back in the pass, the same unreadable queue left it at %s\n' "$proc_rc"
+	printf '        and journalled [%s] -- the arm docs/factory.md promises would fire.\n' \
+		"$(proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' | head -c 60)"
+	return 0
+}
+proc_leg '…and the leg is aimed at the guard, not the fixture' \
+	'the negated form re-planted makes the same fixture go red' proc_triage_read_fails_control
+
+# And the shape, pinned for the rest of the tree: no shipped script may store a status read through a
+# negated test. One review found this instance, and the same mistake costs a reader nothing to
+# notice -- `$?` sits on the line and reads like a status. The scan walks the block of every
+# negated test in the shipped scripts with comments stripped (`factory/factory.sh` documents the
+# rule as a comment, and a guard that flags its own prescription gets deleted for noise), and
+# over-reports on purpose: a `$?` anywhere inside that block is a question no reader should settle
+# by hand.
+negated_status_reads() { # dir -> shipped lines that read $? under a negated test
+	if [ ! -d "$1/factory" ]; then
+		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
+		return 0
+	fi
+	# `|| true` for the reason in `bad_refresh_calls`: no match is an answer, not a failure. The
+	# suite is excluded for the reason `naive_dirt_tests` excludes it: selftest.sh carries the
+	# negated form on purpose, inside the control that puts the reviewed bug back.
+	find "$1/factory" -name '*.sh' ! -name 'selftest.sh' -print0 2>/dev/null |
+	xargs -0 -r awk '
+			{
+				code = $0; sub(/#.*/, "", code)
+				match(code, /^[ \t]*/); ind = RLENGTH
+				if (pend) {
+					if (code ~ /\$[?]/) {
+						printf "%s:%d: %s  [negated test at %s:%d]\n", FILENAME, FNR, $0, file, start
+						pend = 0; next
+					}
+				# A block ends at the `fi` standing at the same indentation as the test.
+				# An earlier draft counted every `if` anywhere on a line, so a comma-if in a
+				# printf string opened a block that never closed and swallowed a correct
+				# `|| rc=$?` far below: the leg went red on code that was right.
+				if (ind <= pind && code ~ /^[ \t]*fi([ \t;]|$)/) pend = 0
+				next
+			}
+			if (code ~ /^[ \t]*if[ \t]+!/) {
+				pend = 1; pind = ind; start = FNR; file = FILENAME
+				if (code ~ /\$[?]/ || code ~ /(^|[ \t])fi([ \t;]|$)/) {
+					printf "%s:%d: %s\n", FILENAME, FNR, $0
+					pend = 0
+				}
+			}
+		}' || true
+}
+
+negated_status_refused() {
+	local label="no status read through a negation" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(negated_status_reads "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script keeps the rc of a command whose test is negated,\n' "$label"
+		printf '          where $? is the negation'"'"'s own status -- 0 whenever the command failed:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every status read is stored before it is tested\n' "$label"
+	fi
+
+	# The must-catch control: the reviewed one-liner in a script of its own. A scan that cannot see
+	# it is blind, and its silence about the repository would certify nothing.
+	mkdir -p "$work/negated-rc/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape, restored verbatim' \
+		'if ! rows=$(read-the-queue 2>"$err"); then rc=$?; fi' \
+		>	"$work/negated-rc/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan did not see the reviewed line planted for it, so its\n' "control: $label"
+		printf '          silence about the tree means nothing. Fix the pattern.\n'
+	else
+		printf '        control: the reviewed one-liner is refused when it is planted in a shipped\n'
+		printf '        script, so the ok above is the check working and not the check being blind.\n'
+	fi
+
+	# The block form, which is what the reviewed guard actually looked like once the assignment was
+	# split onto its own line: the rc sits two rows under the test, so a scan that reads only the
+	# `if !` row misses every real instance of the shape.
+	mkdir -p "$work/negated-rc-block/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape with the assignment split from the test' \
+		'if ! read-the-queue; then' \
+		'	rc=$?' \
+		'fi' \
+		>"$work/negated-rc-block/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc-block")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan missed the block form, the shape actually shipped: the rc\n' "control: $label"
+		printf '          sat on its own row under the negated test.\n'
+	else
+		printf '        control: the block form is refused too, which is the shape the review named.\n'
+	fi
+
+	# And the false-positive control: the same shape quoted in a comment. Refusing prose is how a
+	# guard like this gets widened away (H-0040), and `factory/factory.sh` documents the rule in
+	# exactly those words, so a scan that flagged the prescription would be deleted to silence it.
+	mkdir -p "$work/negated-rc-prose/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# never `if ! cmd; then rc=$?; fi`: inside a negated test $? is the negation, not the cmd' \
+		'read-the-queue || rc=$?' \
+		>"$work/negated-rc-prose/factory/prose.sh"
+	if [ -n "$(negated_status_reads "$work/negated-rc-prose")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan refuses a comment that only quotes the shape, so it reads\n' "control: $label"
+		printf '          prose and will be widened away inside a week (H-0040).\n'
+	else
+		printf '        control: the same shape inside a comment is not refused, so the file that\n'
+		printf '        documents the rule stays writable.\n'
+	fi
+	return 0
+}
+negated_status_refused
+
 # ------------------------------------------------ the journal's own location, on a real activation (#260)
 #
 # The replay section at the end of this file can plant any transcript it likes. What it cannot plant is
@@ -9697,20 +9979,23 @@ ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
 claim_reset
 
-# =============== the escalation label: one name, one home, and no vote in the queue (#315)
+# =============== the escalation label: one name, one home, and no vote in the queue (#315, #311)
 #
-# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label, the repository cannot
-# say: `gh label list` answers eighteen names and the one every file used to spell out is not among
-# them (measured 12 Nov). #311 owns that question -- create the name, or point the instruction at a
-# label that exists -- and it is parked, so it is not this unit's to answer. What is true whichever way
-# it is answered is the shape pinned here, and it is the half that could land while #311 waits:
+# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label the repository means was
+# #311's question -- create a name, or point the instruction at a label that exists -- and it was
+# unanswered for six days while `gh label list` answered eighteen names and the one every file used to
+# spell out was not among them (measured 12 Nov). #311 is settled as of 18 Nov (H-0250): the value is
+# GitHub's own `question` label, so an escalation needs no administrator. What is true whichever way the
+# question is answered is the shape pinned here:
 #
 #   * the name lives in ONE file. Five used to spell it out in full -- `AGENTS.md`, `SKILL.md` twice,
 #     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
 #     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
 #     and stays green in the other four, which is how an instruction came to order a write GitHub
 #     refuses (a probe on 12 Nov, `gh issue edit 311 --add-label zzprobe-does-not-exist`, printed
-#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged);
+#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged). What the
+#     census scans for moved with the name, and it is said at the scan itself: a settled value that is
+#     also an ordinary English word can only be policed at the position where it becomes a write;
 #   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
 #     the assignment in `common.sh` holds, not a second copy of them;
 #   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
@@ -9766,17 +10051,36 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 	fi
 	for f in "${files[@]}"; do
 		[ -f "$root/$f" ] || continue
-		hit=$(grep -cF -- "$name" "$root/$f" 2>/dev/null || true)
+		# What the census looks for, and why not the bare name. #315 shipped a substring
+		# census, the right one while the name was a word nobody says in prose (`needs-human`:
+		# zero hits outside its one home). The new name is English prose, not a marker: it covers
+		# over a hundred lines of these nine files (H-0250 counts them), so scanning by substring is a leg that is
+		# red before anyone edits anything, and loosening the rule to "anywhere is fine"
+		# reopens #315. What still protects the artifact is the POSITION: a name spelled AT A
+		# LABEL WRITE is the bytes handed to `gh`, and that is the failure measured on 12 Nov
+		# (`--add-label zzprobe-does-not-exist` exited 1). A name in prose is a stale sentence,
+		# not a refused write. What this trade stops seeing is recorded beside the value in
+		# `factory/common.sh`: a stale copy with no flag beside it is invisible to the gate now.
+		# The class stops at a backtick, a comment, a pipe, a semicolon or a close-paren, so
+		# the shipped instruction `--add-label "$(factory/escalation-label.sh)"` is not a hit.
+		write_re="--(add|remove)-label[^\`#|;&)]*${name}"
+		hit=$(grep -c -iE -- "$write_re" "$root/$f" 2>/dev/null || true)
 		if [ "$f" = factory/common.sh ]; then
-			[ "${hit:-0}" -ge 1 ] || {
-				printf '            common.sh, the one home, does not contain the name at all\n' >&2
+			# The home is checked where the value actually lives -- the assignment line. A name that
+			# appears only in common.sh's prose would satisfy a substring count while the line a tick
+			# reads defines something else, and `esc_reader_agrees` below is the leg that compares the
+			# printed value with that line's bytes.
+			[ "$(grep -c "^FACTORY_ESCALATION_LABEL=.*${name}" "$root/factory/common.sh")" -ge 1 ] || {
+				printf '            common.sh, the one home, does not define the name on its\n' >&2
+				printf '            `FACTORY_ESCALATION_LABEL=` line, so nothing can be compared\n' >&2
 				bad=1
 			}
 		elif [ "${hit:-0}" -ne 0 ]; then
-			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
+			printf '            %s spells the name at a label write (%s line%s): those are the\n' \
 				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
-			printf '            the home moves and this leg passes on the rest of the census\n' >&2
-			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
+			printf '            bytes gh is handed. A second copy goes stale while the home\n' >&2
+			printf '            moves, and this leg would pass on the rest of the census.\n' >&2
+			grep -n -iE -- "$write_re" "$root/$f" | sed 's/^/              /' >&2
 			bad=1
 		fi
 	done
@@ -10364,15 +10668,36 @@ esc_pr_verb_control() {
 		printf '        the ok above is a census of the eight live files and not of one.\n'
 	fi
 	# 2. The two commands taken out of the tick's instruction: the branch is back to saying "label it".
-	grep -v -- '--json labels' "$ctrl/arm/factory/factory.sh" |
-		grep -v '^gh issue edit ' >"$fs" || true
-	if grep -q -- '--json labels' "$fs" || grep -q '^gh issue edit ' "$fs"; then
+	#    Through a temporary file, and this is not style. `> "$fs"` truncates factory.sh BEFORE the
+	#    grep on its left opens it, so the plant that meant to lift two lines out of the instruction
+	#    deleted the whole file -- measured 17 Nov, one warning on stderr (`input file is also the
+	#    output`, grep names it and `|| true` swallowed it) and a zero-byte copy behind it. The arm
+	#    checks below then went red over a file holding no `address_review` arm at all, which is a
+	#    different branch than the one this control claims to build, and the control could not have
+	#    failed for the reason it prints.
+	grep -v -- '--json labels' "$fs" | grep -v '^gh issue edit ' >"$fs.lifted" || true
+	if grep -q -- '--json labels' "$fs.lifted" || grep -q '^gh issue edit ' "$fs.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the arm copy still carries the marker commands, so the arm checks\n' \
 			'control: the instruction'
 		printf '          above were never aimed at a branch that names none\n'
 		return 0
 	fi
+	# The plant's own precondition, since a control that mutates too much proves nothing: the copy is
+	# still the instruction, arm and all, minus exactly the two commands.
+	if ! grep -q 'address_review)' "$fs.lifted"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted copy holds no address_review arm, so the check below reads\n' \
+			'control: the instruction'
+		printf '          a destroyed file and not an instruction with two commands lifted out\n'
+		return 0
+	fi
+	mv -f -- "$fs.lifted" "$fs" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted instruction could not be put in place\n' \
+			'control: the instruction'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/arm" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a branch that orders a marker naming no verb and no read-back still\n' \
@@ -10382,15 +10707,39 @@ esc_pr_verb_control() {
 		printf '        control: with the two commands lifted out of the instruction the leg goes red,\n'
 		printf '        so the ok above is the tick being handed the verb, not a word it can guess.\n'
 	fi
-	# 3. The guide's sentence deleted, leaving the instruction intact.
-	grep -vF 'Both artifacts take' "$ctrl/guide/docs/factory.md" >"$guide" || true
-	if grep -qF 'Both artifacts take' "$guide"; then
+	# 3. The guide's sentence deleted, leaving the instruction intact. Same temporary-file rule as
+	#    plant 2, and the same reason: writing onto the file grep is reading empties it first.
+	if ! grep -qF 'Both artifacts take' "$guide"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the guide copy never carried the clause, so the leg above was not\n' \
+			'control: the guide'
+		printf '          reading the guide this repository ships\n'
+		return 0
+	fi
+	grep -vF 'Both artifacts take' "$guide" >"$guide.lifted" || true
+	if grep -qF 'Both artifacts take' "$guide.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the guide plant left the clause in place, so the leg above was never\n' \
 			'control: the guide'
 		printf '          aimed at it\n'
 		return 0
 	fi
+	# The clause is one row of a 2,400-row guide. Anything materially shorter is the plant eating the
+	# document, and a leg that goes red on an empty file is not evidence about a missing sentence.
+	guide_rows_before=$(wc -l <"$guide")
+	guide_rows_after=$(wc -l <"$guide.lifted")
+	if [ "$guide_rows_after" -lt "$((guide_rows_before - 3))" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide went from %s rows to %s, so the check below reads a\n' \
+			'control: the guide' "$guide_rows_before" "$guide_rows_after"
+		printf '          shredded document and not a guide missing one sentence\n'
+		return 0
+	fi
+	mv -f -- "$guide.lifted" "$guide" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide could not be put in place\n' 'control: the guide'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/guide" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a guide with the verb sentence deleted still passes, so the skill and\n' \
@@ -14880,6 +15229,282 @@ gate_verdict_off_refs() { # -> 0 when the verdict is a reading of two files, not
 	return 0
 }
 
+# ---- what the reader reads when an entry is filed as its own file (issue #429, phase 1) ----
+#
+# Every fixture below is generated into `$work` and thrown away, never committed. #339 took the editable
+# `notes/` fixtures out of this repository for one reason -- a file a person can edit is a file that can
+# be edited into agreeing with a broken reader -- and the argument is stronger for a reader than for a
+# writer: a committed `factory/DECISIONS/H-0001.md` would sit just as quietly beside a clean monolith if
+# the reader stopped opening directories, because nothing in the pair would disagree. So the shapes are
+# written here and the shipped `scripts/check-decisions.py` is run over them.
+# One entry, appended to whatever the file already holds -- a monolith keeps its heading, and a filed
+# file is created by the append and holds nothing else, which is exactly the invariant the reader
+# enforces on it.
+layout_entry() { # <file> <id> <sha>
+	printf '\n## %s · An entry in a reader fixture\n\n- Question: can the gate open this entry?\n- Options: it can | it cannot\n- Chose: it can\n- Why: a decision nobody can read back is not a record.\n- Checkpoint: %s\n' "$2" "$3" >>"$1"
+}
+layout_repo() { # <dir> -> 0 and the fixture commit's sha, the one thing an entry may cite
+	local repo=$1
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" "$repo/factory" || return 1
+	cp -- "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || return 1
+	# The real Makefile, because the reader's invocation rule fires whenever the tree has one, and a
+	# fixture that omitted it would leave one rule unrun rather than failing.
+	cp -- "$HERE/../Makefile" "$repo/" || return 1
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	# Both monoliths, always. Only the directories are optional to this gate: a log that is not there is
+	# a read that failed, and the legs below assert that separately rather than discovering it as noise.
+	printf '# Decisions\n' >"$repo/DECISIONS.md" || return 1
+	printf '# Harness decisions\n' >"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit an entry can cite' || return 1
+	local sha
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	# One entry in each log: a monolith with zero entries is refused on its own -- "what a log that has
+	# stopped being written looks like" -- so a fixture that tripped that rule would prove nothing about
+	# the layout. Legs file ids that do not collide with these two, except where the collision is the leg.
+	layout_entry "$repo/DECISIONS.md" D-0001 "$sha" || return 1
+	layout_entry "$repo/factory/DECISIONS.md" H-0001 "$sha" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -q -m 'fixture: a log pair with one entry each' || return 1
+	printf '%s\n' "$sha"
+}
+
+decisions_reader_opens_filed_entries() { # -> 0 when a filed entry is read, and counted as a log
+	local repo=$work/decision-layout/opens sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0002.md" H-0002 "$sha" || return 1
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the reader refused a log pair plus one filed entry, which is the shape phase 2'
+		pos_say 'starts producing and phase 1 has to accept:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'across 3 log(s)' || {
+		pos_say 'it answered, but the tally does not count the filed file, so that file was never'
+		pos_say 'opened. That is the silent failure this issue is about -- a green gate over half'
+		pos_say 'the decisions, where half is now a number the reader chose:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# The control for the leg above, on the same builder: with no entry directory the count is one and the
+# run is clean. Without it, 'across 2 log(s)' could be a line the reader prints whatever is on disk.
+decisions_absent_dir_is_no_error() {
+	local repo=$work/decision-layout/absent sha out
+	layout_repo "$repo" >/dev/null || return 1
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'a tree with no `DECISIONS/` anywhere was refused. Phase 1 lands while every entry'
+		pos_say 'is still in a monolith, so this is the repository'"'"'s own shape today:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'across 2 log(s)' || {
+		pos_say 'the tally does not say 2 logs with no entry directory on disk, so the leg above'
+		pos_say 'counts something other than what it opened, and proves nothing about the filed file:'
+		pos_say "$out"
+		return 1
+	}
+	# The other half of the invariant, asserted here because it is the same sentence with one word
+	# changed: the directories are optional and the logs are not. Delete a monolith and the read has
+	# failed -- if that ever answers clean, a `git rm` of a log silences the gate.
+	rm -f -- "$repo/DECISIONS.md" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'a deleted `DECISIONS.md` read clean. Absence was read as zero entries, which is the'
+		pos_say 'rule for a directory because a tree may not have migrated yet; a log has no such'
+		pos_say 'excuse, and an unread log is an unguarded repository:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_cross_layout_duplicate() { # -> 0 when the union refuses one id in two layouts
+	local repo=$work/decision-layout/duped sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/DECISIONS" || return 1
+	# The id the root monolith already carries, filed as its own file: the split moving one entry across
+	# the layouts without moving it out of the log is the mistake phase 3 can make.
+	layout_entry "$repo/DECISIONS/D-0001.md" D-0001 "$sha" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'one id sat in the root monolith and in `DECISIONS/D-0001.md` and the run was clean.'
+		pos_say 'The union is what makes the split safe; if it does not see across the two layouts,'
+		pos_say 'phase 3 moves entries into a duplicate no gate will name:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'DECISIONS/D-0001.md' || {
+		pos_say 'it refused, but never named the filed file, so the reader cannot see which copy lost:'
+		pos_say "$out"
+		return 1
+	}
+	# The other half, and the reason the refusal is not simply "read every file you find": `--log PATH`
+	# promises the duplicate rule runs against that file alone. Same tree, narrower subject, clean run.
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py --log DECISIONS.md 2>&1); then
+		pos_say '`--log DECISIONS.md` was refused by the duplicate sitting in the other layout. Its'
+		pos_say 'documented subject is one file:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_filename_is_the_id() { # -> 0 when a filed name and its heading are one claim
+	local repo=$work/decision-layout/named sha out sum
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0007.md" H-0008 "$sha" || return 1
+	sum=$(md5sum <"$repo/factory/DECISIONS/H-0007.md") || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say '`H-0007.md` holding `## H-0008` was accepted. A citation followed by heading and a'
+		pos_say 'file found by name would land on two different decisions, silently:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'the filename says H-0007' || {
+		pos_say 'it refused for some other reason, so nothing here has pinned the filename rule:'
+		pos_say "$out"
+		return 1
+	}
+	# The control: the same bytes under the name the heading claims. Renaming is the only change, so the
+	# refusal above was the pair and not the prose.
+	mv -- "$repo/factory/DECISIONS/H-0007.md" "$repo/factory/DECISIONS/H-0008.md" || return 1
+	[ "$(md5sum <"$repo/factory/DECISIONS/H-0008.md")" = "$sum" ] || {
+		pos_say 'the rename changed the bytes, so the clean answer below clears nothing:'
+		return 1
+	}
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the identical entry under its own name was still refused, so the rule is refusing'
+		pos_say 'the layout rather than the disagreement:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_unseen_entry_file() { # -> 0 when nothing filed below the entry directory is skipped
+	local repo=$work/decision-layout/nested sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/DECISIONS/deep" || return 1
+	layout_entry "$repo/DECISIONS/deep/H-0009.md" H-0009 "$sha" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'an entry filed below `DECISIONS/` was read by nothing and reported as clean. A layout'
+		pos_say 'the reader skips is a decision with no rules over it -- phase 3 would move entries'
+		pos_say 'into it and see the gate stay green:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'DECISIONS/deep/H-0009.md' || {
+		pos_say 'it refused, but not for the nested file, so the nested case is still unjudged:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# The property the whole layout is bought with, measured off git rather than argued: two branches that
+# file the same id collide, two branches that file different ids do not, and two branches that append to
+# the monolith still collide. The third measurement is in the same leg on purpose -- without it the first
+# could be satisfied by a fixture git never merged at all, and the claim this file makes is about the
+# difference between the two layouts, not about filed entries in isolation.
+filed_entries_add_free_in_git() {
+	local repo=$work/decision-layout/merge base a b tree rc out v major minor
+	v=$(git version | awk '{print $3}') || return 1
+	major=${v%%.*}
+	minor=${v#*.}
+	minor=${minor%%.*}
+	# The three-way form of `merge-tree` is 2.38; older git answers a different command with a different
+	# exit status, which is a verdict about the toolchain and not about the layout.
+	if [ "$major" -lt 2 ] || { [ "$major" = 2 ] && [ "$minor" -lt 38 ]; }; then
+		return 2
+	fi
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	printf '# Harness decisions
+' >"$repo/factory/DECISIONS.md" || return 1
+	printf '# Placeholder
+' >"$repo/factory/DECISIONS/H-0001.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the trunk both branches start from' || return 1
+	base=$(git -C "$repo" rev-parse HEAD) || return 1
+
+	# (a) two branches file the SAME id, with different bodies: that is the allocator collision #442
+	# measured at 23% of ids, and the merge is where it has to become loud.
+	git -C "$repo" checkout -q -b one "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0299.md" H-0299 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: one branch files H-0299' || return 1
+	git -C "$repo" checkout -q -b two "$base" || return 1
+	printf '# Harness decisions\n\n## H-0299 · The other branch'"'"'s claim\n\n- Question: the same id?\n- Options: yes | no\n- Chose: no\n- Why: this is the copy that must not merge silently.\n- Checkpoint: %s\n' "$base" >"$repo/factory/DECISIONS/H-0299.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the other branch files H-0299 too' || return 1
+	a=$(git -C "$repo" rev-parse one) || return 1
+	b=$(git -C "$repo" rev-parse two) || return 1
+	if out=$(git -C "$repo" merge-tree --write-tree one two 2>&1); then
+		rc=0
+	else
+		rc=$?
+	fi
+	[ "$rc" != 0 ] || {
+		pos_say 'git merged two branches that filed the same id with different bodies, so the layout'
+		pos_say 'buys nothing: the id collision would still arrive as two files claiming one decision.'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'add/add' || {
+		pos_say 'the merge failed, but not as an add/add on the shared path, so the fixture is not the'
+		pos_say 'shape the claim is about:'
+		pos_say "$out"
+		return 1
+	}
+
+	# (b) two branches file DIFFERENT ids: clean, and both entries present in the merged tree. The tree
+	# is read back because a clean exit alone is also what an empty merge answers.
+	git -C "$repo" checkout -q -b three "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0300.md" H-0300 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a branch files H-0300' || return 1
+	git -C "$repo" checkout -q -b four "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0301.md" H-0301 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a branch files H-0301' || return 1
+	if ! tree=$(git -C "$repo" merge-tree --write-tree three four 2>&1); then
+		pos_say 'two branches filing different ids conflicted, which is the cost this layout is'
+		pos_say 'supposed to remove -- and it means the leg below measures nothing:'
+		pos_say "$tree"
+		return 1
+	fi
+	[ "$(git -C "$repo" ls-tree -r --name-only "$tree" | grep -c '^factory/DECISIONS/H-030')" = 2 ] || {
+		pos_say 'the clean merge did not carry both filed entries, so it was clean by ignoring them:'
+		git -C "$repo" ls-tree -r --name-only "$tree" | sed 's/^/            /' >&2
+		return 1
+	}
+
+	# (c) the shipped layout, same two-branch shape: two appends to the monolith collide. This is the
+	# tax #381 measured at 17.1 hours of conflict ticks, and it is what (a) and (b) are compared to.
+	git -C "$repo" checkout -q -b five "$base" || return 1
+	printf '\n## H-0302 · one side appends\n' >>"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" commit -qam 'fixture: one append to the monolith' || {
+		git -C "$repo" add -A && git -C "$repo" commit -qm 'fixture: one append to the monolith'; } || return 1
+	git -C "$repo" checkout -q -b six "$base" || return 1
+	printf '\n## H-0303 · the other side appends\n' >>"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the other append to the monolith' || return 1
+	if git -C "$repo" merge-tree --write-tree five six >/dev/null 2>&1; then
+		pos_say 'two appends to the monolith merged clean, so this fixture does not reproduce the'
+		pos_say 'collision the layout replaces -- the comparison above would then be between two'
+		pos_say 'things that behave the same, and the leg would be arguing nothing.'
+		return 1
+	fi
+	return 0
+}
+
 # Both halves of the multi-clone boundary, in one reporter. The unfetched half alone would be passed
 # for free by a fixture whose clone never learned about origin at all, so the fetched half is the
 # control for it: the answer has to be the stale ceiling first and the sibling's id after.
@@ -15568,7 +16193,30 @@ decision_ids() {
 	gen_leg 'a sibling id leaves the verdict alone' \
 		'a duplicate on a sibling ref does not move the answer' \
 		gate_verdict_off_refs
-
+	# ---- the one-file-per-entry reader (#429 phase 1) ----
+	#
+	# The four behaviours the phase is made of, each on a generated fixture: the directory is opened, an
+	# absent one is not an error, the union sees a duplicate across the two layouts while `--log` does
+	# not, and a filed name and its heading are one claim. Then the property the layout buys, measured
+	# off git.
+	gen_leg 'the reader opens a filed entry' \
+		'a monolith plus one file under `factory/DECISIONS/` reads as two logs' \
+		decisions_reader_opens_filed_entries
+	gen_leg 'a tree with no entry directory reads clean' \
+		'the absent directory is zero entries, and the tally says 1 log' \
+		decisions_absent_dir_is_no_error
+	gen_leg 'one id in two layouts is a duplicate' \
+		'the union refuses it and names both files; `--log` still reads one' \
+		decisions_cross_layout_duplicate
+	gen_leg 'a filed entry is named by its id' \
+		'the pair is refused, and the same bytes under the heading'"'"'s name are not' \
+		decisions_filename_is_the_id
+	gen_leg 'nothing filed is skipped in silence' \
+		'an entry below the entry directory is refused by its path' \
+		decisions_unseen_entry_file
+	gen_leg 'a filed id cannot collide in the dark' \
+		'one id in two branches conflicts, two ids merge, two appends conflict' \
+		filed_entries_add_free_in_git
 	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
 		alloc_no_fetch
 	gen_leg 'the shared allocator is documented' \
@@ -16940,7 +17588,7 @@ pass_one_fetch_per_activation() { # [file] -> 0 when one unrefspec'd fetch runs,
 	}
 	sites=$(grep -n 'factory_refresh_origin "\$(factory_main_checkout)"' "$script" |
 		head -n 1 | cut -d: -f1)
-	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh")' "$script" | head -n 1 | cut -d: -f1)
+	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh"' "$script" | head -n 1 | cut -d: -f1)
 	if [ -z "$sites" ] || [ -z "$triage" ]; then
 		pos_say 'no call site for factory_refresh_origin, or no triage read to be ahead of.'
 		return 1
@@ -16961,7 +17609,7 @@ pass_second_fetch_control() {
 		return 0
 	}
 	copy=$dir/factory.sh
-	sed -e '/triage.sh"); then/a\	factory_refresh_origin "$(factory_main_checkout)"' \
+	sed -e '/rows=.*triage\.sh/a\	factory_refresh_origin "$(factory_main_checkout)"' \
 		"$refsh_script" >"$copy" || {
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
@@ -20952,12 +21600,41 @@ ask_prompt_render() { # ask_prompt_render <factory.sh> -- print the rendered emp
 	printf '%s\n' "$out"
 }
 ask_prompt_carries_no_name() { # ask_prompt_carries_no_name [root] -- no literal name reaches the tick
-	local root=$HERE/.. name rendered
+	local root=$HERE/.. name rendered rc box
 	[ -z "${1:-}" ] || root=$1
-	if ! name=$(bash "$root/factory/escalation-label.sh" 2>/dev/null); then
-		printf '            the reader refuses, so there is no name to compare the rendering\n' >&2
-		printf '            against -- and a stopped unit right now cannot label anything either.\n' >&2
-		printf '            Fix the reader first; this leg inherits its verdict until then.\n' >&2
+	if [ ! -f "$root/factory/escalation-label.sh" ]; then
+		printf '            %s carries no factory/escalation-label.sh, so this leg has no name\n' "$root" >&2
+		printf '            to read and refuses rather than judging some other tree\n' >&2
+		return 1
+	fi
+	# The reader is called from the tree it belongs to, with the harness's path variables taken out
+	# of the environment, because it is NOT a pure read of a constant: common.sh resolves FACTORY_DIR
+	# from the environment before it resolves that name from its own path, and the first thing it
+	# then runs is `_factory_main`'s `git -C "$FACTORY_DIR/.." worktree list`. Measured 18 Nov: a
+	# FACTORY_DIR naming a deleted fixture makes the reader exit 128, and a FACTORY_DIR naming a real
+	# directory that is not a repository exits 128 the same way -- the pipeline fails under the
+	# reader's own `set -euo pipefail`, so the `FACTORY_ROOT=` assignment aborts the script before
+	# anything prints. This file assigns FACTORY_DIR to a fixture at row 340 and legs beside this one
+	# export more, so a bare call here asks the reader about the suite's history rather than about
+	# the shipped default -- and the shipped default is the only thing this leg may compare a
+	# rendering against. The rc is read before anything negates it (H-0259), and the reader's own
+	# words are kept, so a refusal names the arm that fired instead of only saying it refused.
+	box=$(mktemp -d "$work/ask-name-XXXX") || return 1
+	name=$(cd -- "$root" 2>/dev/null &&
+		env -u FACTORY_DIR -u FACTORY_ROOT -u FACTORY_HARNESS -u FACTORY_TREES \
+			-u FACTORY_LOG -u FACTORY_ESCALATION_LABEL \
+			bash ./factory/escalation-label.sh 2>"$box/err")
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '            the reader refuses (rc %s), so there is no name to compare the\n' "$rc" >&2
+		printf '            rendering against -- and a stopped unit right now cannot label\n' >&2
+		printf '            anything either. Fix the reader first; this leg inherits its verdict\n' >&2
+		printf '            until then. What it printed, and what it was handed:\n' >&2
+		if [ -s "$box/err" ]; then
+			sed -e 's/^/              /' "$box/err" | head -6 >&2
+		fi
+		printf '              FACTORY_DIR=%s FACTORY_ROOT=%s PWD=%s\n' \
+			"${FACTORY_DIR:-<unset>}" "${FACTORY_ROOT:-<unset>}" "$PWD" >&2
 		return 1
 	fi
 	if [ -z "$name" ]; then
@@ -23045,6 +23722,565 @@ proc_leg 'a closed ticket leaves a stamped clean ledger' \
 cdec_unplant
 printf '%s\n' '[{"number":9001}]' >"$proc_fix/pr-head.json"
 cdec_shipped
+
+# --------------------------------------------------------------------------- the trunk's own CI verdict (#370)
+#
+# `main` carried a push-workflow FAILURE for 1h49m04s (measured 16 Nov on the API: run 44110925937,
+# queued 17:06:06Z, completed 18:55:10Z) while the loop journalled 36 DELIVERED rows and one MERGED
+# on top of it, because every check read in the harness was aimed at a pull request -- and a
+# `pull_request` check runs on a merge of the head with the base tip, so a green pull request says
+# nothing about the branch it lands on. The family below owns the repair: `JQ_TRUNK_CI` and
+# `factory_trunk_ci_lines` in `factory/common.sh`, the one read wired into `factory_body`, the
+# `TRUNK-CI` / `TRUNK-RED` / `TRUNK-CI-UNKNOWN` codes, and the rule that every arm prints a line --
+# #228's polarity, which is exactly the rule the pre-#370 harness broke by silence: no reader could
+# distinguish "the trunk is green" from "nobody asked".
+#
+# The legs stand on a private fixture gh of their own rather than the shared proc shim, because
+# three of the arms (a gh that refuses, a read that parks, a body off contract) are things the
+# shared shim cannot be made to do mid-family without re-pointing every other family's payloads.
+# The shared shim still answers `run list` (seeded green) so the INTEGRATION legs below run through
+# a real `factory.sh` activation, and those are the legs that pin the wiring, the once-per-
+# activation count, and the report-only posture.
+tci_dir=$work/trunk-ci
+tci_bin=$tci_dir/bin
+tci_log=$tci_dir/log
+tci_rec=$tci_dir/calls
+mkdir -p "$tci_bin" "$tci_log"
+: >"$tci_rec"
+tci_sha=d4559fd5de2646e6ae4ad13755e81a50289c17d3
+tci_runid=44240957485
+tci_age=3600
+tci_created=$(date -u -d "@$(( $(date -u +%s) - tci_age ))" +%Y-%m-%dT%H:%M:%SZ)
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"success","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/green.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/red.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"cancelled","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/cancelled.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"skipped","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/skipped.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"COMPLETED","conclusion":"SUCCESS","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/upper.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"in_progress","conclusion":null,"createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/pending.json"
+# A run whose status already says completed but whose conclusion has not been written yet: the
+# rollup rule's own unfinished-shape case, ported. Reading it green is the pre-#370 bug wearing a
+# new shape -- the status alone is not completion.
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/completed-empty.json"
+printf '[]\n' >"$tci_dir/empty.json"
+printf '{"status":"completed"}\n' >"$tci_dir/not-array.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure"}]\n' \
+	"$tci_runid" "$tci_sha" >"$tci_dir/missing-field.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure","createdAt":"not-a-date"}]\n' \
+	"$tci_runid" "$tci_sha" >"$tci_dir/bad-date.json"
+cat >"$tci_bin/gh" <<'TCIGH'
+#!/usr/bin/env bash
+# Fixture gh for the trunk-CI legs. It answers `run list` from $TCI_PAYLOAD verbatim -- the
+# function under test does its own jq, so what this shim prints IS what GitHub printed, bytes and
+# all -- sleeps $TCI_SLEEP before answering when that is set, exits $TCI_RC with $TCI_WHY on stderr
+# when that is set, and records every call. Anything else exits 9: the shipped function asks one
+# question, and a shim that answers more than was asked hides a call the line does not make.
+#
+# The sleep is `exec`ed on purpose. bash defers traps while a foreground child runs, so a plain
+# `sleep 20` here would survive the TERM the shipped bound sends and die only on the later KILL --
+# the leg would then exercise the kill-after arm and report the timeout arm, measuring the fixture
+# instead of the code. `exec` puts `sleep` in the stub's process, where TERM lands immediately.
+set -u
+printf '%s\n' "$*" >>"${TCI_REC:?TCI_REC names the call record}"
+if [ -n "${TCI_SLEEP:-}" ]; then exec sleep "$TCI_SLEEP"; fi
+if [ -n "${TCI_RC:-}" ]; then
+	printf 'fixture gh: %s\n' "${TCI_WHY:-the trunk read refused}" >&2
+	exit "$TCI_RC"
+fi
+case "$1 $2" in
+'run list') cat "${TCI_PAYLOAD:?TCI_PAYLOAD names the run-list body}" ;;
+*)
+	printf 'fixture gh: unhandled call: %s\n' "$*" >&2
+	exit 9 ;;
+esac
+TCIGH
+chmod +x "$tci_bin/gh"
+
+tci_call() { # tci_call <payload> [NAME=value ...] -> the shipped function's lines, stdout only
+	local payload=$1
+	shift
+	: >"$tci_rec"
+	env PATH="$tci_bin:$PATH" TCI_REC="$tci_rec" TCI_PAYLOAD="$payload" \
+		FACTORY_LOG="$tci_log" FACTORY_BASE=tci-base-default "$@" \
+		bash -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90
+			factory_trunk_ci_lines "${TCI_ARG-}"' _ "$HERE"
+}
+
+tci_count() { printf '%s\n' "$1" | grep -c . || true; }
+
+# The measured call shape: the read is `run list`, pinned to push events, limit 1, and the five
+# fields the line renders. A leg that asserts the ASK before the ANSWER is the control that makes
+# every answer-leg below mean something: it proves the stub was reached and asked the question.
+tci_asked() { # tci_asked -> the one recorded call, exact
+	local line
+	line=$(cat "$tci_rec")
+	[ "$line" = 'run list --branch tci-base-default --event push --limit 1 --json databaseId,headSha,conclusion,status,createdAt' ] || {
+		printf '            the stub recorded a different ask (or none):\n              %s\n' "$line" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_green() {
+	local out verdict
+	out=$(tci_call "$tci_dir/green.json") || return 1
+	tci_asked || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            green trunk must print exactly the verdict line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha success run=$tci_runid age="*) : ;;
+	*) printf '            the verdict line is not the contract shape:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in *TRUNK-RED*|*UNKNOWN*) printf '            a green trunk printed a red or unknown line\n' >&2; return 1 ;; esac
+	verdict=$(printf '%s' "$out" | awk '{print $3}')
+	[ "$verdict" = success ] || { printf '            verdict field was %s\n' "$verdict" >&2; return 1; }
+	# The ticket's timestamp test, taken strictly: `since=` is byte-identical to what the payload
+	# said (stronger than the ±2 s it asked for), it parses as UTC, and `age=` is MEASURED from it
+	# -- within 5 s of the planted 3600 s, a window for run latency, not a fudge of the claim.
+	local since age when
+	since=${out##*since=}
+	[ "$since" = "$tci_created" ] || {
+		printf '            since= echoed %s, not the %s gh reported\n' "$since" "$tci_created" >&2
+		return 1
+	}
+	when=$(date -u -d "$since" +%s 2>/dev/null) || {
+		printf '            since= does not parse as a UTC timestamp: %s\n' "$since" >&2
+		return 1
+	}
+	age=${out##*age=}; age=${age%%s*}
+	# spelled as an explicit refusal rather than `A && B || C`: shellcheck is right that the chain
+	# runs C when A is true and B is false, which is what is wanted HERE, but the gate refuses the
+	# shape and the if-form says the same thing with nothing to misread.
+	if [ "$((age - tci_age))" -lt -5 ] || [ "$((age - tci_age))" -gt 5 ]; then
+		printf '            age=%ss is not measured from since= (expected %s +/-5)\n' "$age" "$tci_age" >&2
+		return 1
+	fi
+	return 0
+}
+
+tci_red() {
+	local out
+	out=$(tci_call "$tci_dir/red.json") || return 1
+	tci_asked || return 1
+	[ "$(tci_count "$out")" = 2 ] || {
+		printf '            a red trunk must print the verdict line AND TRUNK-RED, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha failure run=$tci_runid "*) : ;;
+	*) printf '            the verdict line lost the conclusion:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	local red
+	red=$(printf '%s\n' "$out" | grep '^TRUNK-RED ') || return 1
+	case "$red" in
+	*"run=$tci_runid"*"since=$tci_created"*) : ;;
+	*) printf '            TRUNK-RED does not repeat the run id and the timestamp:\n              %s\n' "$red" >&2
+		return 1 ;;
+	esac
+	case "$red" in
+	*report-only*"#370"*) : ;;
+	*) printf '            TRUNK-RED must say it reports and name the ticket that bounded it:\n              %s\n' "$red" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+
+# The shared bad list, end to end: every member of JQ_BAD_CONCLUSIONS reads red through the trunk
+# read, `skipped` and `neutral` do not, and the list itself still holds all six names -- so the
+# trunk verdict and a pull-request rollup cannot drift apart by vocabulary (#370's explicit
+# requirement that the two share one list).
+tci_vocabulary() {
+	local list c out n=0
+	list=$(bash -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90; printf "%s" "$JQ_BAD_CONCLUSIONS"' _ "$HERE") || {
+		printf '            could not read JQ_BAD_CONCLUSIONS out of the shipped common.sh\n' >&2
+		return 1
+	}
+	for c in FAILURE TIMED_OUT ACTION_REQUIRED STARTUP_FAILURE CANCELLED ERROR; do
+		printf '%s' "$list" | jq -e --arg c "$c" 'index($c) != null' >/dev/null || {
+			printf '            the shared list no longer holds %s, so trunk and rollup can disagree\n' "$c" >&2
+			return 1
+		}
+	done
+	for c in $(printf '%s' "$list" | jq -r '.[] | ascii_downcase'); do
+		printf '[{"databaseId":1,"headSha":"aa","status":"completed","conclusion":"%s","createdAt":"%s"}]\n' \
+			"$c" "$tci_created" >"$tci_dir/vocab.json"
+		out=$(tci_call "$tci_dir/vocab.json") || return 1
+		printf '%s\n' "$out" | grep -q '^TRUNK-RED ' || {
+			printf '            conclusion %s is in the shared bad list but the trunk read did not call it red:\n              %s\n' "$c" "$out" >&2
+			return 1
+		}
+		n=$((n + 1))
+	done
+	[ "$n" = 6 ] || { printf '            only %s of the 6 bad conclusions reached TRUNK-RED\n' "$n" >&2; return 1; }
+	for c in skipped neutral; do
+		printf '[{"databaseId":1,"headSha":"aa","status":"completed","conclusion":"%s","createdAt":"%s"}]\n' \
+			"$c" "$tci_created" >"$tci_dir/vocab.json"
+		out=$(tci_call "$tci_dir/vocab.json") || return 1
+		[ "$(tci_count "$out")" = 1 ] || {
+			printf '            %s is not a failure: a verdict line and nothing else\n              %s\n' "$c" "$out" >&2
+			return 1
+		}
+		case "$out" in
+		TRUNK-CI\ *\ ${c}\ run=*) : ;;
+		*) printf '            %s is not a failure, and the trunk read called it:\n              %s\n' "$c" "$out" >&2
+			return 1 ;;
+		esac
+	done
+	return 0
+}
+
+tci_cancelled_red() {
+	local out
+	out=$(tci_call "$tci_dir/cancelled.json") || return 1
+	printf '%s\n' "$out" | grep -q '^TRUNK-RED ' && return 0
+	printf '            CANCELLED reads fail in a rollup (JQ_CHECKS) but the trunk read said:\n              %s\n' "$out" >&2
+	return 1
+}
+
+tci_skipped_green() {
+	local out
+	out=$(tci_call "$tci_dir/skipped.json") || return 1
+	case "$out" in
+	TRUNK-CI*skipped*) case "$out" in *TRUNK-RED*) : ;; *) return 0 ;; esac ;;
+	esac
+	printf '            `skipped` is not in the bad list; the trunk read said:\n              %s\n' "$out" >&2
+	return 1
+}
+
+# The measured lowercase/uppercase split: gh 2.46.0's `run list --json` answers lowercase where
+# `gh api` answers upper (measured 18 Nov at /usr/bin/gh). Both spellings must read the same, and
+# the LINE prints the downcased conclusion whatever arrived, so journal greps have one shape.
+tci_case() {
+	local out
+	out=$(tci_call "$tci_dir/upper.json") || return 1
+	case "$out" in
+	"TRUNK-CI $tci_sha success run=$tci_runid "*) return 0 ;;
+	*) printf '            an uppercase payload must read success (downcased into the line), got:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+}
+
+tci_pending() {
+	local out
+	out=$(tci_call "$tci_dir/pending.json") || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a queued run prints the verdict line and nothing else:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha pending run=$tci_runid "*) : ;;
+	*) printf '            an in_progress run must read pending:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in *TRUNK-RED*) printf '            a pending run printed TRUNK-RED\n' >&2; return 1 ;; esac
+	case "$out" in *null*) printf '            a null conclusion leaked into the line verbatim\n' >&2; return 1 ;; esac
+	return 0
+}
+
+# JQ_CHECKS' unfinished-shape rule, ported and pinned: completion is `status == COMPLETED AND
+# conclusion != ""`. A completed run whose conclusion is not yet written is unfinished -- reading
+# it as green is the queued-run bug in a different shirt.
+tci_unfinished() {
+	local out
+	out=$(tci_call "$tci_dir/completed-empty.json") || return 1
+	case "$out" in
+	"TRUNK-CI $tci_sha pending run=$tci_runid "*) return 0 ;;
+	*) printf '            status completed with an unwritten conclusion is NOT green:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+}
+
+tci_ghfail() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" TCI_RC=3 TCI_WHY='HTTP 401: Bad credentials') || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a refused read prints exactly one line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=2\ *exited\ 3*HTTP\ 401*) : ;;
+	*) printf '            the refusal line must number itself rc=2, quote gh exit 3 and carry gh stderr:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in TRUNK-CI\ *) printf '            a refused read still printed a verdict line\n' >&2; return 1 ;; esac
+	return 0
+}
+
+tci_timeout() {
+	local out t0 t1 rc
+	t0=$(date -u +%s)
+	out=$(tci_call "$tci_dir/green.json" FACTORY_FETCH_TIMEOUT=1 TCI_SLEEP=20) || return 1
+	t1=$(date -u +%s)
+	rc=$((t1 - t0))
+	grep -q 'run list' -- "$tci_rec" || {
+		printf '            the stub recorded no call, so the read was never armed and the timeout below proves nothing\n' >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=1\ *after\ 1s\ \(FACTORY_FETCH_TIMEOUT\)*) : ;;
+	*) printf '            the parked read must be journalled rc=1 and name the bound it hit:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	[ "$rc" -le 12 ] || {
+		printf '            the bound did not bound anything: the call took %ss with FACTORY_FETCH_TIMEOUT=1\n' "$rc" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_empty() {
+	local out
+	out=$(tci_call "$tci_dir/empty.json") || return 1
+	[ "$(tci_count "$out")" = 1 ] || { printf '            the empty branch prints one line:\n%s\n' "$out" >&2; return 1; }
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=3\ *"no push runs"*) : ;;
+	*) printf '            the empty branch must be a numbered sentence, not silence:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+
+tci_offcontract() {
+	local name out
+	for name in not-array missing-field bad-date; do
+		out=$(tci_call "$tci_dir/$name.json") || return 1
+		[ "$(tci_count "$out")" = 1 ] || {
+			printf '            the %s body prints exactly one line, got:\n%s\n' "$name" "$out" >&2
+			return 1
+		}
+		case "$out" in
+		TRUNK-CI-UNKNOWN\ rc=4*) : ;;
+		*) printf '            a body off contract (%s) must be rc=4, never guessed and never silent:\n              %s\n' "$name" "$out" >&2
+			return 1 ;;
+		esac
+	done
+	return 0
+}
+
+# #228's polarity rule, censused over every arm rather than trusted: each arm -- verdict AND
+# failure alike -- prints at least one line, and every printed line starts with one of the three
+# codes. Silence is the bug; this leg is the one that refuses it structurally.
+tci_polarity() {
+	local name out n
+	for name in green red pending empty not-array missing-field bad-date ghfail timeout; do
+		case "$name" in
+		ghfail) out=$(tci_call "$tci_dir/green.json" TCI_RC=3) ;;
+		timeout) out=$(tci_call "$tci_dir/green.json" FACTORY_FETCH_TIMEOUT=1 TCI_SLEEP=20) ;;
+		*) out=$(tci_call "$tci_dir/$name.json") ;;
+		esac
+		n=$(tci_count "$out")
+		[ "$n" -ge 1 ] || {
+			printf '            arm %s printed NOTHING: a reader of the journal would read absence as evidence\n' "$name" >&2
+			return 1
+		}
+		printf '%s\n' "$out" | grep -qvE '^(TRUNK-CI|TRUNK-CI-UNKNOWN|TRUNK-RED)( |$)' && {
+			printf '            arm %s printed a line under no journal code:\n%s\n' "$name" "$out" >&2
+			return 1
+		}
+	done
+	return 0
+}
+
+# The dry-run arm is a promise, not a call: the line says what WOULD run, and the fixture records
+# nothing. The control is `tci_asked` in the green leg above -- the same stub, the same PATH, a
+# real call there -- so emptiness here is the dry-run declining, not a stub nobody reached.
+tci_dry() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" DRY_RUN=1) || return 1
+	[ "$(tci_count "$out")" = 1 ] || { printf '            dry-run prints one promise line:\n%s\n' "$out" >&2; return 1; }
+	case "$out" in
+	'DRY-RUN  timeout --signal=TERM --kill-after=5 '*"gh run list --branch tci-base-default --event push --limit 1 --json "*) : ;;
+	*) printf '            the promise line must carry the full bounded command:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	[ ! -s "$tci_rec" ] || {
+		printf '            dry-run asked gh anyway; the record holds:\n' >&2
+		sed 's/^/              /' "$tci_rec" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_branch_arg() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" TCI_ARG=trunk-of-record) || return 1
+	grep -q -- '--branch trunk-of-record' "$tci_rec" || {
+		printf '            the argument must reach the ask as --branch; record:\n              %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	case "$out" in TRUNK-CI\ *) return 0 ;; *) printf '            no verdict line for a named branch\n' >&2; return 1 ;; esac
+}
+
+tci_branch_env() {
+	local out
+	out=$(tci_call "$tci_dir/green.json") || return 1
+	grep -q -- '--branch tci-base-default' "$tci_rec" || {
+		printf '            with no argument the read defaults to FACTORY_BASE; record:\n              %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	return 0
+}
+
+claim_leg 'trunk: green verdict line' tci_green
+claim_leg 'trunk: red prints TRUNK-RED' tci_red
+claim_leg 'trunk: one shared bad list' tci_vocabulary
+claim_leg 'trunk: cancelled is red' tci_cancelled_red
+claim_leg 'trunk: skipped is not red' tci_skipped_green
+claim_leg 'trunk: case-insensitive' tci_case
+claim_leg 'trunk: queued is pending' tci_pending
+claim_leg 'trunk: unwritten conclusion' tci_unfinished
+claim_leg 'trunk: gh refusal' tci_ghfail
+
+# The rc=5 arm the arm table promises: with no gh on PATH the function cannot even ask, so it says
+# itself -- one line, numbered, and the stub is never reached (the empty record is the control that
+# makes the sentence mean "nothing was asked" rather than "the ask went somewhere I did not see").
+tci_nogh() {
+	local out d
+	# gh lives beside bash in /usr/bin, so no directory filter can hide one without the other:
+	# the arm is armed with a symlink farm of every PATH directory EXCEPT the gh binary, and
+	# bash itself is invoked by absolute path so the farm never has to hold it.
+	local nogh=$tci_dir/nogh_bin
+	mkdir -p "$nogh"
+	for d in ${PATH//:/ }; do
+		[ -d "$d" ] || continue
+		local f
+		for f in "$d"/*; do
+			[ -e "$f" ] || continue
+			[ "$(basename "$f")" = gh ] && continue
+			[ -e "$nogh/$(basename "$f")" ] || ln -s "$f" "$nogh/$(basename "$f")" 2>/dev/null || true
+		done
+	done
+	: >"$tci_rec"
+	out=$(env PATH="$nogh" TCI_REC="$tci_rec" TCI_PAYLOAD="$tci_dir/green.json" \
+		FACTORY_LOG="$tci_log" FACTORY_BASE=tci-base-default \
+		"$(command -v bash)" -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90
+			factory_trunk_ci_lines "${TCI_ARG-}"' _ "$HERE") || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a missing gh must print exactly one line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	[ -s "$tci_rec" ] && {
+		printf '            a missing gh asked the stub anyway: %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=5*not\ on\ PATH*) : ;;
+	*) printf '            the missing-gh line must number itself rc=5 and name PATH:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in TRUNK-CI\ *) printf '            a missing gh still printed a verdict line\n' >&2; return 1 ;; esac
+	return 0
+}
+claim_leg 'trunk: no gh is rc=5' tci_nogh
+claim_leg 'trunk: parked read bounded' tci_timeout
+claim_leg 'trunk: no push runs' tci_empty
+claim_leg 'trunk: body off contract' tci_offcontract
+claim_leg 'trunk: no arm prints nothing' tci_polarity
+claim_leg 'trunk: dry-run promises' tci_dry
+claim_leg 'trunk: branch argument' tci_branch_arg
+claim_leg 'trunk: defaults to FACTORY_BASE' tci_branch_env
+
+# Integration: real `factory.sh` activations through the proc fixture, pinning the three things
+# the function-level legs cannot reach -- that the wiring runs, where in the pass it runs, that it
+# runs ONCE per activation rather than per unit, and that a red trunk halts nothing (report-only
+# is #370 item 2; item 3 stays a question).
+proc_new trunk-verdict
+proc_plant
+PROC_TRUNK_CI=$tci_dir/green.json proc_run trunk-green
+PROC_TRUNK_CI=$tci_dir/red.json proc_run trunk-red
+PROC_TRUNK_CI=$tci_dir/gone.json proc_run trunk-gone
+
+proc_tcv_green_once() {
+	local n first_ci first_tick
+	n=$(grep -Ec '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" || true)
+	[ "$n" = 1 ] || {
+		printf '            activation 1 journalled %s TRUNK-CI verdict lines, not one\n' "$n" >&2
+		return 1
+	}
+	first_ci=$(grep -En '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" | head -n 1 | cut -d: -f1)
+	first_tick=$(grep -n 'TICK-START' -- "$proc_work/trunk-green.journal" | head -n 1 | cut -d: -f1)
+	[ -n "$first_tick" ] || { printf '            the fixture pass dispatched no tick, so ordering proves nothing\n' >&2; return 1; }
+	[ "$first_ci" -lt "$first_tick" ] || {
+		printf '            the verdict must be journalled BEFORE unit work (triage and dispatch), so an\n            activation that dies mid-unit has already said what the trunk showed; ci=%s tick=%s\n' "$first_ci" "$first_tick" >&2
+		return 1
+	}
+	return 0
+}
+
+proc_tcv_line_fields() {
+	local line
+	line=$(grep -E '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" | head -n 1)
+	case "$line" in
+	*"$tci_sha success run=$tci_runid"*"since=$tci_created"*) return 0 ;;
+	*) printf '            the journalled verdict lost a field (sha, verdict, run id or since=):\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+}
+
+# Once per ACTIVATION, not once per unit: three activations above, and the shared record -- which
+# `proc_new` truncated for this box -- holds exactly three `run list` calls even though the box
+# dispatched three ticks.
+proc_tcv_per_activation() {
+	local n
+	n=$(grep -c '^run list ' -- "$proc_rec" || true)
+	[ "$n" = 3 ] || {
+		printf '            three activations made %s trunk reads; the read belongs to the activation\n' "$n" >&2
+		return 1
+	}
+	return 0
+}
+
+# Report, never halt (#370 item 2; H-0056 refused the halt posture, #341 measured its price):
+# the red activation still ticks its unit and still closes its pass.
+proc_tcv_red_continues() {
+	local j=$proc_work/trunk-red.journal
+	grep -q 'TRUNK-CI .* failure ' -- "$j" || {
+		printf '            the red activation never journalled the failure verdict:\n' >&2
+		grep -E 'TRUNK-CI|TRUNK-RED' -- "$j" | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -q 'TRUNK-RED' -- "$j" || { printf '            the red activation printed no TRUNK-RED\n' >&2; return 1; }
+	grep -q 'TICK-START' -- "$j" || {
+		printf '            a red trunk HALTED unit work: the pass must report the red and go on\n' >&2
+		sed 's/^/              /' "$j" | cut -c1-150 >&2
+		return 1
+	}
+	grep -q 'END rc=0' -- "$j" || { printf '            the red activation ended non-zero or never ended\n' >&2; return 1; }
+	return 0
+}
+
+# The failure arm through a real pass: the shim refuses the missing body, the journal says so in
+# a numbered line, and the absence of a verdict line is never left to read as green.
+proc_tcv_gone_arms() {
+	local j=$proc_work/trunk-gone.journal
+	grep -q 'TRUNK-CI-UNKNOWN rc=2' -- "$j" || {
+		printf '            a trunk read that refused must journal TRUNK-CI-UNKNOWN rc=2:\n' >&2
+		grep -E 'TRUNK' -- "$j" | sed 's/^/              /' >&2
+		return 1
+	}
+	# `^[^ ]*Z TRUNK-CI ` is the journal stamp followed by the VERDICT word; the UNKNOWN sentence
+	# itself contains the phrase "TRUNK-CI line" as prose, and a bare substring grep matches its own
+	# disclaimer -- measured 18 Nov, the rc=2 leg went red on the very line that refuted it.
+	grep -Eq '^[^ ]+Z TRUNK-CI ' -- "$j" && { printf '            a refused read printed a verdict line anyway\n' >&2; return 1; }
+	grep -q 'END rc=0' -- "$j" || { printf '            the failed read broke the pass\n' >&2; return 1; }
+	return 0
+}
+
+claim_leg 'trunk pass: one line, early' proc_tcv_green_once
+claim_leg 'trunk pass: fields journaled' proc_tcv_line_fields
+claim_leg 'trunk pass: once per activation' proc_tcv_per_activation
+claim_leg 'trunk pass: red does not halt' proc_tcv_red_continues
+claim_leg 'trunk pass: refusal is said' proc_tcv_gone_arms
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

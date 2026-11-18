@@ -63,6 +63,13 @@ rule that exists because of a measured failure, and the measurement is cited.
   That number is not judged at all while any citation cannot be opened, because a stray untracked
   directory moves pointers out of it, and no number measured against such a tree is a statement about
   the logs.
+- The decision log is migrating to one file per entry (#429, `H-0263`). The gate already reads both forms
+  — the two monoliths and `DECISIONS/<id>.md` beside `factory/DECISIONS/<id>.md` — and both stay valid
+  until phase 3 completes, so **do not convert an entry by hand**: the allocator and every writer still
+  append to the monolith, which makes a hand-filed entry a file nothing will ever produce again. A filed
+  file's name is a rule now, not a convenience (`layout_problems`: the filename id and the heading id are
+  one claim), and an id used in both layouts is refused with both locations named (`cross_log_problems`).
+  The sequence rule stays inside a file — a directory read in sorted order has no order a merge honours.
 
 ## Worktrees
 
