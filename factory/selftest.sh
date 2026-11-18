@@ -16206,8 +16206,6 @@ decision_ids() {
 	gen_leg 'a filed id cannot collide in the dark' \
 		'one id in two branches conflicts, two ids merge, two appends conflict' \
 		filed_entries_add_free_in_git
-
-
 	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
 		alloc_no_fetch
 	gen_leg 'the shared allocator is documented' \

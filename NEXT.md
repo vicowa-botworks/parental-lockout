@@ -1,40 +1,63 @@
-# NEXT — issue-370 unit (PR #446: pushed the H-0267 tzdata pin after H-0266's shellcheck pin proved itself; the approval the pushes spent is owed a re-ask)
+# NEXT — issue-429 unit (PR #451: phase-1 decision-log layout reader; the review's REQUEST_CHANGES answered by merging `origin/main` with a content-identity digit pass, `H-0269`)
 
-State read before this file wrote a byte, by this branch’s third dispatch, one read per call, raw JSON
-counted in python and never a `-q` template: **#446** `OPEN`, `MERGEABLE`, `reviewDecision` **empty** —
-`hermesvicowa`’s approval of `879c862` was dismissed by this branch’s push to `3594696` and nobody has
-been re-asked — `mergeStateStatus BLOCKED`, `reviewRequests` empty; head `3594696` with `verify` `fail`
-(run `44278709700`, job `134713403419`) and the four other checks `pass` — and the verify job of that run
-printed `check-shell: 0.10.0 over 33 scripts` rc 0, so `H-0266`’s pin had landed and held, and the red is
-its rotation’s second half: six `internal/schedule` failures refusing the runner’s partial zone database,
-`H-0267`’s subject. `origin/main` was at `1292021`; this dispatch fetched and the allocator re-armed
-before taking the id. Re-read all of it before acting: a number here belongs to the clock it was taken on.
+State read before this file wrote a byte, by this branch's second dispatch, raw JSON to files counted
+in python and never a `-q` template: **#451** `OPEN`, `reviewDecision` **CHANGES_REQUESTED**,
+`mergeable` **CONFLICTING**, `mergeStateStatus` **DIRTY**, head `89f8c4e` — the review row's ask is
+answered in the local tree only until the push below lands. `origin/main` was at `26e8c6d` (PR #446
+merged, carrying `H-0264`–`H-0267`). The allocator, fetched first and re-armed, answers **`H-0269`**
+with a `REFRESH` note and no `PENDING`/`REFRESH-BLIND`; zero `H-0269` hits in the supervisor journal,
+and the only grep hits anywhere are this dispatch's own transcripts. Re-read all of it before acting:
+a number here belongs to the clock it was taken on.
 
 ## What this dispatch pushed
 
-- `bf51a58` (the pre-`H-0267` checkpoint, the rollback target) and one effect commit carrying
-  `Decision: H-0267`: the `verify` job gains a step that installs tzdata `2026e-0ubuntu0.26.04.1` and
-  its `tzdata-legacy` sibling, both verified against the Ubuntu archive’s published sha256, replacing
-  `/usr/share/zoneinfo` before `make verify`. That is the repair for the six-test `verify` `FAILURE` in
-  the read above; `factory/DECISIONS.md` `H-0267` carries the measured pair (base-only deb rc 1 with the
-  six failures verbatim; the pair rc 0 in 2.605s, both on this 26.04 box) and the evidence that pinning
-  `ubuntu-24.04` would only defer the same red — noble-updates’ 2026e base deb ships no `Enderbury`
-  either. The same commit re-aims `H-0266`’s `ci.yml` pointer, which this step’s 58 inserted lines moved.
-- This `NEXT.md`, rewritten at the top; every instruction section below is carried forward unedited.
-- The pull-request body, rewritten for the new head. The write and its read-back are #446’s business and
-  the body itself is the evidence — not this file’s memory.
+- `3d7c2f7` — `Merge origin/main (26e8c6d, past fe21023) into issue-429`: the 44 conflict hunks in
+  `factory/DECISIONS.md` resolved as the id-ascending union, then every `path:line` digit in both logs
+  re-derived by content identity against the merged files (the review's named procedure, `fe21023`'s
+  digits-not-sentences). Also carries the review's second blocking point: the pair at line 3342 of
+  `DECISIONS.md` whose second coordinate was stale-at-true — the checkpoint docstring moved, the
+  citation now reads 646. Proof the review demanded, measured on the tree the pass last touched:
+  `python3 scripts/check-decisions.py` answers `0 refused` with `POINTER_DEBT` **544 unchanged**.
+- `H-0269` and its effect commit: the entry records the pass, the fixed-point discipline (a
+  cosmetic blank-row delete moved 84 anchored pointers out and had to be followed by the gate, not
+  by faith), and the #449 reproduction below.
+- `factory/selftest.sh`: the stray double blank between the six new `gen_leg`s and
+  `gen_leg 'the allocator never fetches'` deleted (review non-blocking item 2).
+- This `NEXT.md`, rewritten at the top; every section below is carried forward unedited.
+- The pull-request body: drift figures re-derived on the merged tree (review non-blocking item 1),
+  and the `DECISIONS/H-0042.md` example question raised on the PR (non-blocking item 3 — whether the
+  #429 sketch's `D`↔`DECISIONS/` pairing should bind is a design call the sketch owns, not this sync).
 - No merge, no label, no reviewer ask, no issue write; the queue belongs to the supervisor.
 
 ## What this push spent, and what it did not fix
 
-- The push to `3594696` had already spent #446’s approval — the read above shows `reviewDecision` empty —
-  and this dispatch’s push spends any approval that arrives before it lands. Only the read-back says so
-  (`gh pr view 446 --json reviewDecision,reviews,mergeable,mergeStateStatus`); the re-ask is the
-  supervisor’s poke.
+- The push spends any approval on #451 as a matter of course — and at the read above the review
+  stands at CHANGES_REQUESTED, so what the push owes is a re-review, which is the supervisor's poke,
+  not this unit's ask.
+- #449 (`FACTORY_TICK_*` inherited by the journalling fixtures) reproduced live this dispatch:
+  `make verify` launched from this session's environment failed exactly its two named legs, because
+  the dispatch exports `FACTORY_TICK_UNIT`/`FACTORY_TICK_BRANCH`. The suite's own bare-run control
+  caught it — that is the control doing its job — and the gate runs here with those six variables
+  unset until #449 lands its repair. Anyone re-running `make verify` on this branch: same six.
+- The 20 ambiguous unanchored pointers the pass refused to guess stay stale (recorded in `H-0269`'s
+  `What lost:`); they are unread by any gate and unchanged in kind from the 544.
+- Phase 2–4 of #429 stay open and are the body's `Not in this PR` section, unchanged.
+
+## Carried forward from the issue-370 unit (PR #446), verbatim
+
+- `bf51a58` (the pre-`H-0267` checkpoint, the rollback target) and one effect commit carrying
+  `Decision: H-0267`: the `verify` job gains a step that installs tzdata `2026e-0ubuntu0.26.04.1` and
+  its `tzdata-legacy` sibling, both verified against the Ubuntu archive's published sha256, replacing
+  `/usr/share/zoneinfo` before `make verify`. That is the repair for six `internal/schedule` failures
+  refusing the runner's partial zone database; `factory/DECISIONS.md` `H-0267` carries the measured
+  pair (base-only deb rc 1 with the six failures verbatim; the pair rc 0 in 2.605s, both on this
+  26.04 box) and the evidence that pinning `ubuntu-24.04` would only defer the same red —
+  noble-updates' 2026e base deb ships no `Enderbury` either. The same commit re-aims `H-0266`'s
+  `ci.yml` pointer, which this step's 58 inserted lines moved.
 - The eight SC2329 infos under shellcheck 0.11.0 stay unfixed — that is `H-0266`'s own `What lost:`. They
   sit on fixture functions `factory/selftest.sh` invokes indirectly by name, and the pin at 0.10.0 is what
   keeps them out of the verdict; the day this repository moves the pin, those eight rows are the next
-  decision. Do not “fix” the pin by deleting the digest.
+  decision. Do not "fix" the pin by deleting the digest.
 - The tzdata pair is pinned to release `2026e`, the one the 26.04 image itself ships. When this repository
   chooses to follow tzdata, both digests and the version move together — `H-0267`'s `What lost:` row is
   where the next unit learns the pair is a standing obligation, not a one-time fetch.
@@ -44,16 +67,19 @@ before taking the id. Re-read all of it before acting: a number here belongs to 
   at rc 0.
 - #370 item 3 — may a red trunk refuse a `MERGE`? — stays open and is a human call: carried row 57
   below; the shipped read is report-only, and neither `H-0266` nor `H-0267` touched that question.
+- Their dispatch's pruning table is whole at `git show 3594696:NEXT.md`; #446 merged, so its rows are
+  history now, not instructions.
 
 ## What this dispatch pruned, and how to get it back
 
 | Dropped | Where it is whole | Why it is a record and not an instruction |
 |---|---|---|
-| the second dispatch’s dated state reads (lines 3-16 of `git show 3594696:NEXT.md`) | that blob | each is a read of a queue that has moved: the approval they recorded has since been dismissed by a push |
-| its `## What this dispatch pushed` (lines 18-31 of the same blob) | same blob | superseded by the section above; the two commits it lists are in this branch’s history now |
+| the issue-370 top block's dated state read (lines 3-11 of `git show 26e8c6d:NEXT.md`) | that blob | a read of a queue that has moved: #446 has merged since |
+| its `## What this dispatch pushed` and `## What this push spent` bullets that speak of #446 as live (lines 13-46 of the same blob) | same blob | #446 merged; the mergeable/approval claims are stale, and the durable ones are folded into the carried section above |
+| its pruning table (lines 48-57 of the same blob) | same blob | #446's drops are history now, itemised above in one line |
 
-Everything else is carried forward unedited. A dropped owed line is the worse failure and item 4 of the
-inherited list says so — so the drops are itemised above, and none of them is an owed line.
+Everything else is carried forward unedited. A dropped owed line is the worse failure — none of the
+three drops above is an owed line; the owed rows begin at the inherited list below.
 
 ## What the verdict makes visible, and this unit could not touch
 
