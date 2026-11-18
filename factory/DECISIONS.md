@@ -13746,9 +13746,12 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
 
 ## H-0261 · the allocator answered `H-0260` on a fresh read and an earlier journalled reservation had already given that number to a sibling -- and a union that reads blobs cannot see a reservation, so the id is yielded and the entry ships one above the contested number with both journal lines recorded
 
-- Id: `bash factory/next-decision-id.sh --repo . factory/DECISIONS.md` answered `H-0260` at the
-  checkpoint and again after `git fetch --prune origin`, journalled both times on this branch; the
-  first read was `REFRESH-BLIND 611s` and the stderr said so. The supervisor's live journal carries
+- Id: the allocator was asked three times. At the checkpoint it answered `H-0259` (`REFRESH 0s
+  union`, journalled) -- which is why `bdd5ae3`'s title says `pre-H-0259`. Re-asked at 08:06 after
+  the sibling's branch had pushed its `## H-0259`, it answered `H-0260` on a `REFRESH-BLIND 611s`
+  read, journalled (supervisor journal line 12727); the post-fetch re-read `REFRESH 1s` answered
+  `H-0260` again and its journal write failed -- `JOURNAL-WRITE-FAILED`, a mis-set `FACTORY_LOG`
+  directory, said so on stderr. The supervisor's live journal carries
   the sibling's `2026-11-18T07:59:11Z DECISION-ID H-0260 unit=session:rc-legs branch=fix/escalation-label-question`
   (journal line 12726 of the supervisor's `factory/log` journal directory, which lives outside the
   gated tree and so gets a timestamp, not a path:line), 7m39s older than this unit's own journalled
