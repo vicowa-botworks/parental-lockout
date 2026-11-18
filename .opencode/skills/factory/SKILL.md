@@ -292,15 +292,18 @@ exit 1, and `gh issue edit 314` with the same name printed
 read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
 only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
 that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
-name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
---remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
+name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240` with two
+`--remove-label` arguments, `blocked` and the marker name of the moment, exited 0 and read back
+`labels: []` where `gh pr edit`
 died on that field (`./DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
 is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
 to read.
 
 Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
 exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
-enough. The name is `factory/escalation-label.sh`'s to print and #311's to settle; a reported refusal is
+enough. The name is `factory/escalation-label.sh`'s to print, and only that: #311 settled what the value
+is on 18 Nov and its answer lives in `factory/common.sh`, so a unit that wants a different one has a
+ticket to argue on, not a string to type. A reported refusal is
 the honest end state of a step whose name is still owed, while an invented label is a marker that reads
 as settled. Nothing outside that script's output may reach `--add-label`.
 
@@ -610,8 +613,10 @@ catches.
   `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
   `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
   files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
-  the SAME physical line: the rule reads one line, so a fragment wrapped onto the next one is not an anchor
-  and the citation lands in the debt instead of being checked. A citation with no
-  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the SAME physical line: the rule reads one line, so a quotation the newline cut — the fragment opening
+  on the next line, or one left unclosed at end of line — is not an anchor, and since #369 it is REFUSED
+  by name, not left as silent debt; while any such row exists the ratchet is held shut, so fixing it is
+  never optional. A citation with no
+  quote at all is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.

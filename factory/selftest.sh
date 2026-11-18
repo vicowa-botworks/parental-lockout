@@ -6977,6 +6977,275 @@ proc_reap_clean_too() {
 proc_leg '…and a clean one, on every pass' \
 	'REAP-CLEAN on the shipped activation, with no hold word' proc_reap_clean_too
 
+
+# --------------------------- what the queue read says about itself reaches the journal (#311, H-0250)
+#
+# `triage.sh` runs inside a command substitution, so its stderr had no home: it went to the service's
+# stderr -- journald -- while `factory/log/supervisor.log`, the file #248 exists to point a person at,
+# recorded nothing. Measured 18 Nov across the harness's whole history -- and each number below names
+# the grep that produced it, because a plain `grep -o` over `factory/log/*.log` answers 73 for the
+# sentence `nothing is parked, and needs-human is not a label in this repository` while
+# `grep -rE '^triage: nothing is parked'`, the runtime emission, answers 8 in 6 files: the other 65 are
+# the harness's own source quoted back inside a unit transcript. The supervisor's own journal answers 0
+# (`grep -c TRIAGE-STDERR`), in a history where the class the sentence describes never fired once.
+# Nobody reading the journal could have told "nobody has ever escalated anything" from "the park arm has
+# never been able to run", and those two need different repairs.
+#
+# The plant is a state, not a stub: a configured name the fixture's label list does not carry, which is
+# exactly the condition the sentence describes. No leg below spells the escalation name -- its one home
+# is `factory/common.sh`, and a leg that typed it would go red on the next rename while proving nothing.
+# `export`, not a bare assignment, because `proc_run` hands the pass to `env` and a shell-local variable
+# never reaches triage three processes down: the same reason the reap leg above exports its own plant.
+proc_new said-what-it-meant
+export FACTORY_ESCALATION_LABEL=zz-not-in-the-fixture-list
+proc_run said-what-it-meant
+unset FACTORY_ESCALATION_LABEL
+
+proc_triage_stderr_journalled() {
+	local line=''
+	line=$(proc_journal_line "$proc_journal" 'TRIAGE-STDERR ')
+	[ -n "$line" ] || {
+		printf '            the queue read had something to say and the journal holds no\n' >&2
+		printf '            TRIAGE-STDERR line for it. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The planted state is a label name the fixture list does not carry, so\n' >&2
+		printf '            `triage.sh` owes one sentence on stderr. If the pass output above holds it\n' >&2
+		printf '            and the journal does not, the arm that journals it is what went missing.\n' >&2
+		return 1
+	}
+	case "$line" in
+	(*'is not a label in this repository'*) : ;;
+	*) printf '            the journalled finding is not the planted one:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the queue read says out loud what it could not do' \
+	'TRIAGE-STDERR carries the missing-label finding into the journal' proc_triage_stderr_journalled
+
+# The other polarity, and it is the half that keeps this from becoming noise: an ordinary pass has
+# nothing to say, so an arm that journalled `TRIAGE-STDERR` unconditionally -- or journalled an empty
+# line -- would fill the journal with the shape of a finding while reporting none. This fixture also
+# pins the promise that the stream is deleted on the success path: a `triage-stderr.<pid>` left behind
+# by a HEALTHY pass is a file the next activation reads as a tick that died mid-line.
+proc_new said-nothing
+proc_run said-nothing
+
+proc_triage_stderr_silent() {
+	local left=''
+	if grep -qF -- 'TRIAGE-STDERR ' "$proc_journal"; then
+		printf '            a pass with nothing to report journalled a finding:\n' >&2
+		grep -F -- 'TRIAGE-STDERR ' "$proc_journal" | sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	left=$(find "$proc_rundir" -maxdepth 1 -name 'triage-stderr.*' 2>/dev/null | head -1)
+	[ -z "$left" ] || {
+		printf '            the stream outlived the pass: %s\n' "$left" >&2
+		printf '            It is deleted on both paths and the sweep is only the backstop for a\n' >&2
+		printf '            kill, so what a healthy pass leaves behind is the file the next pass\n' >&2
+		printf '            mistakes for a killed tick.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and says nothing when the read is healthy' \
+	'no TRIAGE-STDERR line, and no stream left in $FACTORY_RUN' proc_triage_stderr_silent
+
+# The third polarity, and the one the two above cannot see: the read FAILING. That is the state the
+# `return 3` this arm guards exists for, and both legs above run a `triage.sh` that exits 0 -- so the
+# whole file stays green over a guard that cannot fire. #441's review caught exactly that: the guard
+# was shipped as `if ! rows=$(...); then triage_rc=$?; fi`, and this repository already had the
+# answer in the same file, in a comment this branch did not write -- `cmd || rc=$?`, never
+# `if ! cmd; then rc=$?`, because inside the `then` branch of a NEGATED test `$?` is the negated
+# status, `!` having reached the `then` only by succeeding. Measured again on this box:
+# `bash -c 'if ! (exit 8); then echo $?; fi'` prints 0. So the stored rc was 0 whatever the read
+# exited, `[ 0 -ne 0 ]` never held, and the arm was dead code in a harness whose own guide promises
+# rc=3. The plant below is the one state no leg in this file had: a queue read that exits 1.
+proc_new could-not-read
+printf '#!/usr/bin/env bash\nprintf "triage: the queue could not be read\\n" >&2\nexit 1\n' \
+	>"$proc_dir/triage.sh"
+chmod +x -- "$proc_dir/triage.sh"
+proc_run could-not-read
+
+proc_triage_read_fails() {
+	grep -qF -- 'exit 1' "$proc_dir/triage.sh" || {
+		printf '            the plant is not in the fixture copy, so a dead arm and a live one\n' >&2
+		printf '            report the same green: %s\n' "$proc_dir/triage.sh" >&2
+		return 1
+	}
+	proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null || {
+		printf '            the queue read exited 1 and the journal holds no TRIAGE-FAILED line.\n' >&2
+		printf '            Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The pass exited %s. If that is 0, the guard stored the exit code of the\n' "$proc_rc" >&2
+		printf '            NEGATION, which is 0 whenever the read failed -- the reviewed bug.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 3 ] || {
+		printf '            the failed read was journalled but the pass exited %s, not 3 -- and 3 is\n' "$proc_rc" >&2
+		printf '            what docs/factory.md promises whoever reads the service log.\n' >&2
+		return 1
+	}
+	awk 'index($0, " PASS ") { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
+		printf '            the pass journalled the failed read and then marched on: a PASS line sits\n' >&2
+		printf '            beside it, a pass reporting units over a queue it never read.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the queue read failing stops the pass' \
+	'TRIAGE-FAILED, exit 3, and no PASS line over an unreadable queue' proc_triage_read_fails
+
+# The control, because a green leg proves nothing until something red has been measured with it. The
+# fixture's own copy of the pass gets the reviewed line back -- the negation keeping the status --
+# and the same plant runs again. The predicate above must FAIL over it: the rc comes back 0, the arm
+# never fires, and the pass journals a PASS line over a queue it could not read. A control that also
+# stopped at 3 would mean this leg reads something other than the guard. Restoring the shipped copy
+# is the last thing it does on every path, because the legs below share this fixture directory.
+proc_triage_read_fails_control() {
+	local f=$proc_dir/factory.sh keep=$proc_work/factory-sh-shipped
+	cp -- "$f" "$keep" || {
+		printf '            the fixture pass could not be copied, so the control cannot be run\n' >&2
+		return 1
+	}
+	PMUT_OLD='rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err") || triage_rc=$?' \
+	PMUT_NEW='	if ! rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err"); then triage_rc=$?; fi' \
+	awk '{ if (index($0, ENVIRON["PMUT_OLD"])) print ENVIRON["PMUT_NEW"]; else print }' \
+		"$keep" >"$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated line could not be planted\n' >&2
+		return 1
+	}
+	grep -qF -- 'if ! rows=$(' "$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated form is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	proc_run could-not-read-mutated
+	cp -- "$keep" "$f"
+	if proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null && [ "$proc_rc" = 3 ]; then
+		printf '            the negated guard journalled TRIAGE-FAILED and exited 3 anyway, so this\n' >&2
+		printf '            leg is not aimed at the guard: it would have passed the reviewed bug.\n' >&2
+		return 1
+	fi
+	printf '        control: with the negation back in the pass, the same unreadable queue left it at %s\n' "$proc_rc"
+	printf '        and journalled [%s] -- the arm docs/factory.md promises would fire.\n' \
+		"$(proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' | head -c 60)"
+	return 0
+}
+proc_leg '…and the leg is aimed at the guard, not the fixture' \
+	'the negated form re-planted makes the same fixture go red' proc_triage_read_fails_control
+
+# And the shape, pinned for the rest of the tree: no shipped script may store a status read through a
+# negated test. One review found this instance, and the same mistake costs a reader nothing to
+# notice -- `$?` sits on the line and reads like a status. The scan walks the block of every
+# negated test in the shipped scripts with comments stripped (`factory/factory.sh` documents the
+# rule as a comment, and a guard that flags its own prescription gets deleted for noise), and
+# over-reports on purpose: a `$?` anywhere inside that block is a question no reader should settle
+# by hand.
+negated_status_reads() { # dir -> shipped lines that read $? under a negated test
+	if [ ! -d "$1/factory" ]; then
+		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
+		return 0
+	fi
+	# `|| true` for the reason in `bad_refresh_calls`: no match is an answer, not a failure. The
+	# suite is excluded for the reason `naive_dirt_tests` excludes it: selftest.sh carries the
+	# negated form on purpose, inside the control that puts the reviewed bug back.
+	find "$1/factory" -name '*.sh' ! -name 'selftest.sh' -print0 2>/dev/null |
+	xargs -0 -r awk '
+			{
+				code = $0; sub(/#.*/, "", code)
+				match(code, /^[ \t]*/); ind = RLENGTH
+				if (pend) {
+					if (code ~ /\$[?]/) {
+						printf "%s:%d: %s  [negated test at %s:%d]\n", FILENAME, FNR, $0, file, start
+						pend = 0; next
+					}
+				# A block ends at the `fi` standing at the same indentation as the test.
+				# An earlier draft counted every `if` anywhere on a line, so a comma-if in a
+				# printf string opened a block that never closed and swallowed a correct
+				# `|| rc=$?` far below: the leg went red on code that was right.
+				if (ind <= pind && code ~ /^[ \t]*fi([ \t;]|$)/) pend = 0
+				next
+			}
+			if (code ~ /^[ \t]*if[ \t]+!/) {
+				pend = 1; pind = ind; start = FNR; file = FILENAME
+				if (code ~ /\$[?]/ || code ~ /(^|[ \t])fi([ \t;]|$)/) {
+					printf "%s:%d: %s\n", FILENAME, FNR, $0
+					pend = 0
+				}
+			}
+		}' || true
+}
+
+negated_status_refused() {
+	local label="no status read through a negation" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(negated_status_reads "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script keeps the rc of a command whose test is negated,\n' "$label"
+		printf '          where $? is the negation'"'"'s own status -- 0 whenever the command failed:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every status read is stored before it is tested\n' "$label"
+	fi
+
+	# The must-catch control: the reviewed one-liner in a script of its own. A scan that cannot see
+	# it is blind, and its silence about the repository would certify nothing.
+	mkdir -p "$work/negated-rc/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape, restored verbatim' \
+		'if ! rows=$(read-the-queue 2>"$err"); then rc=$?; fi' \
+		>	"$work/negated-rc/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan did not see the reviewed line planted for it, so its\n' "control: $label"
+		printf '          silence about the tree means nothing. Fix the pattern.\n'
+	else
+		printf '        control: the reviewed one-liner is refused when it is planted in a shipped\n'
+		printf '        script, so the ok above is the check working and not the check being blind.\n'
+	fi
+
+	# The block form, which is what the reviewed guard actually looked like once the assignment was
+	# split onto its own line: the rc sits two rows under the test, so a scan that reads only the
+	# `if !` row misses every real instance of the shape.
+	mkdir -p "$work/negated-rc-block/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape with the assignment split from the test' \
+		'if ! read-the-queue; then' \
+		'	rc=$?' \
+		'fi' \
+		>"$work/negated-rc-block/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc-block")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan missed the block form, the shape actually shipped: the rc\n' "control: $label"
+		printf '          sat on its own row under the negated test.\n'
+	else
+		printf '        control: the block form is refused too, which is the shape the review named.\n'
+	fi
+
+	# And the false-positive control: the same shape quoted in a comment. Refusing prose is how a
+	# guard like this gets widened away (H-0040), and `factory/factory.sh` documents the rule in
+	# exactly those words, so a scan that flagged the prescription would be deleted to silence it.
+	mkdir -p "$work/negated-rc-prose/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# never `if ! cmd; then rc=$?; fi`: inside a negated test $? is the negation, not the cmd' \
+		'read-the-queue || rc=$?' \
+		>"$work/negated-rc-prose/factory/prose.sh"
+	if [ -n "$(negated_status_reads "$work/negated-rc-prose")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan refuses a comment that only quotes the shape, so it reads\n' "control: $label"
+		printf '          prose and will be widened away inside a week (H-0040).\n'
+	else
+		printf '        control: the same shape inside a comment is not refused, so the file that\n'
+		printf '        documents the rule stays writable.\n'
+	fi
+	return 0
+}
+negated_status_refused
+
 # ------------------------------------------------ the journal's own location, on a real activation (#260)
 #
 # The replay section at the end of this file can plant any transcript it likes. What it cannot plant is
@@ -9710,20 +9979,23 @@ ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
 claim_reset
 
-# =============== the escalation label: one name, one home, and no vote in the queue (#315)
+# =============== the escalation label: one name, one home, and no vote in the queue (#315, #311)
 #
-# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label, the repository cannot
-# say: `gh label list` answers eighteen names and the one every file used to spell out is not among
-# them (measured 12 Nov). #311 owns that question -- create the name, or point the instruction at a
-# label that exists -- and it is parked, so it is not this unit's to answer. What is true whichever way
-# it is answered is the shape pinned here, and it is the half that could land while #311 waits:
+# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label the repository means was
+# #311's question -- create a name, or point the instruction at a label that exists -- and it was
+# unanswered for six days while `gh label list` answered eighteen names and the one every file used to
+# spell out was not among them (measured 12 Nov). #311 is settled as of 18 Nov (H-0250): the value is
+# GitHub's own `question` label, so an escalation needs no administrator. What is true whichever way the
+# question is answered is the shape pinned here:
 #
 #   * the name lives in ONE file. Five used to spell it out in full -- `AGENTS.md`, `SKILL.md` twice,
 #     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
 #     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
 #     and stays green in the other four, which is how an instruction came to order a write GitHub
 #     refuses (a probe on 12 Nov, `gh issue edit 311 --add-label zzprobe-does-not-exist`, printed
-#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged);
+#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged). What the
+#     census scans for moved with the name, and it is said at the scan itself: a settled value that is
+#     also an ordinary English word can only be policed at the position where it becomes a write;
 #   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
 #     the assignment in `common.sh` holds, not a second copy of them;
 #   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
@@ -9779,17 +10051,36 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 	fi
 	for f in "${files[@]}"; do
 		[ -f "$root/$f" ] || continue
-		hit=$(grep -cF -- "$name" "$root/$f" 2>/dev/null || true)
+		# What the census looks for, and why not the bare name. #315 shipped a substring
+		# census, the right one while the name was a word nobody says in prose (`needs-human`:
+		# zero hits outside its one home). The new name is English prose, not a marker: it covers
+		# over a hundred lines of these nine files (H-0250 counts them), so scanning by substring is a leg that is
+		# red before anyone edits anything, and loosening the rule to "anywhere is fine"
+		# reopens #315. What still protects the artifact is the POSITION: a name spelled AT A
+		# LABEL WRITE is the bytes handed to `gh`, and that is the failure measured on 12 Nov
+		# (`--add-label zzprobe-does-not-exist` exited 1). A name in prose is a stale sentence,
+		# not a refused write. What this trade stops seeing is recorded beside the value in
+		# `factory/common.sh`: a stale copy with no flag beside it is invisible to the gate now.
+		# The class stops at a backtick, a comment, a pipe, a semicolon or a close-paren, so
+		# the shipped instruction `--add-label "$(factory/escalation-label.sh)"` is not a hit.
+		write_re="--(add|remove)-label[^\`#|;&)]*${name}"
+		hit=$(grep -c -iE -- "$write_re" "$root/$f" 2>/dev/null || true)
 		if [ "$f" = factory/common.sh ]; then
-			[ "${hit:-0}" -ge 1 ] || {
-				printf '            common.sh, the one home, does not contain the name at all\n' >&2
+			# The home is checked where the value actually lives -- the assignment line. A name that
+			# appears only in common.sh's prose would satisfy a substring count while the line a tick
+			# reads defines something else, and `esc_reader_agrees` below is the leg that compares the
+			# printed value with that line's bytes.
+			[ "$(grep -c "^FACTORY_ESCALATION_LABEL=.*${name}" "$root/factory/common.sh")" -ge 1 ] || {
+				printf '            common.sh, the one home, does not define the name on its\n' >&2
+				printf '            `FACTORY_ESCALATION_LABEL=` line, so nothing can be compared\n' >&2
 				bad=1
 			}
 		elif [ "${hit:-0}" -ne 0 ]; then
-			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
+			printf '            %s spells the name at a label write (%s line%s): those are the\n' \
 				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
-			printf '            the home moves and this leg passes on the rest of the census\n' >&2
-			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
+			printf '            bytes gh is handed. A second copy goes stale while the home\n' >&2
+			printf '            moves, and this leg would pass on the rest of the census.\n' >&2
+			grep -n -iE -- "$write_re" "$root/$f" | sed 's/^/              /' >&2
 			bad=1
 		fi
 	done
@@ -10377,15 +10668,36 @@ esc_pr_verb_control() {
 		printf '        the ok above is a census of the eight live files and not of one.\n'
 	fi
 	# 2. The two commands taken out of the tick's instruction: the branch is back to saying "label it".
-	grep -v -- '--json labels' "$ctrl/arm/factory/factory.sh" |
-		grep -v '^gh issue edit ' >"$fs" || true
-	if grep -q -- '--json labels' "$fs" || grep -q '^gh issue edit ' "$fs"; then
+	#    Through a temporary file, and this is not style. `> "$fs"` truncates factory.sh BEFORE the
+	#    grep on its left opens it, so the plant that meant to lift two lines out of the instruction
+	#    deleted the whole file -- measured 17 Nov, one warning on stderr (`input file is also the
+	#    output`, grep names it and `|| true` swallowed it) and a zero-byte copy behind it. The arm
+	#    checks below then went red over a file holding no `address_review` arm at all, which is a
+	#    different branch than the one this control claims to build, and the control could not have
+	#    failed for the reason it prints.
+	grep -v -- '--json labels' "$fs" | grep -v '^gh issue edit ' >"$fs.lifted" || true
+	if grep -q -- '--json labels' "$fs.lifted" || grep -q '^gh issue edit ' "$fs.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the arm copy still carries the marker commands, so the arm checks\n' \
 			'control: the instruction'
 		printf '          above were never aimed at a branch that names none\n'
 		return 0
 	fi
+	# The plant's own precondition, since a control that mutates too much proves nothing: the copy is
+	# still the instruction, arm and all, minus exactly the two commands.
+	if ! grep -q 'address_review)' "$fs.lifted"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted copy holds no address_review arm, so the check below reads\n' \
+			'control: the instruction'
+		printf '          a destroyed file and not an instruction with two commands lifted out\n'
+		return 0
+	fi
+	mv -f -- "$fs.lifted" "$fs" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted instruction could not be put in place\n' \
+			'control: the instruction'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/arm" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a branch that orders a marker naming no verb and no read-back still\n' \
@@ -10395,15 +10707,39 @@ esc_pr_verb_control() {
 		printf '        control: with the two commands lifted out of the instruction the leg goes red,\n'
 		printf '        so the ok above is the tick being handed the verb, not a word it can guess.\n'
 	fi
-	# 3. The guide's sentence deleted, leaving the instruction intact.
-	grep -vF 'Both artifacts take' "$ctrl/guide/docs/factory.md" >"$guide" || true
-	if grep -qF 'Both artifacts take' "$guide"; then
+	# 3. The guide's sentence deleted, leaving the instruction intact. Same temporary-file rule as
+	#    plant 2, and the same reason: writing onto the file grep is reading empties it first.
+	if ! grep -qF 'Both artifacts take' "$guide"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the guide copy never carried the clause, so the leg above was not\n' \
+			'control: the guide'
+		printf '          reading the guide this repository ships\n'
+		return 0
+	fi
+	grep -vF 'Both artifacts take' "$guide" >"$guide.lifted" || true
+	if grep -qF 'Both artifacts take' "$guide.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the guide plant left the clause in place, so the leg above was never\n' \
 			'control: the guide'
 		printf '          aimed at it\n'
 		return 0
 	fi
+	# The clause is one row of a 2,400-row guide. Anything materially shorter is the plant eating the
+	# document, and a leg that goes red on an empty file is not evidence about a missing sentence.
+	guide_rows_before=$(wc -l <"$guide")
+	guide_rows_after=$(wc -l <"$guide.lifted")
+	if [ "$guide_rows_after" -lt "$((guide_rows_before - 3))" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide went from %s rows to %s, so the check below reads a\n' \
+			'control: the guide' "$guide_rows_before" "$guide_rows_after"
+		printf '          shredded document and not a guide missing one sentence\n'
+		return 0
+	fi
+	mv -f -- "$guide.lifted" "$guide" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide could not be put in place\n' 'control: the guide'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/guide" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a guide with the verb sentence deleted still passes, so the skill and\n' \
@@ -16942,7 +17278,7 @@ pass_one_fetch_per_activation() { # [file] -> 0 when one unrefspec'd fetch runs,
 	}
 	sites=$(grep -n 'factory_refresh_origin "\$(factory_main_checkout)"' "$script" |
 		head -n 1 | cut -d: -f1)
-	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh")' "$script" | head -n 1 | cut -d: -f1)
+	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh"' "$script" | head -n 1 | cut -d: -f1)
 	if [ -z "$sites" ] || [ -z "$triage" ]; then
 		pos_say 'no call site for factory_refresh_origin, or no triage read to be ahead of.'
 		return 1
@@ -16963,7 +17299,7 @@ pass_second_fetch_control() {
 		return 0
 	}
 	copy=$dir/factory.sh
-	sed -e '/triage.sh"); then/a\	factory_refresh_origin "$(factory_main_checkout)"' \
+	sed -e '/rows=.*triage\.sh/a\	factory_refresh_origin "$(factory_main_checkout)"' \
 		"$refsh_script" >"$copy" || {
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
@@ -20954,12 +21290,41 @@ ask_prompt_render() { # ask_prompt_render <factory.sh> -- print the rendered emp
 	printf '%s\n' "$out"
 }
 ask_prompt_carries_no_name() { # ask_prompt_carries_no_name [root] -- no literal name reaches the tick
-	local root=$HERE/.. name rendered
+	local root=$HERE/.. name rendered rc box
 	[ -z "${1:-}" ] || root=$1
-	if ! name=$(bash "$root/factory/escalation-label.sh" 2>/dev/null); then
-		printf '            the reader refuses, so there is no name to compare the rendering\n' >&2
-		printf '            against -- and a stopped unit right now cannot label anything either.\n' >&2
-		printf '            Fix the reader first; this leg inherits its verdict until then.\n' >&2
+	if [ ! -f "$root/factory/escalation-label.sh" ]; then
+		printf '            %s carries no factory/escalation-label.sh, so this leg has no name\n' "$root" >&2
+		printf '            to read and refuses rather than judging some other tree\n' >&2
+		return 1
+	fi
+	# The reader is called from the tree it belongs to, with the harness's path variables taken out
+	# of the environment, because it is NOT a pure read of a constant: common.sh resolves FACTORY_DIR
+	# from the environment before it resolves that name from its own path, and the first thing it
+	# then runs is `_factory_main`'s `git -C "$FACTORY_DIR/.." worktree list`. Measured 18 Nov: a
+	# FACTORY_DIR naming a deleted fixture makes the reader exit 128, and a FACTORY_DIR naming a real
+	# directory that is not a repository exits 128 the same way -- the pipeline fails under the
+	# reader's own `set -euo pipefail`, so the `FACTORY_ROOT=` assignment aborts the script before
+	# anything prints. This file assigns FACTORY_DIR to a fixture at row 340 and legs beside this one
+	# export more, so a bare call here asks the reader about the suite's history rather than about
+	# the shipped default -- and the shipped default is the only thing this leg may compare a
+	# rendering against. The rc is read before anything negates it (H-0259), and the reader's own
+	# words are kept, so a refusal names the arm that fired instead of only saying it refused.
+	box=$(mktemp -d "$work/ask-name-XXXX") || return 1
+	name=$(cd -- "$root" 2>/dev/null &&
+		env -u FACTORY_DIR -u FACTORY_ROOT -u FACTORY_HARNESS -u FACTORY_TREES \
+			-u FACTORY_LOG -u FACTORY_ESCALATION_LABEL \
+			bash ./factory/escalation-label.sh 2>"$box/err")
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '            the reader refuses (rc %s), so there is no name to compare the\n' "$rc" >&2
+		printf '            rendering against -- and a stopped unit right now cannot label\n' >&2
+		printf '            anything either. Fix the reader first; this leg inherits its verdict\n' >&2
+		printf '            until then. What it printed, and what it was handed:\n' >&2
+		if [ -s "$box/err" ]; then
+			sed -e 's/^/              /' "$box/err" | head -6 >&2
+		fi
+		printf '              FACTORY_DIR=%s FACTORY_ROOT=%s PWD=%s\n' \
+			"${FACTORY_DIR:-<unset>}" "${FACTORY_ROOT:-<unset>}" "$PWD" >&2
 		return 1
 	fi
 	if [ -z "$name" ]; then

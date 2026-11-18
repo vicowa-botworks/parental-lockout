@@ -592,7 +592,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 546
+POINTER_DEBT = 544
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -643,6 +643,16 @@ MIN_ANCHOR = 16
 # nothing here is judged by it, and widening `ANCHOR_AFTER` to what it matches was measured and refused
 # (H-0170: three pointers in other units' entries change class for a 0.6% dent in a debt of 535).
 NEAR_QUOTE = re.compile(r"^(.{0,6})\"([^\"]+)\"")
+# The #369 exit, now a stated refusal rather than a silent one. These logs are markdown wrapped at
+# ~110 columns, so a faithful anchor outlives its physical line in two shapes: the fragment OPENS
+# in anchor position and the closing quote is on the next line (`ANCHOR_DANGLING` matches the tail,
+# unclosed), or the whole fragment starts the next line (`ANCHOR_AFTER` aimed at the following line
+# matches it). Neither is an anchor -- the rule reads one physical line -- but both used to leave the
+# row as unanchored debt with no refusal naming the newline, which is what the writers of H-0171 hit
+# twice and the `H-0179` merge entry hit five times. `scan_citations` flags both so `classify` can
+# refuse by name; a tail that ends inside an open code span is neither shape (a command wrapped
+# across lines is shell, not a cut quotation -- the `H-0142` row is that, and it stays debt).
+ANCHOR_DANGLING = re.compile(r"^[ ']{0,3}\"[^\"]*$")
 # Refusals name at most this many offenders; the count is in the headline either way.
 MAX_LISTED = 12
 
@@ -748,7 +758,8 @@ def scan_citations(text, entries, index):
     cannot place.
     """
     found = []
-    for n, line in enumerate(text.splitlines(), 1):
+    lines = text.splitlines()
+    for n, line in enumerate(lines, 1):
         last = None
         for m in CITATION.finditer(line):
             written, span = m.group(1), m.group(2)
@@ -757,10 +768,22 @@ def scan_citations(text, entries, index):
                 written, continued = last, True
             anchor = None
             near = None
+            wrapped = None
             am = ANCHOR_AFTER.match(line[m.end():])
             if am:
                 anchor = am.group(1)
             else:
+                # #369: the two newline shapes, flagged here and refused by name in `classify`. An
+                # odd number of backticks in the tail means this coordinate sits inside an open code
+                # span, and a quotation past it is wrapped SHELL (the `H-0142` row's `gh issue edit`
+                # command), not a cut anchor -- that row keeps the debt exit it was measured with.
+                tail = line[m.end():]
+                if tail.count("`") % 2 == 0:
+                    nx = ANCHOR_AFTER.match(lines[n]) if n < len(lines) else None
+                    if nx:
+                        wrapped = ("next-line", len(nx.group(1)))
+                    elif ANCHOR_DANGLING.match(tail):
+                        wrapped = ("dangling-open", 0)
                 nm = NEAR_QUOTE.match(line[m.end():])
                 if nm:
                     # (the gap itself, length of the quote) -- what the refusal has to name when it
@@ -814,7 +837,7 @@ def scan_citations(text, entries, index):
                 kind, resolved, cand = "not-a-path", None, []
             found.append({"written": written, "kind": kind, "path": resolved,
                           "cands": cand, "low": low, "high": high, "anchor": anchor,
-                          "near": near,
+                          "near": near, "wrapped": wrapped,
                           "line": n, "entry": entry_of(entries, n),
                           "continued": continued})
     return found
@@ -886,11 +909,17 @@ def stray_note(cands):
 
 
 def classify(found, read):
-    """The three buckets a citation falls into, plus the count that owes an anchor.
+    """The four buckets a citation falls into, plus the count that owes an anchor.
 
     `read(path)` returns the file's text or None. Split out of `citation_problems` so `--citations`
     reports exactly what the gate refuses on, rather than a second implementation that can drift from
     it -- the same reason `check-scripts.py` imports the encoding guard instead of copying it.
+
+    `wrapped` is the #369 bucket: a citation whose quoted anchor is present but cut by the line break,
+    so the rule could not read it and the writer was never told. It must be zero like `unresolvable`
+    and `broken`, and it is deliberately NOT folded into `unanchored`: those rows carry no quotation at
+    all and are grandfathered into the ratchet number, while these carry one and refuse. Left in
+    `unanchored` the same bytes both inflate the debt and pass, which is the defect #369 was filed on.
 
     Only `unanchored` feeds the ratchet. A pointer to a file that is absent, or to a name five files
     answer to, is not an unverified promise, it is a pointer that does not work today, and that is
@@ -909,6 +938,7 @@ def classify(found, read):
     unanchored = []
     unresolvable = []
     broken = []
+    wrapped = []
     cache = {}
 
     def lines_of(path):
@@ -928,6 +958,29 @@ def classify(found, read):
                                 "not a pointer; write the path you mean, or `./%s` for one at the root%s"
                                 % (at, cite, len(c["cands"]), ", ".join(sorted(c["cands"])),
                                    os.path.basename(c["written"]), stray_note(c["cands"])))
+            continue
+        if c.get("wrapped") and c["anchor"] is None:
+            # #369: the anchor exists and the newline is exactly why the rule cannot read it, so the
+            # refusal says the newline -- the silence this row used to leave was the ticket's whole
+            # complaint ("nothing says the newline is why").
+            how, qlen = c["wrapped"]
+            if how == "next-line":
+                wrapped.append("%s %s -> %s is counted as having no anchor, but the quotation is there: "
+                               "it starts on the NEXT physical line, %d characters. The anchor rule reads "
+                               "only the coordinate's own line, so the NEWLINE is what cut this anchor, "
+                               "not a missing quotation -- and until #369 a row like this one moved the "
+                               "debt number with no error at all. Put the whole fragment on the "
+                               "coordinate's own line, flush within three spaces of the closing backtick; "
+                               "if that quotation belongs to the sentence below rather than to this "
+                               "coordinate, re-wrap so the next line does not open with one"
+                               % (at, cite, c["path"], qlen))
+            else:
+                wrapped.append("%s %s -> %s is counted as having no anchor, but the quotation opens "
+                               "right after the closing backtick and never closes on this line -- the "
+                               "NEWLINE cut it, and the anchor rule reads one physical line. Put the "
+                               "whole fragment on the coordinate's own line; if you meant no anchor "
+                               "here, take the opening quotation mark off the coordinate's tail"
+                               % (at, cite, c["path"]))
             continue
         body = lines_of(c["path"])
         want = norm(c["anchor"]) if c["anchor"] is not None else None
@@ -961,7 +1014,7 @@ def classify(found, read):
                  % (c["path"], c["low"], norm(body[c["low"] - 1])[:96]))
         broken.append("%s %s in %s is anchored to %r and %s"
                       % (at, cite, c["path"], c["anchor"][:48], where))
-    return unanchored, unresolvable, broken
+    return unanchored, unresolvable, broken, wrapped
 
 
 CitationVerdict = collections.namedtuple(
@@ -970,8 +1023,9 @@ CitationVerdict = collections.namedtuple(
     # is the sentence that says why it did not. Both exist because the headline used to claim "the first
     # number is the recorded debt, which may only fall" on a run where the number had just been moved by
     # an untracked directory -- a true sentence about a false measurement. One classifier, one verdict,
-    # so the headline cannot disagree with the refusal list above it.
-    "problems measured unanchored unresolvable broken judged unjudged_because")
+    # so the headline cannot disagree with the refusal list above it. `wrapped` (#369) is on the verdict
+    # for the same reason: the headline and `--citations` must read the same four buckets.
+    "problems measured unanchored unresolvable broken wrapped judged unjudged_because")
 
 
 def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
@@ -980,8 +1034,10 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
     `read(path)` is injected so `--self-test` can assert every arm without a filesystem: the moved
     anchor, the deleted one, the path that is two files, the range written backwards, a missing file
     anchored and unanchored, a citation that names its own revision, the ratchet in both directions, and
-    the ratchet NOT running when a pointer cannot be opened. `judge_debt=False` is the `--log` case,
-    where the corpus the number describes is not the corpus being read.
+    the ratchet NOT running when a pointer cannot be opened, and both newline-cut anchors (#369: the
+    fragment on the next line, the quotation unclosed on this one) refused rather than counted.
+    `judge_debt=False` is the `--log` case, where the corpus the number describes is not the corpus
+    being read.
     """
     problems = []
     for c in found:
@@ -990,10 +1046,13 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                             "before the first line of the file, so there is nothing for a reader to "
                             "open" % (c.get("label", "?"), c["line"], c["entry"], c["written"],
                                       c["low"], c["high"]))
-    unanchored, unresolvable, broken = classify(found, read)
+    unanchored, unresolvable, broken, wrapped = classify(found, read)
     for group, head in ((broken, "anchored citation(s) in the decision logs point at text that is not "
                                  "there"),
-                        (unresolvable, "citation(s) in the decision logs a reader cannot open at all")):
+                        (unresolvable, "citation(s) in the decision logs a reader cannot open at all"),
+                        (wrapped, "citation(s) in the decision logs whose quoted anchor sits on the far "
+                                  "side of a newline -- the anchor is there, and the rule could not read "
+                                  "it, which #369 refuses instead of counting as debt")):
         if not group:
             continue
         problems.append("%d %s:" % (len(group), head))
@@ -1002,13 +1061,13 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
             problems.append("    ... and %d more; `python3 scripts/check-decisions.py --citations` "
                             "lists all of them" % (len(group) - MAX_LISTED))
     measured = len(unanchored)
-    unopenable = len(unresolvable) + len(broken)
+    unopenable = len(unresolvable) + len(broken) + len(wrapped)
     if not judge_debt:
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
                                False, "--log narrows the corpus the number is a count of")
     if debt is None:
         problems.append("the citation-debt number could not be read, so the rule did not run")
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
                                False, "the recorded debt could not be read")
     if unopenable:
         # The ratchet is a statement about the logs, and this number is not one: every pointer in the two
@@ -1025,7 +1084,7 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "about the logs. Fix the list, make `git status --short --ignored` empty of "
                         "anything the logs did not write, and the comparison comes back on the next run."
                         % (unopenable, measured))
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
                                False, "%d citation(s) a reader cannot open" % unopenable)
     if measured > debt:
         problems.append("the decision logs hold %d `path:line` citations that owe an anchor, and the "
@@ -1044,7 +1103,7 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "debt of %d -- pay it down by lowering POINTER_DEBT to %d in this same commit. "
                         "An unlowered number is a ratchet with the pawl filed off: the next unanchored "
                         "citation hides in the slack." % (measured, debt, measured))
-    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, True, None)
+    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, True, None)
 
 
 # The files that TEACH this rule are the one place a false pointer is invisible by construction: the rule
@@ -1063,10 +1122,13 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
     forever, so an unanchored one is counted against the ratchet; a guide is edited as a unit and its
     pointers are re-read by this command, so what it owes is that every coordinate it tells a unit to
     copy resolves today, and an unanchored one is not a defect. That is why `unanchored` is dropped here
-    and the two must-be-zero lists are not. `docs/factory.md` is NOT in `TEACHES_RULE` and that is a
-    measured choice, not an oversight: it is the reference, and it carries the shapes the rule refuses on
-    purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line EOF) inside the table that
-    explains them, so pointing this pass at it refuses the guide's own examples.
+    and the two must-be-zero lists are not -- plus, since #369, `wrapped`: a guide that demonstrates the
+    anchor rule with a quotation the newline cut in half demonstrates the very exit the rule now refuses,
+    and every unit that copies it writes debt it was never told about. `docs/factory.md` is NOT in
+    `TEACHES_RULE` and that is a measured choice, not an oversight: it is the reference, and it carries
+    the shapes the rule refuses on purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line
+    EOF) inside the table that explains them, so pointing this pass at it refuses the guide's own
+    examples.
     """
     found = []
     for path in paths:
@@ -1076,9 +1138,9 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
         for c in scan_citations(text, [], index):
             c["label"], c["entry"] = path, "the guide"
             found.append(c)
-    _, unresolvable, broken = classify(found, read)
+    _, unresolvable, broken, wrapped = classify(found, read)
     return ["the file that teaches this rule has a pointer a reader cannot follow: " + r
-            for r in unresolvable + broken]
+            for r in unresolvable + broken + wrapped]
 
 
 def citation_report(found, read, only=None, verdict=None):
@@ -1105,7 +1167,8 @@ def citation_report(found, read, only=None, verdict=None):
                             % (c.get("label", "?"), c["line"], c["entry"], c["written"],
                                c["low"] if c["high"] == c["low"] else "%d-%d" % (c["low"], c["high"]),
                                c["path"] or "(unresolved)",
-                               "anchored" if c["anchor"] else "UNANCHORED"))
+                               "anchored" if c["anchor"] else
+                               ("ANCHOR CUT BY NEWLINE" if c.get("wrapped") else "UNANCHORED")))
         # Returned, not printed: the census branch below returns its lines and `main` prints both, and a
         # function with two output channels is one the self-test cannot assert on (H-0171 found this the
         # hard way -- the leg that proves `--citations gonee.md` still finds a pointer whose file is
@@ -1121,14 +1184,15 @@ def citation_report(found, read, only=None, verdict=None):
     if verdict is None:
         # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
         # rule, not a second implementation of it.
-        unanchored, unresolvable, broken = classify(found, read)
+        unanchored, unresolvable, broken, wrapped = classify(found, read)
         note = ""
     else:
         unanchored, unresolvable, broken = verdict.unanchored, verdict.unresolvable, verdict.broken
+        wrapped = verdict.wrapped
         note = "" if verdict.judged else " (NOT judged this run: %s)" % verdict.unjudged_because
     counts = {}
     for c in found:
-        if c["kind"] in ("file", "file-missing") and c["anchor"] is None:
+        if c["kind"] in ("file", "file-missing") and c["anchor"] is None and not c.get("wrapped"):
             counts[c["path"]] = counts.get(c["path"], 0) + 1
     out = ["citations that owe an anchor, by the file they point at (%d):" % sum(counts.values())]
     for path in sorted(counts, key=lambda p: (-counts[p], p)):
@@ -1137,6 +1201,8 @@ def citation_report(found, read, only=None, verdict=None):
     out.extend("  " + u for u in unresolvable)
     out.append("anchored citations whose text has moved or gone (%d):" % len(broken))
     out.extend("  " + b for b in broken)
+    out.append("citations whose anchor the newline cut (#369) (%d):" % len(wrapped))
+    out.extend("  " + w for w in wrapped)
     out.append("citations that name their own revision, exempt from both (%d):"
                % len([c for c in found if c["kind"] == "revision-qualified"]))
     out.append("debt this gate ratchets on: %d%s" % (len(unanchored), note))
@@ -1442,6 +1508,54 @@ def self_test():
     # sentence in a docstring rather than a property of the rule.
     cite_ok('`origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` both name a revision.\n',
             "revision-qualified-exempt")
+    # #369: a newline-cut anchor is a stated refusal, not silent debt. The rule reads only the
+    # coordinate's physical line, and these logs wrap at ~110 columns, so a faithful fragment most often
+    # lands past a newline -- and until this entry the row left the rule as unanchored debt with nothing
+    # saying the newline was why (the writers of `H-0171` hit it twice and read it as the ratchet rising;
+    # the `H-0179` merge entry shipped five rows this classifier now names). Both cuts refuse by name,
+    # neither row feeds the count, and the refusal must hold the ratchet: with a cut pointer on the
+    # books the number is NOT judged, or a tree full of them would order its own disarmament.
+    counts[0] += 2
+    cut = citation_problems(cites('`docs/factory.md:3` ends this line and the quotation does not.\n'
+                                  '"the escalation label is printed by exactly one script" opens the next.\n'),
+                            read_fixture, debt=1)
+    if not any("NEXT physical line" in p and "NEWLINE" in p for p in cut.problems):
+        fails.append("anchor-next-line-refused: a quotation opening the line below passed unrefused, or "
+                     "was refused without naming the newline -- %s" % cut.problems)
+    if cut.measured != 0:
+        fails.append("anchor-next-line-refused: the cut row was counted as debt instead of refused -- "
+                     "measured %d, wrapped %d" % (cut.measured, len(cut.wrapped)))
+    if cut.judged or "NOT judged" not in " ".join(cut.problems):
+        fails.append("anchor-next-line-refused: the ratchet judged a number while a pointer sat "
+                     "uncuttable on the line below -- %s" % cut.problems)
+    dangling = citation_problems(cites('`docs/factory.md:3` "the escalation label is printed by exactly '
+                                       'one script\nand the closing quote sits a newline below the rule.\n'),
+                                 read_fixture, debt=1)
+    if not any("NEWLINE cut it" in p for p in dangling.problems):
+        fails.append("anchor-cut-midquote-refused: a quotation opened in anchor position and unclosed at "
+                     "end of line passed unrefused, or was refused without naming the newline -- %s"
+                     % dangling.problems)
+    if dangling.measured != 0 or not dangling.wrapped:
+        fails.append("anchor-cut-midquote-refused: the cut row was counted as debt instead of refused -- "
+                     "measured %d, wrapped %d" % (dangling.measured, len(dangling.wrapped)))
+    # And the two shapes that must NOT be accused. A quotation that merely sits two lines away was
+    # measured and kept as debt in #367 -- widening the class reclassified other units' true pointers --
+    # and a coordinate whose tail is an OPEN code span carries wrapped SHELL, not a cut quotation: the
+    # `H-0142` row's `gh issue edit` command is that shape, and it stays debt, refused by nothing.
+    counts[1] += 2
+    below = citation_problems(cites('`docs/factory.md:3` "the escalation label is printed by exactly one '
+                                    'script" is anchored here.\nAnd a later sentence quotes:\n'
+                                    '"another line entirely".\n'), read_fixture, debt=0)
+    if below.problems or below.wrapped:
+        fails.append("quote-below-not-cut-anchor: an anchored citation gained a phantom cut-anchor "
+                     "refusal from a quote two lines down -- %s" % below.problems)
+    span = citation_problems(cites('the wrapped command: `docs/factory.md:3` -- `gh issue edit "$ISSUE" '
+                                   '--add-label\n"$(factory/escalation-label.sh)"` is shell inside a '
+                                   'code span, not a cut anchor.\n'), read_fixture, debt=1)
+    if span.wrapped or span.measured != 1:
+        fails.append("code-span-wrap-stays-debt: a coordinate inside an open code span was refused as "
+                     "cut, or not counted as debt -- wrapped %s, measured %d"
+                     % (span.wrapped, span.measured))
     # The ratchet, both ways. Over: a new pointer arrived with nothing to check it against.
     cite_case("`notes.md:2` says something.\n", "debt-rose", "the count went UP")
     # Under: somebody paid one down and left the number claiming the old figure.
@@ -1581,7 +1695,7 @@ def self_test():
     # because the rule read only the two logs. Three legs refuse a bad pointer in a guide, four hold the
     # exemptions open -- the one that matters is the unanchored coordinate, which is a debt in a log and
     # is NOT a defect in a guide.
-    counts[0] += 3
+    counts[0] += 4
     counts[1] += 3
 
     def teach(body):
@@ -1593,7 +1707,12 @@ def self_test():
              "names 3 files"),
             ('read `docs/factory.md:2` "the escalation label is printed by exactly one script".\n',
              "guide-anchor-moved", "it is at line 3 now, not 2"),
-            ('read `gonee.md:3` for it.\n', "guide-gone-file", "not in the tree being gated")):
+            ('read `gonee.md:3` for it.\n', "guide-gone-file", "not in the tree being gated"),
+            # #369: a guide that shows the anchor rule with a quotation the newline cut demonstrates
+            # the very exit the rule now refuses, and every unit copying it writes silent debt.
+            ('read `docs/factory.md:3` and quote it on the line below instead:\n'
+             '"the escalation label is printed by exactly one script".\n',
+             "guide-wrapped-anchor", "NEXT physical line")):
         probs = teach(body)
         if not any(needle in q for q in probs):
             fails.append("%s: expected a refusal containing %r, got %s" % (name, needle, probs))
@@ -1613,18 +1732,21 @@ def self_test():
         fails.append("guide-absent-is-not-false: a fixture tree with no skill file is refused for a "
                      "file it does not have")
 
-    # A wrapped anchor is not an anchor. The rule reads the coordinate's own physical line, so a
-    # quotation that starts on the next line leaves the citation in the debt instead of checked: a number
-    # moves and nothing is refused. Pinned both ways because these logs are markdown wrapped at ~110
-    # columns, which is exactly where a 20-character fragment wants to go (H-0171 hit it twice).
+    # The pin on a wrapped anchor is inverted. The rule reads the coordinate's own physical line, so a
+    # quotation cut by the newline left the citation in the debt instead of checked: a number moved and
+    # nothing was refused. This same fixture used to assert `measured == 1` -- that silence is exactly
+    # what #369 was filed on (the writers of H-0171 hit it twice and read it as the ratchet rising, and
+    # these logs wrap at ~110 columns, which is exactly where a 20-character fragment wants to go). The
+    # sentence that used to pin the silence now pins its refusal, and the unwrapped same sentence is
+    # still checked rather than counted.
     counts[0] += 1
     counts[1] += 1
     body = ('`docs/factory.md:3` "the escalation label is printed by\n'
             '  exactly one script" continues onto the next line.\n')
     verdict = citation_problems(cites(body), read_fixture, debt=1)
-    if verdict.measured != 1 or verdict.problems:
-        fails.append("wrapped-anchor-is-debt: a quotation on the following line %s -- measured %s, %s"
-                     % ("was treated as an anchor" if verdict.measured == 0 else "was refused",
+    if not verdict.wrapped or verdict.measured != 0:
+        fails.append("wrapped-anchor-refused: the newline-cut quotation %s -- measured %s, %s"
+                     % ("is still silent debt" if not verdict.problems else "was refused but still counted",
                         verdict.measured, verdict.problems))
     body = ('`docs/factory.md:3` "the escalation label is printed by exactly one script" stays on its '
             'own line.\n')
@@ -1793,7 +1915,7 @@ def main(argv):
         # passed rule.
         problems.append("citations: %s" % walk_problem)
         judged, debt_note, measured = False, None, 0
-        verdict = CitationVerdict([], 0, [], [], [], False, "the tree cannot be walked")
+        verdict = CitationVerdict([], 0, [], [], [], [], False, "the tree cannot be walked")
     else:
         # `POINTER_DEBT` counts the citations in THIS pair of logs. A tree whose logs are smaller than
         # the corpus that number was measured on is a different repository -- a fixture, a fork, an old
@@ -1847,9 +1969,10 @@ def main(argv):
               "%s" % (len([c for c in found if c["kind"] != "not-a-path"]), debt_note))
     elif judge_debt:
         print("check-decisions: %d `path:line` citations read out of the two logs, %d of them owing "
-              "an anchor and %d pointing somewhere a reader cannot open -- %s"
+              "an anchor and %d refused outright -- a reader cannot open them or the newline cut their "
+              "anchor -- %s"
               % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
-                 len(verdict.unresolvable) + len(verdict.broken),
+                 len(verdict.unresolvable) + len(verdict.broken) + len(verdict.wrapped),
                  "the first number is the recorded debt, which may only fall" if verdict.judged
                  else "the ratchet was NOT judged this run: %s" % verdict.unjudged_because))
     else:
