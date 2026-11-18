@@ -1475,6 +1475,64 @@ again, and the helper must answer with the swept path and the matched pattern, b
 stream, and its failure arm prints git's own sentence straight into `WORKTREE-CENSUS-FAILED`, so those bytes
 are not anybody's only copy of anything.
 
+### The trunk's own verdict is read once per activation (#370)
+
+`main` carried a push-workflow FAILURE for 1h49m04s while the loop journalled 36 `DELIVERED` rows and one
+`MERGED` on top of it (measured 16 Nov on the API: run `44110925937`, queued 17:06:06Z, completed
+18:55:10Z — the same 8274 s the ticket measures as "mergeable but held for 1h49m by a red check run").
+Nothing in the harness reads the trunk's CI, and no check that does exist could have caught it: every
+check read is aimed at a pull request — `factory_checks` asks `gh pr view --json statusCheckRollup`, and
+#274's re-check reads a rollup again — and a `pull_request` check runs on a merge of the head with the
+base tip. A pull request can therefore be green against a trunk that is red at the very commit its own
+rollup vouches for. That is the class: *a green pull request says nothing about the branch it lands on*.
+
+`factory_trunk_ci_lines` (`factory/common.sh`) is the repair — one read of the trunk's own runs, wired
+into `factory_body` after the preflight `EXIT`/`DIRTY`/`LOCK` early returns and the `LOG-AT`/`UNIT-AT`/
+`REFRESH`/`SUPERVISOR-AT` block, and once per activation rather than once per unit:
+
+```
+2026-11-18T06:12:03Z TRUNK-CI d4559fd5de2646e6ae4ad13755e81a50289c17d3 success run=44240957485 age=4021s since=2026-11-18T05:05:02Z
+```
+
+The command is `gh run list --branch "$FACTORY_BASE" --event push --limit 1 --json
+databaseId,headSha,conclusion,status,createdAt` — the shape #370 measured with `gh` 2.46.0. The field
+names in the ticket's *prose* (`workflowName`,`name`,`displayTitle`,`event`,`url`) are not the ones that
+work on this binary: measured, `name` and `displayTitle` are not valid fields for `run list --json` and
+the call dies. `createdAt` is the timestamp the line reports. One measured case splits the harness's
+precedents: `gh api` answers `status`/`conclusion` UPPERCASE and `run list --json` answers lowercase —
+the code compares `ascii_downcase` both sides.
+
+Every arm prints a line; no arm prints nothing (H-0045's rule, and #228's polarity rule, ported — before
+this read existed, an activation could not distinguish "the trunk is green" from "nobody asked"):
+
+| arm | line |
+|---|---|
+| green trunk | the `TRUNK-CI <sha> <verdict> run=<id> age=<n>s since=<ts>` line above |
+| red trunk | that line with `conclusion=failure`, plus `TRUNK-RED` naming the run id, the timestamp, the url-less pointer, and that the pass is reporting only |
+| queued or `status != completed` or a conclusion not yet written | verdict `pending` — the rollup rule's own unfinished-shape case: completion is `status == completed AND conclusion != ""` |
+| `gh` fails | `TRUNK-CI-UNKNOWN rc=2`, quoting gh's exit and gh's stderr — the `LOG-AT` rc convention (#359) |
+| fetch bound expires | `TRUNK-CI-UNKNOWN rc=1`, naming `FACTORY_FETCH_TIMEOUT` — `REFRESH-TIMEOUT`'s convention; `timeout --signal=TERM --kill-after=5`, `TERM` lands inside the call and never reaches the `EXIT` trap |
+| empty array | `TRUNK-CI-UNKNOWN rc=3` — the empty branch must be a *numbered sentence*, never an absence, so the polarity rule cannot be satisfied by silence |
+| body off contract | `TRUNK-CI-UNKNOWN rc=4`: not an array, missing field, or an unreadable timestamp — never guessed, never silent |
+| no `gh` | `TRUNK-CI-UNKNOWN rc=5` |
+| `DRY_RUN=1` | a `DRY-RUN` line stating exactly what would run, and no call |
+
+The bad-conclusion vocabulary is the shared `JQ_BAD_CONCLUSIONS` list in `factory/common.sh`, built from
+`factory_rollup_rules`' bad list plus `cancelled` and `error` — the same list `JQ_CHECKS` uses, so the
+two verdicts cannot drift apart by vocabulary. The trunk read is a verdict *reader*, not a third copy of
+the rollup rule: `run list` answers one array with one row per run, so the rollup's dedup-and-prefer-
+completed logic has nothing to do, and duplicating it would add an unexercised path. `cancelled` is red
+because the rollup calls `CANCELLED` a fail; `skipped` and `neutral` are not, because the rollup does not
+say they are. A `TRUNK-CI` line is the **trunk** verdict and a `CHECKS` line is a **pull request's**
+verdict; nothing compares the two.
+
+It is report-only. The read cannot halt the loop or refuse a merge on a red trunk, and that is the
+decision, not an omission: a red trunk is the same shape as a stale trunk — a fact about a branch, not a
+reason to stop delivering — and #341 measured what a standing halt with no escalation does to a queue.
+#370 item 3 — whether a red trunk should refuse a `MERGE` — is an open **question** whose subject is the
+merge gate, one of the classes the harness may not decide for itself; the boundary sentence is in "What
+it is not allowed to do" below.
+
 ## Decision ids are allocated against refs, not prose
 
 `DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
@@ -2234,6 +2292,12 @@ re-reads all four gate fields from the API in the same call that merges.
 
 Merging cannot be undone here anyway: `allow_squash_merge=false` and `allow_rebase_merge=false`, so
 every merge is permanent history.
+
+A `TRUNK-RED` line grants no unit new authority. A unit reading a red trunk on its way past a journal
+tail still may not halt the loop, refuse a merge, or hold a delivered pull request on the strength of
+that line: the trunk read is report-only, and #370 item 3 — whether a red trunk should refuse a `MERGE`
+— is an open question about the merge gate, a class a tick may not decide from a journal line. Making
+that question a rule is a `DECISIONS.md` entry with a human behind it, not an arm of `factory_body`.
 
 ## Lifting it out
 
