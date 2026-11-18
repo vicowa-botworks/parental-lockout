@@ -1399,6 +1399,8 @@ JQ_TRUNK_CI='
 #     TRUNK-CI-UNKNOWN rc=2  gh run list exited non-zero (its exit is quoted in the sentence)
 #     TRUNK-CI-UNKNOWN rc=3  the branch holds no push runs at all -- a fact about the branch,
 #                            printed because even this is not silence
+#     TRUNK-CI-UNKNOWN rc=5  gh is not on PATH at all -- asked nothing, said itself, because
+#                            the call cannot even be made
 #     TRUNK-CI-UNKNOWN rc=4  the payload answered outside its contract: refused JSON, a row
 #                            missing headSha/databaseId/createdAt, or a createdAt no clock reads
 #
@@ -1425,6 +1427,10 @@ factory_trunk_ci_lines() {
 	if [ "$DRY_RUN" = "1" ]; then
 		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s gh run list --branch %s --event push --limit 1 --json databaseId,headSha,conclusion,status,createdAt\n' \
 			"$FACTORY_FETCH_TIMEOUT" "$branch"
+		return 0
+	fi
+	if ! command -v gh >/dev/null 2>&1; then
+		printf 'TRUNK-CI-UNKNOWN rc=5 gh is not on PATH for this activation, so the %s trunk verdict cannot be asked at all; the absence of a TRUNK-CI line is not evidence the trunk is green\n' "$branch"
 		return 0
 	fi
 	rc=0

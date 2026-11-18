@@ -23830,6 +23830,48 @@ claim_leg 'trunk: case-insensitive' tci_case
 claim_leg 'trunk: queued is pending' tci_pending
 claim_leg 'trunk: unwritten conclusion' tci_unfinished
 claim_leg 'trunk: gh refusal' tci_ghfail
+
+# The rc=5 arm the arm table promises: with no gh on PATH the function cannot even ask, so it says
+# itself -- one line, numbered, and the stub is never reached (the empty record is the control that
+# makes the sentence mean "nothing was asked" rather than "the ask went somewhere I did not see").
+tci_nogh() {
+	local out d
+	# gh lives beside bash in /usr/bin, so no directory filter can hide one without the other:
+	# the arm is armed with a symlink farm of every PATH directory EXCEPT the gh binary, and
+	# bash itself is invoked by absolute path so the farm never has to hold it.
+	local nogh=$tci_dir/nogh_bin
+	mkdir -p "$nogh"
+	for d in ${PATH//:/ }; do
+		[ -d "$d" ] || continue
+		local f
+		for f in "$d"/*; do
+			[ -e "$f" ] || continue
+			[ "$(basename "$f")" = gh ] && continue
+			[ -e "$nogh/$(basename "$f")" ] || ln -s "$f" "$nogh/$(basename "$f")" 2>/dev/null || true
+		done
+	done
+	: >"$tci_rec"
+	out=$(env PATH="$nogh" TCI_REC="$tci_rec" TCI_PAYLOAD="$tci_dir/green.json" \
+		FACTORY_LOG="$tci_log" FACTORY_BASE=tci-base-default \
+		"$(command -v bash)" -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90
+			factory_trunk_ci_lines "${TCI_ARG-}"' _ "$HERE") || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a missing gh must print exactly one line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	[ -s "$tci_rec" ] && {
+		printf '            a missing gh asked the stub anyway: %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=5*not\ on\ PATH*) : ;;
+	*) printf '            the missing-gh line must number itself rc=5 and name PATH:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in TRUNK-CI\ *) printf '            a missing gh still printed a verdict line\n' >&2; return 1 ;; esac
+	return 0
+}
+claim_leg 'trunk: no gh is rc=5' tci_nogh
 claim_leg 'trunk: parked read bounded' tci_timeout
 claim_leg 'trunk: no push runs' tci_empty
 claim_leg 'trunk: body off contract' tci_offcontract
