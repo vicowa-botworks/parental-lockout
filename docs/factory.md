@@ -2273,18 +2273,18 @@ closing backtick but spaces and at most one apostrophe. It has to be found on th
 within the cited range
 (`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
 lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
-A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
+A quotation further away than that is not an anchor — and since #367 the refusal says which floor it
 applied instead of claiming there was no quotation. **The quotation has to start on the coordinate's own
-physical line.** These logs are markdown wrapped at ~110 columns, so the natural place for a 20-character
-fragment is the next line, and there it is not an anchor: the citation falls silently into the debt instead
-of being checked, which is a number moving, not an error. Hit twice writing H-0171 — both times the gate
-said `the count went UP` and `--citations` named the two rows in seconds; re-wrap the sentence rather than
-adding an unanchored pointer to the corpus you are paying down. Measured on the two logs: 3 citations carry a
-quotation of 16+ characters within six characters of the coordinate that this class declines (the
-possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
-five authors were told their citation had no anchor, by a message that never mentioned the separator.
-Widening the class was measured and refused: it reclassifies 3 pointers in other units' entries for a
-0.6% dent in the debt, and buys a rule that will accept the neighbouring sentence's quotation.
+physical line**, and since #369 both newline-cut shapes say so in words naming the newline: these logs
+wrap at ~110 columns, so a faithful fragment most often lands past one — either it opens on the NEXT
+physical line, or it opens after the closing backtick and the newline ends it unclosed. The silent
+version was measured and paid for: hit twice writing H-0171 (the gate said `the count went UP`, with no
+error to read), and when #369's refusal caught the first two live rows, one of them had also drifted in
+silence, from 1143 to 1746, while unchecked. A cut row refuses and is not debt, so the ratchet stays shut
+while one exists; a quotation further down still lands in the debt (widening the class was measured and
+refused: it reclassifies 3 of another unit's true pointers for a 0.6% dent, and buys a rule that accepts
+the neighbouring sentence's quotation), and a wrapped tail inside an open code span is shell, not a cut
+quotation — `--citations` names the cut rows in a section of its own.
 
 Shapes that are understood and are not the same claim:
 
@@ -2294,7 +2294,7 @@ Shapes that are understood and are not the same claim:
 | `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
-| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical, so inside a wrapped paragraph that is a known limit, not a guarantee: see the third finding below |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical; a fragment the newline cut is refused by name, never left as silent debt (#369) |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
