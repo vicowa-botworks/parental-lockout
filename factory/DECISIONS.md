@@ -13778,8 +13778,8 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
 - Refs: #366 (the ticket this branch delivers), #381 and #428 (the re-conflict price this sync is one
   instance of), #442 (`H-0250` handed out three times), H-0249 (main's entry at the seam), H-0251 (this
   branch's), H-0229 (whose row was adjudicated here), H-0181 (the coordinate rule that row follows)
-- Follow-up: one, named and not opened. `NEXT.md:219` "the row about #425 says" and
-  `NEXT.md:323` "RED on its own shell." put the documented keyword in plain text immediately before a
+- Follow-up: one, named and not opened. `NEXT.md:240` "the row about #425 says" and
+  `NEXT.md:344` "RED on its own shell." put the documented keyword in plain text immediately before a
   ticket number, in sentences whose whole point is that the number must stay open -- so the hand-off
   file refuses `python3 scripts/check-close-verb.py` with rc 1 on two rows, and this merge did not make
   that finding: each parent's copy refuses identically (`git show 38a1fe4:NEXT.md` and
