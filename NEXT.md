@@ -243,7 +243,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    the hand-off itself**: the `issue-334` item 5 cited *`docs/factory.md`, "What a conflict-resolution
    commit is allowed to contain"*. No such heading exists on the merged tree
    (`grep -n '^#\{2,4\} ' docs/factory.md | grep -i conflict` → nothing; the only "conflict-resolution"
-   hit is prose at `docs/factory.md:658` inside `### The approval a push voids`). The rule it meant is
+   hit is prose at `docs/factory.md:665` inside `### The approval a push voids`). The rule it meant is
    the `H-0143`/`H-0144` lineage in `factory/DECISIONS.md` — a published coordinate is re-pointed, never
    rewritten. #337 is the open issue for a contract naming a gate that does not exist; this row is one
    more instance of it, in prose rather than a dispatch. Widening the leg means naming why each of those
@@ -283,7 +283,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    until its own test is met on the merged tree, with #1256's closing-keyword adjacency rule respected
    either way.
 9. **This push spends the approval, and only a read-back says so.** Measured on #269 and restated at
-   `docs/factory.md:651` "### The approval a push voids" — **re-stamped by this sync**: the row
+   `docs/factory.md:658` "### The approval a push voids" — **re-stamped by this sync**: the row
    carried `:652`, an off-by-one that is false on both parents of this merge as well (the heading is
    at 651 on `HEAD`, on `origin/main` and on the merged tree, where the file is byte-identical to
    both), so it is a pre-existing pointer error, not a drift this merge introduced: a base-sync push
@@ -292,8 +292,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    `gh pr view 410 --json reviewDecision,mergeable,mergeStateStatus` after the push; the re-ask is the
    supervisor's poke (`factory_request_review`), not a unit's.
 10. **Re-measure every live coordinate you carry — this tick's worst moved by 1500 lines.** The
-    `issue-334` hand-off cited `factory/selftest.sh:17070` for `reap_leg_live`'s refusal; on this merged
-    tree the sentence is at `factory/selftest.sh:18570` "the live journal produced a deadline hold of 0s".
+    `issue-334` hand-off cited `factory/selftest.sh:17163` for `reap_leg_live`'s refusal; on this merged
+    tree the sentence is at `factory/selftest.sh:18663` "the live journal produced a deadline hold of 0s".
     Same pass, others: the `dpn_alloc_run` bare arm `14933 → 15674`, `mm_repo_new` `3585 → 3950`,
     `mm_merge` `3615 → 3980`, the mid-merge detector leg `3676 → 4041`, the quarantine round trip
     `3767 → 4132`. Unchanged and re-checked: `factory/next-decision-id.sh:546`
@@ -320,8 +320,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/next-decision-id.sh:546` inheriting the caller's unit into a fixture's "bare run". Do not
     repair it by weakening either leg. Still unrepaired on this merged tree, **re-measured**:
     `grep -c 'env -u FACTORY_TICK_UNIT' factory/selftest.sh` answers 0, and the two legs' fixture arms are
-    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15674` and
-    `factory/selftest.sh:18570` (+461 on the tree it measured, both re-opened here).
+    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15767` and
+    `factory/selftest.sh:18663` (+461 on the tree it measured, both re-opened here).
 
    Their instance, carried: the `issue-355` unit found **both** proposed causes unsupported on its
    own tree — the carried `FACTORY_*`-inheritance cause was not reproduced there, and neither was
@@ -463,9 +463,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/selftest.sh`'s `the timer's scripts are executable` leg refused with
     `not 100755 in the index: factory.sh(100755 100755 100755) selftest.sh(...)`, while
     `git ls-files -s` shows every stage entry of both files at 100755. Mechanism:
-    `factory/selftest.sh:17917` `index_exec_problems() { # <repo> <name>... -> the names git does not
+    `factory/selftest.sh:18010` `index_exec_problems() { # <repo> <name>... -> the names git does not
     hold at 100755` collects one mode per **index entry**, and an unmerged path has three (stages 1/2/3),
-    so `factory/selftest.sh:17921` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
+    so `factory/selftest.sh:18014` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
     a three-line string and refuses a mode that is correct. Every conflict tick meets this before it can
     stage, and the refusal names no stage, so it reads like a real permissions defect. Repair shape:
     dedupe the collected modes and refuse only a distinct value that is not 100755, or skip paths git
@@ -523,7 +523,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     placed by unique row identity and were repaired (`:1649`→`:1820`, `:2614`→`:2785`); two are
     unplaceable, because base's row there folds to a bare `#` and the merged `factory/common.sh`
     holds 189 copies, so no identity method can choose and they stay wrong — a reader following
-    `H-0099`'s `common.sh:1607` lands on `dirt_rc=`, not on the line the entry means. The method is
+    `H-0099`'s `common.sh:1640` lands on `dirt_rc=`, not on the line the entry means. The method is
     a python pass comparing `git show <base>:<file>` with the working file, digits folded, scoped to
     citations whose carrying row is verbatim at the base blob. It needs no anchor, which is exactly
     why the anchor rule cannot do it, and it is cheap: 382 rows in a second. A leg that runs it on
@@ -619,9 +619,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
 51. **A `path:line` pointer inside this file is tested for the file, never for the row — and the
     off-by-one that survived two hand-offs is the proof.** The sixth sync found two false coordinates
     in its own input, neither created by the merge: row 1490 of `factory/common.sh` naming
-    `factory_worktree_lines`, which sits at `factory/common.sh:1547` "factory_worktree_lines() { # [main-checkout]",
+    `factory_worktree_lines`, which sits at `factory/common.sh:1580` "factory_worktree_lines() { # [main-checkout]",
     and the row numbered 652 of `docs/factory.md` naming the heading that is at
-    `docs/factory.md:651` "### The approval a push voids" — false on `HEAD`, on `origin/main` and on
+    `docs/factory.md:658` "### The approval a push voids" — false on `HEAD`, on `origin/main` and on
     this branch alike, so it was inherited twice. No gate can see either class: the anchor rule reads
     only the two decision logs, and the hand-off leg at `scripts/check-next-md.sh:179` "leg 2: phantom paths"
     asks whether a named file exists (`scripts/check-next-md.sh:189` "[ -e "$root/$p" ] || printf", the existence test the leg makes in full),
@@ -637,9 +637,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     their file's uniform trunk growth (`+171` in `factory/common.sh`, `+219` in `factory/selftest.sh`), and
     the **4** that did not are exactly the 4 whose fragment occurs on more than one row — `"$d/earned-tail.sh"`
     on 5 rows, `"$d/earned-window.sh"` on 2. For all 4 the arithmetic row *passes* the anchor test while
-    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21638`, `:21647`, `:21664`
+    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21731`, `:21647`, `:21664`
     (`dpn_mut` and `grep -qF` calls that also mention the fragment) instead of the `control failed:` refusal
-    the entry measured, `factory/selftest.sh:21639` and `:21648`, each `grep -c` answering **1**. Both shipped
+    the entry measured, `factory/selftest.sh:21732` and `:21648`, each `grep -c` answering **1**. Both shipped
     pointers are aimed at the refusal rows now. Two ways to land this, and the cost of each is measured at
     this head so nobody has to find it later. **(a) The cheap merge-scope leg:** when a merge adds rows to a
     file that a pointer cites, refuse the merge unless every pointer whose cited row lost its anchor is

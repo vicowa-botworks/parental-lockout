@@ -338,7 +338,7 @@ fi
 # program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
-	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' \) -mmin +180 -delete 2>/dev/null || true
+	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -1650,7 +1650,27 @@ factory_body() {
 		[ -n "$census_line" ] || continue
 		log_event "$census_line"
 	done < <(factory_worktree_lines "$(factory_main_checkout)")
-	if ! rows=$("$FACTORY_DIR/triage.sh"); then
+	# The queue read's stderr is a verdict, and until #311 was closed it was a verdict nobody kept:
+	# command substitution captures stdout only, so `triage.sh`'s findings went to the service's
+	# stderr -- journald -- while `factory/log/supervisor.log`, the file #248 exists to point a person
+	# at, recorded nothing. Measured 18 Nov: it is emitted 8 times, as a bare `^triage: nothing is parked`
+	# line, into 6 unit transcripts, 0 into the supervisor's journal, across a history in which the class it
+	# describes never fired once. So: keep the stream in the swept directory (`factory_triage_stream`,
+	# the same home as the worktree stream and for the same reason), journal every line of it, and
+	# delete it on BOTH paths so a healthy pass leaves nothing behind for the census of the run
+	# directory to mistake for a killed tick's remains. Bounded at 25 lines because a triage that fails
+	# loudly can fail in a loop, and one journal line per stderr line because the sentence is the point.
+	local triage_err triage_line triage_rc=0
+	triage_err=$(factory_triage_stream)
+	rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err") || triage_rc=$?
+	if [ -s "$triage_err" ]; then
+		while IFS= read -r triage_line; do
+			[ -n "$triage_line" ] || continue
+			log_event "TRIAGE-STDERR ${triage_line}"
+		done < <(head -25 "$triage_err")
+	fi
+	rm -f -- "$triage_err"
+	if [ "$triage_rc" -ne 0 ]; then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
 	fi
