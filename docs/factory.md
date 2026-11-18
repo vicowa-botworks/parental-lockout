@@ -2380,7 +2380,7 @@ Shapes that are understood and are not the same claim:
 | `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
-| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical; a fragment the newline cut is refused by name, never left as silent debt (#369) |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **in its own sentence** — the sentence, not the physical line, since #365 measured that a wrapped paragraph here is several sentences naming several files; a sentence that names no file leaves the row in the open shape below; and a coordinate whose quoted anchor the newline cut — on the next line or dangling open — is refused by name, never left as silent debt (#369) |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
@@ -2416,10 +2416,14 @@ writing the path, 17 of them delivered by that same merge, and folding that clas
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
 file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
-holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
-past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a
-wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
-needs a rule about sentences, not lines, and that is filed as its own issue.
+holds only where an anchor already proves what the line should say — measured at the head that ships the
+sentence rule, 9 citations sit past the end of the file they name, all 9 unanchored: five `README.md`
+rows an entry *reports* as read against another revision, one `docs/factory.md:5985` history row
+`H-0159` names as history, and three rows `H-0121` writes as current — its `factory/selftest.sh` trio
+whose enumeration sentence aims `:5875`, `:6521` and `:6638` at `factory/install-timer.sh` (617 lines)
+because the clause names selftest.sh bare and the store inherits the last coordinate-named file. The
+boundary narrows the mis-aim; it does not eliminate it. The line rule also saw 9 — four mis-aimed
+continuations in `H-0110` and `H-0111`, which fell to the open shape, and the same five `README.md` rows.
 
 **The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
 decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
@@ -2441,10 +2445,12 @@ and it is a weaker test than the one that would be free — `git ls-files` answe
 tracked?" in one read — but this rule reads no git, deliberately, so the weaker test is the price of a
 verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
 *names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
-limit that remains, stated because it is the one a reader will hit: a bare `:NNN` with no file named
-earlier on the same physical line names no file at all and is not refused, because 158 rows of these
-logs are that shape inside wrapped paragraphs and refusing them refuses 158 true sentences (H-0153 sets
-the same-line rule; the repair is a rule about sentences, and it is filed).
+limit that remains, stated because it is the one a reader will hit: a bare `:NNN` whose sentence names no
+file at all is not refused, because 175 rows of these logs are that shape inside wrapped paragraphs and
+refusing them refuses 175 true sentences (occurrences, measured at `e66dc85d`: 312 bare
+rows, 137 inheriting a file from their own sentence; 294 bare, 137 inheriting at `adddacc`, where #365
+measured the move). The open shape is sentences naming the file as a bare backticked path and sentences
+naming no file at all; the inheritance itself is still `H-0153`'s.
 
 **The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
 logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
@@ -2475,16 +2481,20 @@ Three findings came from the tool being wrong rather than the log, and all three
   `DECISIONS.md`, matched by basename, and answered "two files". Advice that does not work is worse than
   none: the reader follows it and cannot tell what broke. `./` is now looked up as a path and nothing else,
   pinned by a self-test case.
-- A bare `:NNN` is aimed by the last file resolved *on the same physical line*, and an entry in these logs
-  is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming several files.
-  Four continuations are aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
-  `factory/selftest.sh`, at `:2766` … and `:3731`" sits on a line whose earlier citation is
-  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sit on a line whose
-  earlier citation is `factory/triage.sh:600`. All four land in the debt, where they cost nothing today —
-  and all four are why the length check is anchor-only: applied to every citation the rule would
-  refuse 7 sentences that are each true on their own terms to catch zero false ones (these four, plus
-  three rows an entry is itself reporting as past the end of the file it names). Fixing it is a rule
-  about sentences, not lines, and it is filed as its own issue rather than improvised inside this one.
+- A bare `:NNN` used to be aimed by the last file resolved *on the same physical line*, and an entry in
+  these logs is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming
+  several files. Four continuations were aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
+  `factory/selftest.sh`, at `:2766` … and `:3731`" sat on a line whose earlier citation is
+  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sat on a line whose
+  earlier citation is `factory/triage.sh:600`. All four landed in the debt, where they cost nothing today
+  — and all four were why the length check is anchor-only: applied to every citation the rule would have
+  refused sentences that are each true on their own terms to catch zero false ones. The repair was a rule
+  about sentences, not lines, and #365 measured and landed it: the boundary is now a sentence-final `.`
+  or a block marker (`SENTENCE_BREAK`), which at the sync-merge tree `adddacc` aims 52 wrapped
+  continuations the line rule left invisible and drops 10 aimed rows — the four above among them — and
+  re-aims nothing: every aim the move keeps is the aim the line rule already gave it, including
+  `H-0111`'s `:336` on its skill-file row. The refusal of the bare-path antecedent rests on the row it
+  mis-aims (`D-0038`'s `:760` lands on a screenshot); the other `:336` row is the opposite edge.
 
 Re-derive any of it:
 
