@@ -1,49 +1,59 @@
-# NEXT — issue-366 unit (unclaimed:366, `H-0159`'s 588 adjudicated: one coordinate, the capture README)
+# NEXT — issue-370 unit (PR #446: pushed the H-0267 tzdata pin after H-0266's shellcheck pin proved itself; the approval the pushes spent is owed a re-ask)
 
-State read before this file wrote a byte, at **2026-11-18T02:17:53Z**, raw JSON counted in python and
-never a `-q` template: issue **366** `OPEN`, labels none, **0** comments, `updatedAt 2026-11-14T04:37:35Z`
-— untouched since it was filed, and the branch that answers it is the one you are reading this from.
-**2** open pull requests on the whole repository (`--limit 1000`): **#441** on
-`fix/escalation-label-question`, which carries `H-0250`, and **#439** on `issue-334`, the retention-census
-tool, whose unit owned the `NEXT.md` head this file replaces. **52** open issues. `origin/main` at
-`3c09d6b`, which is also this branch's base: `eb4c2cc` the pre-`H-0251` checkpoint, then the one effect
-commit carrying `Decision: H-0251`. Re-read all of it before acting — **#439** and **#441** each append an
-entry to `factory/DECISIONS.md`, so whichever merges second takes a coordinate re-aim across a moved
-seam, and this unit's own 18-line, 39-pointer re-aim is the template for doing it honestly.
+State read before this file wrote a byte, by this branch’s third dispatch, one read per call, raw JSON
+counted in python and never a `-q` template: **#446** `OPEN`, `MERGEABLE`, `reviewDecision` **empty** —
+`hermesvicowa`’s approval of `879c862` was dismissed by this branch’s push to `3594696` and nobody has
+been re-asked — `mergeStateStatus BLOCKED`, `reviewRequests` empty; head `3594696` with `verify` `fail`
+(run `44278709700`, job `134713403419`) and the four other checks `pass` — and the verify job of that run
+printed `check-shell: 0.10.0 over 33 scripts` rc 0, so `H-0266`’s pin had landed and held, and the red is
+its rotation’s second half: six `internal/schedule` failures refusing the runner’s partial zone database,
+`H-0267`’s subject. `origin/main` was at `1292021`; this dispatch fetched and the allocator re-armed
+before taking the id. Re-read all of it before acting: a number here belongs to the clock it was taken on.
 
-State the **base-sync dispatch** read at **2026-11-18T03:24:10Z**, one read per call, raw JSON counted in
-python: `origin/main` at `38a1fe4`, which is the merge of **#439** — so `H-0249` and the census tool are
-already trunk, and this branch was **3** ahead / **6** behind at the read: `eb4c2cc` the pre-`H-0251`
-checkpoint, `2dd751a` the effect carrying `Decision: H-0251`, `fbd9474` the pre-`H-0252` checkpoint; this
-sync lands on top of those three. **3** open pull requests repository-wide
-(`--limit 1000`, raw JSON): **#444** on `issue-365`, **#443** on this branch, **#441** on
-`fix/escalation-label-question`, the one carrying `H-0250`. Issue **366** still `OPEN`, labels none,
-**1** comment — the `H-0251` unit's own delivery note at `02:27:08Z`, not an answer to anything. The
-sync conflicts in two files: this one, whole, and `factory/DECISIONS.md` in two places — the tail seam
-where main's fresh `H-0249` seats below this branch's `H-0251`, and one mid-file row of `H-0229`'s that
-both parents re-aimed their own way. What the resolution decided is `H-0252`, and this hand-off rides
-that merge commit.
+## What this dispatch pushed
 
-## What this unit shipped
+- `bf51a58` (the pre-`H-0267` checkpoint, the rollback target) and one effect commit carrying
+  `Decision: H-0267`: the `verify` job gains a step that installs tzdata `2026e-0ubuntu0.26.04.1` and
+  its `tzdata-legacy` sibling, both verified against the Ubuntu archive’s published sha256, replacing
+  `/usr/share/zoneinfo` before `make verify`. That is the repair for the six-test `verify` `FAILURE` in
+  the read above; `factory/DECISIONS.md` `H-0267` carries the measured pair (base-only deb rc 1 with the
+  six failures verbatim; the pair rc 0 in 2.605s, both on this 26.04 box) and the evidence that pinning
+  `ubuntu-24.04` would only defer the same red — noble-updates’ 2026e base deb ships no `Enderbury`
+  either. The same commit re-aims `H-0266`’s `ci.yml` pointer, which this step’s 58 inserted lines moved.
+- This `NEXT.md`, rewritten at the top; every instruction section below is carried forward unedited.
+- The pull-request body, rewritten for the new head. The write and its read-back are #446’s business and
+  the body itself is the evidence — not this file’s memory.
+- No merge, no label, no reviewer ask, no issue write; the queue belongs to the supervisor.
 
-`factory/DECISIONS.md` and `NEXT.md`, and nothing else. `H-0251` adjudicates #366 and appends the verdict
-to the foot of `H-0159`'s entry. The verdict in one line: the two rows four lines apart are **one
-coordinate spelled twice**, and the file it names is `testing/capture/README.md` — proved by the digests
-the product-log sentence quotes, which the root `README.md` has never carried in any of its revisions —
-so the provenance clause ("WAS a line when it was written") is the true one and the census clause
-("inside a 349-line README", filed there as #318's "1 broken for months", located) is the false one: it
-reports a throwaway instrument taking the first basename candidate, not what the record said. No existing
-word of `H-0152`, `H-0159`, `H-0161` or `H-0162` was rewritten; the only existing lines the commit changes
-are 18, carrying 39 re-aimed pointers, and each differs from its checkpoint line in digits alone.
+## What this push spent, and what it did not fix
 
-The **base-sync dispatch** adds one thing to that: the merge of `origin/main` at `38a1fe4`, with `H-0252`
-riding the merge commit. Three adjudications, all in the two conflicted files — the log's tail union
-(`H-0249` from main, then this branch's `H-0251`, ids ascending, one blank separator line at each seam so
-the "heading with a non-blank line above" census stays at its seven); `H-0229`'s one digit-war Effect row,
-where the merged truth is **main's** `Makefile:153` and **this branch's** five `factory/DECISIONS.md`
-rows, each coordinate opened on these bytes before it was kept; and this file, whose head is this
-branch's and whose owed list, stranger-warnings and inherited rows are main's. No code, no script, no
-`docs/factory.md` line, no `Makefile` line: the merge carries those from `main` unchanged.
+- The push to `3594696` had already spent #446’s approval — the read above shows `reviewDecision` empty —
+  and this dispatch’s push spends any approval that arrives before it lands. Only the read-back says so
+  (`gh pr view 446 --json reviewDecision,reviews,mergeable,mergeStateStatus`); the re-ask is the
+  supervisor’s poke.
+- The eight SC2329 infos under shellcheck 0.11.0 stay unfixed — that is `H-0266`'s own `What lost:`. They
+  sit on fixture functions `factory/selftest.sh` invokes indirectly by name, and the pin at 0.10.0 is what
+  keeps them out of the verdict; the day this repository moves the pin, those eight rows are the next
+  decision. Do not “fix” the pin by deleting the digest.
+- The tzdata pair is pinned to release `2026e`, the one the 26.04 image itself ships. When this repository
+  chooses to follow tzdata, both digests and the version move together — `H-0267`'s `What lost:` row is
+  where the next unit learns the pair is a standing obligation, not a one-time fetch.
+- A box whose PATH shellcheck is 0.11.x reads `make verify` RED on these bytes with exactly those eight
+  rows. That is disclosed and known, not a regression you introduced: point `SHELLCHECK` at a 0.10.0
+  binary (the one the `shellcheck` job fetches) and the leg prints `check-shell: 0.10.0 over 33 scripts`
+  at rc 0.
+- #370 item 3 — may a red trunk refuse a `MERGE`? — stays open and is a human call: carried row 57
+  below; the shipped read is report-only, and neither `H-0266` nor `H-0267` touched that question.
+
+## What this dispatch pruned, and how to get it back
+
+| Dropped | Where it is whole | Why it is a record and not an instruction |
+|---|---|---|
+| the second dispatch’s dated state reads (lines 3-16 of `git show 3594696:NEXT.md`) | that blob | each is a read of a queue that has moved: the approval they recorded has since been dismissed by a push |
+| its `## What this dispatch pushed` (lines 18-31 of the same blob) | same blob | superseded by the section above; the two commits it lists are in this branch’s history now |
+
+Everything else is carried forward unedited. A dropped owed line is the worse failure and item 4 of the
+inherited list says so — so the drops are itemised above, and none of them is an owed line.
 
 ## What the verdict makes visible, and this unit could not touch
 
@@ -58,11 +68,12 @@ branch's and whose owed list, stranger-warnings and inherited rows are main's. N
   `H-0143`/`H-0144`, the objection `H-0159` itself files, decides a measurement is not rewritten in
   place. If a future unit re-aims them, it re-aims to the file the prose means, and says so in its own
   entry.
-- #318's length-check gate stays unmade and `POINTER_DEBT` stays at 546. This unit added 10 citations,
-  every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
-  which is what pinning a revision costs and what it buys.
+- #318's length-check gate stays unmade and `POINTER_DEBT` sits at 544 — the issue-366 unit recorded 546
+  after its ten citations, and the pair now measures 544 at `bf51a58` whether or not a later unit paid two
+  down; this unit added three more citations, every one anchored to live text it was measured against, so
+  the number did not move and the exempt count (71) did not either.
 
-## What this unit pruned, and where the two dropped hand-offs are recovered verbatim
+## What the issue-366 unit pruned, and where its two dropped hand-offs are recovered verbatim
 
 Two `## What this unit shipped` sections are dropped by this file, both of them dated reads of a pull
 request that has since merged, and both recoverable whole: the clause-5 hand-off at
@@ -79,7 +90,7 @@ rewritten here. Also carried: the 56 numbered inherited rows, PR #402's three no
 the near-identical heading, which is the only record of what it dropped from the 1,174-line file it
 inherited. A dropped owed line is the worse failure, and item 4 of the inherited list says so.
 
-## What is still owed (all of it, carried forward; none of it silent)
+## What is still owed (issue-366’s rows 1-7, carried forward; none of it silent)
 
 1. **The number, the clock and the zone for the bound, from a maintainer.** Ask it on the ticket, in one
    line, and read the answers back out of the API rather than from this page. `retention: option A` does
@@ -177,7 +188,7 @@ inherited. A dropped owed line is the worse failure, and item 4 of the inherited
   reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is your own
   working directory.
 
-## What this unit pruned out of the hand-off it inherits, and how to get it back
+## What the issue-366 unit pruned out of the hand-off it inherited, and how to get it back
 
 `NEXT.md` had been accreting since 12 Nov: `origin/main`'s copy is 1,174 lines, and `3d3c65c`'s owner was
 the issue-364 conflict unit whose PR #436 has merged. This unit keeps the four sections that are still
@@ -243,7 +254,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    the hand-off itself**: the `issue-334` item 5 cited *`docs/factory.md`, "What a conflict-resolution
    commit is allowed to contain"*. No such heading exists on the merged tree
    (`grep -n '^#\{2,4\} ' docs/factory.md | grep -i conflict` → nothing; the only "conflict-resolution"
-   hit is prose at `docs/factory.md:658` inside `### The approval a push voids`). The rule it meant is
+   hit is prose at `docs/factory.md:665` inside `### The approval a push voids`). The rule it meant is
    the `H-0143`/`H-0144` lineage in `factory/DECISIONS.md` — a published coordinate is re-pointed, never
    rewritten. #337 is the open issue for a contract naming a gate that does not exist; this row is one
    more instance of it, in prose rather than a dispatch. Widening the leg means naming why each of those
@@ -283,7 +294,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    until its own test is met on the merged tree, with #1256's closing-keyword adjacency rule respected
    either way.
 9. **This push spends the approval, and only a read-back says so.** Measured on #269 and restated at
-   `docs/factory.md:651` "### The approval a push voids" — **re-stamped by this sync**: the row
+   `docs/factory.md:658` "### The approval a push voids" — **re-stamped by this sync**: the row
    carried `:652`, an off-by-one that is false on both parents of this merge as well (the heading is
    at 651 on `HEAD`, on `origin/main` and on the merged tree, where the file is byte-identical to
    both), so it is a pre-existing pointer error, not a drift this merge introduced: a base-sync push
@@ -292,8 +303,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    `gh pr view 410 --json reviewDecision,mergeable,mergeStateStatus` after the push; the re-ask is the
    supervisor's poke (`factory_request_review`), not a unit's.
 10. **Re-measure every live coordinate you carry — this tick's worst moved by 1500 lines.** The
-    `issue-334` hand-off cited `factory/selftest.sh:17070` for `reap_leg_live`'s refusal; on this merged
-    tree the sentence is at `factory/selftest.sh:18570` "the live journal produced a deadline hold of 0s".
+    `issue-334` hand-off cited `factory/selftest.sh:17163` for `reap_leg_live`'s refusal; on this merged
+    tree the sentence is at `factory/selftest.sh:18663` "the live journal produced a deadline hold of 0s".
     Same pass, others: the `dpn_alloc_run` bare arm `14933 → 15674`, `mm_repo_new` `3585 → 3950`,
     `mm_merge` `3615 → 3980`, the mid-merge detector leg `3676 → 4041`, the quarantine round trip
     `3767 → 4132`. Unchanged and re-checked: `factory/next-decision-id.sh:546`
@@ -320,8 +331,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/next-decision-id.sh:546` inheriting the caller's unit into a fixture's "bare run". Do not
     repair it by weakening either leg. Still unrepaired on this merged tree, **re-measured**:
     `grep -c 'env -u FACTORY_TICK_UNIT' factory/selftest.sh` answers 0, and the two legs' fixture arms are
-    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15674` and
-    `factory/selftest.sh:18570` (+461 on the tree it measured, both re-opened here).
+    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15767` and
+    `factory/selftest.sh:18663` (+461 on the tree it measured, both re-opened here).
 
    Their instance, carried: the `issue-355` unit found **both** proposed causes unsupported on its
    own tree — the carried `FACTORY_*`-inheritance cause was not reproduced there, and neither was
@@ -463,9 +474,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/selftest.sh`'s `the timer's scripts are executable` leg refused with
     `not 100755 in the index: factory.sh(100755 100755 100755) selftest.sh(...)`, while
     `git ls-files -s` shows every stage entry of both files at 100755. Mechanism:
-    `factory/selftest.sh:17917` `index_exec_problems() { # <repo> <name>... -> the names git does not
+    `factory/selftest.sh:18010` `index_exec_problems() { # <repo> <name>... -> the names git does not
     hold at 100755` collects one mode per **index entry**, and an unmerged path has three (stages 1/2/3),
-    so `factory/selftest.sh:17921` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
+    so `factory/selftest.sh:18014` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
     a three-line string and refuses a mode that is correct. Every conflict tick meets this before it can
     stage, and the refusal names no stage, so it reads like a real permissions defect. Repair shape:
     dedupe the collected modes and refuse only a distinct value that is not 100755, or skip paths git
@@ -523,7 +534,7 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     placed by unique row identity and were repaired (`:1649`→`:1820`, `:2614`→`:2785`); two are
     unplaceable, because base's row there folds to a bare `#` and the merged `factory/common.sh`
     holds 189 copies, so no identity method can choose and they stay wrong — a reader following
-    `H-0099`'s `common.sh:1607` lands on `dirt_rc=`, not on the line the entry means. The method is
+    `H-0099`'s `common.sh:1640` lands on `dirt_rc=`, not on the line the entry means. The method is
     a python pass comparing `git show <base>:<file>` with the working file, digits folded, scoped to
     citations whose carrying row is verbatim at the base blob. It needs no anchor, which is exactly
     why the anchor rule cannot do it, and it is cheap: 382 rows in a second. A leg that runs it on
@@ -619,9 +630,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
 51. **A `path:line` pointer inside this file is tested for the file, never for the row — and the
     off-by-one that survived two hand-offs is the proof.** The sixth sync found two false coordinates
     in its own input, neither created by the merge: row 1490 of `factory/common.sh` naming
-    `factory_worktree_lines`, which sits at `factory/common.sh:1547` "factory_worktree_lines() { # [main-checkout]",
+    `factory_worktree_lines`, which sits at `factory/common.sh:1580` "factory_worktree_lines() { # [main-checkout]",
     and the row numbered 652 of `docs/factory.md` naming the heading that is at
-    `docs/factory.md:651` "### The approval a push voids" — false on `HEAD`, on `origin/main` and on
+    `docs/factory.md:658` "### The approval a push voids" — false on `HEAD`, on `origin/main` and on
     this branch alike, so it was inherited twice. No gate can see either class: the anchor rule reads
     only the two decision logs, and the hand-off leg at `scripts/check-next-md.sh:179` "leg 2: phantom paths"
     asks whether a named file exists (`scripts/check-next-md.sh:189` "[ -e "$root/$p" ] || printf", the existence test the leg makes in full),
@@ -637,9 +648,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     their file's uniform trunk growth (`+171` in `factory/common.sh`, `+219` in `factory/selftest.sh`), and
     the **4** that did not are exactly the 4 whose fragment occurs on more than one row — `"$d/earned-tail.sh"`
     on 5 rows, `"$d/earned-window.sh"` on 2. For all 4 the arithmetic row *passes* the anchor test while
-    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21638`, `:21647`, `:21664`
+    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21731`, `:21647`, `:21664`
     (`dpn_mut` and `grep -qF` calls that also mention the fragment) instead of the `control failed:` refusal
-    the entry measured, `factory/selftest.sh:21639` and `:21648`, each `grep -c` answering **1**. Both shipped
+    the entry measured, `factory/selftest.sh:21732` and `:21648`, each `grep -c` answering **1**. Both shipped
     pointers are aimed at the refusal rows now. Two ways to land this, and the cost of each is measured at
     this head so nobody has to find it later. **(a) The cheap merge-scope leg:** when a merge adds rows to a
     file that a pointer cites, refuse the merge unless every pointer whose cited row lost its anchor is
@@ -721,6 +732,27 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     a leak says so at the leg instead of looking like a broken allocator.
 
 
+57. **The trunk verdict is read and said; what it may *do* is the open question.** #370 landed the read —
+    `factory_trunk_ci_lines` in `factory/common.sh` journals one `TRUNK-CI` line per activation (red
+    trunks add a `TRUNK-RED` line) and nothing else. Whether a red trunk should refuse a `MERGE`, halt
+    the loop, or stay report-only is **not decided** and is deliberately still #370 item 3: a halt is the
+    shape `H-0056` refused and #341 measured the cost of, and a merge-gate change is a class of decision
+    this harness does not make unattended. Whoever takes it: start from the measurement that opened the
+    ticket (main carried a push-workflow FAILURE for 1h49m04s on 16 Nov — run `44110925937` — with 36
+    `DELIVERED` rows and one `MERGED` journaled over it), and remember the read itself already answers
+    the *seeing* half — the live trunk is green at filing (three newest push runs all `success` as of
+    18 Nov, the 16 Nov red cleared by its own re-run), so the gate question is about the next red, not
+    this one. The bad-conclusion vocabulary is deliberately the shared `JQ_BAD_CONCLUSIONS` list beside
+    `JQ_CHECKS`; a proposal that diverges the two vocabularies has to say why.
+58. **The two allocator legs are still leak-riding, and a session env can carry the leak for a whole
+    suite run.** `control: one note can suppress the other` and `a bare run journals nothing` failed
+    18 Nov in the `issue-370` unit tree exactly as NEXT row 56 measures — the journal inherited from
+    `FACTORY_LOG`/`FACTORY_TICK_UNIT`/`FACTORY_TICK_BRANCH` supplies a `DECISION-ID` line with the
+    *working branch's* unit and branch in it (`unit=unclaimed:370 branch=issue-370`), which the fixture
+    never planted. Nothing in #370's diff touches the allocator; the same two rows fail identically on
+    HEAD in a clean worktree under the same session env. The row-56 repair (plant the journal root, or
+    sanitize and say so in the label) is still owed, and until it lands, a unit running the suite from a
+    shell that sourced the factory env must unset the three vars and say which run it quotes.
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab
