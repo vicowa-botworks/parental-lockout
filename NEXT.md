@@ -54,11 +54,11 @@ Re-read all of it before acting: a number here belongs to the clock it was taken
 
 ## What this push spent
 
-- Nothing this file can assert about review. `reviewDecision` read **APPROVED** on #454 at head
-  `5d1e09f` before this file wrote a byte, and a base sync moves the head, so whether that approval
-  survived the push is the post-push read — journalled in this tick's `PR-REVIEW` line and quoted in
-  the pull-request body, never asserted here: a `REVIEW_REQUIRED` read after the push does not
-  contradict an `APPROVED` read at `HEAD~1`, and owed row 1 says who owns the re-review ask.
+- Nothing this file can assert before the push. `reviewDecision` read **APPROVED** on #454 at head
+  `5d1e09f` before this file wrote a byte, and a base sync moves the head, so whether it survived is
+  a post-push read and it lives in the pull-request body -- journalled nowhere, because a unit writes
+  no line in the supervisor's journal and `factory.sh` has no review marker to ask for. A
+  `REVIEW_REQUIRED` read there does not contradict `HEAD~1`'s `APPROVED`; owed row 1 has the read.
 - Gate and `check-next-md` verdicts are quoted in the pull-request body from the runs on the bytes
   this file ships, including `make verify`'s two numbers under the two environments quoted in the
   state read above.
@@ -67,11 +67,11 @@ Re-read all of it before acting: a number here belongs to the clock it was taken
 
 ## What is still owed (this tick's rows, then everything the carried hand-offs state)
 
-1. Nothing on #375's side is left open except the review. The approval that stood at `5d1e09f` was
-   read before this file wrote a byte; whether this push spent it is a read-back after the push and
-   not a prediction in this file, and if that read no longer says `APPROVED` the re-review ask is
-   the supervisor's poke (`factory_request_review`, addressed to `FACTORY_REVIEWER_TEAM`) and not a
-   unit's verb — `gh pr edit --add-reviewer` exits 1 on this account's retired `projectCards` field.
+1. Nothing on #375's side is left open except the review, and the post-push read carries what this
+   file refused to predict: `hermesvicowa`'s row, filed against `5d1e09f6`, reads **DISMISSED**,
+   `reviewDecision` empty and `mergeStateStatus` **BLOCKED** at head `95ddb50`. The re-review ask is
+   owed and unpaid -- the supervisor's poke (`factory_request_review`, `FACTORY_REVIEWER_TEAM`), never
+   a unit's verb: `gh pr edit --add-reviewer` exits 1 on `projectCards` and writes nothing.
 2. #375 owes #373 nothing new on the citation class: `docs/factory.md` auto-merged clean here, so
    `python3 scripts/check-decisions.py --citations docs/factory.md` still answers the rows trunk
    measured. Re-run it if another page edit lands first — a conflict on that paragraph is the only
