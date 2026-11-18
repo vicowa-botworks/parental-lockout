@@ -5,7 +5,8 @@ a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt
 **11** comments, and a `^retention:` answer line among them: **0** — the twentieth dispatch's paste-ready
 line is still the newest thing on the ticket and `H-0188`'s `Awaiting:` stands unanswered. **0** open pull
 requests on the whole repository (`--limit 1000`, and `--json number -q length` agrees at 0); **50** open
-issues; `gh label list --limit 200` **18** labels, `needs-human` among them: **no**. `origin/main` at
+issues; `gh label list --limit 200` **18** labels, the name `factory/escalation-label.sh` prints among
+them: **no**. `origin/main` at
 `3c09d6b`, which is the merge of this branch's own #438, so this branch is **1** commit ahead of it and
 **1** behind until the sync commit. Two corrections to what an earlier hand-off said, both re-measured
 rather than inherited: `gh issue list` shows **0** issues carrying an `unclaimed:*` label because
@@ -113,9 +114,11 @@ so no `docs/factory.md:NNNN` pointer moved.
    `+ local tz=…` line as a row whose first field was not one of A–F. Run `bash factory/retention-census.sh
    --self-test`, or `bash -B`/`set -u`, both of which stay allowed and stay green.
 7. **The park is still #437's, and #311's merged PR did not create the marker.** Re-measured at
-   `00:08:17Z`: 18 labels, no `needs-human`; `blocked` on exactly 334 and 311; triage's own stderr —
-   `nothing is parked, and `needs-human` is not a label in this repository, so no issue can be parked at
-   all -- #311`. Creating the label is a human verb and no unit here ran it; until it happens, expect this
+   `00:08:17Z`: 18 labels, none of them the name `factory/escalation-label.sh` prints; `blocked` on
+   exactly 334 and 311; triage's own stderr says nothing is parked because that marker name is not a
+   label in this repository, so no issue can be parked at all -- #311. (That stderr sentence spells the
+   name out; this file may not -- `esc_one_home` keeps the name in `factory/common.sh` alone.)
+   Creating the label is a human verb and no unit here ran it; until it happens, expect this
    ticket to be dispatched again, and read the ticket's eleven comments before measuring anything — the
    last five units each found something the previous one missed, and none of them chose the number.
 
