@@ -1,69 +1,83 @@
-# NEXT — issue-334 unit (census tool on the branch; the dispatch that synced, repaired the spelled marker name, and opened the pull request)
+# NEXT — issue-366 unit (unclaimed:366, `H-0159`'s 588 adjudicated: one coordinate, the capture README)
 
-State read before this file wrote a byte, at **2026-11-18T00:08:17Z**, raw JSON counted in python and never
-a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 2026-11-17T23:37:31Z`,
-**11** comments, and a `^retention:` answer line among them: **0** — the twentieth dispatch's paste-ready
-line is still the newest thing on the ticket and `H-0188`'s `Awaiting:` stands unanswered. **0** open pull
-requests on the whole repository (`--limit 1000`, and `--json number -q length` agrees at 0); **50** open
-issues; `gh label list --limit 200` **18** labels, the name `factory/escalation-label.sh` prints among
-them: **no**. `origin/main` at
-`3c09d6b`, which is the merge of this branch's own #438, so this branch is **1** commit ahead of it and
-**1** behind until the sync commit. Two corrections to what an earlier hand-off said, both re-measured
-rather than inherited: `gh issue list` shows **0** issues carrying an `unclaimed:*` label because
-`unclaimed` has never been a label — it is `factory/triage.sh`'s own class (`factory/triage.sh:71`
-`unclaimed | parked | delivered | branch_without_pr`), and the live table at this instant reads **43**
-`unclaimed` issue rows, **8** `delivered`, **8** `branch_without_pr`; and **#311 now reads `delivered`**
-(merged PR #382, `Refs #311`, 14 Nov) while its GitHub state is `OPEN` with `blocked` and the marker name
-still does not exist — so the label creation that would park both escalations is still a withheld verb,
-not a dropped ball. Read all of it again before acting: #334 is dispatched by every tick that has nothing
-else, because nothing parks a waiting escalation (#437).
+State read before this file wrote a byte, at **2026-11-18T02:17:53Z**, raw JSON counted in python and
+never a `-q` template: issue **366** `OPEN`, labels none, **0** comments, `updatedAt 2026-11-14T04:37:35Z`
+— untouched since it was filed, and the branch that answers it is the one you are reading this from.
+**2** open pull requests on the whole repository (`--limit 1000`): **#441** on
+`fix/escalation-label-question`, which carries `H-0250`, and **#439** on `issue-334`, the retention-census
+tool, whose unit owned the `NEXT.md` head this file replaces. **52** open issues. `origin/main` at
+`3c09d6b`, which is also this branch's base: `eb4c2cc` the pre-`H-0251` checkpoint, then the one effect
+commit carrying `Decision: H-0251`. Re-read all of it before acting — **#439** and **#441** each append an
+entry to `factory/DECISIONS.md`, so whichever merges second takes a coordinate re-aim across a moved
+seam, and this unit's own 18-line, 39-pointer re-aim is the template for doing it honestly.
 
-The state the **sync-and-ship dispatch** read at **2026-11-18T00:47Z**, one read per call and raw JSON:
-issue **334** still `OPEN`, `bug,area:ops,blocked`, **11** comments, `updatedAt 2026-11-17T23:37:31Z`
-unchanged, a `^retention:` answer line among them still **0**; **0** open pull requests repository-wide;
-`origin/main` at `3c09d6b` and this branch **2 ahead / 1 behind**. It is green by **4** after the clean
-sync merge `14a1634` — `git merge-tree --write-tree` predicted the auto-merge at rc 0 and the predicted
-tree held `factory/retention-census.sh` at `100755` — and after the `esc_one_home` repair `d6edab9`,
-whose red this dispatch found on its first full `make verify` (see the third thing a stranger will break,
-below; trunk reads green at that leg on this box, so the defect was the branch's own). This dispatch ran
-the census by hand on the live journal as its independent re-check of the tool: **241** transcripts,
-**61,745,877 B**, journal **2,326,244 B**, and the seven-day cut splitting six spellings into **5**
-distinct answers (A 20, B 20, C 66, D 19, E 0, F 29, at `00:47:16Z`) — clause 5's claim, re-measured
-rather than inherited. This dispatch opens the pull request from this head; the head number lives on
-GitHub, not in this file.
+State the **base-sync dispatch** read at **2026-11-18T03:24:10Z**, one read per call, raw JSON counted in
+python: `origin/main` at `38a1fe4`, which is the merge of **#439** — so `H-0249` and the census tool are
+already trunk, and this branch was **3** ahead / **6** behind at the read: `eb4c2cc` the pre-`H-0251`
+checkpoint, `2dd751a` the effect carrying `Decision: H-0251`, `fbd9474` the pre-`H-0252` checkpoint; this
+sync lands on top of those three. **3** open pull requests repository-wide
+(`--limit 1000`, raw JSON): **#444** on `issue-365`, **#443** on this branch, **#441** on
+`fix/escalation-label-question`, the one carrying `H-0250`. Issue **366** still `OPEN`, labels none,
+**1** comment — the `H-0251` unit's own delivery note at `02:27:08Z`, not an answer to anything. The
+sync conflicts in two files: this one, whole, and `factory/DECISIONS.md` in two places — the tail seam
+where main's fresh `H-0249` seats below this branch's `H-0251`, and one mid-file row of `H-0229`'s that
+both parents re-aimed their own way. What the resolution decided is `H-0252`, and this hand-off rides
+that merge commit.
 
 ## What this unit shipped
 
-Three commits of this dispatch ride on top of the census work described under them: the sync merge
-`14a1634` of `origin/main@3c09d6b` (clean — no decision-log union was needed), the marker-name repair
-`d6edab9`, and this hand-off. It implements nothing: the maintainer answer owed item 1 has not arrived,
-`H-0188`'s `Awaiting:` stands, and the deletion itself remains a reserved class.
+`factory/DECISIONS.md` and `NEXT.md`, and nothing else. `H-0251` adjudicates #366 and appends the verdict
+to the foot of `H-0159`'s entry. The verdict in one line: the two rows four lines apart are **one
+coordinate spelled twice**, and the file it names is `testing/capture/README.md` — proved by the digests
+the product-log sentence quotes, which the root `README.md` has never carried in any of its revisions —
+so the provenance clause ("WAS a line when it was written") is the true one and the census clause
+("inside a 349-line README", filed there as #318's "1 broken for months", located) is the false one: it
+reports a throwaway instrument taking the first basename candidate, not what the record said. No existing
+word of `H-0152`, `H-0159`, `H-0161` or `H-0162` was rewritten; the only existing lines the commit changes
+are 18, carrying 39 re-aimed pointers, and each differs from its checkpoint line in digits alone.
 
-`factory/retention-census.sh`, one `verify` step, four paragraphs in the contract's own section, and
-nothing else. The script is clause 5's block turned into a tool: six clocks named and priced in one pass
-of one directory, `total` before any cut, `zone:` naming the offset a bare stamp parses at, `differ:`
-counting the rows two policies disagree about, and refusals where the block used to print zeroes —
-exit 2 for no number and for a `--now` that would price row E off a clock it has not pinned, exit 3 for a
-directory that holds no transcripts. `Decision: H-0249`.
+The **base-sync dispatch** adds one thing to that: the merge of `origin/main` at `38a1fe4`, with `H-0252`
+riding the merge commit. Three adjudications, all in the two conflicted files — the log's tail union
+(`H-0249` from main, then this branch's `H-0251`, ids ascending, one blank separator line at each seam so
+the "heading with a non-blank line above" census stays at its seven); `H-0229`'s one digit-war Effect row,
+where the merged truth is **main's** `Makefile:153` and **this branch's** five `factory/DECISIONS.md`
+rows, each coordinate opened on these bytes before it was kept; and this file, whose head is this
+branch's and whose owed list, stranger-warnings and inherited rows are main's. No code, no script, no
+`docs/factory.md` line, no `Makefile` line: the merge carries those from `main` unchanged.
 
-Two things about it a reader should know before trusting a row. The self-test is **falsified, not just
-green**: a battery of single-line mutants — the `>` of row E's age compare, the widened transcript glob,
-the `<=` of row C, the newest-first sort that chooses what a byte cap evicts, a renamed `quiet:` line, a
-stray warning on stderr, the deleted `--days`/`--bytes` guard — each forces a non-zero self-test, and the
-control run stays green; the leg itself is pinned by `rc_leg_makefile`, which reads `Makefile` and refuses
-a `verify` that lost the step or carries it twice. And `bash -x` is refused for `--self-test` at the top
-of `main`, before `rc_main`, because a traced function returns its trace on stdout and the legs read rows
-with `awk`: measured 13 legs failing 67 of 79 row assertions while the untraced run was green in the same
-minute. `bash -x` on an ordinary census still traces normally, so it is the assertion that is guarded, not
-the tool.
+## What the verdict makes visible, and this unit could not touch
 
-What it does **not** do, so nobody reaches for it and finds a hole: it prices transcripts only, never a
-`supervisor.log` rotation (that is owed item 2 — the script prints the journal's bytes and line count on
-the `journal:` line and stops there); it cannot price row E at a pinned `--now` (`find -mtime` reads the
-real clock and takes no reference time, so `pinned:` says which rows are measurements and which is
-arithmetic); and the doc's `for p in …` block stays in `docs/factory.md` unchanged as the audit path —
-this unit deliberately did not convert prose it does not need to convert, and left the page line-neutral
-so no `docs/factory.md:NNNN` pointer moved.
+- `docs/factory.md`'s summary of this token — the paragraph that calls it "the token this log argues
+  about most" — stops at "`H-0159` reads the same token both ways" and sends the reader to `H-0162`'s
+  Effect. Its own sentence, that the root reading is past EOF, is true; the framing is unfinished.
+  Whoever edits that file next ends the sentence with the verdict. `H-0251`'s `Follow-up:` row carries
+  this, and no issue was opened, because #366 is the right scope.
+- Four other rows carry the same token on the root reading and are untouched: `H-0152`'s, `H-0161`'s,
+  `H-0167`'s `8437eea:README.md:588` census row and `H-0177`'s Effect row. None of them becomes a defect
+  by this verdict — on the root reading they are all past EOF and say so — and none is repaired here:
+  `H-0143`/`H-0144`, the objection `H-0159` itself files, decides a measurement is not rewritten in
+  place. If a future unit re-aims them, it re-aims to the file the prose means, and says so in its own
+  entry.
+- #318's length-check gate stays unmade and `POINTER_DEBT` stays at 546. This unit added 10 citations,
+  every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
+  which is what pinning a revision costs and what it buys.
+
+## What this unit pruned, and where the two dropped hand-offs are recovered verbatim
+
+Two `## What this unit shipped` sections are dropped by this file, both of them dated reads of a pull
+request that has since merged, and both recoverable whole: the clause-5 hand-off at
+`git show 3c09d6b:NEXT.md`, lines 13 to 30, and the census hand-off — the six-clock tool, the
+`esc_one_home` marker-name repair, and that dispatch's own hand-run census — at
+`git show 38a1fe4:NEXT.md`, lines 35 to 67. Everything from `## What is still owed` downward is carried
+forward from **that second file**, unedited, and that is what brings owed items **5-7** and the
+`Three things a stranger will break here` section into this branch's copy: the head this branch wrote at
+`2dd751a` carried the four-item owed list and the `Two things` section out of `3c09d6b`, and `H-0249`'s
+unit added three owed items, one stranger-warning about a branch left red by its own last commit, and a
+rewritten probe bullet now that the census has a tracked script — all three taken here rather than
+rewritten here. Also carried: the 56 numbered inherited rows, PR #402's three non-blocking review items,
+`Hard rules for whoever picks this up`, and that unit's own prune list, the section further down with
+the near-identical heading, which is the only record of what it dropped from the 1,174-line file it
+inherited. A dropped owed line is the worse failure, and item 4 of the inherited list says so.
 
 ## What is still owed (all of it, carried forward; none of it silent)
 
