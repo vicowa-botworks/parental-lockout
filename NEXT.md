@@ -292,8 +292,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    `gh pr view 410 --json reviewDecision,mergeable,mergeStateStatus` after the push; the re-ask is the
    supervisor's poke (`factory_request_review`), not a unit's.
 10. **Re-measure every live coordinate you carry — this tick's worst moved by 1500 lines.** The
-    `issue-334` hand-off cited `factory/selftest.sh:17070` for `reap_leg_live`'s refusal; on this merged
-    tree the sentence is at `factory/selftest.sh:18570` "the live journal produced a deadline hold of 0s".
+    `issue-334` hand-off cited `factory/selftest.sh:17081` for `reap_leg_live`'s refusal; on this merged
+    tree the sentence is at `factory/selftest.sh:18581` "the live journal produced a deadline hold of 0s".
     Same pass, others: the `dpn_alloc_run` bare arm `14933 → 15674`, `mm_repo_new` `3585 → 3950`,
     `mm_merge` `3615 → 3980`, the mid-merge detector leg `3676 → 4041`, the quarantine round trip
     `3767 → 4132`. Unchanged and re-checked: `factory/next-decision-id.sh:546`
@@ -320,8 +320,8 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/next-decision-id.sh:546` inheriting the caller's unit into a fixture's "bare run". Do not
     repair it by weakening either leg. Still unrepaired on this merged tree, **re-measured**:
     `grep -c 'env -u FACTORY_TICK_UNIT' factory/selftest.sh` answers 0, and the two legs' fixture arms are
-    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15674` and
-    `factory/selftest.sh:18570` (+461 on the tree it measured, both re-opened here).
+    the coordinates the `issue-346` unit pinned at `factory/selftest.sh:15685` and
+    `factory/selftest.sh:18581` (+461 on the tree it measured, both re-opened here).
 
    Their instance, carried: the `issue-355` unit found **both** proposed causes unsupported on its
    own tree — the carried `FACTORY_*`-inheritance cause was not reproduced there, and neither was
@@ -463,9 +463,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     `factory/selftest.sh`'s `the timer's scripts are executable` leg refused with
     `not 100755 in the index: factory.sh(100755 100755 100755) selftest.sh(...)`, while
     `git ls-files -s` shows every stage entry of both files at 100755. Mechanism:
-    `factory/selftest.sh:17917` `index_exec_problems() { # <repo> <name>... -> the names git does not
+    `factory/selftest.sh:17928` `index_exec_problems() { # <repo> <name>... -> the names git does not
     hold at 100755` collects one mode per **index entry**, and an unmerged path has three (stages 1/2/3),
-    so `factory/selftest.sh:17921` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
+    so `factory/selftest.sh:17932` `[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"` compares
     a three-line string and refuses a mode that is correct. Every conflict tick meets this before it can
     stage, and the refusal names no stage, so it reads like a real permissions defect. Repair shape:
     dedupe the collected modes and refuse only a distinct value that is not 100755, or skip paths git
@@ -637,9 +637,9 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     their file's uniform trunk growth (`+171` in `factory/common.sh`, `+219` in `factory/selftest.sh`), and
     the **4** that did not are exactly the 4 whose fragment occurs on more than one row — `"$d/earned-tail.sh"`
     on 5 rows, `"$d/earned-window.sh"` on 2. For all 4 the arithmetic row *passes* the anchor test while
-    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21638`, `:21647`, `:21664`
+    naming the wrong statement: `scripts`-level guards `factory/selftest.sh:21649`, `:21647`, `:21664`
     (`dpn_mut` and `grep -qF` calls that also mention the fragment) instead of the `control failed:` refusal
-    the entry measured, `factory/selftest.sh:21639` and `:21648`, each `grep -c` answering **1**. Both shipped
+    the entry measured, `factory/selftest.sh:21650` and `:21648`, each `grep -c` answering **1**. Both shipped
     pointers are aimed at the refusal rows now. Two ways to land this, and the cost of each is measured at
     this head so nobody has to find it later. **(a) The cheap merge-scope leg:** when a merge adds rows to a
     file that a pointer cites, refuse the merge unless every pointer whose cited row lost its anchor is
