@@ -275,7 +275,7 @@ was taken on.
 - The push moves nothing that was reviewed — #453 carried no review on head `243ec7b` at the read
   above — so what it owes is a first review, which is the supervisor's poke
   (`factory_request_review`), not a unit's ask. The post-push read is quoted in the pull-request body.
-- #435's whole point is that the gate refuses present-tense coordinate prose — and the first two
+- #374's whole point is that the gate refuses present-tense coordinate prose (corrected per the review of #453: #435 is the merged issue-368 exec-bit pull) — and the first two
   rows it refused on this merge were this repository's own, in `H-0139` and `H-0146`, repaired by
   the tense change the entry itself teaches. A branch that ships a rule and then violates it two
   entries later is the reason the rule is a gate and not a convention.
@@ -446,7 +446,7 @@ was taken on.
 - The push moves nothing that was reviewed — #453 carried no review on head `243ec7b` at the read
   above — so what it owes is a first review, which is the supervisor's poke
   (`factory_request_review`), not a unit's ask. The post-push read is quoted in the pull-request body.
-- #435's whole point is that the gate refuses present-tense coordinate prose — and the first two
+- #374's whole point is that the gate refuses present-tense coordinate prose (corrected per the review of #453: #435 is the merged issue-368 exec-bit pull) — and the first two
   rows it refused on this merge were this repository's own, in `H-0139` and `H-0146`, repaired by
   the tense change the entry itself teaches. A branch that ships a rule and then violates it two
   entries later is the reason the rule is a gate and not a convention.

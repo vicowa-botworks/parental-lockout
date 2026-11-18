@@ -2381,7 +2381,7 @@ Shapes that are understood and are not the same claim:
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
 | `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **in its own sentence** — the sentence, not the physical line, since #365 measured that a wrapped paragraph here is several sentences naming several files; a sentence that names no file leaves the row in the open shape below; and a coordinate whose quoted anchor the newline cut — on the next line or dangling open — is refused by name, never left as silent debt (#369) |
-| `` `AGENTS.md:46` now reads "…" ``, `the rule is at \`factory/factory.sh:245\`` | asserts where the lines are **in the tree being gated** — refused outright without an anchor since #374; past-tensed with the date it was read it becomes an ordinary debt row |
+| `` `AGENTS.md:46` now reads "…" ``, ``the rule is at `factory/factory.sh:245`` | asserts where the lines are **in the tree being gated** — refused outright without an anchor since #374; past-tensed with the date it was read it becomes an ordinary debt row |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
