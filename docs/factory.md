@@ -1273,6 +1273,34 @@ records its own name (`Environment=FACTORY_SERVICE_UNIT=<name>.service`) for the
 is chosen on a command line and is recorded nowhere else, so a pass reading the default name would be
 describing a unit that does not exist.
 
+The unit carries a second thing besides the tree it execs: the `Environment=` set is the environment a
+tick runs in, and #377 measured what never reading it costs. A live unit written 2026-11-10 carried
+three `Environment=` lines while the generator emitted five -- the missing pair was
+`FACTORY_REVIEWER_TEAM` (#241) and `FACTORY_SERVICE_UNIT` (#260) themselves -- and both components
+still behaved correctly by falling back to script defaults, so the install was stale in a way every
+component hid: the poke asked the team because a `${VAR-default}` said so, not because the install
+asked, and the unit name resolved by the repository-name guess instead of the recorded line. So every
+pass now compares the generator's `Environment=` **names** with the installed unit's and prints one
+`UNIT-ENV-STALE` line per missing name (`factory_unit_env_lines`, `factory/common.sh`):
+
+```
+2026-11-17T14:02:11Z UNIT-ENV-STALE unit=<the installed unit> name=FACTORY_REVIEWER_TEAM -- the installed unit carries no Environment=FACTORY_REVIEWER_TEAM line, so it predates the generator that writes it; re-running factory/install-timer.sh is the fix and that is whoever maintains the timer's act, and until it happens the script answers this name from its own default (#377)
+```
+
+A warning, not a halt -- the pass works, and the drift removes behaviour only where an operator wanted
+a lever the missing line carries: `Environment=FACTORY_REVIEWER_TEAM=` written *empty* is #241's
+documented "ask the individual" override, unreachable from an install that predates the line. The
+comparison reads names, never values, so the empty override counts as present and the verdict does
+not nag the lever it exists to protect. And the repair is an operator act, never the pass's:
+re-running the generator rewrites and reloads the unit that drives the queue while re-deriving `PATH`
+from the caller's environment -- `H-0287` carries that split. Silence from this read means exactly
+one thing, that the install carries every name the running generator writes; an unreadable generator
+answers `UNIT-ENV-UNKNOWN` instead of silence, because a failed read is not evidence of the clean
+state (#228's polarity, the same rule `UNIT-UNREADABLE` carries), and the uninstalled, foreign and
+unreadable arms print no set verdict at all -- their own sentence is the honest one, and comparing an
+expected set against a file that is absent, hand-written, or unreadable manufactures drift out of the
+inability to see.
+
 What the check deliberately does **not** do:
 
 - **No fetch inside the verdict.** It compares against `origin/<trunk>` as this checkout last learned
