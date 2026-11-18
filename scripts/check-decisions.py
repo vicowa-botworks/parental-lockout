@@ -593,7 +593,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 588
+POINTER_DEBT = 588  # citations that owe an anchor; may only fall (H-0254 measured the review corrections of H-0253 at +11 citations and NO debt move: 1 self-anchors on its own quoted line, 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -638,19 +638,19 @@ FILENAME_SHAPE = re.compile(r"[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$")
 # Where a citation's sentence ends, for the continuation rule in `scan_citations`. Measured on the two
 # logs rather than designed (#365): the break set is a sentence-final `.` followed by whitespace or the
 # end of the text, plus a markdown block marker opening a line -- bullet, blockquote, enumeration,
-# heading. Against the physical-line rule this aims 52 wrapped continuations that were invisible and
-# unplaced (137 aimed, 157 still unplaced, of 294 bare rows), and takes the aim away from 9 rows the
-# line rule reached only by riding an earlier sentence's citation -- among them the four the issue
-# named as mis-aimed (`H-0110`'s `:2766` and `:3731`, `H-0111`'s `:2853` and `:3833`); those nine sit
-# in the open shape `scan_citations` documents, because their sentence names the intended file only as
-# a backticked path with no coordinate, and admitting that antecedent shape was measured worse: it
-# hands `:760` of `D-0038` to `docs/screenshots/360/lock.png` and takes `H-0111`'s verified `:336`
-# back from the skill file to `factory/triage.sh`. A tenth key in that comparison is the `:336` that
-# appears twice on its line: there the aim survives, as the move just named. Wider terminators were measured and refused on the live rows
-# too: adding `;` un-aims 17 rows this set places -- among them `D-0023`'s "`manifest.py:31` states and
-# `manifest.py:314` implements; `record` writes the field at `:480`", a semicolon inside one sentence --
-# for 36 of its 52 gains, not 52; adding ` -- ` un-aims 16 for 42, including "`profiles.tmpl:101` and
-# `:204` as form-field labels", the ticket's own shape.
+# heading. Against the physical-line rule, on the sync-merge tree `adddacc` counting occurrences, this
+# aims 52 wrapped continuations the line rule left invisible (95 aimed -> 137, 199 -> 157 unplaced, of
+# 294 bare rows) and drops the aim of 10 rows that reached their file only by riding an earlier
+# sentence's citation -- among them the four the issue named (`H-0110`'s `:2766` and `:3731`,
+# `H-0111`'s `:2853` and `:3833`). No row is re-aimed at a different file. Keyed by
+# (file, line, low, high) the dropped 10 are 9: one coordinate sits twice on a single log line and
+# only the row aimed at that file's own reader falls there, the pair's twin keeps its aim under both
+# rules. The dropped rows sit in the open shape `scan_citations` documents -- their sentence names the
+# intended file as a bare backticked path with no coordinate, or names no file at all -- and admitting
+# that bare path was refused on the row it mis-aims: `:760` of `D-0038` lands on
+# `docs/screenshots/360/lock.png`, the nearest path, not the `manifest.py` the sentence runs on about.
+# Wider terminators were refused on their own rows too: `;` un-aims 17 for 36 of its 52 gains;
+# adding ` -- ` un-aims 16 for 42, including the ticket's own two-coordinate shape.
 # Narrower means honest orphans; wider means rows read as checked while aimed at the wrong file.
 SENTENCE_BREAK = re.compile(r"\.(?=[ \t\n]|$)|(?<=\n)[ \t]*(?:[-*#>]|\d+\.)(?= )")
 
@@ -758,17 +758,17 @@ def scan_citations(text, entries, index):
         this tree and could not be made to without reading git for what used to be tracked.
 
     The shape that stays open, because the alternative was measured to be worse: a bare `:NNN` whose
-    sentence names no file inherits nothing and is not refused -- 157 of the 294 bare rows are that
-    shape at this head, and refusing them would refuse true sentences that merely wrap. The cost of
-    the sentence boundary is measured too: 9 rows the line rule aimed -- mostly by riding an earlier
-    sentence's citation, which is the mis-aim this rule exists to stop -- fell to the open shape,
-    among them the four the issue names (`H-0110`'s `:2766` and `:3731`, `H-0111`'s `:2853` and
-    `:3833`); every one of the nine names its intended file only as a bare backticked path with no
-    coordinate, the antecedent shape whose admission was measured worse (see ``SENTENCE_BREAK``).
-    What the boundary bought in the same comparison: 52 wrapped continuations the line rule left
-    invisible became aimed and counted (137 aimed in all), and one continuation (`H-0111`'s `:336`)
-    moved from `factory/triage.sh` to `.opencode/skills/factory/SKILL.md`, which is what its sentence
-    lists it under.
+    sentence names no file inherits nothing and is not refused -- 165 of the 302 bare rows are that
+    shape at the head that ships this rule, 157 of 294 at `adddacc`, the sync-merge tree the boundary
+    was measured on, and refusing them would refuse true sentences that merely wrap. The cost of the
+    boundary, counted in occurrences at `adddacc`: 10 rows the line rule aimed -- only by riding an
+    earlier sentence's citation, the mis-aim this rule exists to stop -- fell to the open shape,
+    among them the four the issue names. No row's aim moved to a different file; the dropped
+    sentences name the file bare with no coordinate or name no file at all (see
+    ``SENTENCE_BREAK``). What the boundary bought in the same census: 52 wrapped continuations the
+    line rule left invisible became aimed and counted -- 137 aimed in all at `adddacc`, and 137 again
+    at the shipping head, where the 8 bare rows this rule's own log prose added landed in the open
+    shape themselves.
     """
     found = []
     lines = text.splitlines()

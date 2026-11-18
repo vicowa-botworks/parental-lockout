@@ -2316,14 +2316,14 @@ writing the path, 17 of them delivered by that same merge, and folding that clas
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
 file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
-holds only where an anchor already proves what the line should say — measured on this head, 9 citations sit
-past the end of the file they name, all 9 unanchored, and every one of them a row an entry is *reporting*
-as read against a revision or a history the file does not hold. The line rule this head replaced also saw
-9: four of them were the mis-aimed wrapped continuations `H-0110` and `H-0111` wrote down, and four the
-line rule never aimed at all (a `factory/install-timer.sh` base-relative trio in `H-0121` and one
-`docs/factory.md:5985` history row) only became aimed rows when #365 moved the continuation boundary to
-the sentence. Those four continuations now sit in the open shape below instead: their sentences name the
-intended file only as a backticked path with no coordinate.
+holds only where an anchor already proves what the line should say — measured at the head that ships the
+sentence rule, 9 citations sit past the end of the file they name, all 9 unanchored: five `README.md`
+rows an entry *reports* as read against another revision, one `docs/factory.md:5985` history row
+`H-0159` names as history, and three rows `H-0121` writes as current — its `factory/selftest.sh` trio
+whose enumeration sentence aims `:5875`, `:6521` and `:6638` at `factory/install-timer.sh` (617 lines)
+because the clause names selftest.sh bare and the store inherits the last coordinate-named file. The
+boundary narrows the mis-aim; it does not eliminate it. The line rule also saw 9 — four mis-aimed
+continuations in `H-0110` and `H-0111`, which fell to the open shape, and the same five `README.md` rows.
 
 **The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
 decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
@@ -2346,11 +2346,11 @@ tracked?" in one read — but this rule reads no git, deliberately, so the weake
 verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
 *names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
 limit that remains, stated because it is the one a reader will hit: a bare `:NNN` whose sentence names no
-file at all is not refused, because 157 rows of these logs are that shape inside wrapped paragraphs and
-refusing them refuses 157 true sentences (measured on this head: 294 bare rows, 137 of them inheriting a
-file from their own sentence). #365 moved the boundary from the physical line to the sentence, so the
-open shape is now only the sentences that name a file as a backticked path with no coordinate; the
-inheritance itself is still `H-0153`'s.
+file at all is not refused, because 165 rows of these logs are that shape inside wrapped paragraphs and
+refusing them refuses 165 true sentences (occurrences, at the head that ships the sentence rule: 302 bare
+rows, 137 inheriting a file from their own sentence; 294 bare, 137 inheriting at `adddacc`, where #365
+measured the move). The open shape is sentences naming the file as a bare backticked path and sentences
+naming no file at all; the inheritance itself is still `H-0153`'s.
 
 **The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
 logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
@@ -2390,11 +2390,11 @@ Three findings came from the tool being wrong rather than the log, and all three
   — and all four were why the length check is anchor-only: applied to every citation the rule would have
   refused sentences that are each true on their own terms to catch zero false ones. The repair was a rule
   about sentences, not lines, and #365 measured and landed it: the boundary is now a sentence-final `.`
-  or a block marker (`SENTENCE_BREAK`), which on this head aims 52 wrapped continuations the line rule
-  left invisible, re-aims `H-0111`'s `:336` from `factory/triage.sh` to `.opencode/skills/factory/SKILL.md`
-  — the list its sentence shares — and leaves the four above unaimed rather than mis-aimed, because their
-  sentences name the file only as a backticked path and admitting that antecedent was measured worse
-  (it hands `D-0038`'s `:760` to a screenshot).
+  or a block marker (`SENTENCE_BREAK`), which at the sync-merge tree `adddacc` aims 52 wrapped
+  continuations the line rule left invisible and drops 10 aimed rows — the four above among them — and
+  re-aims nothing: every aim the move keeps is the aim the line rule already gave it, including
+  `H-0111`'s `:336` on its skill-file row. The refusal of the bare-path antecedent rests on the row it
+  mis-aims (`D-0038`'s `:760` lands on a screenshot); the other `:336` row is the opposite edge.
 
 Re-derive any of it:
 
