@@ -721,6 +721,27 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
     a leak says so at the leg instead of looking like a broken allocator.
 
 
+57. **The trunk verdict is read and said; what it may *do* is the open question.** #370 landed the read —
+    `factory_trunk_ci_lines` in `factory/common.sh` journals one `TRUNK-CI` line per activation (red
+    trunks add a `TRUNK-RED` line) and nothing else. Whether a red trunk should refuse a `MERGE`, halt
+    the loop, or stay report-only is **not decided** and is deliberately still #370 item 3: a halt is the
+    shape `H-0056` refused and #341 measured the cost of, and a merge-gate change is a class of decision
+    this harness does not make unattended. Whoever takes it: start from the measurement that opened the
+    ticket (main carried a push-workflow FAILURE for 1h49m04s on 16 Nov — run `44110925937` — with 36
+    `DELIVERED` rows and one `MERGED` journaled over it), and remember the read itself already answers
+    the *seeing* half — the live trunk is green at filing (three newest push runs all `success` as of
+    18 Nov, the 16 Nov red cleared by its own re-run), so the gate question is about the next red, not
+    this one. The bad-conclusion vocabulary is deliberately the shared `JQ_BAD_CONCLUSIONS` list beside
+    `JQ_CHECKS`; a proposal that diverges the two vocabularies has to say why.
+58. **The two allocator legs are still leak-riding, and a session env can carry the leak for a whole
+    suite run.** `control: one note can suppress the other` and `a bare run journals nothing` failed
+    18 Nov in the `issue-370` unit tree exactly as NEXT row 56 measures — the journal inherited from
+    `FACTORY_LOG`/`FACTORY_TICK_UNIT`/`FACTORY_TICK_BRANCH` supplies a `DECISION-ID` line with the
+    *working branch's* unit and branch in it (`unit=unclaimed:370 branch=issue-370`), which the fixture
+    never planted. Nothing in #370's diff touches the allocator; the same two rows fail identically on
+    HEAD in a clean worktree under the same session env. The row-56 repair (plant the journal root, or
+    sanitize and say so in the label) is still owed, and until it lands, a unit running the suite from a
+    shell that sourced the factory env must unset the three vars and say which run it quotes.
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab

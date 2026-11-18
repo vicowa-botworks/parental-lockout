@@ -3398,6 +3398,11 @@ printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","update
 # is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
 # under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
 printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+# (#370) The trunk's newest push run, as every fixture activation reads it. GREEN and shaped the
+# way gh 2.46.0's `run list --json` actually answers (lowercase status/conclusion, measured): a
+# fixture pass must not print TRUNK-RED for a reason unrelated to its own legs, and the shape a
+# fixture serves should be the measured one. Legs of the trunk family repoint PROC_TRUNK_CI.
+printf '[{"databaseId":44240957485,"headSha":"d4559fd5de2646e6ae4ad13755e81a50289c17d3","status":"completed","conclusion":"success","createdAt":"2026-11-18T04:58:25Z"}]\n' >"$proc_fix/run-list.json"
 
 # `--json` is a field list, and a fixture that ignores it answers a question nobody asked.
 #
@@ -3597,6 +3602,14 @@ case "$1 $2" in
 		printf 'proc-shim: unhandled pr list --state %s\n' "$state" >&2
 		exit 9 ;;
 	esac ;;
+'run list')
+	# #370: the trunk's own verdict, read once per activation by `factory_trunk_ci_lines`. Seeded
+	# GREEN in the shape measured on gh 2.46.0 (lowercase status and conclusion), so no pass in
+	# any family prints TRUNK-RED for a reason unrelated to its own legs. A leg that wants red,
+	# empty or an off-contract body repoints PROC_TRUNK_CI at its own file; a missing file makes
+	# `emit` refuse at 8, which is what an integration leg aims at to exercise the UNKNOWN arm
+	# through a real activation.
+	emit "${PROC_TRUNK_CI:-$here/run-list.json}" ;;
 *)
 	printf 'proc-shim: unhandled call: %s\n' "$*" >&2
 	exit 9 ;;
@@ -23034,6 +23047,523 @@ proc_leg 'a closed ticket leaves a stamped clean ledger' \
 cdec_unplant
 printf '%s\n' '[{"number":9001}]' >"$proc_fix/pr-head.json"
 cdec_shipped
+
+# --------------------------------------------------------------------------- the trunk's own CI verdict (#370)
+#
+# `main` carried a push-workflow FAILURE for 1h49m04s (measured 16 Nov on the API: run 44110925937,
+# queued 17:06:06Z, completed 18:55:10Z) while the loop journalled 36 DELIVERED rows and one MERGED
+# on top of it, because every check read in the harness was aimed at a pull request -- and a
+# `pull_request` check runs on a merge of the head with the base tip, so a green pull request says
+# nothing about the branch it lands on. The family below owns the repair: `JQ_TRUNK_CI` and
+# `factory_trunk_ci_lines` in `factory/common.sh`, the one read wired into `factory_body`, the
+# `TRUNK-CI` / `TRUNK-RED` / `TRUNK-CI-UNKNOWN` codes, and the rule that every arm prints a line --
+# #228's polarity, which is exactly the rule the pre-#370 harness broke by silence: no reader could
+# distinguish "the trunk is green" from "nobody asked".
+#
+# The legs stand on a private fixture gh of their own rather than the shared proc shim, because
+# three of the arms (a gh that refuses, a read that parks, a body off contract) are things the
+# shared shim cannot be made to do mid-family without re-pointing every other family's payloads.
+# The shared shim still answers `run list` (seeded green) so the INTEGRATION legs below run through
+# a real `factory.sh` activation, and those are the legs that pin the wiring, the once-per-
+# activation count, and the report-only posture.
+tci_dir=$work/trunk-ci
+tci_bin=$tci_dir/bin
+tci_log=$tci_dir/log
+tci_rec=$tci_dir/calls
+mkdir -p "$tci_bin" "$tci_log"
+: >"$tci_rec"
+tci_sha=d4559fd5de2646e6ae4ad13755e81a50289c17d3
+tci_runid=44240957485
+tci_age=3600
+tci_created=$(date -u -d "@$(( $(date -u +%s) - tci_age ))" +%Y-%m-%dT%H:%M:%SZ)
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"success","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/green.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/red.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"cancelled","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/cancelled.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"skipped","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/skipped.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"COMPLETED","conclusion":"SUCCESS","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/upper.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"in_progress","conclusion":null,"createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/pending.json"
+# A run whose status already says completed but whose conclusion has not been written yet: the
+# rollup rule's own unfinished-shape case, ported. Reading it green is the pre-#370 bug wearing a
+# new shape -- the status alone is not completion.
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"","createdAt":"%s"}]\n' \
+	"$tci_runid" "$tci_sha" "$tci_created" >"$tci_dir/completed-empty.json"
+printf '[]\n' >"$tci_dir/empty.json"
+printf '{"status":"completed"}\n' >"$tci_dir/not-array.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure"}]\n' \
+	"$tci_runid" "$tci_sha" >"$tci_dir/missing-field.json"
+printf '[{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"failure","createdAt":"not-a-date"}]\n' \
+	"$tci_runid" "$tci_sha" >"$tci_dir/bad-date.json"
+cat >"$tci_bin/gh" <<'TCIGH'
+#!/usr/bin/env bash
+# Fixture gh for the trunk-CI legs. It answers `run list` from $TCI_PAYLOAD verbatim -- the
+# function under test does its own jq, so what this shim prints IS what GitHub printed, bytes and
+# all -- sleeps $TCI_SLEEP before answering when that is set, exits $TCI_RC with $TCI_WHY on stderr
+# when that is set, and records every call. Anything else exits 9: the shipped function asks one
+# question, and a shim that answers more than was asked hides a call the line does not make.
+#
+# The sleep is `exec`ed on purpose. bash defers traps while a foreground child runs, so a plain
+# `sleep 20` here would survive the TERM the shipped bound sends and die only on the later KILL --
+# the leg would then exercise the kill-after arm and report the timeout arm, measuring the fixture
+# instead of the code. `exec` puts `sleep` in the stub's process, where TERM lands immediately.
+set -u
+printf '%s\n' "$*" >>"${TCI_REC:?TCI_REC names the call record}"
+if [ -n "${TCI_SLEEP:-}" ]; then exec sleep "$TCI_SLEEP"; fi
+if [ -n "${TCI_RC:-}" ]; then
+	printf 'fixture gh: %s\n' "${TCI_WHY:-the trunk read refused}" >&2
+	exit "$TCI_RC"
+fi
+case "$1 $2" in
+'run list') cat "${TCI_PAYLOAD:?TCI_PAYLOAD names the run-list body}" ;;
+*)
+	printf 'fixture gh: unhandled call: %s\n' "$*" >&2
+	exit 9 ;;
+esac
+TCIGH
+chmod +x "$tci_bin/gh"
+
+tci_call() { # tci_call <payload> [NAME=value ...] -> the shipped function's lines, stdout only
+	local payload=$1
+	shift
+	: >"$tci_rec"
+	env PATH="$tci_bin:$PATH" TCI_REC="$tci_rec" TCI_PAYLOAD="$payload" \
+		FACTORY_LOG="$tci_log" FACTORY_BASE=tci-base-default "$@" \
+		bash -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90
+			factory_trunk_ci_lines "${TCI_ARG-}"' _ "$HERE"
+}
+
+tci_count() { printf '%s\n' "$1" | grep -c . || true; }
+
+# The measured call shape: the read is `run list`, pinned to push events, limit 1, and the five
+# fields the line renders. A leg that asserts the ASK before the ANSWER is the control that makes
+# every answer-leg below mean something: it proves the stub was reached and asked the question.
+tci_asked() { # tci_asked -> the one recorded call, exact
+	local line
+	line=$(cat "$tci_rec")
+	[ "$line" = 'run list --branch tci-base-default --event push --limit 1 --json databaseId,headSha,conclusion,status,createdAt' ] || {
+		printf '            the stub recorded a different ask (or none):\n              %s\n' "$line" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_green() {
+	local out verdict
+	out=$(tci_call "$tci_dir/green.json") || return 1
+	tci_asked || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            green trunk must print exactly the verdict line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha success run=$tci_runid age="*) : ;;
+	*) printf '            the verdict line is not the contract shape:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in *TRUNK-RED*|*UNKNOWN*) printf '            a green trunk printed a red or unknown line\n' >&2; return 1 ;; esac
+	verdict=$(printf '%s' "$out" | awk '{print $3}')
+	[ "$verdict" = success ] || { printf '            verdict field was %s\n' "$verdict" >&2; return 1; }
+	# The ticket's timestamp test, taken strictly: `since=` is byte-identical to what the payload
+	# said (stronger than the ±2 s it asked for), it parses as UTC, and `age=` is MEASURED from it
+	# -- within 5 s of the planted 3600 s, a window for run latency, not a fudge of the claim.
+	local since age when
+	since=${out##*since=}
+	[ "$since" = "$tci_created" ] || {
+		printf '            since= echoed %s, not the %s gh reported\n' "$since" "$tci_created" >&2
+		return 1
+	}
+	when=$(date -u -d "$since" +%s 2>/dev/null) || {
+		printf '            since= does not parse as a UTC timestamp: %s\n' "$since" >&2
+		return 1
+	}
+	age=${out##*age=}; age=${age%%s*}
+	# spelled as an explicit refusal rather than `A && B || C`: shellcheck is right that the chain
+	# runs C when A is true and B is false, which is what is wanted HERE, but the gate refuses the
+	# shape and the if-form says the same thing with nothing to misread.
+	if [ "$((age - tci_age))" -lt -5 ] || [ "$((age - tci_age))" -gt 5 ]; then
+		printf '            age=%ss is not measured from since= (expected %s +/-5)\n' "$age" "$tci_age" >&2
+		return 1
+	fi
+	return 0
+}
+
+tci_red() {
+	local out
+	out=$(tci_call "$tci_dir/red.json") || return 1
+	tci_asked || return 1
+	[ "$(tci_count "$out")" = 2 ] || {
+		printf '            a red trunk must print the verdict line AND TRUNK-RED, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha failure run=$tci_runid "*) : ;;
+	*) printf '            the verdict line lost the conclusion:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	local red
+	red=$(printf '%s\n' "$out" | grep '^TRUNK-RED ') || return 1
+	case "$red" in
+	*"run=$tci_runid"*"since=$tci_created"*) : ;;
+	*) printf '            TRUNK-RED does not repeat the run id and the timestamp:\n              %s\n' "$red" >&2
+		return 1 ;;
+	esac
+	case "$red" in
+	*report-only*"#370"*) : ;;
+	*) printf '            TRUNK-RED must say it reports and name the ticket that bounded it:\n              %s\n' "$red" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+
+# The shared bad list, end to end: every member of JQ_BAD_CONCLUSIONS reads red through the trunk
+# read, `skipped` and `neutral` do not, and the list itself still holds all six names -- so the
+# trunk verdict and a pull-request rollup cannot drift apart by vocabulary (#370's explicit
+# requirement that the two share one list).
+tci_vocabulary() {
+	local list c out n=0
+	list=$(bash -c '. "$1"/common.sh >/dev/null 2>&1 || exit 90; printf "%s" "$JQ_BAD_CONCLUSIONS"' _ "$HERE") || {
+		printf '            could not read JQ_BAD_CONCLUSIONS out of the shipped common.sh\n' >&2
+		return 1
+	}
+	for c in FAILURE TIMED_OUT ACTION_REQUIRED STARTUP_FAILURE CANCELLED ERROR; do
+		printf '%s' "$list" | jq -e --arg c "$c" 'index($c) != null' >/dev/null || {
+			printf '            the shared list no longer holds %s, so trunk and rollup can disagree\n' "$c" >&2
+			return 1
+		}
+	done
+	for c in $(printf '%s' "$list" | jq -r '.[] | ascii_downcase'); do
+		printf '[{"databaseId":1,"headSha":"aa","status":"completed","conclusion":"%s","createdAt":"%s"}]\n' \
+			"$c" "$tci_created" >"$tci_dir/vocab.json"
+		out=$(tci_call "$tci_dir/vocab.json") || return 1
+		printf '%s\n' "$out" | grep -q '^TRUNK-RED ' || {
+			printf '            conclusion %s is in the shared bad list but the trunk read did not call it red:\n              %s\n' "$c" "$out" >&2
+			return 1
+		}
+		n=$((n + 1))
+	done
+	[ "$n" = 6 ] || { printf '            only %s of the 6 bad conclusions reached TRUNK-RED\n' "$n" >&2; return 1; }
+	for c in skipped neutral; do
+		printf '[{"databaseId":1,"headSha":"aa","status":"completed","conclusion":"%s","createdAt":"%s"}]\n' \
+			"$c" "$tci_created" >"$tci_dir/vocab.json"
+		out=$(tci_call "$tci_dir/vocab.json") || return 1
+		[ "$(tci_count "$out")" = 1 ] || {
+			printf '            %s is not a failure: a verdict line and nothing else\n              %s\n' "$c" "$out" >&2
+			return 1
+		}
+		case "$out" in
+		TRUNK-CI\ *\ ${c}\ run=*) : ;;
+		*) printf '            %s is not a failure, and the trunk read called it:\n              %s\n' "$c" "$out" >&2
+			return 1 ;;
+		esac
+	done
+	return 0
+}
+
+tci_cancelled_red() {
+	local out
+	out=$(tci_call "$tci_dir/cancelled.json") || return 1
+	printf '%s\n' "$out" | grep -q '^TRUNK-RED ' && return 0
+	printf '            CANCELLED reads fail in a rollup (JQ_CHECKS) but the trunk read said:\n              %s\n' "$out" >&2
+	return 1
+}
+
+tci_skipped_green() {
+	local out
+	out=$(tci_call "$tci_dir/skipped.json") || return 1
+	case "$out" in
+	TRUNK-CI*skipped*) case "$out" in *TRUNK-RED*) : ;; *) return 0 ;; esac ;;
+	esac
+	printf '            `skipped` is not in the bad list; the trunk read said:\n              %s\n' "$out" >&2
+	return 1
+}
+
+# The measured lowercase/uppercase split: gh 2.46.0's `run list --json` answers lowercase where
+# `gh api` answers upper (measured 18 Nov at /usr/bin/gh). Both spellings must read the same, and
+# the LINE prints the downcased conclusion whatever arrived, so journal greps have one shape.
+tci_case() {
+	local out
+	out=$(tci_call "$tci_dir/upper.json") || return 1
+	case "$out" in
+	"TRUNK-CI $tci_sha success run=$tci_runid "*) return 0 ;;
+	*) printf '            an uppercase payload must read success (downcased into the line), got:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+}
+
+tci_pending() {
+	local out
+	out=$(tci_call "$tci_dir/pending.json") || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a queued run prints the verdict line and nothing else:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	"TRUNK-CI $tci_sha pending run=$tci_runid "*) : ;;
+	*) printf '            an in_progress run must read pending:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in *TRUNK-RED*) printf '            a pending run printed TRUNK-RED\n' >&2; return 1 ;; esac
+	case "$out" in *null*) printf '            a null conclusion leaked into the line verbatim\n' >&2; return 1 ;; esac
+	return 0
+}
+
+# JQ_CHECKS' unfinished-shape rule, ported and pinned: completion is `status == COMPLETED AND
+# conclusion != ""`. A completed run whose conclusion is not yet written is unfinished -- reading
+# it as green is the queued-run bug in a different shirt.
+tci_unfinished() {
+	local out
+	out=$(tci_call "$tci_dir/completed-empty.json") || return 1
+	case "$out" in
+	"TRUNK-CI $tci_sha pending run=$tci_runid "*) return 0 ;;
+	*) printf '            status completed with an unwritten conclusion is NOT green:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+}
+
+tci_ghfail() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" TCI_RC=3 TCI_WHY='HTTP 401: Bad credentials') || return 1
+	[ "$(tci_count "$out")" = 1 ] || {
+		printf '            a refused read prints exactly one line, got:\n%s\n' "$out" >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=2\ *exited\ 3*HTTP\ 401*) : ;;
+	*) printf '            the refusal line must number itself rc=2, quote gh exit 3 and carry gh stderr:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	case "$out" in TRUNK-CI\ *) printf '            a refused read still printed a verdict line\n' >&2; return 1 ;; esac
+	return 0
+}
+
+tci_timeout() {
+	local out t0 t1 rc
+	t0=$(date -u +%s)
+	out=$(tci_call "$tci_dir/green.json" FACTORY_FETCH_TIMEOUT=1 TCI_SLEEP=20) || return 1
+	t1=$(date -u +%s)
+	rc=$((t1 - t0))
+	grep -q 'run list' -- "$tci_rec" || {
+		printf '            the stub recorded no call, so the read was never armed and the timeout below proves nothing\n' >&2
+		return 1
+	}
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=1\ *after\ 1s\ \(FACTORY_FETCH_TIMEOUT\)*) : ;;
+	*) printf '            the parked read must be journalled rc=1 and name the bound it hit:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	[ "$rc" -le 12 ] || {
+		printf '            the bound did not bound anything: the call took %ss with FACTORY_FETCH_TIMEOUT=1\n' "$rc" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_empty() {
+	local out
+	out=$(tci_call "$tci_dir/empty.json") || return 1
+	[ "$(tci_count "$out")" = 1 ] || { printf '            the empty branch prints one line:\n%s\n' "$out" >&2; return 1; }
+	case "$out" in
+	TRUNK-CI-UNKNOWN\ rc=3\ *"no push runs"*) : ;;
+	*) printf '            the empty branch must be a numbered sentence, not silence:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+
+tci_offcontract() {
+	local name out
+	for name in not-array missing-field bad-date; do
+		out=$(tci_call "$tci_dir/$name.json") || return 1
+		[ "$(tci_count "$out")" = 1 ] || {
+			printf '            the %s body prints exactly one line, got:\n%s\n' "$name" "$out" >&2
+			return 1
+		}
+		case "$out" in
+		TRUNK-CI-UNKNOWN\ rc=4*) : ;;
+		*) printf '            a body off contract (%s) must be rc=4, never guessed and never silent:\n              %s\n' "$name" "$out" >&2
+			return 1 ;;
+		esac
+	done
+	return 0
+}
+
+# #228's polarity rule, censused over every arm rather than trusted: each arm -- verdict AND
+# failure alike -- prints at least one line, and every printed line starts with one of the three
+# codes. Silence is the bug; this leg is the one that refuses it structurally.
+tci_polarity() {
+	local name out n
+	for name in green red pending empty not-array missing-field bad-date ghfail timeout; do
+		case "$name" in
+		ghfail) out=$(tci_call "$tci_dir/green.json" TCI_RC=3) ;;
+		timeout) out=$(tci_call "$tci_dir/green.json" FACTORY_FETCH_TIMEOUT=1 TCI_SLEEP=20) ;;
+		*) out=$(tci_call "$tci_dir/$name.json") ;;
+		esac
+		n=$(tci_count "$out")
+		[ "$n" -ge 1 ] || {
+			printf '            arm %s printed NOTHING: a reader of the journal would read absence as evidence\n' "$name" >&2
+			return 1
+		}
+		printf '%s\n' "$out" | grep -qvE '^(TRUNK-CI|TRUNK-CI-UNKNOWN|TRUNK-RED)( |$)' && {
+			printf '            arm %s printed a line under no journal code:\n%s\n' "$name" "$out" >&2
+			return 1
+		}
+	done
+	return 0
+}
+
+# The dry-run arm is a promise, not a call: the line says what WOULD run, and the fixture records
+# nothing. The control is `tci_asked` in the green leg above -- the same stub, the same PATH, a
+# real call there -- so emptiness here is the dry-run declining, not a stub nobody reached.
+tci_dry() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" DRY_RUN=1) || return 1
+	[ "$(tci_count "$out")" = 1 ] || { printf '            dry-run prints one promise line:\n%s\n' "$out" >&2; return 1; }
+	case "$out" in
+	'DRY-RUN  timeout --signal=TERM --kill-after=5 '*"gh run list --branch tci-base-default --event push --limit 1 --json "*) : ;;
+	*) printf '            the promise line must carry the full bounded command:\n              %s\n' "$out" >&2
+		return 1 ;;
+	esac
+	[ ! -s "$tci_rec" ] || {
+		printf '            dry-run asked gh anyway; the record holds:\n' >&2
+		sed 's/^/              /' "$tci_rec" >&2
+		return 1
+	}
+	return 0
+}
+
+tci_branch_arg() {
+	local out
+	out=$(tci_call "$tci_dir/green.json" TCI_ARG=trunk-of-record) || return 1
+	grep -q -- '--branch trunk-of-record' "$tci_rec" || {
+		printf '            the argument must reach the ask as --branch; record:\n              %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	case "$out" in TRUNK-CI\ *) return 0 ;; *) printf '            no verdict line for a named branch\n' >&2; return 1 ;; esac
+}
+
+tci_branch_env() {
+	local out
+	out=$(tci_call "$tci_dir/green.json") || return 1
+	grep -q -- '--branch tci-base-default' "$tci_rec" || {
+		printf '            with no argument the read defaults to FACTORY_BASE; record:\n              %s\n' "$(cat "$tci_rec")" >&2
+		return 1
+	}
+	return 0
+}
+
+claim_leg 'trunk: green verdict line' tci_green
+claim_leg 'trunk: red prints TRUNK-RED' tci_red
+claim_leg 'trunk: one shared bad list' tci_vocabulary
+claim_leg 'trunk: cancelled is red' tci_cancelled_red
+claim_leg 'trunk: skipped is not red' tci_skipped_green
+claim_leg 'trunk: case-insensitive' tci_case
+claim_leg 'trunk: queued is pending' tci_pending
+claim_leg 'trunk: unwritten conclusion' tci_unfinished
+claim_leg 'trunk: gh refusal' tci_ghfail
+claim_leg 'trunk: parked read bounded' tci_timeout
+claim_leg 'trunk: no push runs' tci_empty
+claim_leg 'trunk: body off contract' tci_offcontract
+claim_leg 'trunk: no arm prints nothing' tci_polarity
+claim_leg 'trunk: dry-run promises' tci_dry
+claim_leg 'trunk: branch argument' tci_branch_arg
+claim_leg 'trunk: defaults to FACTORY_BASE' tci_branch_env
+
+# Integration: real `factory.sh` activations through the proc fixture, pinning the three things
+# the function-level legs cannot reach -- that the wiring runs, where in the pass it runs, that it
+# runs ONCE per activation rather than per unit, and that a red trunk halts nothing (report-only
+# is #370 item 2; item 3 stays a question).
+proc_new trunk-verdict
+proc_plant
+PROC_TRUNK_CI=$tci_dir/green.json proc_run trunk-green
+PROC_TRUNK_CI=$tci_dir/red.json proc_run trunk-red
+PROC_TRUNK_CI=$tci_dir/gone.json proc_run trunk-gone
+
+proc_tcv_green_once() {
+	local n first_ci first_tick
+	n=$(grep -Ec '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" || true)
+	[ "$n" = 1 ] || {
+		printf '            activation 1 journalled %s TRUNK-CI verdict lines, not one\n' "$n" >&2
+		return 1
+	}
+	first_ci=$(grep -En '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" | head -n 1 | cut -d: -f1)
+	first_tick=$(grep -n 'TICK-START' -- "$proc_work/trunk-green.journal" | head -n 1 | cut -d: -f1)
+	[ -n "$first_tick" ] || { printf '            the fixture pass dispatched no tick, so ordering proves nothing\n' >&2; return 1; }
+	[ "$first_ci" -lt "$first_tick" ] || {
+		printf '            the verdict must be journalled BEFORE unit work (triage and dispatch), so an\n            activation that dies mid-unit has already said what the trunk showed; ci=%s tick=%s\n' "$first_ci" "$first_tick" >&2
+		return 1
+	}
+	return 0
+}
+
+proc_tcv_line_fields() {
+	local line
+	line=$(grep -E '^[^ ]+Z TRUNK-CI ' -- "$proc_work/trunk-green.journal" | head -n 1)
+	case "$line" in
+	*"$tci_sha success run=$tci_runid"*"since=$tci_created"*) return 0 ;;
+	*) printf '            the journalled verdict lost a field (sha, verdict, run id or since=):\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+}
+
+# Once per ACTIVATION, not once per unit: three activations above, and the shared record -- which
+# `proc_new` truncated for this box -- holds exactly three `run list` calls even though the box
+# dispatched three ticks.
+proc_tcv_per_activation() {
+	local n
+	n=$(grep -c '^run list ' -- "$proc_rec" || true)
+	[ "$n" = 3 ] || {
+		printf '            three activations made %s trunk reads; the read belongs to the activation\n' "$n" >&2
+		return 1
+	}
+	return 0
+}
+
+# Report, never halt (#370 item 2; H-0056 refused the halt posture, #341 measured its price):
+# the red activation still ticks its unit and still closes its pass.
+proc_tcv_red_continues() {
+	local j=$proc_work/trunk-red.journal
+	grep -q 'TRUNK-CI .* failure ' -- "$j" || {
+		printf '            the red activation never journalled the failure verdict:\n' >&2
+		grep -E 'TRUNK-CI|TRUNK-RED' -- "$j" | sed 's/^/              /' >&2
+		return 1
+	}
+	grep -q 'TRUNK-RED' -- "$j" || { printf '            the red activation printed no TRUNK-RED\n' >&2; return 1; }
+	grep -q 'TICK-START' -- "$j" || {
+		printf '            a red trunk HALTED unit work: the pass must report the red and go on\n' >&2
+		sed 's/^/              /' "$j" | cut -c1-150 >&2
+		return 1
+	}
+	grep -q 'END rc=0' -- "$j" || { printf '            the red activation ended non-zero or never ended\n' >&2; return 1; }
+	return 0
+}
+
+# The failure arm through a real pass: the shim refuses the missing body, the journal says so in
+# a numbered line, and the absence of a verdict line is never left to read as green.
+proc_tcv_gone_arms() {
+	local j=$proc_work/trunk-gone.journal
+	grep -q 'TRUNK-CI-UNKNOWN rc=2' -- "$j" || {
+		printf '            a trunk read that refused must journal TRUNK-CI-UNKNOWN rc=2:\n' >&2
+		grep -E 'TRUNK' -- "$j" | sed 's/^/              /' >&2
+		return 1
+	}
+	# `^[^ ]*Z TRUNK-CI ` is the journal stamp followed by the VERDICT word; the UNKNOWN sentence
+	# itself contains the phrase "TRUNK-CI line" as prose, and a bare substring grep matches its own
+	# disclaimer -- measured 18 Nov, the rc=2 leg went red on the very line that refuted it.
+	grep -Eq '^[^ ]+Z TRUNK-CI ' -- "$j" && { printf '            a refused read printed a verdict line anyway\n' >&2; return 1; }
+	grep -q 'END rc=0' -- "$j" || { printf '            the failed read broke the pass\n' >&2; return 1; }
+	return 0
+}
+
+claim_leg 'trunk pass: one line, early' proc_tcv_green_once
+claim_leg 'trunk pass: fields journaled' proc_tcv_line_fields
+claim_leg 'trunk pass: once per activation' proc_tcv_per_activation
+claim_leg 'trunk pass: red does not halt' proc_tcv_red_continues
+claim_leg 'trunk pass: refusal is said' proc_tcv_gone_arms
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

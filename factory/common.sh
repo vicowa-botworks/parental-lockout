@@ -1274,8 +1274,14 @@ factory_ask_bound() {
 # null until it completes; a StatusContext carries neither and only a `state`. Reading a queued
 # CheckRun as green is how a merge lands on top of a run that had not failed yet, so an entry is
 # unfinished unless its own shape says it is finished.
+#
+# The bad-conclusion list has ONE spelling in the harness, and #370 is the reason it is a variable
+# and not a repeated literal: `JQ_TRUNK_CI` below classifies the trunk's own push runs with this
+# same list, and a merge verdict read from a rollup plus a trunk verdict read from `gh run list`
+# disagreeing about what red means is two readers where this block's whole point is one.
+JQ_BAD_CONCLUSIONS='["FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","CANCELLED","ERROR"]'
 JQ_CHECKS='
-  def badlist: ["FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","CANCELLED","ERROR"];
+  def badlist: '"$JQ_BAD_CONCLUSIONS"';
   def isbad: . as $v | badlist | index($v) != null;
   def isopen:
        ((.state // null) == "PENDING")
@@ -1298,6 +1304,150 @@ factory_checks() {
 		return 0
 	fi
 	printf '%s\n' "${out:-unknown}"
+}
+
+# --------------------------------------------------------------------------- the trunk's own verdict
+#
+# The trunk read classifies with the SAME bad list as the rollup read, for the reason the block
+# above gives: two readers must not disagree about what red means. A pull-request `statusCheckRollup`
+# and a `gh run list` row are different payloads -- one carries CheckRuns and StatusContexts, the
+# other one run's own status/conclusion -- so they are two programs over one vocabulary.
+#
+# `JQ_TRUNK_CI` turns the `gh run list` rows into exactly one line of:
+#
+#   EMPTY                       the branch holds no push run at all
+#   class US sha US runid US conclusion US createdAt
+#
+# where US is U+001F and class is green, red or pending. `pending` is `JQ_CHECKS`' own unfinished-
+# shape rule, moved here verbatim in spirit: a run counts as finished only when its own payload
+# says it is (status COMPLETED AND a non-empty conclusion), because reading a queued run as green
+# is exactly the mistake the rollup rule exists to stop. Status and conclusion arrive in different
+# cases across gh versions -- measured 18 Nov on gh 2.46.0 at `/usr/bin/gh`: `gh run list --json`
+# answers lowercase (`"status":"completed"`, `"conclusion":"success"`) where `gh api` answers upper
+# -- so both are upcased for the comparison and the printed conclusion is downcased for the line.
+JQ_TRUNK_CI='
+  def badlist: '"$JQ_BAD_CONCLUSIONS"';
+  if type != "array" then error("payload is not an array")
+  elif length == 0 then "EMPTY"
+  else (.[0] // {}) as $r
+    | (($r.status // "") | tostring | ascii_upcase) as $st
+    | (($r.conclusion // "") | tostring | ascii_upcase) as $cn
+    | (if $st != "COMPLETED" or $cn == "" then "pending"
+       elif (badlist | index($cn)) != null then "red"
+       else "green" end) as $class
+    | [$class,
+       ($r.headSha // "" | tostring),
+       ($r.databaseId // "" | tostring),
+       ($r.conclusion // "" | tostring | ascii_downcase),
+       ($r.createdAt // "" | tostring)]
+    | join("\u001f")
+  end'
+
+# factory_trunk_ci_lines [branch]
+#   What the newest `push` run on the trunk says, as journal lines: exactly one TRUNK-CI or
+#   TRUNK-CI-UNKNOWN line, always, plus one TRUNK-RED line beside it when that run concluded red.
+#
+#   A `pull_request` check runs on a merge of the head with the base tip, so a green pull request
+#   is green AS A MERGE and says nothing about the branch it lands on. #370 measured `main`
+#   carrying a FAILURE for 1h49m04s across three activations, 36 DELIVERED rows and one MERGED,
+#   with no journal code able to name a run id, and the exposure after a merge is the gap to the
+#   next push -- 16.47h measured over the last 30 push runs. These lines are the sentence that
+#   makes the row possible:
+#
+#     TRUNK-CI <sha> <conclusion|pending> run=<id> age=<s>s since=<iso>
+#     TRUNK-RED <sha> run=<id> age=<s>s since=<iso> -- <report-only sentence>
+#
+#   and the arms that cannot answer, because #228's polarity rule holds here exactly as it does
+#   for `LOG-MOVED`: the ABSENCE of a TRUNK-CI line is never evidence the trunk is fine. `rc=`
+#   numbers the SENTENCES, the `LOG-MOVED-UNKNOWN` way -- it is not the command's exit code, and
+#   the command's own exit is quoted inside the sentence when there is one:
+#
+#     TRUNK-CI-UNKNOWN rc=1  the read hit FACTORY_FETCH_TIMEOUT (the killed command's own 124)
+#     TRUNK-CI-UNKNOWN rc=2  gh run list exited non-zero (its exit is quoted in the sentence)
+#     TRUNK-CI-UNKNOWN rc=3  the branch holds no push runs at all -- a fact about the branch,
+#                            printed because even this is not silence
+#     TRUNK-CI-UNKNOWN rc=4  the payload answered outside its contract: refused JSON, a row
+#                            missing headSha/databaseId/createdAt, or a createdAt no clock reads
+#
+#   Report, never halt. H-0056 refused to stop the queue on a state that is merely unhealthy
+#   elsewhere, and #341 measured what a streak-driven halt costs (14h34m of every activation
+#   stopped until a human removes a marker) -- a trunk that flakes for one leg would halt the
+#   loop permanently on a red a re-run clears. Whether a red trunk should refuse a MERGE is
+#   #370's item 3, a policy question with a halt shape inside it, deliberately not decided here.
+#
+#   The read is `gh run list --branch <branch> --event push --limit 1`, bounded by
+#   FACTORY_FETCH_TIMEOUT the way the activation's one fetch is (H-0075): a network call inside
+#   the pass's budget and inside its lock, and a parked connection costs one line naming the
+#   bound, never a hung pass. It resolves the repository the way every other `gh` read in the
+#   harness does -- from the pass's own cwd, like `factory_checks` -- and the LINE must carry the
+#   verdict itself, because a tick cannot go and read more: `gh api` is denied to it, and
+#   `gh run view --log`/`--log-failed` return 0 bytes at exit 0 for every run on this harness
+#   (#319's control table), so a tripwire naming only a run id would point at a stream nobody
+#   here can open.
+factory_trunk_ci_lines() {
+	local branch=${1:-$FACTORY_BASE} raw='' out='' rc=0 jrc=0 why='' err=''
+	local class='' sha='' runid='' conc='' created='' when='' age='' bad='' verdict=''
+	factory_paths
+	err=$FACTORY_LOG/trunk-ci.log
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s gh run list --branch %s --event push --limit 1 --json databaseId,headSha,conclusion,status,createdAt\n' \
+			"$FACTORY_FETCH_TIMEOUT" "$branch"
+		return 0
+	fi
+	rc=0
+	raw=$(timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" \
+		gh run list --branch "$branch" --event push --limit 1 \
+		--json databaseId,headSha,conclusion,status,createdAt 2>"$err") || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		why=$(grep -m1 -E '^(fatal|error|Error|HTTP)' "$err" 2>/dev/null) || true
+		[ -n "$why" ] || why=$(grep -v '^[[:space:]]*$' "$err" 2>/dev/null | tail -n 1) || true
+		why=$(printf '%s' "${why:-}" | cut -c1-160)
+		if [ "$rc" -eq 124 ]; then
+			printf 'TRUNK-CI-UNKNOWN rc=1 the %s trunk CI read was killed after %ss (FACTORY_FETCH_TIMEOUT), so this activation cannot say whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (%s)\n' \
+				"$branch" "$FACTORY_FETCH_TIMEOUT" "${why:-gh wrote nothing, which is what a parked connection does}"
+		else
+			printf 'TRUNK-CI-UNKNOWN rc=2 gh run list on the %s trunk exited %s, so this activation cannot say whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (%s; see %s)\n' \
+				"$branch" "$rc" "${why:-gh wrote nothing}" "$err"
+		fi
+		return 0
+	fi
+	jrc=0
+	out=$(printf '%s' "$raw" | jq -r "$JQ_TRUNK_CI" 2>>"$err") || jrc=$?
+	if [ "$jrc" -ne 0 ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=4 the trunk CI read on %s answered outside its payload contract: gh exited 0 and jq refused the body with status %s, so this activation will not guess whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (see %s)\n' \
+			"$branch" "$jrc" "$err"
+		return 0
+	fi
+	if [ "$out" = "EMPTY" ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=3 branch %s holds no push runs at all, so there is no trunk verdict to read; that is a fact about the branch and not a green light -- the absence of a TRUNK-CI line is never evidence the trunk is fine\n' "$branch"
+		return 0
+	fi
+	IFS=$'\037' read -r class sha runid conc created <<<"$out"
+	bad=''
+	case "$class" in
+	green | red | pending) : ;;
+	*) bad="the verdict class answered '$class' outside its contract of green, red and pending" ;;
+	esac
+	if [ -z "$bad" ] && { [ -z "$sha" ] || [ -z "$runid" ] || [ -z "$created" ]; }; then
+		bad='the newest run row is missing headSha, databaseId or createdAt'
+	fi
+	if [ -z "$bad" ]; then
+		when=$(date -u -d "$created" +%s 2>/dev/null) || when=''
+		[ -n "$when" ] || bad="createdAt '$created' is not a date this clock can read"
+	fi
+	if [ -n "$bad" ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=4 the trunk CI read answered outside its payload contract: %s, so this activation will not guess whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is\n' "$bad"
+		return 0
+	fi
+	age=$(( $(date -u +%s) - when ))
+	verdict=$conc
+	[ "$class" = pending ] && verdict=pending
+	printf 'TRUNK-CI %s %s run=%s age=%ss since=%s\n' "$sha" "$verdict" "$runid" "$age" "$created"
+	if [ "$class" = red ]; then
+		printf 'TRUNK-RED %s run=%s age=%ss since=%s report-only: the trunk''s newest push run concluded %s, and this pass says so and goes on -- a red trunk refuses no merge and halts no activation here; that policy is #370 item 3, and a red one re-run clears must not be able to stop the queue (#341)\n' \
+			"$sha" "$runid" "$age" "$created" "$conc"
+	fi
+	return 0
 }
 
 # --------------------------------------------------------------------------- preflight

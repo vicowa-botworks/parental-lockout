@@ -1650,6 +1650,22 @@ factory_body() {
 		[ -n "$census_line" ] || continue
 		log_event "$census_line"
 	done < <(factory_worktree_lines "$(factory_main_checkout)")
+	# The trunk's own CI verdict (#370), once per activation: every check read the loop had before
+	# this line was aimed at a pull request, and a pull request is green only AS A MERGE of its
+	# head with the base tip -- `main` carried a FAILURE for 1h49m04s while this file logged 36
+	# DELIVERED rows and one MERGED onto it, because nothing could ask the branch. Report-only by
+	# H-0257, deliberately: the line says TRUNK-RED when the trunk is red and refuses nothing,
+	# because H-0056 already refused the halt-the-loop-on-unhealthy-elsewhere posture and #341
+	# measured what a streak-driven halt costs. The read is bounded by FACTORY_FETCH_TIMEOUT and
+	# it sits inside the lock and inside the budget like the fetch above it (the #331 self-report
+	# lines stay network-free), and before triage so that even the activation which cannot read
+	# the queue still says what the trunk last showed. Every arm of it prints a line -- #228's
+	# polarity -- so a quiet journal is not a green trunk either down here.
+	local trunk_line
+	while IFS= read -r trunk_line; do
+		[ -n "$trunk_line" ] || continue
+		log_event "$trunk_line"
+	done < <(factory_trunk_ci_lines "$FACTORY_BASE")
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
