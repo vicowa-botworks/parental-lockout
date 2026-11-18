@@ -2381,6 +2381,7 @@ Shapes that are understood and are not the same claim:
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
 | `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical; a fragment the newline cut is refused by name, never left as silent debt (#369) |
+| `` `AGENTS.md:46` now reads "…" ``, `the rule is at \`factory/factory.sh:245\`` | asserts where the lines are **in the tree being gated** — refused outright without an anchor since #374; past-tensed with the date it was read it becomes an ordinary debt row |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
@@ -2392,6 +2393,22 @@ day they were written. It also needs git: `gate_reads_no_refs` in `factory/selft
 any git subcommand but `cat-file`, because a verdict that changes between a branch head, a merge preview
 and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
 answers the same question in every checkout.
+
+**A sentence that says a line IS there today is itself a pointer, and it rots the same way.** "`AGENTS.md:46`
+now reads …" and "the rule sits at `:437`" make the promise the anchor rule exists to keep — to *this* tree —
+and the next merge into the cited file falsifies them while every check stays green. That is not hypothetical:
+`H-0139`'s corrective bullet, the sentence telling a reader where to look, was measured by #374 to be false in
+2 of its 4 coordinates six days after it was written, with `make verify` green over it. Since #374 the
+classifier flags the adjacent verb forms — `now at`, `is at`, `sits at`, `lives at`, `points at`, `now reads`,
+`moved to`, `still holds` at the coordinate's backtick, forward or reversed, including a verb wrapped onto the
+next physical line — and refuses the unanchored rows outright; a past tense is never refused, because "was at
+`:713`" and "read on 11 Nov" name the tree they measured and join the counted debt like any other unanchored
+coordinate. Adjacency is load-bearing and was measured: the first implementation matched the verbs anywhere on
+the row's line and pulled 12 true sentences into the refusal bucket — "`docs/factory.md` carrying … now
+reading a census", and the revision-qualified "read `X:507` at `d7a5149`" family, where the preposition
+attaches the read to a named head, not to the gated tree — so the matcher reads the text touching the opening
+backtick and the self-test pins both controls must-not-be-refused. The writer's repair is one of two: anchor
+the sentence, or past-tense it with the date it was read.
 
 **What cannot be checked is counted, and the count may only fall.** 539 of those citations predate this
 rule and carry no anchor (the four above 535 are pointers that used to be skipped entirely — see the
