@@ -14869,6 +14869,282 @@ gate_verdict_off_refs() { # -> 0 when the verdict is a reading of two files, not
 	return 0
 }
 
+# ---- what the reader reads when an entry is filed as its own file (issue #429, phase 1) ----
+#
+# Every fixture below is generated into `$work` and thrown away, never committed. #339 took the editable
+# `notes/` fixtures out of this repository for one reason -- a file a person can edit is a file that can
+# be edited into agreeing with a broken reader -- and the argument is stronger for a reader than for a
+# writer: a committed `factory/DECISIONS/H-0001.md` would sit just as quietly beside a clean monolith if
+# the reader stopped opening directories, because nothing in the pair would disagree. So the shapes are
+# written here and the shipped `scripts/check-decisions.py` is run over them.
+# One entry, appended to whatever the file already holds -- a monolith keeps its heading, and a filed
+# file is created by the append and holds nothing else, which is exactly the invariant the reader
+# enforces on it.
+layout_entry() { # <file> <id> <sha>
+	printf '\n## %s · An entry in a reader fixture\n\n- Question: can the gate open this entry?\n- Options: it can | it cannot\n- Chose: it can\n- Why: a decision nobody can read back is not a record.\n- Checkpoint: %s\n' "$2" "$3" >>"$1"
+}
+layout_repo() { # <dir> -> 0 and the fixture commit's sha, the one thing an entry may cite
+	local repo=$1
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" "$repo/factory" || return 1
+	cp -- "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || return 1
+	# The real Makefile, because the reader's invocation rule fires whenever the tree has one, and a
+	# fixture that omitted it would leave one rule unrun rather than failing.
+	cp -- "$HERE/../Makefile" "$repo/" || return 1
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	# Both monoliths, always. Only the directories are optional to this gate: a log that is not there is
+	# a read that failed, and the legs below assert that separately rather than discovering it as noise.
+	printf '# Decisions\n' >"$repo/DECISIONS.md" || return 1
+	printf '# Harness decisions\n' >"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit an entry can cite' || return 1
+	local sha
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	# One entry in each log: a monolith with zero entries is refused on its own -- "what a log that has
+	# stopped being written looks like" -- so a fixture that tripped that rule would prove nothing about
+	# the layout. Legs file ids that do not collide with these two, except where the collision is the leg.
+	layout_entry "$repo/DECISIONS.md" D-0001 "$sha" || return 1
+	layout_entry "$repo/factory/DECISIONS.md" H-0001 "$sha" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -q -m 'fixture: a log pair with one entry each' || return 1
+	printf '%s\n' "$sha"
+}
+
+decisions_reader_opens_filed_entries() { # -> 0 when a filed entry is read, and counted as a log
+	local repo=$work/decision-layout/opens sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0002.md" H-0002 "$sha" || return 1
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the reader refused a log pair plus one filed entry, which is the shape phase 2'
+		pos_say 'starts producing and phase 1 has to accept:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'across 3 log(s)' || {
+		pos_say 'it answered, but the tally does not count the filed file, so that file was never'
+		pos_say 'opened. That is the silent failure this issue is about -- a green gate over half'
+		pos_say 'the decisions, where half is now a number the reader chose:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# The control for the leg above, on the same builder: with no entry directory the count is one and the
+# run is clean. Without it, 'across 2 log(s)' could be a line the reader prints whatever is on disk.
+decisions_absent_dir_is_no_error() {
+	local repo=$work/decision-layout/absent sha out
+	layout_repo "$repo" >/dev/null || return 1
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'a tree with no `DECISIONS/` anywhere was refused. Phase 1 lands while every entry'
+		pos_say 'is still in a monolith, so this is the repository'"'"'s own shape today:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'across 2 log(s)' || {
+		pos_say 'the tally does not say 2 logs with no entry directory on disk, so the leg above'
+		pos_say 'counts something other than what it opened, and proves nothing about the filed file:'
+		pos_say "$out"
+		return 1
+	}
+	# The other half of the invariant, asserted here because it is the same sentence with one word
+	# changed: the directories are optional and the logs are not. Delete a monolith and the read has
+	# failed -- if that ever answers clean, a `git rm` of a log silences the gate.
+	rm -f -- "$repo/DECISIONS.md" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'a deleted `DECISIONS.md` read clean. Absence was read as zero entries, which is the'
+		pos_say 'rule for a directory because a tree may not have migrated yet; a log has no such'
+		pos_say 'excuse, and an unread log is an unguarded repository:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_cross_layout_duplicate() { # -> 0 when the union refuses one id in two layouts
+	local repo=$work/decision-layout/duped sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/DECISIONS" || return 1
+	# The id the root monolith already carries, filed as its own file: the split moving one entry across
+	# the layouts without moving it out of the log is the mistake phase 3 can make.
+	layout_entry "$repo/DECISIONS/D-0001.md" D-0001 "$sha" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'one id sat in the root monolith and in `DECISIONS/D-0001.md` and the run was clean.'
+		pos_say 'The union is what makes the split safe; if it does not see across the two layouts,'
+		pos_say 'phase 3 moves entries into a duplicate no gate will name:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'DECISIONS/D-0001.md' || {
+		pos_say 'it refused, but never named the filed file, so the reader cannot see which copy lost:'
+		pos_say "$out"
+		return 1
+	}
+	# The other half, and the reason the refusal is not simply "read every file you find": `--log PATH`
+	# promises the duplicate rule runs against that file alone. Same tree, narrower subject, clean run.
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py --log DECISIONS.md 2>&1); then
+		pos_say '`--log DECISIONS.md` was refused by the duplicate sitting in the other layout. Its'
+		pos_say 'documented subject is one file:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_filename_is_the_id() { # -> 0 when a filed name and its heading are one claim
+	local repo=$work/decision-layout/named sha out sum
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0007.md" H-0008 "$sha" || return 1
+	sum=$(md5sum <"$repo/factory/DECISIONS/H-0007.md") || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say '`H-0007.md` holding `## H-0008` was accepted. A citation followed by heading and a'
+		pos_say 'file found by name would land on two different decisions, silently:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'the filename says H-0007' || {
+		pos_say 'it refused for some other reason, so nothing here has pinned the filename rule:'
+		pos_say "$out"
+		return 1
+	}
+	# The control: the same bytes under the name the heading claims. Renaming is the only change, so the
+	# refusal above was the pair and not the prose.
+	mv -- "$repo/factory/DECISIONS/H-0007.md" "$repo/factory/DECISIONS/H-0008.md" || return 1
+	[ "$(md5sum <"$repo/factory/DECISIONS/H-0008.md")" = "$sum" ] || {
+		pos_say 'the rename changed the bytes, so the clean answer below clears nothing:'
+		return 1
+	}
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the identical entry under its own name was still refused, so the rule is refusing'
+		pos_say 'the layout rather than the disagreement:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+decisions_unseen_entry_file() { # -> 0 when nothing filed below the entry directory is skipped
+	local repo=$work/decision-layout/nested sha out
+	sha=$(layout_repo "$repo") || return 1
+	mkdir -p -- "$repo/DECISIONS/deep" || return 1
+	layout_entry "$repo/DECISIONS/deep/H-0009.md" H-0009 "$sha" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'an entry filed below `DECISIONS/` was read by nothing and reported as clean. A layout'
+		pos_say 'the reader skips is a decision with no rules over it -- phase 3 would move entries'
+		pos_say 'into it and see the gate stay green:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'DECISIONS/deep/H-0009.md' || {
+		pos_say 'it refused, but not for the nested file, so the nested case is still unjudged:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# The property the whole layout is bought with, measured off git rather than argued: two branches that
+# file the same id collide, two branches that file different ids do not, and two branches that append to
+# the monolith still collide. The third measurement is in the same leg on purpose -- without it the first
+# could be satisfied by a fixture git never merged at all, and the claim this file makes is about the
+# difference between the two layouts, not about filed entries in isolation.
+filed_entries_add_free_in_git() {
+	local repo=$work/decision-layout/merge base a b tree rc out v major minor
+	v=$(git version | awk '{print $3}') || return 1
+	major=${v%%.*}
+	minor=${v#*.}
+	minor=${minor%%.*}
+	# The three-way form of `merge-tree` is 2.38; older git answers a different command with a different
+	# exit status, which is a verdict about the toolchain and not about the layout.
+	if [ "$major" -lt 2 ] || { [ "$major" = 2 ] && [ "$minor" -lt 38 ]; }; then
+		return 2
+	fi
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	mkdir -p -- "$repo/factory/DECISIONS" || return 1
+	printf '# Harness decisions
+' >"$repo/factory/DECISIONS.md" || return 1
+	printf '# Placeholder
+' >"$repo/factory/DECISIONS/H-0001.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the trunk both branches start from' || return 1
+	base=$(git -C "$repo" rev-parse HEAD) || return 1
+
+	# (a) two branches file the SAME id, with different bodies: that is the allocator collision #442
+	# measured at 23% of ids, and the merge is where it has to become loud.
+	git -C "$repo" checkout -q -b one "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0299.md" H-0299 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: one branch files H-0299' || return 1
+	git -C "$repo" checkout -q -b two "$base" || return 1
+	printf '# Harness decisions\n\n## H-0299 · The other branch'"'"'s claim\n\n- Question: the same id?\n- Options: yes | no\n- Chose: no\n- Why: this is the copy that must not merge silently.\n- Checkpoint: %s\n' "$base" >"$repo/factory/DECISIONS/H-0299.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the other branch files H-0299 too' || return 1
+	a=$(git -C "$repo" rev-parse one) || return 1
+	b=$(git -C "$repo" rev-parse two) || return 1
+	if out=$(git -C "$repo" merge-tree --write-tree one two 2>&1); then
+		rc=0
+	else
+		rc=$?
+	fi
+	[ "$rc" != 0 ] || {
+		pos_say 'git merged two branches that filed the same id with different bodies, so the layout'
+		pos_say 'buys nothing: the id collision would still arrive as two files claiming one decision.'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'add/add' || {
+		pos_say 'the merge failed, but not as an add/add on the shared path, so the fixture is not the'
+		pos_say 'shape the claim is about:'
+		pos_say "$out"
+		return 1
+	}
+
+	# (b) two branches file DIFFERENT ids: clean, and both entries present in the merged tree. The tree
+	# is read back because a clean exit alone is also what an empty merge answers.
+	git -C "$repo" checkout -q -b three "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0300.md" H-0300 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a branch files H-0300' || return 1
+	git -C "$repo" checkout -q -b four "$base" || return 1
+	layout_entry "$repo/factory/DECISIONS/H-0301.md" H-0301 "$base" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a branch files H-0301' || return 1
+	if ! tree=$(git -C "$repo" merge-tree --write-tree three four 2>&1); then
+		pos_say 'two branches filing different ids conflicted, which is the cost this layout is'
+		pos_say 'supposed to remove -- and it means the leg below measures nothing:'
+		pos_say "$tree"
+		return 1
+	fi
+	[ "$(git -C "$repo" ls-tree -r --name-only "$tree" | grep -c '^factory/DECISIONS/H-030')" = 2 ] || {
+		pos_say 'the clean merge did not carry both filed entries, so it was clean by ignoring them:'
+		git -C "$repo" ls-tree -r --name-only "$tree" | sed 's/^/            /' >&2
+		return 1
+	}
+
+	# (c) the shipped layout, same two-branch shape: two appends to the monolith collide. This is the
+	# tax #381 measured at 17.1 hours of conflict ticks, and it is what (a) and (b) are compared to.
+	git -C "$repo" checkout -q -b five "$base" || return 1
+	printf '\n## H-0302 · one side appends\n' >>"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" commit -qam 'fixture: one append to the monolith' || {
+		git -C "$repo" add -A && git -C "$repo" commit -qm 'fixture: one append to the monolith'; } || return 1
+	git -C "$repo" checkout -q -b six "$base" || return 1
+	printf '\n## H-0303 · the other side appends\n' >>"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the other append to the monolith' || return 1
+	if git -C "$repo" merge-tree --write-tree five six >/dev/null 2>&1; then
+		pos_say 'two appends to the monolith merged clean, so this fixture does not reproduce the'
+		pos_say 'collision the layout replaces -- the comparison above would then be between two'
+		pos_say 'things that behave the same, and the leg would be arguing nothing.'
+		return 1
+	fi
+	return 0
+}
+
 # Both halves of the multi-clone boundary, in one reporter. The unfetched half alone would be passed
 # for free by a fixture whose clone never learned about origin at all, so the fetched half is the
 # control for it: the answer has to be the stale ceiling first and the sibling's id after.
@@ -15557,6 +15833,31 @@ decision_ids() {
 	gen_leg 'a sibling id leaves the verdict alone' \
 		'a duplicate on a sibling ref does not move the answer' \
 		gate_verdict_off_refs
+	# ---- the one-file-per-entry reader (#429 phase 1) ----
+	#
+	# The four behaviours the phase is made of, each on a generated fixture: the directory is opened, an
+	# absent one is not an error, the union sees a duplicate across the two layouts while `--log` does
+	# not, and a filed name and its heading are one claim. Then the property the layout buys, measured
+	# off git.
+	gen_leg 'the reader opens a filed entry' \
+		'a monolith plus one file under `factory/DECISIONS/` reads as two logs' \
+		decisions_reader_opens_filed_entries
+	gen_leg 'a tree with no entry directory reads clean' \
+		'the absent directory is zero entries, and the tally says 1 log' \
+		decisions_absent_dir_is_no_error
+	gen_leg 'one id in two layouts is a duplicate' \
+		'the union refuses it and names both files; `--log` still reads one' \
+		decisions_cross_layout_duplicate
+	gen_leg 'a filed entry is named by its id' \
+		'the pair is refused, and the same bytes under the heading'"'"'s name are not' \
+		decisions_filename_is_the_id
+	gen_leg 'nothing filed is skipped in silence' \
+		'an entry below the entry directory is refused by its path' \
+		decisions_unseen_entry_file
+	gen_leg 'a filed id cannot collide in the dark' \
+		'one id in two branches conflicts, two ids merge, two appends conflict' \
+		filed_entries_add_free_in_git
+
 
 	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
 		alloc_no_fetch

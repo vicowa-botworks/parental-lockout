@@ -3339,7 +3339,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   this file, only without the renumbering), `python3 scripts/check-decisions.py --log` exits **1** with
   two problems: `id D-0058 is already used at …:2975; ‘revert to before D-0058’ would name two
   commits` and `D-0058 is used in … — one id, 2 decisions; a citation to it does not resolve.
-  Renumber the later entry in its own log` (`scripts/check-decisions.py:145`, `:471`). Folding is worse
+  Renumber the later entry in its own log` (`scripts/check-decisions.py:180`, `:471`). Folding is worse
   than folding away: two questions, two option sets and two checkpoints cannot share a heading without
   deleting one of them, and the record being deleted would be a merged one (#1180: a decision record
   gets a dated correction, never an edit). So the choice is which side moves, and three reads decide it.

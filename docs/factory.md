@@ -1743,6 +1743,28 @@ happen. `H-0195` carries the option set, including the two refused for measureme
 claim time (a claim cannot know the unit will decide) and a gate-level duplicate refusal (it arrives at
 merge, on the wrong branch's bytes, saying `duplicate` where the question is `whose`).
 
+## The decision log is migrating to one file per entry (#429)
+
+`H-0263` lands phase 1: `scripts/check-decisions.py` now reads a union of four sources -- the two
+monoliths, then `DECISIONS/*.md`, then `factory/DECISIONS/*.md` -- and the two directories are optional,
+because on 2026-11-18 neither exists at `origin/main` nor on any of the 11 heads the server lists, and
+refusing an absent one would refuse every tree in flight. Three rules come with the layout. A filed
+file's name is its id: `DECISIONS/H-0042.md` holding `## H-0043` is a renumbering that silently aliases
+every citation to `H-0042`, so `layout_problems` refuses the pair. An id used twice in the union is
+refused with both locations named -- one filed file beside one monolith heading included, which is the
+rule that makes the split safe to move in batches. And a `*.md` filed *below* an entry directory is
+refused by its path, because no id names a path segment and a file the reader skipped is an entry no
+rule ever ran over.
+
+Both forms stay valid until phase 3 completes, so **do not convert an entry by hand**: the allocator
+(`factory/next-decision-id.sh`) and every writer still append to a monolith, which makes a hand-filed
+entry a file nothing will produce again. What phase 1 does not do: emit files (that is phase 2), move
+the 318 entries that exist today, or retire either monolith -- deleting one is a class reserved to a
+human. The reading order is the monoliths first, then filed entries in filename order, and id
+monotonicity stays the allocator's job: the positional sequence rule is left inside a file, because a
+directory read in sorted order has no order a merge honours -- measured on a fixture where a back-filled
+lower id sits in the directory and the union reads clean at `4 entries across 4 log(s)`.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh` -- except
