@@ -1,13 +1,53 @@
-# NEXT — issue-429 unit (PR #451: phase-1 decision-log layout reader; the review's REQUEST_CHANGES answered by merging `origin/main` with a content-identity digit pass, `H-0269`)
+# NEXT — issue-373 unit (PR #354's park-release clause shipped inside the paragraph's own 11 lines; `H-0169`'s already-dead docs pointer anchored at 204; `POINTER_DEBT` 544 -> 543 with `H-0264`'s constant quote revision-pinned to `0a2c093`)
 
-State read before this file wrote a byte, by this branch's second dispatch, raw JSON to files counted
-in python and never a `-q` template: **#451** `OPEN`, `reviewDecision` **CHANGES_REQUESTED**,
-`mergeable` **CONFLICTING**, `mergeStateStatus` **DIRTY**, head `89f8c4e` — the review row's ask is
-answered in the local tree only until the push below lands. `origin/main` was at `26e8c6d` (PR #446
-merged, carrying `H-0264`–`H-0267`). The allocator, fetched first and re-armed, answers **`H-0269`**
-with a `REFRESH` note and no `PENDING`/`REFRESH-BLIND`; zero `H-0269` hits in the supervisor journal,
-and the only grep hits anywhere are this dispatch's own transcripts. Re-read all of it before acting:
-a number here belongs to the clock it was taken on.
+State read before this file wrote a byte, by this branch's third dispatch: `origin/main` at `0a2c093`
+(PR #459 merged), branch `issue-373` clean on it, no `factory/HALT`, gh auth live. The allocator,
+fetched first and re-armed, answers **`H-0273`** with a `REFRESH` note and no `PENDING`; the gate on
+the shipped bytes reads `328 entries / 1032 citations / 543 owing an anchor / 0 refused`, exit 0, and
+the `--citations docs/factory.md` census lists 59 rows with `H-0169`'s now `anchored`. Re-read all of
+it before acting: a number here belongs to the clock it was taken on.
+
+## What this dispatch pushed
+
+- `docs/factory.md` line count **unchanged at 2696**: the release paragraph rewritten inside its own
+  eleven lines (base 118-128, new 118-128), so none of the 56 openable pointers into the page — 27
+  anchored, 29 bare — moved. The clause the round-2 review asked for is in: the queue reads **only the
+  label** (`is_parked()` is a jq test of the label map, `factory/triage.sh:845`) and the comment is
+  durable for the human and for the next dispatched tick. No label name spelled on the page — the
+  `esc_one_home` leg in `factory/selftest.sh` still holds.
+- `factory/DECISIONS.md`: `H-0273` and this hand-off. Two in-place repairs to other units' rows:
+  `H-0169`'s docs pointer was **already dead in the base** — its fragment sits at line 204 of
+  `docs/factory.md` at `0a2c093`, not the cited 205 — re-aimed and anchored; `H-0264`'s row quoting
+  the old constant was revision-pinned to `0a2c093:scripts/check-decisions.py:770`, verified openable
+  there.
+- `scripts/check-decisions.py`: `POINTER_DEBT` 544 → 543 (the `H-0169` payment), ledger comment
+  extended in place, file still 2271 lines.
+- No merge, no label write, no reviewer ask, no issue write; the queue belongs to the supervisor.
+
+## What this dispatch verified, on the shipped bytes
+
+- `python3 scripts/check-decisions.py` → 328 entries, 1032 citations, **543 owing an anchor against a
+  recorded 543**, 0 refused, exit 0. `--citations docs/factory.md` → 59 rows, `H-0169` anchored.
+  Full-census exempt list 71 → 72 (this entry's pin).
+- `bash scripts/check-next-md.sh` → OK (its verdict is quoted in the pull-request body, the #337
+  contract).
+- `make verify` → passes on these bytes; its raw tail is quoted in the pull-request body. Run under
+  `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_LOG` because this session's harness
+  exports the tick names (the leak #449 is about — see the carried-forward section below; it is real,
+  this dispatch hit it too).
+
+## What is still owed (issue-373 rows, then everything the issue-429 hand-off carried)
+
+1. Nothing on #373's side is left open except the review: the push spends any approval as a matter of
+   course and the supervisor's poke owns the re-review ask. If the merge lands after another page
+   edit, re-run `python3 scripts/check-decisions.py --citations docs/factory.md` and expect 59 rows
+   plus whatever the other edit added — the neutral rewrite means a conflict on this paragraph is the
+   only way this unit's pointers break.
+2. `H-0169`'s remaining bare rows point at the scripts and stay bare; the instrument the issue-429
+   hand-off owes (its item 55) covers them. The docs row, the one this ticket proved dead, is paid.
+
+Everything below is the issue-429 unit's hand-off, carried forward unedited from its first `## `
+heading; its state-read head is superseded by the one above — its numbers belong to older clocks.
 
 ## What this dispatch pushed
 
