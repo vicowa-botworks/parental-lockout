@@ -610,8 +610,10 @@ catches.
   `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
   `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
   files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
-  the SAME physical line: the rule reads one line, so a fragment wrapped onto the next one is not an anchor
-  and the citation lands in the debt instead of being checked. A citation with no
-  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the SAME physical line: the rule reads one line, so a quotation the newline cut — the fragment opening
+  on the next line, or one left unclosed at end of line — is not an anchor, and since #369 it is REFUSED
+  by name, not left as silent debt; while any such row exists the ratchet is held shut, so fixing it is
+  never optional. A citation with no
+  quote at all is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.
