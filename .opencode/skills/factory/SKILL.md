@@ -254,10 +254,10 @@ anything is allowed to claim it happened (#1180).
 
 ```bash
 # 1. the comment, and the entry with `Chose: escalated` and `Awaiting:` naming the decision, committed.
-#    An escalated entry carries `Checkpoint: n/a` -- it decided nothing -- so there is no checkpoint
-#    commit to take first.
-gh issue comment "$ISSUE" --body "…what is ambiguous, what each option costs, what you would
-recommend, and the exact command to proceed…"
+#    The comment IS the ask: `Question:` on its first line, `Options:` numbered in that same comment
+#    with each cost and a recommendation; receipts above in their own comment, `Checkpoint: n/a` (H-0285).
+gh issue comment "$ISSUE" --body "Question: <the one line only a maintainer can answer>.
+Options: 1) …, costs …; 2) …, costs …. Recommended: <n>. To proceed: <exact command>."
 # write the entry into the log the ticket belongs to, then:
 git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
 git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
@@ -292,7 +292,7 @@ exit 1, and `gh issue edit 314` with the same name printed
 read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
 only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
 that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
-name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240` with two
+name at all. `D-0047` measured the split from the other side -- `gh issue edit 240` with two
 `--remove-label` arguments, `blocked` and the marker name of the moment, exited 0 and read back
 `labels: []` where `gh pr edit`
 died on that field (`./DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
@@ -595,8 +595,8 @@ catches.
 - A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
   label, and the read-back that says the label landed.
 - A label name of your own choosing. `--add-label` takes only what `factory/escalation-label.sh`
-  prints, and `gh label create` is not a tick's move: what the escalation marker is called is #311's
-  open question, and a label you invented reads as a decision somebody made (#315).
+  prints, and `gh label create` is not a tick's move: #311 settled the name on 18 Nov as `question`
+  (H-0250), and a label you invented reads as a decision somebody made (#315).
 - `git checkout <file>` / `git restore` to undo a probe -- it reverts to HEAD and takes the whole
   uncommitted change with it. Keep a `/tmp` backup and restore with `cp`, taken **after** the fix.
 - Committing `plock`. `git ls-files | grep -x plock` must print nothing before any `git add -A`.
