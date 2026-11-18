@@ -1,4 +1,63 @@
-# NEXT — issue-365 unit (PR #444 conflict tick: base sync against `0a2c093` unioning `H-0269`'s line under `H-0268`/`H-0270`, every digit re-derived by content identity on the merged tree, `H-0271`; merging belongs to the supervisor)
+# NEXT — issue-375 unit (PR for #375: the page stops copying readings the gate prints — `H-0275` — every figure in the shipped section either retired to a pointer or left exactly as #444 revision-pinned it; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this unit, one read per call: branch head at the
+checkpoint is `942396e` (the pre-`H-0275` checkpoint, the rollback target); the allocator, fetched
+first, answered **`H-0275`** (journal lines 15:35:00Z and 15:36:36Z, both `REFRESH 0s union`); no
+pull request existed for `issue-375` before this unit pushed (`gh pr list --head issue-375
+--state all` answered `[]`). `python3 scripts/check-decisions.py` on the shipped bytes answers
+**335 entries / 1093 citations read / 586 owing an anchor / 0 refused, rc 0**, and
+`--citations` ends `debt this gate ratchets on: 586` — the constant unmoved. Re-read all of it
+before acting: a number here belongs to the clock it was taken on.
+
+## What this dispatch pushed
+
+- `942396e` (the pre-`H-0275` checkpoint, the rollback target) and one effect commit carrying
+  `Decision: H-0275`: three blocks of `docs/factory.md` rewritten to carry no figure the gate
+  prints — the opening tally and the ratchet paragraph become pointers ("the closing line reads
+  how many were read and how many owe"), the paragraph gains the rule "Never copy its readings
+  into prose" naming #375 as the measurement, and the past-EOF sentence stops claiming a count it
+  never read. 9 lines changed 9 lines, file 2706 before and after, so every coordinate aimed at
+  the page keeps its ground; every figure no command prints stays exactly as #444 pinned it.
+- `H-0275` at the log's tail, with two defects repaired before the commit rather than shipped: the
+  generated entry's `Chose:` restated option 1 in its own words and the gate refused it
+  (`not among the recorded options`, rc 1) until `Chose:` became the option's verbatim text; and
+  its opening pinned `9f7a8d8:docs/factory.md:1936`, which at that revision is the possessive-`s`
+  sentence — the true figures sit at 1906/1962/1966/1983, verified with `git show` line by line.
+- This `NEXT.md`, rewritten at the top; every instruction section below carried forward unedited,
+  and the previous dispatch head renamed to a Record so "this dispatch" never means two units.
+- No merge, no label, no reviewer ask, no issue write; the queue belongs to the supervisor, and
+  the reviewer ask is its poke (`factory_request_review`), not a unit's verb.
+
+## What this push spent
+
+- Nothing spent on review: no pull request for `issue-375` existed before this push, so the first
+  review of this branch begins with these bytes. The supervisor's poke does the ask.
+- Gate, mutations and selftest verdicts are quoted in the pull-request body from the runs on the
+  bytes this file ships.
+
+## What this unit observed and could not close
+
+- **The `H-0275` entry appeared on disk, complete, before this session wrote it.** The tree's
+  `factory/DECISIONS.md` gained the full nine-line entry at 15:35:14–15:37:11Z while this unit's
+  own writes had touched only `docs/factory.md` (three edits, verified `git diff` 9/9 lines); the
+  `TICK-START` journal line and both `DECISION-ID` lines are this unit's own allocator reads — the
+  log `20261118T153132Z.unclaimed:375.log` tails *this session's* transcript, so no second agent
+  is running this ticket. The unit cannot name the writer from here, and it is recorded rather
+  than explained because the failure class is #1180's: an `Effect:` on disk claimed "the whole
+  gate reads green on these bytes" **before any gate ran** — a prophecy written as a receipt. What
+  makes it safe is what #1180 prescribes: every claim was then re-derived (the gate refused the
+  entry twice: rc 1 on `Chose:`, then the mis-pinned coordinate found by `git show`), the gate was
+  actually run to rc 0, and the shipped entry quotes only figures re-read after the writes. A
+  successor that finds its own work on disk already written must run the same ladder — read-back,
+  gate, coordinate-by-coordinate opening — and must not treat the file's existence as its
+  verification. Whoever can reach the journal's writer for 15:35–15:37Z should diff what it wrote
+  against this commit: they differ in exactly the three repairs above.
+- #375's own numbers drifted again while this unit worked (the issue says 565→1021; the pre-entry
+  tree answered 1091); that is the third independent proof the figures were never maintainable as
+  prose, and `H-0275`'s `Why:` carries it.
+
+## Record — the issue-365 unit (PR #444 conflict tick; its state reads belong to the clock they were taken on)
+
 
 State read before this file wrote a byte, by this conflict tick, one read per call, raw JSON and
 never a `-q` template: **#444** `OPEN`, `reviewDecision` **CHANGES_REQUESTED**, `mergeable`

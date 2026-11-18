@@ -2337,9 +2337,9 @@ repository's name to work, that is a defect in it, not a convenience.
 
 ## A citation in a decision log carries its own anchor
 
-`DECISIONS.md` and `factory/DECISIONS.md` hold 565 backticked `path:line` citations, and the closing line
-of `python3 scripts/check-decisions.py` is the only figure to trust — at this head it reads 539 owing an
-anchor, 15 carrying one and 11 naming the revision they were read at. A coordinate is how
+`DECISIONS.md` and `factory/DECISIONS.md` hold backticked `path:line` citations, and the closing line
+of `python3 scripts/check-decisions.py` is the only figure to trust — it reads how many it read and how
+many owe an anchor; `--citations` names the exempt classes. Never copy its readings into prose. A coordinate is how
 an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
 `triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
 of an entry a
@@ -2393,11 +2393,11 @@ any git subcommand but `cat-file`, because a verdict that changes between a bran
 and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
 answers the same question in every checkout.
 
-**What cannot be checked is counted, and the count may only fall.** 539 of those citations predate this
-rule and carry no anchor (the four above 535 are pointers that used to be skipped entirely — see the
-paragraph on a name that carries an extension); that number is `POINTER_DEBT` in
-`scripts/check-decisions.py` (re-measured at
-this head: `--citations` answers `debt this gate ratchets on: 535`). Above it the run
+**What cannot be checked is counted, and the count may only fall.** Most of those citations predate this
+rule and carry no anchor (some arrived as pointers that used to be skipped entirely — see the paragraph
+on a name that carries an extension); the count lives in `scripts/check-decisions.py` as `POINTER_DEBT`,
+and the only reading of it is the last line of `--citations`, `debt this gate ratchets on:` — a figure
+copied into prose rots there (#375 caught this page holding two copies of it at once). Above it the run
 is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
 filed off, and the next unanchored citation hides in the slack. **Neither comparison runs while a single
 pointer cannot be opened** (H-0170), because that number is not always a measurement of the logs: one
@@ -2414,7 +2414,7 @@ direction the ratchet permits a rise and the diff is the audit. A citation absen
 ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
 writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
-file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
+file is *not* refused on its own, and that is a choice, not an oversight: the unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
 holds only where an anchor already proves what the line should say — measured at the head that ships the
 sentence rule, 9 citations sit past the end of the file they name, all 9 unanchored: five `README.md`
