@@ -1,4 +1,4 @@
-# NEXT — issue-334 unit (the retention census becomes a tool: `factory/retention-census.sh`)
+# NEXT — issue-334 unit (census tool on the branch; the dispatch that synced, repaired the spelled marker name, and opened the pull request)
 
 State read before this file wrote a byte, at **2026-11-18T00:08:17Z**, raw JSON counted in python and never
 a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 2026-11-17T23:37:31Z`,
@@ -18,7 +18,26 @@ still does not exist — so the label creation that would park both escalations 
 not a dropped ball. Read all of it again before acting: #334 is dispatched by every tick that has nothing
 else, because nothing parks a waiting escalation (#437).
 
+The state the **sync-and-ship dispatch** read at **2026-11-18T00:47Z**, one read per call and raw JSON:
+issue **334** still `OPEN`, `bug,area:ops,blocked`, **11** comments, `updatedAt 2026-11-17T23:37:31Z`
+unchanged, a `^retention:` answer line among them still **0**; **0** open pull requests repository-wide;
+`origin/main` at `3c09d6b` and this branch **2 ahead / 1 behind**. It is green by **4** after the clean
+sync merge `14a1634` — `git merge-tree --write-tree` predicted the auto-merge at rc 0 and the predicted
+tree held `factory/retention-census.sh` at `100755` — and after the `esc_one_home` repair `d6edab9`,
+whose red this dispatch found on its first full `make verify` (see the third thing a stranger will break,
+below; trunk reads green at that leg on this box, so the defect was the branch's own). This dispatch ran
+the census by hand on the live journal as its independent re-check of the tool: **241** transcripts,
+**61,745,877 B**, journal **2,326,244 B**, and the seven-day cut splitting six spellings into **5**
+distinct answers (A 20, B 20, C 66, D 19, E 0, F 29, at `00:47:16Z`) — clause 5's claim, re-measured
+rather than inherited. This dispatch opens the pull request from this head; the head number lives on
+GitHub, not in this file.
+
 ## What this unit shipped
+
+Three commits of this dispatch ride on top of the census work described under them: the sync merge
+`14a1634` of `origin/main@3c09d6b` (clean — no decision-log union was needed), the marker-name repair
+`d6edab9`, and this hand-off. It implements nothing: the maintainer answer owed item 1 has not arrived,
+`H-0188`'s `Awaiting:` stands, and the deletion itself remains a reserved class.
 
 `factory/retention-census.sh`, one `verify` step, four paragraphs in the contract's own section, and
 nothing else. The script is clause 5's block turned into a tool: six clocks named and priced in one pass
@@ -122,8 +141,15 @@ so no `docs/factory.md:NNNN` pointer moved.
    ticket to be dispatched again, and read the ticket's eleven comments before measuring anything — the
    last five units each found something the previous one missed, and none of them chose the number.
 
-## Two things a stranger will break here
+## Three things a stranger will break here
 
+- **Green is a property of a tree and its leg set, never of a branch.** The census dispatch ran the suite
+  six times green and *then* committed a NEXT.md that spelled the escalation marker's name three times —
+  while the leg that scans NEXT.md for it (`esc_one_home` at `factory/selftest.sh:9745` `esc_one_home [root] -- the name is spelled once, and that once is common.sh`)
+  was already live in its own base: `git show 64ec65e:factory/selftest.sh` carries the `claim_leg`.
+  So the branch tip was red from the minute that commit landed, nothing re-gated it because the branch
+  was never pushed, and the next dispatch's first `make verify` met it. Re-run the full gate after the
+  last file your last commit touches.
 - **Line numbers in these logs are live coordinates, and an insertion moves them.** `make verify` re-opens
   every `path:line` in both decision logs and exits 1 naming the true line; this unit's own edit tripped it
   twice inside ten minutes, once by two lines and once by three. So add to the *end* of the section you are
