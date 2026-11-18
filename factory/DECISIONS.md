@@ -13744,3 +13744,52 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   different defect class (the #367 docstring assigns its repair to a sentence-rule, not a
   line-rule), and this entry names the measurement instead of widening scope mid-delivery.
 
+## H-0261 · the allocator answered `H-0260` on a fresh read and an earlier journalled reservation had already given that number to a sibling -- and a union that reads blobs cannot see a reservation, so the id is yielded and the entry ships one above the contested number with both journal lines recorded
+
+- Id: `bash factory/next-decision-id.sh --repo . factory/DECISIONS.md` answered `H-0260` at the
+  checkpoint and again after `git fetch --prune origin`, journalled both times on this branch; the
+  first read was `REFRESH-BLIND 611s` and the stderr said so. The supervisor's live journal carries
+  the sibling's `2026-11-18T07:59:11Z DECISION-ID H-0260 unit=session:rc-legs branch=fix/escalation-label-question`
+  (journal line 12726 of the supervisor's `factory/log` journal directory, which lives outside the
+  gated tree and so gets a timestamp, not a path:line), 7m39s older than this unit's own journalled
+  line for the same number at 08:06:50Z. The allocator cannot return that
+  reservation: the union it reads is working file, HEAD, refs/heads and refs/remotes -- reservations
+  are journal output the end-of-tick pass consumes, never union input (`factory/next-decision-id.sh:542` "checking, a selftest leg, any off-dispatch call"),
+  which is the shape #345 measured for `D-0058`.
+  The sibling's file holds `## H-0259` on a pushed ref and its next entry is `H-0260`.
+- Question: the allocator's answer is contested by an older journalled reservation it structurally
+  cannot see -- ship the answered number into a guaranteed heading collision at the second merge, or
+  yield the number and write an id the allocator was never asked for?
+- Options: ship the answered `H-0260` and take the guaranteed heading collision at the second merge |
+  yield the answered number to the older journalled reservation, write `H-0261`, and eat the
+  `DECISION-ID-UNEARNED` line as the price | wait for the sibling to merge and re-ask the allocator.
+- Chose: yield the answered number to the older journalled reservation, write `H-0261`, and eat the
+  `DECISION-ID-UNEARNED` line as the price
+- Why: first-reservation-wins, and every ordering of the two merges is clean once this branch yields
+  -- `256 -> 260 -> 261` if the sibling merges first, and if this branch merges first the sibling's
+  re-read takes `H-0262`, the gap at 257-260 being the documented shape of the race -- while shipping
+  the answered number is a collision whose resolution nobody's contract owns, and this repository's
+  own history (H-0252 adjudicated a worse seam mid-delivery) is the cost estimate. The allocator's
+  stderr already grades its own answer as the best available read, which is about the number, not a
+  licence to ship a conflict a visible journal line predicts. Waiting buys nothing because the blind
+  spot is not staleness -- no fetch puts an unpersisted reservation into a blob. The checkpoint's
+  title names `pre-H-0259`, the number the 07:43 reservation held at the time; the sibling's
+  re-allocation to `H-0260` at 07:59 made that title stale before this entry existed, and the hash
+  stands where the title would otherwise have to be re-explained.
+- Checkpoint: bdd5ae3514769be1139f1a67a2d2d9432032f1ad
+- Effect: the guard ships as `factory/selftest.sh:12573` "printf '  SKIP  %-34s $TMPDIR is inside a work tree"
+  at the `pos_*` claim, the sibling's one condition and one message at `factory/selftest.sh:1042` "rev-parse --git-dir >/dev/null 2>&1; then"
+  reproduced verbatim, +11 lines at the claim site. Measured
+  matrix, every cell a real run: trunk + in-repo `$TMPDIR` + tick env 821/5; guard + in-repo + tick
+  822/4 with the `pos_*` row SKIP at its own leg; guard + in-repo + bare 822/2; guard + normal
+  `$TMPDIR` + bare 828/0; guard + normal + tick 827/2; trunk + normal + tick 827/2 -- the residual
+  rows split into #448's two (in-repo class) and #449's two (tick-env class), each present only under
+  its own condition, on both trees.
+- Check: `TMPDIR=<a directory inside a checkout> bash factory/selftest.sh 2>&1 | grep -c 'SKIP.*an unreadable tree says UNKNOWN'` prints `1`, and the same grep on a
+  bare-`$TMPDIR` run prints `0` because that leg PASSes instead.
+- Refs: #371 (the ticket); #448, #449 (the two classes this unit's audit filed, neither in this row's
+  scope); #345 (the provenance pass whose UNEARNED line `H-0261` will raise, and the `D-0058`
+  double-answer this entry repeats deliberately rather than by blindness); H-0256 (the sibling entry
+  whose #445 merge this branch merged over, one seam).
+- Follow-up: none owned here -- #448 and #449 carry both residual classes to the queue, and the
+  standing-audit decision stays the open one #371 says it is.
