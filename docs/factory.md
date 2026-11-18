@@ -2548,3 +2548,49 @@ Every number above is from the live journal on 2026-11-17: `journal 1907580 B; 2
 under factory/log; oldest 20261110T134828Z.unclaimed:213.log 6d13h` -- the footprint line the shipped
 `factory_log_footprint` prints, which is also #334's premise measured forward: the issue opened at
 "20 MB across 100 files" in three days and this is seven.
+
+That block is now a tool, and the tool is gated: `factory/retention-census.sh`, whose
+`--self-test` runs on every `make verify` as the `==> journal retention census` step. `--help` is
+the whole surface -- `--dir DIR`, `--days N`, `--bytes N`, `--now STAMP`, `--self-test` -- and
+what it prints is the six rows above: one cut taken once into one variable, the directory's own
+total on the line above them, and the `refuse:` footer that says the run priced a number and chose
+no clock. It is read-only by construction -- it prices an eviction and never performs one -- and
+it refuses a `--days` with a `--bytes`, because the two shapes a bound takes are not one question.
+Three things it does that the block above cannot.
+
+It prices the day arithmetic honestly. `find -mtime +N` reads the real clock and accepts no
+reference time, so a census pinned with `--now` cannot ask `find` what `find` would have said
+seven days ago: it would answer for today and be stamped with the pinned instant. So row `E` is
+GNU's own arithmetic, `int(age/86400) > N`, evaluated at the census clock, and the census prints
+the `pinned:` line saying which of its six rows is a computation and which five are calls. The
+self-test's live leg builds the one fixture this is checkable against -- ages measured from the
+instant the leg runs, because `-mtime` has no other clock to read -- and asserts `E` equals `find
+-mtime +7`'s own count *and* that `-mtime +7` and the seven-day predicate differ by at least one
+file. The emulation is checked against the tool it emulates, not against this page's memory of it.
+
+It prices a cap, which is the other shape. `--bytes N` sorts the transcripts oldest first and
+evicts until the directory fits, once under each clock, and prints how many files the two clocks
+keep differently: the count that says whether the clock is worth arguing about before anyone
+writes a rotator. `--days` and `--bytes` are not interchangeable and neither one is a budget --
+seven days is a different number of bytes every day it runs, and a byte cap is a different number
+of days every day it runs -- so the census prints the directory's own measured rate and the bound
+that number implies.
+
+It refuses in the two states where a census means nothing. A directory holding no transcript that
+matches the transcript name exits **3**, naming the glob and the directory: `0 B` there is a
+statement about the pattern, not about the journal. And a census whose every reading is zero says
+so in a `quiet:` line, because *the block's worst answer is a quiet one* is clause 5's sentence
+and a zero is the answer a wrong glob and a genuinely young directory share -- `factory/log` is
+untracked, so the ordinary place a unit runs this is a directory it has never written.
+
+What a person still owes is unchanged: the number, the clock, the zone, and which generations
+survive, and clause 5 still refuses an answer that names only the number. What moved is where the
+cost of an answer lives -- half a second, one command, nothing written. Two runs over the live
+journal three seconds apart priced the two shapes a maintainer has to choose between. At
+2026-11-18T00:03:39Z, over 240 transcripts and 61,129,420 B, `--days 7` answered A 20 / B 19 / C
+66 / D 19 / E 0 / F 27 files: the two second-resolution clocks disagreeing by one file *at the
+same read*, and the day policy and the unqualified zone turning seven days into 66 files and 27.
+At 00:03:41Z the same tool with `--bytes 20000000`, the figure the issue itself opens with, keeps
+70 of the 240 and evicts 170 of them -- 41,151,232 B of the audit trail, a kept set the size of
+2.4 days at the directory's own measured rate. Both are readings of one minute, and the tool
+re-derives both in the time it takes to ask.
