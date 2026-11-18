@@ -41,6 +41,7 @@ the Makefile), so a deleted step here would otherwise stay green forever.
 Exit 0 clean · 1 the log has problems · 2 usage.
 """
 
+import bisect
 import collections
 import errno
 import os
@@ -767,7 +768,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 542
+POINTER_DEBT = 584  # citations that owe an anchor; may only fall (H-0279's base sync re-measured 584 on the merged pair and the fall from 586 is composed, not inferred: 582 open rows carried in, +2 from the rows H-0139 and H-0146 became when the #374 class refused their trunk-re-quoted present tense and they were past-tensed with the date -- the first refusals the shipped gate filed against this repository's own oldest entry; the 27 anchored drifts this merge re-aimed by the gate's named line moved no debt because they were anchored throughout; H-0268's union merge re-measured 586 on the merged pair, and the fall from this branch's 588 is composed, not inferred: this branch's logs run through the merged scanner answer 586 unanchored + 2 wrapped, and the 2 are the newline-cut anchors #369's bucket separates from the ratchet -- both live rows trunk fixed, so the merged corpus answers wrapped=0 and the 2 stop being debt without any promise being unmade; the open-row multiset diff of the same two corpora, re-measured at 12ddbc4 by H-0270 with this head's own scanner over both pairs of logs, holds 32 pure citing-line renames (14 at +2, 18 at +123) and 1 addition -- open rows 175 -> 176, the added row is main's own H-0256 Follow-up citing a bare :12339, 0 open rows lost -- and the unanchored-debt diff of the same pair is 74 rows each side over 586 on each: 5 pure renames all +2 (H-0200's :3187 row 10695->10697 and its two factory.sh rows 10697->10699, H-0210's selftest.sh:263/265 rows 11325->11327) plus 69 rows whose coordinates this merge re-aimed, entry-balanced, 0 lost 0 gained; two of the four pairs this comment formerly named, 10643->10645 and 10656->10658, name no open row in either corpus -- they are two of those re-aims, H-0200's rows at factory/common.sh 1435->1468 and 1554->1587; H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -809,6 +810,25 @@ FILENAME_SHAPE = re.compile(r"[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$")
 # another sentence's quotation and belongs to a different claim. Sixteen characters is the shortest fragment
 # that cannot be an accident: `the`, `verify` and `Chose: a` match half the tree, and an anchor that
 # matches anything is a check that cannot fail.
+# Where a citation's sentence ends, for the continuation rule in `scan_citations`. Measured on the two
+# logs rather than designed (#365): the break set is a sentence-final `.` followed by whitespace or the
+# end of the text, plus a markdown block marker opening a line -- bullet, blockquote, enumeration,
+# heading. Against the physical-line rule, on the sync-merge tree `adddacc` counting occurrences, this
+# aims 52 wrapped continuations the line rule left invisible (95 aimed -> 137, 199 -> 157 unplaced, of
+# 294 bare rows) and drops the aim of 10 rows that reached their file only by riding an earlier
+# sentence's citation -- among them the four the issue named (`H-0110`'s `:2766` and `:3731`,
+# `H-0111`'s `:2853` and `:3833`). No row is re-aimed at a different file. Keyed by
+# (file, line, low, high) the dropped 10 are 9: one coordinate sits twice on a single log line and
+# only the row aimed at that file's own reader falls there, the pair's twin keeps its aim under both
+# rules. The dropped rows sit in the open shape `scan_citations` documents -- their sentence names the
+# intended file as a bare backticked path with no coordinate, or names no file at all -- and admitting
+# that bare path was refused on the row it mis-aims: `:760` of `D-0038` lands on
+# `docs/screenshots/360/lock.png`, the nearest path, not the `manifest.py` the sentence runs on about.
+# Wider terminators were refused on their own rows too: `;` un-aims 17 for 36 of its 52 gains;
+# adding ` -- ` un-aims 16 for 42, including the ticket's own two-coordinate shape.
+# Narrower means honest orphans; wider means rows read as checked while aimed at the wrong file.
+SENTENCE_BREAK = re.compile(r"\.(?=[ \t\n]|$)|(?<=\n)[ \t]*(?:[-*#>]|\d+\.)(?= )")
+
 ANCHOR_AFTER = re.compile(r"^[ ']{0,3}\"([^\"]{16,})\"")
 MIN_ANCHOR = 16
 # A quotation that is close to the coordinate but not flush against it, or flush and too short. The rule
@@ -960,119 +980,140 @@ def scan_citations(text, entries, index):
 
       * `` `triage.sh:122` `` -- a file, by full path or by a basename nothing else owns.
       * `` `:661-662` `` -- the same file again ("`README.md:588` and the table at `:661-662`"), so it
-        inherits the last file resolved on the same line and never the last line read: a continuation
-        is a property of its sentence, and inheriting across sentences would silently re-aim a
-        pointer at a different file.
+        inherits the last file resolved in ITS OWN SENTENCE and never the last line read: a continuation
+        is a property of its sentence, and inheriting across a finished sentence -- or across a whole
+        wrapped paragraph that named other files -- silently re-aims a pointer at a different file.
+        The sentence is delimited by ``SENTENCE_BREAK``, which #365 measured; before that the boundary
+        was the physical line, and an entry in these logs is markdown wrapped at ~110 columns, so a
+        line was often several sentences naming several files.
       * `` `gonee.md:3` `` -- a bare name WITH an extension is a path, and a file that is not in the tree
         is refused, not skipped: the anchor or the coordinate promised a reader something to open.
       * `` `pr:209` ``, `` `STATE_PROPS:1040` `` -- a triage `class:PR` pair and a symbol. Not
         citations. They fall out because their left half carries no extension, so it names no file in
         this tree and could not be made to without reading git for what used to be tracked.
 
-    Known limit, measured rather than discovered later. "The same line" is a physical line, and an entry
-    in these logs is markdown wrapped at ~110 columns, so one physical line is often a whole paragraph
-    naming several files. Four continuations in `factory/DECISIONS.md` are aimed by a file that is not
-    the one the prose means: `H-0110` writes "`emit()` is defined TWICE in `factory/selftest.sh`, at
-    `:2766` ... and `:3731`" on a line whose earlier citation is `scripts/check-decisions.py:161`, and
-    `H-0111` writes the PROCESS/CLAIM shim plants as `:2853` and `:3833` on a line whose earlier
-    citation is `factory/triage.sh:600`. All four land in `unanchored`, where they cost nothing today --
-    and all four would be refused as past-EOF by the length check #318's option 3 proposes, which is a
-    fourth reason that option is out: it refuses four true sentences to catch zero false ones. The
-    repair is a rule about sentences, not lines, and it is filed as its own issue rather than
-    improvised here; a bare `:NNN` inside a wrapped paragraph is the one shape this rule admits it
-    cannot place.
+    The shape that stays open, because the alternative was measured to be worse: a bare `:NNN` whose
+    sentence names no file inherits nothing and is not refused -- 175 of the 312 bare rows are that
+    shape at `e66dc85d`, 157 of 294 under this rule at `adddacc`, the sync-merge tree the boundary
+    was measured on, and refusing them would refuse true sentences that merely wrap. The cost of the
+    boundary, counted in occurrences at `adddacc`: 10 rows the line rule aimed -- only by riding an
+    earlier sentence's citation, the mis-aim this rule exists to stop -- fell to the open shape,
+    among them the four the issue names. No row's aim moved to a different file; the dropped
+    sentences name the file bare with no coordinate or name no file at all (see
+    ``SENTENCE_BREAK``). What the boundary bought in the same census: 52 wrapped continuations the
+    line rule left invisible became aimed and counted -- 137 aimed in all at `adddacc`, and 137 again
+    at `e66dc85d`, where the 18 bare rows this rule's own log prose added there landed in the open
+    shape themselves.
     """
     found = []
     lines = text.splitlines()
-    for n, line in enumerate(lines, 1):
-        last = None
-        for m in CITATION.finditer(line):
-            written, span = m.group(1), m.group(2)
-            continued = False
-            if not written and last:
-                written, continued = last, True
-            anchor = None
-            near = None
-            wrapped = None
-            am = ANCHOR_AFTER.match(line[m.end():])
-            if am:
-                anchor = am.group(1)
-            else:
-                # #369: the two newline shapes, flagged here and refused by name in `classify`. An
-                # odd number of backticks in the tail means this coordinate sits inside an open code
-                # span, and a quotation past it is wrapped SHELL (the `H-0142` row's `gh issue edit`
-                # command), not a cut anchor -- that row keeps the debt exit it was measured with.
-                tail = line[m.end():]
-                if tail.count("`") % 2 == 0:
-                    nx = ANCHOR_AFTER.match(lines[n]) if n < len(lines) else None
-                    if nx:
-                        wrapped = ("next-line", len(nx.group(1)))
-                    elif ANCHOR_DANGLING.match(tail):
-                        wrapped = ("dangling-open", 0)
-                nm = NEAR_QUOTE.match(line[m.end():])
-                if nm:
-                    # (the gap itself, length of the quote) -- what the refusal has to name when it
-                    # declines this one for having no anchor at all. The gap is kept as text, not as a
-                    # width, because `` `x.md:9`'s "…" `` is three characters wide and the third of them
-                    # is what the rule declines; a width alone cannot tell the two refusals apart.
-                    near = (nm.group(1), len(nm.group(2)))
-            bounds = [int(x) for x in span.replace(" ", "").split("-")]
-            low, high = bounds[0], bounds[-1]
-            malformed = high < low or low < 1
-            # #374, adjacency: the forward read starts at this citation's closing backtick and may
-            # cross ONE newline (the logs wrap at ~110 columns and H-0139's bullet opens the next
-            # line with "now reads"); the reverse read ends at its opening backtick. A verb anywhere
-            # else on the physical line belongs to a different coordinate's sentence.
-            fwd = line[m.end():]
-            if n < len(lines):
-                fwd += "\n" + lines[n]
-            wm = NOW_FWD.match(fwd) or NOW_REV.search(line[:m.start()])
-            if continued:
-                # A continuation inherits the FILE, not the spelling. `last` is already a resolved
-                # tree-relative path; re-resolving it by NAME can answer two candidates, and the
-                # no-guess guard below then turned the continuation into "no file at all" -- which is how
-                # `./DECISIONS.md:2706` and `:2986` left the continuation checked by nothing, because
-                # `DECISIONS.md` is also `factory/DECISIONS.md` (#367 review #2, found by measuring the
-                # reviewer's own repro: 4 rows in the two logs, all of them a `./`-prefixed parent whose
-                # basename is ambiguous with a nested copy).
-                written, cand = last, [last]
-            else:
-                cand = resolve_citation(written, index)
-            if cand:
-                kind = "ambiguous" if len(cand) > 1 else ("bad-range" if malformed else "file")
-                resolved = cand[0] if kind == "file" else None
-                if kind == "file":
-                    last = resolved
-            elif written and revision_qualified(written):
-                # `origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` are in these logs.
-                # They name the revision they were read at, which is the other half of the same promise
-                # an anchor makes, so they owe no anchor -- and they cannot be checked here, because
-                # checking them means reading another revision and this rule reads no git at all. The
-                # pinned spelling is a sha; a branch name is the loose one, and `--citations` counts
-                # them so the loose half stays visible.
-                kind, resolved, cand = "revision-qualified", None, []
-            elif written and ("/" in written or FILENAME_SHAPE.match(written)):
-                # A path with a directory in it is a path even when nothing answers to it: the file was
-                # renamed, or the entry misremembered where it lived. So is a bare name that carries an
-                # extension -- `gonee.md:3` promised a reader a line in a file, and before #367 that
-                # promise was checked by nothing whenever the file was gone, because this arm could only
-                # be reached by a written value containing `/`. What stays exempt is a left half with no
-                # extension: `pr:209` (a triage `class:PR` pair, common in both logs), `STATE_PROPS:1040`
-                # (a symbol), `D-0033:236` and `H-0153:45` (an entry id and a line of prose about one),
-                # `verify:1` and `make:2`. The cost is honest and measured: an ILLUSTRATIVE coordinate in
-                # prose -- `x.md:9` written to explain a shape -- is refused too, and has to be spelled
-                # without the colon or aimed at a real file. That is one edit in this log today. The read
-                # that would separate the two for free is `git ls-files`, which says whether a name was
-                # ever tracked; this rule reads no git at all (`gate_reads_no_refs`), deliberately.
-                kind = "bad-range" if malformed else "file-missing"
-                resolved, cand = written, [written]
-            else:
-                kind, resolved, cand = "not-a-path", None, []
-            found.append({"written": written, "kind": kind, "path": resolved,
-                          "cands": cand, "low": low, "high": high, "anchor": anchor,
-                          "near": near, "wrapped": wrapped, "now": wm.group(0) if wm else None,
-                          "line": n, "entry": entry_of(entries, n),
-                          "continued": continued})
+    ends = []
+    off = 0
+    for line in lines:
+        off += len(line) + 1
+        ends.append(off)
+    breaks = [m.end() for m in SENTENCE_BREAK.finditer(text)]
+    store = {}
+    for m in CITATION.finditer(text):
+        if "\n" in m.group(0):
+            # A range whose dash swallowed a line break is not one coordinate. The per-line scan this
+            # function replaced never saw such a span, and neither does a reader; the `\s*` in the
+            # range would otherwise let the whole-text scan invent it.
+            continue
+        n = bisect.bisect_right(ends, m.start()) + 1
+        line_start = 0 if n == 1 else ends[n - 2]
+        rest = lines[n - 1][m.end() - line_start:]
+        written, span = m.group(1), m.group(2)
+        sid = bisect.bisect_left(breaks, m.start())
+        last = store.get(sid)
+        continued = False
+        if not written and last:
+            written, continued = last, True
+        anchor = None
+        near = None
+        wrapped = None
+        am = ANCHOR_AFTER.match(rest)
+        if am:
+            anchor = am.group(1)
+        else:
+            # #369: the two newline shapes, flagged here and refused by name in `classify`. An
+            # odd number of backticks in the tail means this coordinate sits inside an open code
+            # span, and a quotation past it is wrapped SHELL (the `H-0142` row's `gh issue edit`
+            # command), not a cut anchor -- that row keeps the debt exit it was measured with.
+            if rest.count("`") % 2 == 0:
+                nx = ANCHOR_AFTER.match(lines[n]) if n < len(lines) else None
+                if nx:
+                    wrapped = ("next-line", len(nx.group(1)))
+                elif ANCHOR_DANGLING.match(rest):
+                    wrapped = ("dangling-open", 0)
+            nm = NEAR_QUOTE.match(rest)
+            if nm:
+                # (the gap itself, length of the quote) -- what the refusal has to name when it
+                # declines this one for having no anchor at all. The gap is kept as text, not as a
+                # width, because `` `x.md:9`'s "…" `` is three characters wide and the third of them
+                # is what the rule declines; a width alone cannot tell the two refusals apart.
+                near = (nm.group(1), len(nm.group(2)))
+        bounds = [int(x) for x in span.replace(" ", "").split("-")]
+        low, high = bounds[0], bounds[-1]
+        malformed = high < low or low < 1
+        # #374, adjacency: the forward read starts at this citation's closing backtick and may
+        # cross ONE newline (the logs wrap at ~110 columns and H-0139's bullet opens the next
+        # line with "now reads"); the reverse read ends at its opening backtick. A verb anywhere
+        # else on the physical line belongs to a different coordinate's sentence. The reads run
+        # on the PHYSICAL line pair, not the sentence: the claim is about the line the reader
+        # finds the coordinate on, and #365's sentence boundary governs which file a bare `:NNN`
+        # inherits, not which verb counts as current-state.
+        fwd = rest
+        if n < len(lines):
+            fwd += "\n" + lines[n]
+        wm = NOW_FWD.match(fwd) or NOW_REV.search(lines[n - 1][:m.start() - line_start])
+        if continued:
+            # A continuation inherits the FILE, not the spelling. The store holds a RESOLVED path;
+            # re-resolving it by NAME can answer two candidates, and the no-guess guard below then
+            # turned the continuation into "no file at all" -- which is how `./DECISIONS.md:2706` and
+            # `:2986` left the continuation checked by nothing, because `DECISIONS.md` is also
+            # `factory/DECISIONS.md` (#367 review #2, found by measuring the reviewer's own repro:
+            # 4 rows in the two logs, all of them a `./`-prefixed parent whose basename is ambiguous
+            # with a nested copy).
+            written, cand = last, [last]
+        else:
+            cand = resolve_citation(written, index)
+        if cand:
+            kind = "ambiguous" if len(cand) > 1 else ("bad-range" if malformed else "file")
+            resolved = cand[0] if kind == "file" else None
+            if kind == "file":
+                store[sid] = resolved
+        elif written and revision_qualified(written):
+            # `origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` are in these logs.
+            # They name the revision they were read at, which is the other half of the same promise
+            # an anchor makes, so they owe no anchor -- and they cannot be checked here, because
+            # checking them means reading another revision and this rule reads no git at all. The
+            # pinned spelling is a sha; a branch name is the loose one, and `--citations` counts
+            # them so the loose half stays visible.
+            kind, resolved, cand = "revision-qualified", None, []
+        elif written and ("/" in written or FILENAME_SHAPE.match(written)):
+            # A path with a directory in it is a path even when nothing answers to it: the file was
+            # renamed, or the entry misremembered where it lived. So is a bare name that carries an
+            # extension -- `gonee.md:3` promised a reader a line in a file, and before #367 that
+            # promise was checked by nothing whenever the file was gone, because this arm could only
+            # be reached by a written value containing `/`. What stays exempt is a left half with no
+            # extension: `pr:209` (a triage `class:PR` pair, common in both logs), `STATE_PROPS:1040`
+            # (a symbol), `D-0033:236` and `H-0153:45` (an entry id and a line of prose about one),
+            # `verify:1` and `make:2`. The cost is honest and measured: an ILLUSTRATIVE coordinate in
+            # prose -- `x.md:9` written to explain a shape -- is refused too, and has to be spelled
+            # without the colon or aimed at a real file. That is one edit in this log
+            # today. The read that would separate the two for free is `git ls-files`, which says
+            # whether a name was ever tracked; this rule reads no git at all (`gate_reads_no_refs`),
+            # deliberately.
+            kind = "bad-range" if malformed else "file-missing"
+            resolved, cand = written, [written]
+        else:
+            kind, resolved, cand = "not-a-path", None, []
+        found.append({"written": written, "kind": kind, "path": resolved,
+                      "cands": cand, "low": low, "high": high, "anchor": anchor,
+                      "near": near, "wrapped": wrapped, "now": wm.group(0) if wm else None,
+                      "line": n, "entry": entry_of(entries, n),
+                      "continued": continued})
     return found
 
 
@@ -1965,16 +2006,17 @@ def self_test():
         fails.append("not-a-citation: class:PR and clock spans were read as citations -- %s"
                      % [c for c in prose if c["kind"] != "not-a-path"])
     # A continuation ("`README.md:588` and the table at `:661-662`") inherits the file named earlier in
-    # the SAME LINE. Inheriting across lines would silently re-aim a pointer at whatever file the
-    # previous sentence happened to name.
+    # the SAME SENTENCE. Inheriting across a finished sentence would silently re-aim a pointer at
+    # whatever file the previous sentence happened to name -- which, in logs wrapped at ~110 columns,
+    # is what the physical-line rule did for a whole paragraph at a time (#365).
     counts[0] += 2
     cont = cites('`notes.md:3` "the third line is long enough" and the row at `:1` agree.\n')
     tail = [c for c in cont if c["continued"]]
     if len(tail) != 1 or tail[0]["path"] != "notes.md":
-        fails.append("continuation: `:1` did not inherit notes.md from its own line -- %s" % cont)
+        fails.append("continuation: `:1` did not inherit notes.md from its own sentence -- %s" % cont)
     orphan = cites("and the row at `:1` agrees, in a sentence naming no file.\n")
     if [c for c in orphan if c["kind"] != "not-a-path"]:
-        fails.append("continuation-orphan: a bare `:1` with no file on its line resolved to something "
+        fails.append("continuation-orphan: a bare `:1` with no file in its sentence resolved to something "
                      "anyway -- %s" % orphan)
     # A short quote is not an anchor: `notes` and `Chose: a` match half the tree, and an anchor that
     # matches anything is a check that cannot fail. It falls into the debt instead, which the ratchet
@@ -2045,10 +2087,15 @@ def self_test():
                          "debt -- %s" % (name, verdict.problems))
         else:
             counts[1] += 1
-    # A bare `:NNN` with no file named earlier on its own line names no file at all, and is still NOT
-    # refused: that is the documented limit of the inheritance rule (H-0153 -- the same physical line,
-    # never the last line read) and 158 rows of these logs are that shape, so refusing them refuses
-    # 158 true sentences. Pinned as a must-pass so the widening cannot swallow it by accident.
+    # A bare `:NNN` with no file named earlier in its own sentence names no file at all, and is still
+    # NOT refused: that is the documented open shape of the inheritance rule (#365 -- the sentence,
+    # never the last line read, and never a paragraph that wrapped). Measured at `e66dc85d` by that
+    # tree's own scanner over its own two logs (H-0258; the 294/137/157 this comment carried were
+    # that rule over `adddacc`'s logs, whose own scanner answers 294/95/199): 312 rows carry a bare
+    # `:NNN`, 137 inherit a file from their own sentence, 175 name no antecedent -- `H-0153`'s
+    # "158 rows" predates both the extension rule and this one and does not re-measure. Refusing
+    # the 175 refuses 175 true sentences that merely wrap.
+    # Pinned as a must-pass so a widening cannot swallow it by accident.
     counts[1] += 1
     verdict = citation_problems(cites("`:19` continues nothing on this line and stays a limit.\n"),
                                 read_fixture, debt=0)
@@ -2119,6 +2166,46 @@ def self_test():
     if verdict.measured != 0 or verdict.problems:
         fails.append("same-line-anchor-is-checked: the unwrapped form of that sentence should be "
                      "checked, not counted -- %s" % verdict.problems)
+
+    # #365: the continuation boundary is the SENTENCE, not the physical line, and a paragraph of these
+    # logs is several wrapped sentences naming several files. Four legs, each the shape the line rule
+    # got wrong or the sentence rule could get wrong.
+    # 1. Wrapped continuation: the file sits on the earlier physical line of one sentence. The line
+    #    rule saw no file on the `:1` line and left the row invisible -- not debt, not checked.
+    counts[1] += 1
+    cont = cites('`notes.md:3` "the third line is long enough to anchor a citation to" wraps\n'
+                 'onto the next line, and the row at `:1` agrees.\n')
+    tail = [c for c in cont if c["continued"]]
+    if len(tail) != 1 or tail[0]["path"] != "notes.md":
+        fails.append("continuation-wrapped-is-aimed: a `:1` one wrapped line inside its sentence %s "
+                     "-- %s" % ("did not inherit notes.md" if not tail else "inherited "
+                                + str(tail[0]["path"]), cont))
+    # 2. Two files in one sentence: the NEAREST antecedent wins, not the first, and not the file
+    #    another sentence named -- the store is per sentence, so a global-leak bug shows here.
+    counts[1] += 1
+    cont = cites('`notes.md:3` "the third line is long enough to anchor a citation to" and '
+                 '`docs/factory.md:3` "the escalation label is printed by exactly one script", and '
+                 'again at `:1`.\n')
+    tail = [c for c in cont if c["continued"]]
+    if len(tail) != 1 or tail[0]["path"] != "docs/factory.md":
+        fails.append("continuation-nearest-antecedent: `:1` after two files in one sentence inherited "
+                     "%s, not docs/factory.md -- %s" % (tail[0]["path"] if tail else "nothing", cont))
+    # 3. A period ends a sentence even on one physical line, where the line rule happily inherited.
+    counts[1] += 1
+    cut = cites('`docs/factory.md:3` "the escalation label is printed by exactly one script". The row '
+                'at `:2` agrees.\n')
+    if [c for c in cut if c["continued"]]:
+        fails.append("continuation-period-cuts: `:2` in a new sentence inherited the previous "
+                     "sentence's file -- %s" % cut)
+    # 4. A markdown bullet marker opening a line is a boundary even with no period before it -- these
+    # logs are bullet lists, and the line rule crossed the bullet only by accident (the previous line
+    # ending the file clause). Remove the bullet terminator and `:1` inherits across the list.
+    counts[1] += 1
+    cut = cites('- `notes.md:3` "the third line is long enough to anchor a citation to"\n'
+                '- and the row at `:1` agrees.\n')
+    if [c for c in cut if c["continued"]]:
+        fails.append("continuation-bullet-cuts: `:1` in its own bullet inherited the previous bullet's "
+                     "file -- %s" % cut)
 
     # ... and the affordance still answers the question a deletion asks -- what points at this file --
     # when the answer is a file that is already gone.
