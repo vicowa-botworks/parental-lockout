@@ -617,6 +617,9 @@ catches.
   on the next line, or one left unclosed at end of line — is not an anchor, and since #369 it is REFUSED
   by name, not left as silent debt; while any such row exists the ratchet is held shut, so fixing it is
   never optional. A citation with no
-  quote at all is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  quote at all is counted against `POINTER_DEBT` there, and that number may only fall. And since #374 a
+  sentence saying a line `now reads` or `is at` a place in the tree the gate reads is itself a pointer:
+  unanchored it is refused outright, so anchor the sentence or past-tense it with the date it was read.
+  Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.
