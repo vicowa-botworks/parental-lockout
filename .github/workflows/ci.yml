@@ -67,6 +67,68 @@ jobs:
           tar -xf /tmp/sc.tar.xz -C /tmp
           "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" --version
 
+      # The second input on this job whose verdict the runner image owned, and the
+      # same rotation window as the step above: the image move that carried shellcheck
+      # 0.11.0 (H-0266) also moved `ubuntu-latest` from 24.04 to 26.04, and Ubuntu 26
+      # split the backward-compatibility zone links out of tzdata into tzdata-legacy --
+      # the 26.04 image's published apt table ships tzdata 2026e with no tzdata-legacy
+      # line. `internal/schedule`'s bounds guard then did exactly what it was written
+      # to do: refuse a partial system database, because a scan that measures a
+      # fraction of the zones certifies bounds it never measured, and Enderbury is one
+      # of the zones that deleted a calendar date -- the reason the three-day walk
+      # exists. Measured: the green trunk run beside this branch's red one (`44269015134`
+      # at `1292021`) printed `ok .../internal/schedule 140.636s` on `Image:
+      # ubuntu-24.04` at 08:46Z, and this branch's verify job set up on
+      # `Image: ubuntu-26.04` at 09:44Z FAILed six tests in that package with
+      # `Pacific/Enderbury is missing from the system database` -- nothing in the tree
+      # between the two runs caused it. Reproduced on a 26.04 box with the runner's
+      # own debs: unpacked tzdata 2026e alone fails those six tests verbatim, and the
+      # same tree with tzdata-legacy 2026e overlaid passes them. Pinning the job to
+      # ubuntu-24.04 would only defer this: noble-updates carries the same split
+      # (tzdata 2026e-0ubuntu0.24.04.1 ships no Enderbury either), so the next noble
+      # image refresh reds the same way. So the database the bounds are certified
+      # against belongs to the repository: fetch both halves of one pinned pair by
+      # digest and replace the tree, so the scan's population is a number this file
+      # states rather than one the image picks.
+      - name: Install the pinned tz database
+        env:
+          TZDATA_VERSION: 2026e-0ubuntu0.26.04.1
+          TZDATA_SHA256: 8859c96f6169bd81d6d4ec757929b9f92d56a0a906fde6fbd96f54bee476c742
+          TZDATA_LEGACY_SHA256: 6fb2a6b78f428769023fdd55d576b80dc9199c176de225c49f0b54a5a8ff5908
+        run: |
+          set -euo pipefail
+          pool="http://archive.ubuntu.com/ubuntu/pool/main/t/tzdata"
+          mkdir -p /tmp/tzdata && cd /tmp/tzdata
+          curl -sSfL --retry 3 -o tzdata.deb "$pool/tzdata_${TZDATA_VERSION}_all.deb"
+          curl -sSfL --retry 3 -o tzdata-legacy.deb "$pool/tzdata-legacy_${TZDATA_VERSION}_all.deb"
+          echo "${TZDATA_SHA256}  tzdata.deb" | sha256sum --check --status || {
+            echo "the downloaded tzdata does not match the pinned digest" >&2
+            echo "refusing to certify bounds against an unverified database" >&2
+            exit 1
+          }
+          echo "${TZDATA_LEGACY_SHA256}  tzdata-legacy.deb" | sha256sum --check --status || {
+            echo "the downloaded tzdata-legacy does not match the pinned digest" >&2
+            echo "refusing to certify bounds against an unverified database" >&2
+            exit 1
+          }
+          for pkg in tzdata tzdata-legacy; do
+            mkdir -p "x-$pkg"
+            (cd "x-$pkg" && ar x "../$pkg.deb" && tar --zstd -xf data.tar.zst)
+          done
+          # Replace, do not overlay: the pinned legacy half over whatever tzdata the
+          # image picked is the mixed-version shape the guard itself refuses.
+          sudo rm -rf /usr/share/zoneinfo
+          sudo cp -a x-tzdata/usr/share/zoneinfo /usr/share/zoneinfo
+          sudo cp -a x-tzdata-legacy/usr/share/zoneinfo/. /usr/share/zoneinfo/
+          # Say which database the scan downstream will measure, and prove both halves
+          # really arrived -- a step that green-ticks having installed nothing is the
+          # shape check-shell.sh already refuses for its own list. The version line is
+          # the one inside the deb: the installed tree's +VERSION is written by the
+          # package's postinst, and no postinst runs on an unpack.
+          head -n1 /usr/share/zoneinfo/tzdata.zi
+          test -e /usr/share/zoneinfo/Pacific/Kanton
+          test -e /usr/share/zoneinfo/Pacific/Enderbury
+
       # The same gate `make verify` runs locally: gofmt, vet, build, race tests,
       # and the zero-dependency guard. Nothing else is wired in here so the two
       # cannot drift apart. SHELLCHECK names the binary fetched above, and
