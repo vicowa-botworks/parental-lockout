@@ -12911,7 +12911,18 @@ unreadable_says_unknown() {
 		pos_say "there is no sha to print for a directory that is not a checkout:"; pos_say "$out"; return 1; }
 	return 0
 }
-claim_leg 'an unreadable tree says UNKNOWN' unreadable_says_unknown
+# The plain directory is host-dependent in exactly the way `bare=$work/not-a-repo` is: when
+# $TMPDIR resolves inside a repository, `git -C "$pos_plain" rev-parse --git-dir` resolves THAT
+# repository, factory_supervisor_position answers a real verdict for a path that is not a
+# checkout, and this leg calls the shipped code broken because of where an operator pointed
+# its scratch. The fixture cannot exist on such a host, so the leg says so and skips -- the
+# one condition, the one message already worded at the not-a-repo guard -- rather than a FAIL
+# that sends the reader to factory/common.sh for a problem the environment made (#371).
+if git -C "$pos_plain" rev-parse --git-dir >/dev/null 2>&1; then
+	printf '  SKIP  %-34s $TMPDIR is inside a work tree\n' 'an unreadable tree says UNKNOWN'
+else
+	claim_leg 'an unreadable tree says UNKNOWN' unreadable_says_unknown
+fi
 
 # `dirty=<n>`, both polarities of the lesson that halts the queue (#228): the count is a content
 # question. The same bytes written back, with the mtime moved, is not work -- and `update-index
