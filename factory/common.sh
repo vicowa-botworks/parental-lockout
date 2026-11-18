@@ -220,9 +220,25 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # REPOSITORY SPELS ITS NAME. Five places used to write it out in full -- `AGENTS.md`, `SKILL.md` twice,
 # `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- and a sixth, a leg in
 # `factory/selftest.sh`, pinned one of the five. A name in five files is a name that goes stale in one
-# and stays green in the other four (#315), and what the name should *be* is a parked human decision:
-# #311 asks whether to create `needs-human` or name a label this repository actually has, and it has
-# eighteen, none of them this one. So the answer there is a one-line edit here.
+# and stays green in the other four (#315). So every reader takes the value from this line: the two
+# instruction sites write `--add-label "$(factory/escalation-label.sh)"` (`factory/factory.sh`'s tick
+# text and `.opencode/skills/factory/SKILL.md`), while `AGENTS.md` and `docs/factory.md` name the
+# variable and never the value. What the value should BE was #311's question, and it is answered here
+# on 18 Nov: GitHub's own `question` label, which every repository is created with, so an escalation
+# needs no administrator to create anything first.
+#
+# What the old value cost, measured before this line moved, because a name that resolves to nothing is
+# not a harmless default -- it is a park arm that cannot fire:
+#   * `gh label list` answered nineteen names and `needs-human` was not one of them;
+#   * `PARKED` appears ZERO times in `factory/log/supervisor.log` and every rotated journal across the
+#     harness's whole history, while units had been escalating honestly since #301;
+#   * the finding `nothing is parked, and needs-human is not a label in this repository` appears 28
+#     times in `factory/log/*.log` unit transcripts and 0 times in the supervisor's own journal,
+#     because the queue read's stderr goes to the service's stderr, not to the file #248 tells a
+#     person to read. Journalling it is the other half of H-0250;
+#   * and so the queue re-dispatched escalations. #334, position 1 in the queue, three ticks at the
+#     2700 s ceiling: 8400 s of pass budget spent re-deriving a decision its unit is forbidden to
+#     make. That is #301's shape (three ticks, three `exit=124`) at three times the ceiling.
 #
 # Read it with `factory/escalation-label.sh` -- one command, rather than sourcing the 2,850 lines of
 # configuration in `common.sh` in the middle of a step that is already failing. Two legs guard the line. One runs that
@@ -236,10 +252,27 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # The direction is the whole of the safety, so the leg enforces the direction rather than the silence:
 # a label-bearing line in `triage.sh` may name `parked` and no other class. That is what keeps this out
 # of being a unit's own throttle: it can say "nothing is started until a person reads this", and it
-# cannot say "this one is mine to work" or "mine is delivered". What still lost, and #311 owns it: the
-# name resolves to one of eighteen labels, none of them this one, so today the reader emits the #311
-# finding on stderr on every pass and no issue parks at all.
-FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}
+# cannot say "this one is mine to work" or "mine is delivered".
+#
+# What lost, and it is why this rename is not free. `question` is:
+#   (a) GitHub's conventional "Further information is requested". A maintainer who puts it on an issue
+#       to ask that issue's REPORTER for more information now takes the issue out of the queue.
+#       Measured 18 Nov before the change: zero open issues carry it, so this edit parked nothing
+#       silently, and `blocked` -- which no code reads, and is #416's standing example of two parties
+#       assuming one label means different things -- stays the person's word for "a human owes this".
+#   (b) an ordinary English word, which breaks the spelling census as it was written. That census read
+#       the nine instruction files for the name as a substring and required zero hits. `question` has
+#       151 prose hits across them (selftest.sh 64, docs/factory.md 27, common.sh 31, triage.sh 15,
+#       factory.sh 12, SKILL.md 11, NEXT.md 5, AGENTS.md 1). Rewriting 151 sentences is the guard's
+#       own failure mode dressed up as a fix; loosening the census to "the name may appear anywhere"
+#       reopens #315. So the census now asks the question that actually protects the artifact: does a
+#       live file spell the name AT A LABEL WRITE, where it becomes the bytes handed to `gh`. Measured
+#       18 Nov that answer is 0, and the control leg plants a label write naming the value in a live
+#       file and requires red. What that no longer catches, stated so nobody re-inherits it as a fact: a stale
+#       copy of the name in prose, with no flag beside it, is invisible to the gate now. The probe
+#       receipts in `docs/factory.md` and `SKILL.md` (`--add-label zzprobe-...`) are literal on
+#       purpose, name a label that exists nowhere, and stay.
+FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}
 
 # A halt is more urgent than a wait: a wait costs one unit its turn, a halt costs every unit the
 # queue. So the halt speaks on its own clock, an hour rather than a day, and it speaks on the issue
@@ -4842,4 +4875,16 @@ factory_worktree_stream() {
 	# writes, which is why every other writer here can assume the directories exist (#329).
 	factory_paths
 	printf '%s/worktree-stderr.%s\n' "$FACTORY_RUN" "$$"
+}
+
+factory_triage_stream() {
+	# The queue read's stderr, in the same swept directory under the same one-name-per-stream rule
+	# (#311). The supervisor runs `triage.sh` inside a command substitution, so until this helper
+	# existed the classifier's own findings had no home: they went to the service's stderr, which is
+	# journald, while `factory/log/supervisor.log` -- the file #248 tells a person to read -- stayed
+	# silent. Measured 18 Nov: the finding is emitted 8 times, as a bare `^triage: nothing is parked` line,
+	# into 6 unit transcripts, 0 into the supervisor's journal. The caller deletes this on both
+	# paths; the sweep in `factory.sh` is the backstop for a pass killed between the two.
+	factory_paths
+	printf '%s/triage-stderr.%s\n' "$FACTORY_RUN" "$$"
 }

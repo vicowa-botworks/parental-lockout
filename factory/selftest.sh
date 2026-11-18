@@ -6964,6 +6964,77 @@ proc_reap_clean_too() {
 proc_leg '…and a clean one, on every pass' \
 	'REAP-CLEAN on the shipped activation, with no hold word' proc_reap_clean_too
 
+
+# --------------------------- what the queue read says about itself reaches the journal (#311, H-0250)
+#
+# `triage.sh` runs inside a command substitution, so its stderr had no home: it went to the service's
+# stderr -- journald -- while `factory/log/supervisor.log`, the file #248 exists to point a person at,
+# recorded nothing. Measured 18 Nov across the harness's whole history: the finding `nothing is parked,
+# and needs-human is not a label in this repository` printed 28 times into unit transcripts and 0 times
+# into the supervisor's journal, in a history where the class it describes never fired once. Nobody
+# reading the journal could have told "nobody has ever escalated anything" from "the park arm has never
+# been able to run", and those two need different repairs.
+#
+# The plant is a state, not a stub: a configured name the fixture's label list does not carry, which is
+# exactly the condition the sentence describes. No leg below spells the escalation name -- its one home
+# is `factory/common.sh`, and a leg that typed it would go red on the next rename while proving nothing.
+# `export`, not a bare assignment, because `proc_run` hands the pass to `env` and a shell-local variable
+# never reaches triage three processes down: the same reason the reap leg above exports its own plant.
+proc_new said-what-it-meant
+export FACTORY_ESCALATION_LABEL=zz-not-in-the-fixture-list
+proc_run said-what-it-meant
+unset FACTORY_ESCALATION_LABEL
+
+proc_triage_stderr_journalled() {
+	local line=''
+	line=$(proc_journal_line "$proc_journal" 'TRIAGE-STDERR ')
+	[ -n "$line" ] || {
+		printf '            the queue read had something to say and the journal holds no\n' >&2
+		printf '            TRIAGE-STDERR line for it. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The planted state is a label name the fixture list does not carry, so\n' >&2
+		printf '            `triage.sh` owes one sentence on stderr. If the pass output above holds it\n' >&2
+		printf '            and the journal does not, the arm that journals it is what went missing.\n' >&2
+		return 1
+	}
+	case "$line" in
+	(*'is not a label in this repository'*) : ;;
+	*) printf '            the journalled finding is not the planted one:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the queue read says out loud what it could not do' \
+	'TRIAGE-STDERR carries the missing-label finding into the journal' proc_triage_stderr_journalled
+
+# The other polarity, and it is the half that keeps this from becoming noise: an ordinary pass has
+# nothing to say, so an arm that journalled `TRIAGE-STDERR` unconditionally -- or journalled an empty
+# line -- would fill the journal with the shape of a finding while reporting none. This fixture also
+# pins the promise that the stream is deleted on the success path: a `triage-stderr.<pid>` left behind
+# by a HEALTHY pass is a file the next activation reads as a tick that died mid-line.
+proc_new said-nothing
+proc_run said-nothing
+
+proc_triage_stderr_silent() {
+	local left=''
+	if grep -qF -- 'TRIAGE-STDERR ' "$proc_journal"; then
+		printf '            a pass with nothing to report journalled a finding:\n' >&2
+		grep -F -- 'TRIAGE-STDERR ' "$proc_journal" | sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	left=$(find "$proc_rundir" -maxdepth 1 -name 'triage-stderr.*' 2>/dev/null | head -1)
+	[ -z "$left" ] || {
+		printf '            the stream outlived the pass: %s\n' "$left" >&2
+		printf '            It is deleted on both paths and the sweep is only the backstop for a\n' >&2
+		printf '            kill, so what a healthy pass leaves behind is the file the next pass\n' >&2
+		printf '            mistakes for a killed tick.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and says nothing when the read is healthy' \
+	'no TRIAGE-STDERR line, and no stream left in $FACTORY_RUN' proc_triage_stderr_silent
+
 # ------------------------------------------------ the journal's own location, on a real activation (#260)
 #
 # The replay section at the end of this file can plant any transcript it likes. What it cannot plant is
@@ -9697,20 +9768,23 @@ ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
 claim_reset
 
-# =============== the escalation label: one name, one home, and no vote in the queue (#315)
+# =============== the escalation label: one name, one home, and no vote in the queue (#315, #311)
 #
-# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label, the repository cannot
-# say: `gh label list` answers eighteen names and the one every file used to spell out is not among
-# them (measured 12 Nov). #311 owns that question -- create the name, or point the instruction at a
-# label that exists -- and it is parked, so it is not this unit's to answer. What is true whichever way
-# it is answered is the shape pinned here, and it is the half that could land while #311 waits:
+# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label the repository means was
+# #311's question -- create a name, or point the instruction at a label that exists -- and it was
+# unanswered for six days while `gh label list` answered eighteen names and the one every file used to
+# spell out was not among them (measured 12 Nov). #311 is settled as of 18 Nov (H-0250): the value is
+# GitHub's own `question` label, so an escalation needs no administrator. What is true whichever way the
+# question is answered is the shape pinned here:
 #
 #   * the name lives in ONE file. Five used to spell it out in full -- `AGENTS.md`, `SKILL.md` twice,
 #     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
 #     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
 #     and stays green in the other four, which is how an instruction came to order a write GitHub
 #     refuses (a probe on 12 Nov, `gh issue edit 311 --add-label zzprobe-does-not-exist`, printed
-#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged);
+#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged). What the
+#     census scans for moved with the name, and it is said at the scan itself: a settled value that is
+#     also an ordinary English word can only be policed at the position where it becomes a write;
 #   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
 #     the assignment in `common.sh` holds, not a second copy of them;
 #   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
@@ -9766,17 +9840,36 @@ esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that onc
 	fi
 	for f in "${files[@]}"; do
 		[ -f "$root/$f" ] || continue
-		hit=$(grep -cF -- "$name" "$root/$f" 2>/dev/null || true)
+		# What the census looks for, and why not the bare name. #315 shipped a substring
+		# census, the right one while the name was a word nobody says in prose (`needs-human`:
+		# zero hits outside its one home). The new name is English prose, not a marker: it covers
+		# over a hundred lines of these nine files (H-0250 counts them), so scanning by substring is a leg that is
+		# red before anyone edits anything, and loosening the rule to "anywhere is fine"
+		# reopens #315. What still protects the artifact is the POSITION: a name spelled AT A
+		# LABEL WRITE is the bytes handed to `gh`, and that is the failure measured on 12 Nov
+		# (`--add-label zzprobe-does-not-exist` exited 1). A name in prose is a stale sentence,
+		# not a refused write. What this trade stops seeing is recorded beside the value in
+		# `factory/common.sh`: a stale copy with no flag beside it is invisible to the gate now.
+		# The class stops at a backtick, a comment, a pipe, a semicolon or a close-paren, so
+		# the shipped instruction `--add-label "$(factory/escalation-label.sh)"` is not a hit.
+		write_re="--(add|remove)-label[^\`#|;&)]*${name}"
+		hit=$(grep -c -iE -- "$write_re" "$root/$f" 2>/dev/null || true)
 		if [ "$f" = factory/common.sh ]; then
-			[ "${hit:-0}" -ge 1 ] || {
-				printf '            common.sh, the one home, does not contain the name at all\n' >&2
+			# The home is checked where the value actually lives -- the assignment line. A name that
+			# appears only in common.sh's prose would satisfy a substring count while the line a tick
+			# reads defines something else, and `esc_reader_agrees` below is the leg that compares the
+			# printed value with that line's bytes.
+			[ "$(grep -c "^FACTORY_ESCALATION_LABEL=.*${name}" "$root/factory/common.sh")" -ge 1 ] || {
+				printf '            common.sh, the one home, does not define the name on its\n' >&2
+				printf '            `FACTORY_ESCALATION_LABEL=` line, so nothing can be compared\n' >&2
 				bad=1
 			}
 		elif [ "${hit:-0}" -ne 0 ]; then
-			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
+			printf '            %s spells the name at a label write (%s line%s): those are the\n' \
 				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
-			printf '            the home moves and this leg passes on the rest of the census\n' >&2
-			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
+			printf '            bytes gh is handed. A second copy goes stale while the home\n' >&2
+			printf '            moves, and this leg would pass on the rest of the census.\n' >&2
+			grep -n -iE -- "$write_re" "$root/$f" | sed 's/^/              /' >&2
 			bad=1
 		fi
 	done
@@ -10364,15 +10457,36 @@ esc_pr_verb_control() {
 		printf '        the ok above is a census of the eight live files and not of one.\n'
 	fi
 	# 2. The two commands taken out of the tick's instruction: the branch is back to saying "label it".
-	grep -v -- '--json labels' "$ctrl/arm/factory/factory.sh" |
-		grep -v '^gh issue edit ' >"$fs" || true
-	if grep -q -- '--json labels' "$fs" || grep -q '^gh issue edit ' "$fs"; then
+	#    Through a temporary file, and this is not style. `> "$fs"` truncates factory.sh BEFORE the
+	#    grep on its left opens it, so the plant that meant to lift two lines out of the instruction
+	#    deleted the whole file -- measured 17 Nov, one warning on stderr (`input file is also the
+	#    output`, grep names it and `|| true` swallowed it) and a zero-byte copy behind it. The arm
+	#    checks below then went red over a file holding no `address_review` arm at all, which is a
+	#    different branch than the one this control claims to build, and the control could not have
+	#    failed for the reason it prints.
+	grep -v -- '--json labels' "$fs" | grep -v '^gh issue edit ' >"$fs.lifted" || true
+	if grep -q -- '--json labels' "$fs.lifted" || grep -q '^gh issue edit ' "$fs.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the arm copy still carries the marker commands, so the arm checks\n' \
 			'control: the instruction'
 		printf '          above were never aimed at a branch that names none\n'
 		return 0
 	fi
+	# The plant's own precondition, since a control that mutates too much proves nothing: the copy is
+	# still the instruction, arm and all, minus exactly the two commands.
+	if ! grep -q 'address_review)' "$fs.lifted"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted copy holds no address_review arm, so the check below reads\n' \
+			'control: the instruction'
+		printf '          a destroyed file and not an instruction with two commands lifted out\n'
+		return 0
+	fi
+	mv -f -- "$fs.lifted" "$fs" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted instruction could not be put in place\n' \
+			'control: the instruction'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/arm" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a branch that orders a marker naming no verb and no read-back still\n' \
@@ -10382,15 +10496,39 @@ esc_pr_verb_control() {
 		printf '        control: with the two commands lifted out of the instruction the leg goes red,\n'
 		printf '        so the ok above is the tick being handed the verb, not a word it can guess.\n'
 	fi
-	# 3. The guide's sentence deleted, leaving the instruction intact.
-	grep -vF 'Both artifacts take' "$ctrl/guide/docs/factory.md" >"$guide" || true
-	if grep -qF 'Both artifacts take' "$guide"; then
+	# 3. The guide's sentence deleted, leaving the instruction intact. Same temporary-file rule as
+	#    plant 2, and the same reason: writing onto the file grep is reading empties it first.
+	if ! grep -qF 'Both artifacts take' "$guide"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the guide copy never carried the clause, so the leg above was not\n' \
+			'control: the guide'
+		printf '          reading the guide this repository ships\n'
+		return 0
+	fi
+	grep -vF 'Both artifacts take' "$guide" >"$guide.lifted" || true
+	if grep -qF 'Both artifacts take' "$guide.lifted"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the guide plant left the clause in place, so the leg above was never\n' \
 			'control: the guide'
 		printf '          aimed at it\n'
 		return 0
 	fi
+	# The clause is one row of a 2,400-row guide. Anything materially shorter is the plant eating the
+	# document, and a leg that goes red on an empty file is not evidence about a missing sentence.
+	guide_rows_before=$(wc -l <"$guide")
+	guide_rows_after=$(wc -l <"$guide.lifted")
+	if [ "$guide_rows_after" -lt "$((guide_rows_before - 3))" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide went from %s rows to %s, so the check below reads a\n' \
+			'control: the guide' "$guide_rows_before" "$guide_rows_after"
+		printf '          shredded document and not a guide missing one sentence\n'
+		return 0
+	fi
+	mv -f -- "$guide.lifted" "$guide" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the lifted guide could not be put in place\n' 'control: the guide'
+		return 0
+	}
 	if esc_pr_verb "$ctrl/guide" 2>/dev/null; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s a guide with the verb sentence deleted still passes, so the skill and\n' \
@@ -16929,7 +17067,7 @@ pass_one_fetch_per_activation() { # [file] -> 0 when one unrefspec'd fetch runs,
 	}
 	sites=$(grep -n 'factory_refresh_origin "\$(factory_main_checkout)"' "$script" |
 		head -n 1 | cut -d: -f1)
-	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh")' "$script" | head -n 1 | cut -d: -f1)
+	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh"' "$script" | head -n 1 | cut -d: -f1)
 	if [ -z "$sites" ] || [ -z "$triage" ]; then
 		pos_say 'no call site for factory_refresh_origin, or no triage read to be ahead of.'
 		return 1
@@ -16950,7 +17088,7 @@ pass_second_fetch_control() {
 		return 0
 	}
 	copy=$dir/factory.sh
-	sed -e '/triage.sh"); then/a\	factory_refresh_origin "$(factory_main_checkout)"' \
+	sed -e '/rows=.*triage\.sh/a\	factory_refresh_origin "$(factory_main_checkout)"' \
 		"$refsh_script" >"$copy" || {
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
