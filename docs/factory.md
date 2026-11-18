@@ -58,7 +58,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
 | `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
-| `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here. It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
+| `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here; it **must be a label this repository carries**, because a name it does not have parks nothing (#311, settled 18 Nov as H-0250 after six days of a default that could never fire). It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
@@ -98,10 +98,17 @@ class is read exactly the way `delivered` is: `triage.sh` asks for `labels(first
 it was already making, and emits the row in the place `unclaimed` would have taken, which is why a real
 delivery still wins the row.
 
-Two things about that read are said on stderr rather than left implicit. The configured name is one the
-repository does not have -- #311 is that open decision, against eighteen labels none of them matching --
-so a pass that parks nothing says so, naming the name it looked for; the alternative is a queue that
-quietly agrees with itself that nobody ever escalated anything. And `labels(first:10)` is a bound that
+Two things about that read are said on stderr rather than left implicit. The configured name has to be a
+label the repository actually carries, so a pass that parks nothing says so in words, naming the name it
+looked for; the alternative is a queue that quietly agrees with itself that nobody ever escalated
+anything. For six days that sentence was true of the shipped default, and it was the only evidence that
+the park arm was inert -- `PARKED` appears zero times in every journal this harness has kept, while units
+had been escalating honestly since #301. #311 settled the name on 18 Nov (H-0250), so the finding is now
+about a rename or a deletion rather than a default that could never fire. Where it goes changed in the same
+change, because a finding nobody keeps is a finding nobody reads: `triage.sh` runs inside a command
+substitution, so its stderr went to the service's stderr -- journald -- while `supervisor.log`, the file
+the section above tells a person to read, recorded nothing. Every line of it now arrives as
+`TRIAGE-STDERR`, bounded at twenty-five lines. And `labels(first:10)` is a bound that
 fails one way only: a match at the tenth label is still a match, so the sentence names just the issues
 that filled the list without matching anything, whose park status is unknown and which therefore stay
 workable instead of being called parked. What the marker may not do is a leg rather than a sentence:
@@ -352,7 +359,7 @@ a merged pull request names is now reported by number. Thirty-seven is what #291
 (34 leftover refs, 33 silent, counted 11 Nov), and it is also the price: a supervisor pass wrote 13
 journal lines the day before this paragraph and writes 50 after it. Nothing in the harness bounds that
 file or the transcripts beside it -- `log()` appends to `$FACTORY_LOG/supervisor.log`
-(`factory/common.sh:340`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
+(`factory/common.sh:373`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
 transcripts one per tick (`factory/factory.sh:766`). Measured in the primary checkout at 22:05Z on
 12 Nov: **20 MB across 100 files** under `factory/log/`, oldest 10 Nov, individual transcripts up to
 480 KB, `supervisor.log` at 2,397 lines. With 19, 47 and 20 passes journalled on 10, 11 and 12 Nov,
@@ -762,9 +769,11 @@ only then the marker, applied with the name read out of `factory/common.sh` thro
 `factory/escalation-label.sh`, then read back from GitHub in the same breath as anyone claims it
 landed.
 
-The order is what lets the marker be wrong. It is wrong today: #311 asks whether to create the name the
-instruction used to carry, or point the instruction at a label this repository actually has -- it has
-eighteen, and that is not one of them -- so until a person answers, the write is refused. Measured 12 Nov
+The order is what lets the marker be wrong, and for six days it was wrong: the instruction carried a name
+this repository does not have -- eighteen labels, none of them matching -- so every escalation's write came
+back refused and nothing parked, while the refusal itself went only to the service's stderr. #311 settled
+that on 18 Nov (H-0250): the reader prints a label every repository is created with, so a stopped unit
+needs no administrator before its marker lands. Measured 12 Nov
 on gh 2.46.0, a probe of exactly that shape -- `gh issue edit 311 --add-label zzprobe-does-not-exist` --
 printed `'zzprobe-does-not-exist' not found` and `failed to update 1 issue` for exit 1, and the labels
 read back unchanged. With the record committed first, a refusal like that costs one sentence in
@@ -780,7 +789,7 @@ and after: `gh pr edit 314 --add-label zzprobe-…` died on
 call ends **before** it resolves the label name -- while `gh issue edit 314 --add-label zzprobe-…`
 reached the label step and answered `'zzprobe-…' not found`, also exit 1, and the labels read back
 unchanged both times. Two identical exit codes with two different meanings, and only one of them is a
-name a person can still supply; the other is a field GitHub has retired, so no answer to #311 makes
+name a person can still supply; the other is a field GitHub has retired, so no label name at all makes
 `gh pr edit` work. That is why the empty-ask branch of `factory/factory.sh` now carries the two calls a
 stopped unit runs -- the write with the issue verb, the read with `gh pr view` -- instead of the word
 `label` on its own, and why a leg in `factory/selftest.sh` refuses any live file pairing `gh pr edit`
@@ -1404,14 +1413,19 @@ this was written on, which has no `factory/log`, and its `new=` is a scratch dir
 machine answered it because that case only exists where a real tree is missing its log directory.
 
 
-### The run directory holds a stream, not a verdict (#351)
+### The run directory holds a stream, not a verdict (#351, #311)
 
-`factory/run/` holds the pass's lock and, for each tick, one more file: `factory_worktree`'s stderr, under
-`worktree-stderr.<pid>`, so a refusal can be read back by name rather than folded into the tree path —
-`2>&1` on that command substitution splices an error sentence into the value assigned to `tree` and hands a
-later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after reading it into
-the journal line, the success path because a file left by a pass that got its tree asserts a verdict nobody
-reached. Until #351 only the failure arm deleted it, and the file was named `worktree-error.<pid>`.
+`factory/run/` holds the pass's lock and, for each stream, one more file. `factory_worktree`'s stderr goes
+to `worktree-stderr.<pid>`, one per tick, so a refusal can be read back by name rather than folded into the
+tree path — `2>&1` on that command substitution splices an error sentence into the value assigned to `tree`
+and hands a later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after
+reading it into the journal line, the success path because a file left by a pass that got its tree asserts a
+verdict nobody reached. Until #351 only the failure arm deleted it, and the file was named
+`worktree-error.<pid>`. Since H-0250 the queue read follows the same rule with `triage-stderr.<pid>`: the
+supervisor runs `triage.sh` inside a command substitution, so before that the classifier's own findings had
+no file at all and reached only the service's stderr — journald — while the journal that this harness tells
+a person to read stayed silent. Both streams are journalled and deleted on both paths; the sweep is the
+backstop for a pass killed between them.
 
 Measured at 00:54Z on 14 Nov: four of those files, all zero bytes, stamped 22:03, 22:59, 23:31 and 00:22Z —
 the last four ticks, every one of them a **success** — while `grep -c 'no worktree' factory/log/supervisor.log`
@@ -1460,6 +1474,64 @@ again, and the helper must answer with the swept path and the matched pattern, b
 `factory_worktree_lines` still writes its stderr with `mktemp`, on purpose and unchanged: it is not this
 stream, and its failure arm prints git's own sentence straight into `WORKTREE-CENSUS-FAILED`, so those bytes
 are not anybody's only copy of anything.
+
+### The trunk's own verdict is read once per activation (#370)
+
+`main` carried a push-workflow FAILURE for 1h49m04s while the loop journalled 36 `DELIVERED` rows and one
+`MERGED` on top of it (measured 16 Nov on the API: run `44110925937`, queued 17:06:06Z, completed
+18:55:10Z — the same 8274 s the ticket measures as "mergeable but held for 1h49m by a red check run").
+Nothing in the harness reads the trunk's CI, and no check that does exist could have caught it: every
+check read is aimed at a pull request — `factory_checks` asks `gh pr view --json statusCheckRollup`, and
+#274's re-check reads a rollup again — and a `pull_request` check runs on a merge of the head with the
+base tip. A pull request can therefore be green against a trunk that is red at the very commit its own
+rollup vouches for. That is the class: *a green pull request says nothing about the branch it lands on*.
+
+`factory_trunk_ci_lines` (`factory/common.sh`) is the repair — one read of the trunk's own runs, wired
+into `factory_body` after the preflight `EXIT`/`DIRTY`/`LOCK` early returns and the `LOG-AT`/`UNIT-AT`/
+`REFRESH`/`SUPERVISOR-AT` block, and once per activation rather than once per unit:
+
+```
+2026-11-18T06:12:03Z TRUNK-CI d4559fd5de2646e6ae4ad13755e81a50289c17d3 success run=44240957485 age=4021s since=2026-11-18T05:05:02Z
+```
+
+The command is `gh run list --branch "$FACTORY_BASE" --event push --limit 1 --json
+databaseId,headSha,conclusion,status,createdAt` — the shape #370 measured with `gh` 2.46.0. The field
+names in the ticket's *prose* (`workflowName`,`name`,`displayTitle`,`event`,`url`) are not the ones that
+work on this binary: measured, `name` and `displayTitle` are not valid fields for `run list --json` and
+the call dies. `createdAt` is the timestamp the line reports. One measured case splits the harness's
+precedents: `gh api` answers `status`/`conclusion` UPPERCASE and `run list --json` answers lowercase —
+the code compares `ascii_downcase` both sides.
+
+Every arm prints a line; no arm prints nothing (H-0045's rule, and #228's polarity rule, ported — before
+this read existed, an activation could not distinguish "the trunk is green" from "nobody asked"):
+
+| arm | line |
+|---|---|
+| green trunk | the `TRUNK-CI <sha> <verdict> run=<id> age=<n>s since=<ts>` line above |
+| red trunk | that line with `conclusion=failure`, plus `TRUNK-RED` naming the run id, the timestamp, the url-less pointer, and that the pass is reporting only |
+| queued or `status != completed` or a conclusion not yet written | verdict `pending` — the rollup rule's own unfinished-shape case: completion is `status == completed AND conclusion != ""` |
+| `gh` fails | `TRUNK-CI-UNKNOWN rc=2`, quoting gh's exit and gh's stderr — the `LOG-AT` rc convention (#359) |
+| fetch bound expires | `TRUNK-CI-UNKNOWN rc=1`, naming `FACTORY_FETCH_TIMEOUT` — `REFRESH-TIMEOUT`'s convention; `timeout --signal=TERM --kill-after=5`, `TERM` lands inside the call and never reaches the `EXIT` trap |
+| empty array | `TRUNK-CI-UNKNOWN rc=3` — the empty branch must be a *numbered sentence*, never an absence, so the polarity rule cannot be satisfied by silence |
+| body off contract | `TRUNK-CI-UNKNOWN rc=4`: not an array, missing field, or an unreadable timestamp — never guessed, never silent |
+| no `gh` | `TRUNK-CI-UNKNOWN rc=5` |
+| `DRY_RUN=1` | a `DRY-RUN` line stating exactly what would run, and no call |
+
+The bad-conclusion vocabulary is the shared `JQ_BAD_CONCLUSIONS` list in `factory/common.sh`, built from
+`factory_rollup_rules`' bad list plus `cancelled` and `error` — the same list `JQ_CHECKS` uses, so the
+two verdicts cannot drift apart by vocabulary. The trunk read is a verdict *reader*, not a third copy of
+the rollup rule: `run list` answers one array with one row per run, so the rollup's dedup-and-prefer-
+completed logic has nothing to do, and duplicating it would add an unexercised path. `cancelled` is red
+because the rollup calls `CANCELLED` a fail; `skipped` and `neutral` are not, because the rollup does not
+say they are. A `TRUNK-CI` line is the **trunk** verdict and a `CHECKS` line is a **pull request's**
+verdict; nothing compares the two.
+
+It is report-only. The read cannot halt the loop or refuse a merge on a red trunk, and that is the
+decision, not an omission: a red trunk is the same shape as a stale trunk — a fact about a branch, not a
+reason to stop delivering — and #341 measured what a standing halt with no escalation does to a queue.
+#370 item 3 — whether a red trunk should refuse a `MERGE` — is an open **question** whose subject is the
+merge gate, one of the classes the harness may not decide for itself; the boundary sentence is in "What
+it is not allowed to do" below.
 
 ## Decision ids are allocated against refs, not prose
 
@@ -2221,6 +2293,12 @@ re-reads all four gate fields from the API in the same call that merges.
 Merging cannot be undone here anyway: `allow_squash_merge=false` and `allow_rebase_merge=false`, so
 every merge is permanent history.
 
+A `TRUNK-RED` line grants no unit new authority. A unit reading a red trunk on its way past a journal
+tail still may not halt the loop, refuse a merge, or hold a delivered pull request on the strength of
+that line: the trunk read is report-only, and #370 item 3 — whether a red trunk should refuse a `MERGE`
+— is an open question about the merge gate, a class a tick may not decide from a journal line. Making
+that question a rule is a `DECISIONS.md` entry with a human behind it, not an arm of `factory_body`.
+
 ## Lifting it out
 
 Nothing in `factory/` may name this repository. `FACTORY_REPO` comes from `origin`, the reviewer is
@@ -2259,28 +2337,28 @@ closing backtick but spaces and at most one apostrophe. It has to be found on th
 within the cited range
 (`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
 lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
-A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
+A quotation further away than that is not an anchor — and since #367 the refusal says which floor it
 applied instead of claiming there was no quotation. **The quotation has to start on the coordinate's own
-physical line.** These logs are markdown wrapped at ~110 columns, so the natural place for a 20-character
-fragment is the next line, and there it is not an anchor: the citation falls silently into the debt instead
-of being checked, which is a number moving, not an error. Hit twice writing H-0171 — both times the gate
-said `the count went UP` and `--citations` named the two rows in seconds; re-wrap the sentence rather than
-adding an unanchored pointer to the corpus you are paying down. Measured on the two logs: 3 citations carry a
-quotation of 16+ characters within six characters of the coordinate that this class declines (the
-possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
-five authors were told their citation had no anchor, by a message that never mentioned the separator.
-Widening the class was measured and refused: it reclassifies 3 pointers in other units' entries for a
-0.6% dent in the debt, and buys a rule that will accept the neighbouring sentence's quotation.
+physical line**, and since #369 both newline-cut shapes say so in words naming the newline: these logs
+wrap at ~110 columns, so a faithful fragment most often lands past one — either it opens on the NEXT
+physical line, or it opens after the closing backtick and the newline ends it unclosed. The silent
+version was measured and paid for: hit twice writing H-0171 (the gate said `the count went UP`, with no
+error to read), and when #369's refusal caught the first two live rows, one of them had also drifted in
+silence, from 1143 to 1746, while unchecked. A cut row refuses and is not debt, so the ratchet stays shut
+while one exists; a quotation further down still lands in the debt (widening the class was measured and
+refused: it reclassifies 3 of another unit's true pointers for a 0.6% dent, and buys a rule that accepts
+the neighbouring sentence's quotation), and a wrapped tail inside an open code span is shell, not a cut
+quotation — `--citations` names the cut rows in a section of its own.
 
 Shapes that are understood and are not the same claim:
 
 | written | meaning |
 |---|---|
-| `factory/common.sh:235` | a path, looked up exactly |
+| `factory/common.sh:251` | a path, looked up exactly |
 | `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
-| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **in its own sentence** — the sentence, not the physical line, since #365 measured that a wrapped paragraph here is several sentences naming several files; a sentence that names no file leaves the row in the open shape below |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **in its own sentence** — the sentence, not the physical line, since #365 measured that a wrapped paragraph here is several sentences naming several files; a sentence that names no file leaves the row in the open shape below; and a coordinate whose quoted anchor the newline cut — on the next line or dangling open — is refused by name, never left as silent debt (#369) |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
@@ -2408,8 +2486,8 @@ python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed a
 
 `factory/log/supervisor.log` is the harness's audit trail: which decision id was handed to which unit
 and branch, which tree a tick was holding, where the log directory went when a self-test moved it.
-Before this section the only prose about it was `docs/factory.md:1229` "the journal lives inside the
-tree (`factory/log/supervisor.log`)" -- and #334 cites that sentence at `docs/factory.md:874`, which
+Before this section the only prose about it was `docs/factory.md:1238` "the journal lives inside the
+tree (`factory/log/supervisor.log`)" -- and #334 cites that sentence at `docs/factory.md:883`, which
 the log's own growth had already slid 355 lines, which is why the sentence is quoted here beside its
 number (`H-0139`'s rule). Nothing bounds the journal today -- no code rotates, truncates or prunes --
 and bounding it is escalated, not owed by a tick (`H-0188`: deleting the operator's records is one of

@@ -220,9 +220,25 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # REPOSITORY SPELS ITS NAME. Five places used to write it out in full -- `AGENTS.md`, `SKILL.md` twice,
 # `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- and a sixth, a leg in
 # `factory/selftest.sh`, pinned one of the five. A name in five files is a name that goes stale in one
-# and stays green in the other four (#315), and what the name should *be* is a parked human decision:
-# #311 asks whether to create `needs-human` or name a label this repository actually has, and it has
-# eighteen, none of them this one. So the answer there is a one-line edit here.
+# and stays green in the other four (#315). So every reader takes the value from this line: the two
+# instruction sites write `--add-label "$(factory/escalation-label.sh)"` (`factory/factory.sh`'s tick
+# text and `.opencode/skills/factory/SKILL.md`), while `AGENTS.md` and `docs/factory.md` name the
+# variable and never the value. What the value should BE was #311's question, and it is answered here
+# on 18 Nov: GitHub's own `question` label, which every repository is created with, so an escalation
+# needs no administrator to create anything first.
+#
+# What the old value cost, measured before this line moved, because a name that resolves to nothing is
+# not a harmless default -- it is a park arm that cannot fire:
+#   * `gh label list --json name -q length` answered 18 names on 18 Nov, and `needs-human` was not one;
+#   * a plain `grep -o PARKED` over `factory/log/*.log` answers 94 across 296 files, every one an echo:
+#     the event `^<ts>Z PARKED ` answers 0, while units escalated honestly since #301. A count that
+#     names no verb is a count of the wrong thing;
+#   * the finding `nothing is parked, and needs-human is not a label in this repository` is in those
+#     files 73 times, the runtime emission `^triage: nothing is parked` 8 times in 6 files, and the
+#     supervisor's own journal 0: stderr went to the service, not the file #248 points a person at.
+#   * and so the queue re-dispatched escalations. #334, position 1 in the queue, three ticks at the
+#     2700 s ceiling: 8400 s of pass budget spent re-deriving a decision its unit is forbidden to
+#     make. That is #301's shape (three ticks, three `exit=124`) at three times the ceiling.
 #
 # Read it with `factory/escalation-label.sh` -- one command, rather than sourcing the 2,850 lines of
 # configuration in `common.sh` in the middle of a step that is already failing. Two legs guard the line. One runs that
@@ -236,10 +252,27 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # The direction is the whole of the safety, so the leg enforces the direction rather than the silence:
 # a label-bearing line in `triage.sh` may name `parked` and no other class. That is what keeps this out
 # of being a unit's own throttle: it can say "nothing is started until a person reads this", and it
-# cannot say "this one is mine to work" or "mine is delivered". What still lost, and #311 owns it: the
-# name resolves to one of eighteen labels, none of them this one, so today the reader emits the #311
-# finding on stderr on every pass and no issue parks at all.
-FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}
+# cannot say "this one is mine to work" or "mine is delivered".
+#
+# What lost, and it is why this rename is not free. `question` is:
+#   (a) GitHub's conventional "Further information is requested". A maintainer who puts it on an issue
+#       to ask that issue's REPORTER for more information now takes the issue out of the queue.
+#       Measured 18 Nov before the change: zero open issues carry it, so this edit parked nothing
+#       silently, and `blocked` -- which no code reads, and is #416's standing example of two parties
+#       assuming one label means different things -- stays the person's word for "a human owes this".
+#   (b) an ordinary English word, which breaks the spelling census as it was written. That census read
+#       the nine instruction files for the name as a substring and required zero hits. `question` has
+#       151 prose hits across them (selftest.sh 64, docs/factory.md 27, common.sh 31, triage.sh 15,
+#       factory.sh 12, SKILL.md 11, NEXT.md 5, AGENTS.md 1). Rewriting 151 sentences is the guard's
+#       own failure mode dressed up as a fix; loosening the census to "the name may appear anywhere"
+#       reopens #315. So the census now asks the question that actually protects the artifact: does a
+#       live file spell the name AT A LABEL WRITE, where it becomes the bytes handed to `gh`. Measured
+#       18 Nov that answer is 0, and the control leg plants a label write naming the value in a live
+#       file and requires red. What that no longer catches, stated so nobody re-inherits it as a fact: a stale
+#       copy of the name in prose, with no flag beside it, is invisible to the gate now. The probe
+#       receipts in `docs/factory.md` and `SKILL.md` (`--add-label zzprobe-...`) are literal on
+#       purpose, name a label that exists nowhere, and stay.
+FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}
 
 # A halt is more urgent than a wait: a wait costs one unit its turn, a halt costs every unit the
 # queue. So the halt speaks on its own clock, an hour rather than a day, and it speaks on the issue
@@ -1274,8 +1307,14 @@ factory_ask_bound() {
 # null until it completes; a StatusContext carries neither and only a `state`. Reading a queued
 # CheckRun as green is how a merge lands on top of a run that had not failed yet, so an entry is
 # unfinished unless its own shape says it is finished.
+#
+# The bad-conclusion list has ONE spelling in the harness, and #370 is the reason it is a variable
+# and not a repeated literal: `JQ_TRUNK_CI` below classifies the trunk's own push runs with this
+# same list, and a merge verdict read from a rollup plus a trunk verdict read from `gh run list`
+# disagreeing about what red means is two readers where this block's whole point is one.
+JQ_BAD_CONCLUSIONS='["FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","CANCELLED","ERROR"]'
 JQ_CHECKS='
-  def badlist: ["FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","CANCELLED","ERROR"];
+  def badlist: '"$JQ_BAD_CONCLUSIONS"';
   def isbad: . as $v | badlist | index($v) != null;
   def isopen:
        ((.state // null) == "PENDING")
@@ -1298,6 +1337,156 @@ factory_checks() {
 		return 0
 	fi
 	printf '%s\n' "${out:-unknown}"
+}
+
+# --------------------------------------------------------------------------- the trunk's own verdict
+#
+# The trunk read classifies with the SAME bad list as the rollup read, for the reason the block
+# above gives: two readers must not disagree about what red means. A pull-request `statusCheckRollup`
+# and a `gh run list` row are different payloads -- one carries CheckRuns and StatusContexts, the
+# other one run's own status/conclusion -- so they are two programs over one vocabulary.
+#
+# `JQ_TRUNK_CI` turns the `gh run list` rows into exactly one line of:
+#
+#   EMPTY                       the branch holds no push run at all
+#   class US sha US runid US conclusion US createdAt
+#
+# where US is U+001F and class is green, red or pending. `pending` is `JQ_CHECKS`' own unfinished-
+# shape rule, moved here verbatim in spirit: a run counts as finished only when its own payload
+# says it is (status COMPLETED AND a non-empty conclusion), because reading a queued run as green
+# is exactly the mistake the rollup rule exists to stop. Status and conclusion arrive in different
+# cases across gh versions -- measured 18 Nov on gh 2.46.0 at `/usr/bin/gh`: `gh run list --json`
+# answers lowercase (`"status":"completed"`, `"conclusion":"success"`) where `gh api` answers upper
+# -- so both are upcased for the comparison and the printed conclusion is downcased for the line.
+JQ_TRUNK_CI='
+  def badlist: '"$JQ_BAD_CONCLUSIONS"';
+  if type != "array" then error("payload is not an array")
+  elif length == 0 then "EMPTY"
+  else (.[0] // {}) as $r
+    | (($r.status // "") | tostring | ascii_upcase) as $st
+    | (($r.conclusion // "") | tostring | ascii_upcase) as $cn
+    | (if $st != "COMPLETED" or $cn == "" then "pending"
+       elif (badlist | index($cn)) != null then "red"
+       else "green" end) as $class
+    | [$class,
+       ($r.headSha // "" | tostring),
+       ($r.databaseId // "" | tostring),
+       ($r.conclusion // "" | tostring | ascii_downcase),
+       ($r.createdAt // "" | tostring)]
+    | join("\u001f")
+  end'
+
+# factory_trunk_ci_lines [branch]
+#   What the newest `push` run on the trunk says, as journal lines: exactly one TRUNK-CI or
+#   TRUNK-CI-UNKNOWN line, always, plus one TRUNK-RED line beside it when that run concluded red.
+#
+#   A `pull_request` check runs on a merge of the head with the base tip, so a green pull request
+#   is green AS A MERGE and says nothing about the branch it lands on. #370 measured `main`
+#   carrying a FAILURE for 1h49m04s across three activations, 36 DELIVERED rows and one MERGED,
+#   with no journal code able to name a run id, and the exposure after a merge is the gap to the
+#   next push -- 16.47h measured over the last 30 push runs. These lines are the sentence that
+#   makes the row possible:
+#
+#     TRUNK-CI <sha> <conclusion|pending> run=<id> age=<s>s since=<iso>
+#     TRUNK-RED <sha> run=<id> age=<s>s since=<iso> -- <report-only sentence>
+#
+#   and the arms that cannot answer, because #228's polarity rule holds here exactly as it does
+#   for `LOG-MOVED`: the ABSENCE of a TRUNK-CI line is never evidence the trunk is fine. `rc=`
+#   numbers the SENTENCES, the `LOG-MOVED-UNKNOWN` way -- it is not the command's exit code, and
+#   the command's own exit is quoted inside the sentence when there is one:
+#
+#     TRUNK-CI-UNKNOWN rc=1  the read hit FACTORY_FETCH_TIMEOUT (the killed command's own 124)
+#     TRUNK-CI-UNKNOWN rc=2  gh run list exited non-zero (its exit is quoted in the sentence)
+#     TRUNK-CI-UNKNOWN rc=3  the branch holds no push runs at all -- a fact about the branch,
+#                            printed because even this is not silence
+#     TRUNK-CI-UNKNOWN rc=5  gh is not on PATH at all -- asked nothing, said itself, because
+#                            the call cannot even be made
+#     TRUNK-CI-UNKNOWN rc=4  the payload answered outside its contract: refused JSON, a row
+#                            missing headSha/databaseId/createdAt, or a createdAt no clock reads
+#
+#   Report, never halt. H-0056 refused to stop the queue on a state that is merely unhealthy
+#   elsewhere, and #341 measured what a streak-driven halt costs (14h34m of every activation
+#   stopped until a human removes a marker) -- a trunk that flakes for one leg would halt the
+#   loop permanently on a red a re-run clears. Whether a red trunk should refuse a MERGE is
+#   #370's item 3, a policy question with a halt shape inside it, deliberately not decided here.
+#
+#   The read is `gh run list --branch <branch> --event push --limit 1`, bounded by
+#   FACTORY_FETCH_TIMEOUT the way the activation's one fetch is (H-0075): a network call inside
+#   the pass's budget and inside its lock, and a parked connection costs one line naming the
+#   bound, never a hung pass. It resolves the repository the way every other `gh` read in the
+#   harness does -- from the pass's own cwd, like `factory_checks` -- and the LINE must carry the
+#   verdict itself, because a tick cannot go and read more: `gh api` is denied to it, and
+#   `gh run view --log`/`--log-failed` return 0 bytes at exit 0 for every run on this harness
+#   (#319's control table), so a tripwire naming only a run id would point at a stream nobody
+#   here can open.
+factory_trunk_ci_lines() {
+	local branch=${1:-$FACTORY_BASE} raw='' out='' rc=0 jrc=0 why='' err=''
+	local class='' sha='' runid='' conc='' created='' when='' age='' bad='' verdict=''
+	factory_paths
+	err=$FACTORY_LOG/trunk-ci.log
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s gh run list --branch %s --event push --limit 1 --json databaseId,headSha,conclusion,status,createdAt\n' \
+			"$FACTORY_FETCH_TIMEOUT" "$branch"
+		return 0
+	fi
+	if ! command -v gh >/dev/null 2>&1; then
+		printf 'TRUNK-CI-UNKNOWN rc=5 gh is not on PATH for this activation, so the %s trunk verdict cannot be asked at all; the absence of a TRUNK-CI line is not evidence the trunk is green\n' "$branch"
+		return 0
+	fi
+	rc=0
+	raw=$(timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" \
+		gh run list --branch "$branch" --event push --limit 1 \
+		--json databaseId,headSha,conclusion,status,createdAt 2>"$err") || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		why=$(grep -m1 -E '^(fatal|error|Error|HTTP)' "$err" 2>/dev/null) || true
+		[ -n "$why" ] || why=$(grep -v '^[[:space:]]*$' "$err" 2>/dev/null | tail -n 1) || true
+		why=$(printf '%s' "${why:-}" | cut -c1-160)
+		if [ "$rc" -eq 124 ]; then
+			printf 'TRUNK-CI-UNKNOWN rc=1 the %s trunk CI read was killed after %ss (FACTORY_FETCH_TIMEOUT), so this activation cannot say whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (%s)\n' \
+				"$branch" "$FACTORY_FETCH_TIMEOUT" "${why:-gh wrote nothing, which is what a parked connection does}"
+		else
+			printf 'TRUNK-CI-UNKNOWN rc=2 gh run list on the %s trunk exited %s, so this activation cannot say whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (%s; see %s)\n' \
+				"$branch" "$rc" "${why:-gh wrote nothing}" "$err"
+		fi
+		return 0
+	fi
+	jrc=0
+	out=$(printf '%s' "$raw" | jq -r "$JQ_TRUNK_CI" 2>>"$err") || jrc=$?
+	if [ "$jrc" -ne 0 ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=4 the trunk CI read on %s answered outside its payload contract: gh exited 0 and jq refused the body with status %s, so this activation will not guess whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is (see %s)\n' \
+			"$branch" "$jrc" "$err"
+		return 0
+	fi
+	if [ "$out" = "EMPTY" ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=3 branch %s holds no push runs at all, so there is no trunk verdict to read; that is a fact about the branch and not a green light -- the absence of a TRUNK-CI line is never evidence the trunk is fine\n' "$branch"
+		return 0
+	fi
+	IFS=$'\037' read -r class sha runid conc created <<<"$out"
+	bad=''
+	case "$class" in
+	green | red | pending) : ;;
+	*) bad="the verdict class answered '$class' outside its contract of green, red and pending" ;;
+	esac
+	if [ -z "$bad" ] && { [ -z "$sha" ] || [ -z "$runid" ] || [ -z "$created" ]; }; then
+		bad='the newest run row is missing headSha, databaseId or createdAt'
+	fi
+	if [ -z "$bad" ]; then
+		when=$(date -u -d "$created" +%s 2>/dev/null) || when=''
+		[ -n "$when" ] || bad="createdAt '$created' is not a date this clock can read"
+	fi
+	if [ -n "$bad" ]; then
+		printf 'TRUNK-CI-UNKNOWN rc=4 the trunk CI read answered outside its payload contract: %s, so this activation will not guess whether the trunk is green; the absence of a TRUNK-CI line is not evidence it is\n' "$bad"
+		return 0
+	fi
+	age=$(( $(date -u +%s) - when ))
+	verdict=$conc
+	[ "$class" = pending ] && verdict=pending
+	printf 'TRUNK-CI %s %s run=%s age=%ss since=%s\n' "$sha" "$verdict" "$runid" "$age" "$created"
+	if [ "$class" = red ]; then
+		printf 'TRUNK-RED %s run=%s age=%ss since=%s report-only: the trunk''s newest push run concluded %s, and this pass says so and goes on -- a red trunk refuses no merge and halts no activation here; that policy is #370 item 3, and a red one re-run clears must not be able to stop the queue (#341)\n' \
+			"$sha" "$runid" "$age" "$created" "$conc"
+	fi
+	return 0
 }
 
 # --------------------------------------------------------------------------- preflight
@@ -4842,4 +5031,16 @@ factory_worktree_stream() {
 	# writes, which is why every other writer here can assume the directories exist (#329).
 	factory_paths
 	printf '%s/worktree-stderr.%s\n' "$FACTORY_RUN" "$$"
+}
+
+factory_triage_stream() {
+	# The queue read's stderr, in the same swept directory under the same one-name-per-stream rule
+	# (#311). The supervisor runs `triage.sh` inside a command substitution, so until this helper
+	# existed the classifier's own findings had no home: they went to the service's stderr, which is
+	# journald, while `factory/log/supervisor.log` -- the file #248 tells a person to read -- stayed
+	# silent. Measured 18 Nov: the finding is emitted 8 times, as a bare `^triage: nothing is parked` line,
+	# into 6 unit transcripts, 0 into the supervisor's journal. The caller deletes this on both
+	# paths; the sweep in `factory.sh` is the backstop for a pass killed between the two.
+	factory_paths
+	printf '%s/triage-stderr.%s\n' "$FACTORY_RUN" "$$"
 }
