@@ -1609,10 +1609,12 @@ def self_test():
             counts[1] += 1
     # A bare `:NNN` with no file named earlier in its own sentence names no file at all, and is still
     # NOT refused: that is the documented open shape of the inheritance rule (#365 -- the sentence,
-    # never the last line read, and never a paragraph that wrapped). Measured at this head on the two
-    # logs: 294 rows carry a bare `:NNN`, 137 inherit a file from their own sentence and 157 name no
-    # antecedent -- `H-0153`'s "158 rows" predates both the extension rule and this one and does not
-    # re-measure. Refusing the 157 refuses 157 true sentences that merely wrap.
+    # never the last line read, and never a paragraph that wrapped). Measured at `e66dc85d` by that
+    # tree's own scanner over its own two logs (H-0258; the 294/137/157 this comment carried were
+    # that rule over `adddacc`'s logs, whose own scanner answers 294/95/199): 312 rows carry a bare
+    # `:NNN`, 137 inherit a file from their own sentence, 175 name no antecedent -- `H-0153`'s
+    # "158 rows" predates both the extension rule and this one and does not re-measure. Refusing
+    # the 175 refuses 175 true sentences that merely wrap.
     # Pinned as a must-pass so a widening cannot swallow it by accident.
     counts[1] += 1
     verdict = citation_problems(cites("`:19` continues nothing on this line and stays a limit.\n"),
