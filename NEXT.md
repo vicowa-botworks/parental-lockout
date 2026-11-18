@@ -1,62 +1,59 @@
-# NEXT — issue-370 unit (PR #446: pushed the H-0266 shellcheck pin; the approval the push spent is owed a re-ask)
+# NEXT — issue-370 unit (PR #446: pushed the H-0267 tzdata pin after H-0266's shellcheck pin proved itself; the approval the pushes spent is owed a re-ask)
 
-State read before this file wrote a byte, by this branch’s second dispatch (`checks_failing:446`), one read
-per call, raw JSON counted in python and never a `-q` template: **#446** `OPEN`, `MERGEABLE`, `UNSTABLE`,
-head `879c862` — `verify` `FAILURE` and the four other checks `SUCCESS` (run `44273321776`, job
-`134695108950`: eight SC2329 infos over `factory/selftest.sh` after the runner image rotated its stock
-shellcheck from 0.9.0 to 0.11.0, none of them content of this branch); `reviewDecision APPROVED` —
-`hermesvicowa`, filed `2026-11-18T09:35:07Z` against `879c862` — `reviewRequests` empty; **#443**
-`MERGED` at `2026-11-18T04:58:22Z`, so the issue-366 head’s state reads are history; `origin/main` at
-`1292021` after `git fetch --prune origin`, which is this branch’s own merge base, and the branch sat
-exactly **2** ahead: `735ec4b` the checkpoint, `d2d4458` the effect carrying `Decision: H-0266` — both
-pushed by this dispatch, so the tip the next reader meets is `d2d4458` plus this hand-off commit; the
-shellcheck on this box’s PATH is 0.10.0, and this dispatch’s shell exports `FACTORY_LOG`,
-`FACTORY_TICK_UNIT=checks_failing:446` and `FACTORY_TICK_BRANCH=issue-370`, so the gate was run sanitized
-as row 12 requires and every verdict quoted below names that. Re-read all of it before acting: a number
-here belongs to the clock it was taken on.
+State read before this file wrote a byte, by this branch’s third dispatch, one read per call, raw JSON
+counted in python and never a `-q` template: **#446** `OPEN`, `MERGEABLE`, `reviewDecision` **empty** —
+`hermesvicowa`’s approval of `879c862` was dismissed by this branch’s push to `3594696` and nobody has
+been re-asked — `mergeStateStatus BLOCKED`, `reviewRequests` empty; head `3594696` with `verify` `fail`
+(run `44278709700`, job `134713403419`) and the four other checks `pass` — and the verify job of that run
+printed `check-shell: 0.10.0 over 33 scripts` rc 0, so `H-0266`’s pin had landed and held, and the red is
+its rotation’s second half: six `internal/schedule` failures refusing the runner’s partial zone database,
+`H-0267`’s subject. `origin/main` was at `1292021`; this dispatch fetched and the allocator re-armed
+before taking the id. Re-read all of it before acting: a number here belongs to the clock it was taken on.
 
 ## What this dispatch pushed
 
-- The two commits that were sitting unpushed on this branch: `735ec4b` (the pre-`H-0266` checkpoint, the
-  rollback target) and `d2d4458` (the effect, `Decision: H-0266`, entry and change in the same commit).
-  The change makes CI’s `verify` job fetch shellcheck `v0.10.0` at the same digest the sibling
-  `shellcheck` job already verifies and hand it to `make verify` through `SHELLCHECK` with
-  `SHELLCHECK_REQUIRED=1`, so neither the version nor the verdict belongs to the runner image. That is the
-  repair for the `verify` `FAILURE` in the read above; `factory/DECISIONS.md` `H-0266` carries the measured
-  pair and the one-tree reproduction.
-- This `NEXT.md`, rewritten. What the dispatch dropped and where each piece is whole: the prune note below.
-  Every instruction section is carried forward unedited.
+- `bf51a58` (the pre-`H-0267` checkpoint, the rollback target) and one effect commit carrying
+  `Decision: H-0267`: the `verify` job gains a step that installs tzdata `2026e-0ubuntu0.26.04.1` and
+  its `tzdata-legacy` sibling, both verified against the Ubuntu archive’s published sha256, replacing
+  `/usr/share/zoneinfo` before `make verify`. That is the repair for the six-test `verify` `FAILURE` in
+  the read above; `factory/DECISIONS.md` `H-0267` carries the measured pair (base-only deb rc 1 with the
+  six failures verbatim; the pair rc 0 in 2.605s, both on this 26.04 box) and the evidence that pinning
+  `ubuntu-24.04` would only defer the same red — noble-updates’ 2026e base deb ships no `Enderbury`
+  either. The same commit re-aims `H-0266`’s `ci.yml` pointer, which this step’s 58 inserted lines moved.
+- This `NEXT.md`, rewritten at the top; every instruction section below is carried forward unedited.
 - The pull-request body, rewritten for the new head. The write and its read-back are #446’s business and
   the body itself is the evidence — not this file’s memory.
 - No merge, no label, no reviewer ask, no issue write; the queue belongs to the supervisor.
 
 ## What this push spent, and what it did not fix
 
-- The push spends #446’s approval: `APPROVED` by `hermesvicowa` at `2026-11-18T09:35:07Z`, filed against
-  `879c862`, becomes a `DISMISSED` row, and only the read-back says so
-  (`gh pr view 446 --json reviewDecision,reviews,mergeable,mergeStateStatus`). Nobody has been re-asked
-  yet; the re-ask is the supervisor’s poke.
+- The push to `3594696` had already spent #446’s approval — the read above shows `reviewDecision` empty —
+  and this dispatch’s push spends any approval that arrives before it lands. Only the read-back says so
+  (`gh pr view 446 --json reviewDecision,reviews,mergeable,mergeStateStatus`); the re-ask is the
+  supervisor’s poke.
 - The eight SC2329 infos under shellcheck 0.11.0 stay unfixed — that is `H-0266`'s own `What lost:`. They
   sit on fixture functions `factory/selftest.sh` invokes indirectly by name, and the pin at 0.10.0 is what
   keeps them out of the verdict; the day this repository moves the pin, those eight rows are the next
   decision. Do not “fix” the pin by deleting the digest.
+- The tzdata pair is pinned to release `2026e`, the one the 26.04 image itself ships. When this repository
+  chooses to follow tzdata, both digests and the version move together — `H-0267`'s `What lost:` row is
+  where the next unit learns the pair is a standing obligation, not a one-time fetch.
 - A box whose PATH shellcheck is 0.11.x reads `make verify` RED on these bytes with exactly those eight
   rows. That is disclosed and known, not a regression you introduced: point `SHELLCHECK` at a 0.10.0
   binary (the one the `shellcheck` job fetches) and the leg prints `check-shell: 0.10.0 over 33 scripts`
   at rc 0.
 - #370 item 3 — may a red trunk refuse a `MERGE`? — stays open and is a human call: carried row 57
-  below; the shipped read is report-only, and `H-0266` did not touch that question.
+  below; the shipped read is report-only, and neither `H-0266` nor `H-0267` touched that question.
 
 ## What this dispatch pruned, and how to get it back
 
 | Dropped | Where it is whole | Why it is a record and not an instruction |
 |---|---|---|
-| the issue-366 head’s two dated state reads (lines 3-25 of `git show d2d4458:NEXT.md`) | that blob | each is a read of a queue that has moved: #443 merged at 04:58:22Z, #446 is this branch’s pull request |
-| `## What this unit shipped` (issue-366) | same blob, lines 27-46 | PR #443 merged; its verdicts live in `H-0251` and `H-0252` and in the merge |
+| the second dispatch’s dated state reads (lines 3-16 of `git show 3594696:NEXT.md`) | that blob | each is a read of a queue that has moved: the approval they recorded has since been dismissed by a push |
+| its `## What this dispatch pushed` (lines 18-31 of the same blob) | same blob | superseded by the section above; the two commits it lists are in this branch’s history now |
 
-Everything else is carried forward unedited, except three headings renamed to name the unit whose rows
-they are. A dropped owed line is the worse failure and item 4 of the inherited list says so — so the
-drops are itemised above, and none of them is an owed line.
+Everything else is carried forward unedited. A dropped owed line is the worse failure and item 4 of the
+inherited list says so — so the drops are itemised above, and none of them is an owed line.
 
 ## What the verdict makes visible, and this unit could not touch
 
@@ -71,9 +68,10 @@ drops are itemised above, and none of them is an owed line.
   `H-0143`/`H-0144`, the objection `H-0159` itself files, decides a measurement is not rewritten in
   place. If a future unit re-aims them, it re-aims to the file the prose means, and says so in its own
   entry.
-- #318's length-check gate stays unmade and `POINTER_DEBT` stays at 546. This unit added 10 citations,
-  every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
-  which is what pinning a revision costs and what it buys.
+- #318's length-check gate stays unmade and `POINTER_DEBT` sits at 544 — the issue-366 unit recorded 546
+  after its ten citations, and the pair now measures 544 at `bf51a58` whether or not a later unit paid two
+  down; this unit added three more citations, every one anchored to live text it was measured against, so
+  the number did not move and the exempt count (71) did not either.
 
 ## What the issue-366 unit pruned, and where its two dropped hand-offs are recovered verbatim
 
