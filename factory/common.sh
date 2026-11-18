@@ -229,13 +229,13 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 #
 # What the old value cost, measured before this line moved, because a name that resolves to nothing is
 # not a harmless default -- it is a park arm that cannot fire:
-#   * `gh label list` answered nineteen names and `needs-human` was not one of them;
-#   * `PARKED` appears ZERO times in `factory/log/supervisor.log` and every rotated journal across the
-#     harness's whole history, while units had been escalating honestly since #301;
-#   * the finding `nothing is parked, and needs-human is not a label in this repository` appears 28
-#     times in `factory/log/*.log` unit transcripts and 0 times in the supervisor's own journal,
-#     because the queue read's stderr goes to the service's stderr, not to the file #248 tells a
-#     person to read. Journalling it is the other half of H-0250;
+#   * `gh label list --json name -q length` answered 18 names on 18 Nov, and `needs-human` was not one;
+#   * a plain `grep -o PARKED` over `factory/log/*.log` answers 94 across 296 files, every one an echo:
+#     the event `^<ts>Z PARKED ` answers 0, while units escalated honestly since #301. A count that
+#     names no verb is a count of the wrong thing;
+#   * the finding `nothing is parked, and needs-human is not a label in this repository` is in those
+#     files 73 times, the runtime emission `^triage: nothing is parked` 8 times in 6 files, and the
+#     supervisor's own journal 0: stderr went to the service, not the file #248 points a person at.
 #   * and so the queue re-dispatched escalations. #334, position 1 in the queue, three ticks at the
 #     2700 s ceiling: 8400 s of pass budget spent re-deriving a decision its unit is forbidden to
 #     make. That is #301's shape (three ticks, three `exit=124`) at three times the ceiling.

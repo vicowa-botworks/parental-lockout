@@ -6969,11 +6969,14 @@ proc_leg '…and a clean one, on every pass' \
 #
 # `triage.sh` runs inside a command substitution, so its stderr had no home: it went to the service's
 # stderr -- journald -- while `factory/log/supervisor.log`, the file #248 exists to point a person at,
-# recorded nothing. Measured 18 Nov across the harness's whole history: the finding `nothing is parked,
-# and needs-human is not a label in this repository` printed 28 times into unit transcripts and 0 times
-# into the supervisor's journal, in a history where the class it describes never fired once. Nobody
-# reading the journal could have told "nobody has ever escalated anything" from "the park arm has never
-# been able to run", and those two need different repairs.
+# recorded nothing. Measured 18 Nov across the harness's whole history -- and each number below names
+# the grep that produced it, because a plain `grep -o` over `factory/log/*.log` answers 73 for the
+# sentence `nothing is parked, and needs-human is not a label in this repository` while
+# `grep -rE '^triage: nothing is parked'`, the runtime emission, answers 8 in 6 files: the other 65 are
+# the harness's own source quoted back inside a unit transcript. The supervisor's own journal answers 0
+# (`grep -c TRIAGE-STDERR`), in a history where the class the sentence describes never fired once.
+# Nobody reading the journal could have told "nobody has ever escalated anything" from "the park arm has
+# never been able to run", and those two need different repairs.
 #
 # The plant is a state, not a stub: a configured name the fixture's label list does not carry, which is
 # exactly the condition the sentence describes. No leg below spells the escalation name -- its one home
@@ -7034,6 +7037,201 @@ proc_triage_stderr_silent() {
 }
 proc_leg '…and says nothing when the read is healthy' \
 	'no TRIAGE-STDERR line, and no stream left in $FACTORY_RUN' proc_triage_stderr_silent
+
+# The third polarity, and the one the two above cannot see: the read FAILING. That is the state the
+# `return 3` this arm guards exists for, and both legs above run a `triage.sh` that exits 0 -- so the
+# whole file stays green over a guard that cannot fire. #441's review caught exactly that: the guard
+# was shipped as `if ! rows=$(...); then triage_rc=$?; fi`, and this repository already had the
+# answer in the same file, in a comment this branch did not write -- `cmd || rc=$?`, never
+# `if ! cmd; then rc=$?`, because inside the `then` branch of a NEGATED test `$?` is the negated
+# status, `!` having reached the `then` only by succeeding. Measured again on this box:
+# `bash -c 'if ! (exit 8); then echo $?; fi'` prints 0. So the stored rc was 0 whatever the read
+# exited, `[ 0 -ne 0 ]` never held, and the arm was dead code in a harness whose own guide promises
+# rc=3. The plant below is the one state no leg in this file had: a queue read that exits 1.
+proc_new could-not-read
+printf '#!/usr/bin/env bash\nprintf "triage: the queue could not be read\\n" >&2\nexit 1\n' \
+	>"$proc_dir/triage.sh"
+chmod +x -- "$proc_dir/triage.sh"
+proc_run could-not-read
+
+proc_triage_read_fails() {
+	grep -qF -- 'exit 1' "$proc_dir/triage.sh" || {
+		printf '            the plant is not in the fixture copy, so a dead arm and a live one\n' >&2
+		printf '            report the same green: %s\n' "$proc_dir/triage.sh" >&2
+		return 1
+	}
+	proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null || {
+		printf '            the queue read exited 1 and the journal holds no TRIAGE-FAILED line.\n' >&2
+		printf '            Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            The pass exited %s. If that is 0, the guard stored the exit code of the\n' "$proc_rc" >&2
+		printf '            NEGATION, which is 0 whenever the read failed -- the reviewed bug.\n' >&2
+		return 1
+	}
+	[ "$proc_rc" = 3 ] || {
+		printf '            the failed read was journalled but the pass exited %s, not 3 -- and 3 is\n' "$proc_rc" >&2
+		printf '            what docs/factory.md promises whoever reads the service log.\n' >&2
+		return 1
+	}
+	awk 'index($0, " PASS ") { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
+		printf '            the pass journalled the failed read and then marched on: a PASS line sits\n' >&2
+		printf '            beside it, a pass reporting units over a queue it never read.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the queue read failing stops the pass' \
+	'TRIAGE-FAILED, exit 3, and no PASS line over an unreadable queue' proc_triage_read_fails
+
+# The control, because a green leg proves nothing until something red has been measured with it. The
+# fixture's own copy of the pass gets the reviewed line back -- the negation keeping the status --
+# and the same plant runs again. The predicate above must FAIL over it: the rc comes back 0, the arm
+# never fires, and the pass journals a PASS line over a queue it could not read. A control that also
+# stopped at 3 would mean this leg reads something other than the guard. Restoring the shipped copy
+# is the last thing it does on every path, because the legs below share this fixture directory.
+proc_triage_read_fails_control() {
+	local f=$proc_dir/factory.sh keep=$proc_work/factory-sh-shipped
+	cp -- "$f" "$keep" || {
+		printf '            the fixture pass could not be copied, so the control cannot be run\n' >&2
+		return 1
+	}
+	PMUT_OLD='rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err") || triage_rc=$?' \
+	PMUT_NEW='	if ! rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err"); then triage_rc=$?; fi' \
+	awk '{ if (index($0, ENVIRON["PMUT_OLD"])) print ENVIRON["PMUT_NEW"]; else print }' \
+		"$keep" >"$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated line could not be planted\n' >&2
+		return 1
+	}
+	grep -qF -- 'if ! rows=$(' "$f" || {
+		cp -- "$keep" "$f"
+		printf '            the negated form is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	proc_run could-not-read-mutated
+	cp -- "$keep" "$f"
+	if proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' >/dev/null && [ "$proc_rc" = 3 ]; then
+		printf '            the negated guard journalled TRIAGE-FAILED and exited 3 anyway, so this\n' >&2
+		printf '            leg is not aimed at the guard: it would have passed the reviewed bug.\n' >&2
+		return 1
+	fi
+	printf '        control: with the negation back in the pass, the same unreadable queue left it at %s\n' "$proc_rc"
+	printf '        and journalled [%s] -- the arm docs/factory.md promises would fire.\n' \
+		"$(proc_journal_line "$proc_journal" 'TRIAGE-FAILED ' | head -c 60)"
+	return 0
+}
+proc_leg '…and the leg is aimed at the guard, not the fixture' \
+	'the negated form re-planted makes the same fixture go red' proc_triage_read_fails_control
+
+# And the shape, pinned for the rest of the tree: no shipped script may store a status read through a
+# negated test. One review found this instance, and the same mistake costs a reader nothing to
+# notice -- `$?` sits on the line and reads like a status. The scan walks the block of every
+# negated test in the shipped scripts with comments stripped (`factory/factory.sh` documents the
+# rule as a comment, and a guard that flags its own prescription gets deleted for noise), and
+# over-reports on purpose: a `$?` anywhere inside that block is a question no reader should settle
+# by hand.
+negated_status_reads() { # dir -> shipped lines that read $? under a negated test
+	if [ ! -d "$1/factory" ]; then
+		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
+		return 0
+	fi
+	# `|| true` for the reason in `bad_refresh_calls`: no match is an answer, not a failure. The
+	# suite is excluded for the reason `naive_dirt_tests` excludes it: selftest.sh carries the
+	# negated form on purpose, inside the control that puts the reviewed bug back.
+	find "$1/factory" -name '*.sh' ! -name 'selftest.sh' -print0 2>/dev/null |
+	xargs -0 -r awk '
+			{
+				code = $0; sub(/#.*/, "", code)
+				match(code, /^[ \t]*/); ind = RLENGTH
+				if (pend) {
+					if (code ~ /\$[?]/) {
+						printf "%s:%d: %s  [negated test at %s:%d]\n", FILENAME, FNR, $0, file, start
+						pend = 0; next
+					}
+				# A block ends at the `fi` standing at the same indentation as the test.
+				# An earlier draft counted every `if` anywhere on a line, so a comma-if in a
+				# printf string opened a block that never closed and swallowed a correct
+				# `|| rc=$?` far below: the leg went red on code that was right.
+				if (ind <= pind && code ~ /^[ \t]*fi([ \t;]|$)/) pend = 0
+				next
+			}
+			if (code ~ /^[ \t]*if[ \t]+!/) {
+				pend = 1; pind = ind; start = FNR; file = FILENAME
+				if (code ~ /\$[?]/ || code ~ /(^|[ \t])fi([ \t;]|$)/) {
+					printf "%s:%d: %s\n", FILENAME, FNR, $0
+					pend = 0
+				}
+			}
+		}' || true
+}
+
+negated_status_refused() {
+	local label="no status read through a negation" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(negated_status_reads "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script keeps the rc of a command whose test is negated,\n' "$label"
+		printf '          where $? is the negation'"'"'s own status -- 0 whenever the command failed:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every status read is stored before it is tested\n' "$label"
+	fi
+
+	# The must-catch control: the reviewed one-liner in a script of its own. A scan that cannot see
+	# it is blind, and its silence about the repository would certify nothing.
+	mkdir -p "$work/negated-rc/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape, restored verbatim' \
+		'if ! rows=$(read-the-queue 2>"$err"); then rc=$?; fi' \
+		>	"$work/negated-rc/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan did not see the reviewed line planted for it, so its\n' "control: $label"
+		printf '          silence about the tree means nothing. Fix the pattern.\n'
+	else
+		printf '        control: the reviewed one-liner is refused when it is planted in a shipped\n'
+		printf '        script, so the ok above is the check working and not the check being blind.\n'
+	fi
+
+	# The block form, which is what the reviewed guard actually looked like once the assignment was
+	# split onto its own line: the rc sits two rows under the test, so a scan that reads only the
+	# `if !` row misses every real instance of the shape.
+	mkdir -p "$work/negated-rc-block/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# the reviewed shape with the assignment split from the test' \
+		'if ! read-the-queue; then' \
+		'	rc=$?' \
+		'fi' \
+		>"$work/negated-rc-block/factory/planted.sh"
+	if [ -z "$(negated_status_reads "$work/negated-rc-block")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan missed the block form, the shape actually shipped: the rc\n' "control: $label"
+		printf '          sat on its own row under the negated test.\n'
+	else
+		printf '        control: the block form is refused too, which is the shape the review named.\n'
+	fi
+
+	# And the false-positive control: the same shape quoted in a comment. Refusing prose is how a
+	# guard like this gets widened away (H-0040), and `factory/factory.sh` documents the rule in
+	# exactly those words, so a scan that flagged the prescription would be deleted to silence it.
+	mkdir -p "$work/negated-rc-prose/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# never `if ! cmd; then rc=$?; fi`: inside a negated test $? is the negation, not the cmd' \
+		'read-the-queue || rc=$?' \
+		>"$work/negated-rc-prose/factory/prose.sh"
+	if [ -n "$(negated_status_reads "$work/negated-rc-prose")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan refuses a comment that only quotes the shape, so it reads\n' "control: $label"
+		printf '          prose and will be widened away inside a week (H-0040).\n'
+	else
+		printf '        control: the same shape inside a comment is not refused, so the file that\n'
+		printf '        documents the rule stays writable.\n'
+	fi
+	return 0
+}
+negated_status_refused
 
 # ------------------------------------------------ the journal's own location, on a real activation (#260)
 #
@@ -21079,12 +21277,41 @@ ask_prompt_render() { # ask_prompt_render <factory.sh> -- print the rendered emp
 	printf '%s\n' "$out"
 }
 ask_prompt_carries_no_name() { # ask_prompt_carries_no_name [root] -- no literal name reaches the tick
-	local root=$HERE/.. name rendered
+	local root=$HERE/.. name rendered rc box
 	[ -z "${1:-}" ] || root=$1
-	if ! name=$(bash "$root/factory/escalation-label.sh" 2>/dev/null); then
-		printf '            the reader refuses, so there is no name to compare the rendering\n' >&2
-		printf '            against -- and a stopped unit right now cannot label anything either.\n' >&2
-		printf '            Fix the reader first; this leg inherits its verdict until then.\n' >&2
+	if [ ! -f "$root/factory/escalation-label.sh" ]; then
+		printf '            %s carries no factory/escalation-label.sh, so this leg has no name\n' "$root" >&2
+		printf '            to read and refuses rather than judging some other tree\n' >&2
+		return 1
+	fi
+	# The reader is called from the tree it belongs to, with the harness's path variables taken out
+	# of the environment, because it is NOT a pure read of a constant: common.sh resolves FACTORY_DIR
+	# from the environment before it resolves that name from its own path, and the first thing it
+	# then runs is `_factory_main`'s `git -C "$FACTORY_DIR/.." worktree list`. Measured 18 Nov: a
+	# FACTORY_DIR naming a deleted fixture makes the reader exit 128, and a FACTORY_DIR naming a real
+	# directory that is not a repository exits 128 the same way -- the pipeline fails under the
+	# reader's own `set -euo pipefail`, so the `FACTORY_ROOT=` assignment aborts the script before
+	# anything prints. This file assigns FACTORY_DIR to a fixture at row 340 and legs beside this one
+	# export more, so a bare call here asks the reader about the suite's history rather than about
+	# the shipped default -- and the shipped default is the only thing this leg may compare a
+	# rendering against. The rc is read before anything negates it (H-0259), and the reader's own
+	# words are kept, so a refusal names the arm that fired instead of only saying it refused.
+	box=$(mktemp -d "$work/ask-name-XXXX") || return 1
+	name=$(cd -- "$root" 2>/dev/null &&
+		env -u FACTORY_DIR -u FACTORY_ROOT -u FACTORY_HARNESS -u FACTORY_TREES \
+			-u FACTORY_LOG -u FACTORY_ESCALATION_LABEL \
+			bash ./factory/escalation-label.sh 2>"$box/err")
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '            the reader refuses (rc %s), so there is no name to compare the\n' "$rc" >&2
+		printf '            rendering against -- and a stopped unit right now cannot label\n' >&2
+		printf '            anything either. Fix the reader first; this leg inherits its verdict\n' >&2
+		printf '            until then. What it printed, and what it was handed:\n' >&2
+		if [ -s "$box/err" ]; then
+			sed -e 's/^/              /' "$box/err" | head -6 >&2
+		fi
+		printf '              FACTORY_DIR=%s FACTORY_ROOT=%s PWD=%s\n' \
+			"${FACTORY_DIR:-<unset>}" "${FACTORY_ROOT:-<unset>}" "$PWD" >&2
 		return 1
 	fi
 	if [ -z "$name" ]; then

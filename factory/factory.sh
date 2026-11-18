@@ -1662,7 +1662,7 @@ factory_body() {
 	# loudly can fail in a loop, and one journal line per stderr line because the sentence is the point.
 	local triage_err triage_line triage_rc=0
 	triage_err=$(factory_triage_stream)
-	if ! rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err"); then triage_rc=$?; fi
+	rows=$("$FACTORY_DIR/triage.sh" 2>"$triage_err") || triage_rc=$?
 	if [ -s "$triage_err" ]; then
 		while IFS= read -r triage_line; do
 			[ -n "$triage_line" ] || continue
