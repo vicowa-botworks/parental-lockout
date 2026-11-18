@@ -1,32 +1,83 @@
-# NEXT — issue-334 unit (unclaimed:334, the journal's retention contract gains clause 5)
+# NEXT — issue-366 unit (unclaimed:366, `H-0159`'s 588 adjudicated: one coordinate, the capture README)
 
-State read before this file wrote a byte, at **2026-11-17T19:40:51Z**, raw JSON counted in python and
-never a `-q` template: issue **334** `OPEN`, labels `bug,area:ops,blocked`, `updatedAt 19:00:46Z`, **7**
-comments with that same instant as the newest — so the escalation this ticket waits on has still not been
-answered, and the newest thing on it is the sixth unit's correction. **0** open pull requests on the whole
-repository (`--limit 1000`), **50** open issues, `origin/main` at `3d3c65c`, and this branch **2** commits
-ahead of it: `406d1b5` the pre-H-0248 checkpoint, then the one effect commit carrying
-`Decision: H-0248`. Re-read all of it before acting; a queue that empty is a queue that fills in minutes,
-and #334 in particular gets dispatched by every tick that has nothing else, because nothing parks a
-waiting escalation (#437).
+State read before this file wrote a byte, at **2026-11-18T02:17:53Z**, raw JSON counted in python and
+never a `-q` template: issue **366** `OPEN`, labels none, **0** comments, `updatedAt 2026-11-14T04:37:35Z`
+— untouched since it was filed, and the branch that answers it is the one you are reading this from.
+**2** open pull requests on the whole repository (`--limit 1000`): **#441** on
+`fix/escalation-label-question`, which carries `H-0250`, and **#439** on `issue-334`, the retention-census
+tool, whose unit owned the `NEXT.md` head this file replaces. **52** open issues. `origin/main` at
+`3c09d6b`, which is also this branch's base: `eb4c2cc` the pre-`H-0251` checkpoint, then the one effect
+commit carrying `Decision: H-0251`. Re-read all of it before acting — **#439** and **#441** each append an
+entry to `factory/DECISIONS.md`, so whichever merges second takes a coordinate re-aim across a moved
+seam, and this unit's own 18-line, 39-pointer re-aim is the template for doing it honestly.
+
+State the **base-sync dispatch** read at **2026-11-18T03:24:10Z**, one read per call, raw JSON counted in
+python: `origin/main` at `38a1fe4`, which is the merge of **#439** — so `H-0249` and the census tool are
+already trunk, and this branch was **3** ahead / **6** behind at the read: `eb4c2cc` the pre-`H-0251`
+checkpoint, `2dd751a` the effect carrying `Decision: H-0251`, `fbd9474` the pre-`H-0252` checkpoint; this
+sync lands on top of those three. **3** open pull requests repository-wide
+(`--limit 1000`, raw JSON): **#444** on `issue-365`, **#443** on this branch, **#441** on
+`fix/escalation-label-question`, the one carrying `H-0250`. Issue **366** still `OPEN`, labels none,
+**1** comment — the `H-0251` unit's own delivery note at `02:27:08Z`, not an answer to anything. The
+sync conflicts in two files: this one, whole, and `factory/DECISIONS.md` in two places — the tail seam
+where main's fresh `H-0249` seats below this branch's `H-0251`, and one mid-file row of `H-0229`'s that
+both parents re-aimed their own way. What the resolution decided is `H-0252`, and this hand-off rides
+that merge commit.
 
 ## What this unit shipped
 
-`docs/factory.md` and nothing else: clause **5** of "The journal's retention contract" — *Name the clock,
-and the zone, or refuse the answer* — plus the probe that re-derives its numbers, plus the paragraph that
-says when those numbers have stopped meaning anything. `Decision: H-0234` put the contract in that section
-instead of in the ticket thread, and this follows it. No script, no test, no production behaviour, no
-bound: **the number and the clock are still a maintainer's to give**, and the decision class stays
-withheld (publishing, deleting data, security semantics), so `H-0188` remains the open half.
+`factory/DECISIONS.md` and `NEXT.md`, and nothing else. `H-0251` adjudicates #366 and appends the verdict
+to the foot of `H-0159`'s entry. The verdict in one line: the two rows four lines apart are **one
+coordinate spelled twice**, and the file it names is `testing/capture/README.md` — proved by the digests
+the product-log sentence quotes, which the root `README.md` has never carried in any of its revisions —
+so the provenance clause ("WAS a line when it was written") is the true one and the census clause
+("inside a 349-line README", filed there as #318's "1 broken for months", located) is the false one: it
+reports a throwaway instrument taking the first basename candidate, not what the record said. No existing
+word of `H-0152`, `H-0159`, `H-0161` or `H-0162` was rewritten; the only existing lines the commit changes
+are 18, carrying 39 re-aimed pointers, and each differs from its checkpoint line in digits alone.
 
-The measurement is one directory at one instant, and the unit's most useful finding is that the two
-clocks an implementer would choose diverged *while it was writing*: 227 transcripts and 58,792,819 B
-against cut `2026-11-10T19:37:42Z` answer **11 / 11 / 19 / 0 / 0 / 19** for filename-seconds,
-mtime-in-UTC, day-string `<=`, day-string `<`, `find -mtime +7`, and `find ! -newermt` with the cut
-stamped bare; 86 seconds later the same block answers **12 / 11 / …**, and the file that separated them is
-named by `stat` — stamped `19:38:17Z`, last written `20:05:48Z`. Zone is eight files on its own: the bare
-stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the installed user unit carries five
-`Environment=` lines and **no `TZ=` anywhere in it**.
+The **base-sync dispatch** adds one thing to that: the merge of `origin/main` at `38a1fe4`, with `H-0252`
+riding the merge commit. Three adjudications, all in the two conflicted files — the log's tail union
+(`H-0249` from main, then this branch's `H-0251`, ids ascending, one blank separator line at each seam so
+the "heading with a non-blank line above" census stays at its seven); `H-0229`'s one digit-war Effect row,
+where the merged truth is **main's** `Makefile:153` and **this branch's** five `factory/DECISIONS.md`
+rows, each coordinate opened on these bytes before it was kept; and this file, whose head is this
+branch's and whose owed list, stranger-warnings and inherited rows are main's. No code, no script, no
+`docs/factory.md` line, no `Makefile` line: the merge carries those from `main` unchanged.
+
+## What the verdict makes visible, and this unit could not touch
+
+- `docs/factory.md`'s summary of this token — the paragraph that calls it "the token this log argues
+  about most" — stops at "`H-0159` reads the same token both ways" and sends the reader to `H-0162`'s
+  Effect. Its own sentence, that the root reading is past EOF, is true; the framing is unfinished.
+  Whoever edits that file next ends the sentence with the verdict. `H-0251`'s `Follow-up:` row carries
+  this, and no issue was opened, because #366 is the right scope.
+- Four other rows carry the same token on the root reading and are untouched: `H-0152`'s, `H-0161`'s,
+  `H-0167`'s `8437eea:README.md:588` census row and `H-0177`'s Effect row. None of them becomes a defect
+  by this verdict — on the root reading they are all past EOF and say so — and none is repaired here:
+  `H-0143`/`H-0144`, the objection `H-0159` itself files, decides a measurement is not rewritten in
+  place. If a future unit re-aims them, it re-aims to the file the prose means, and says so in its own
+  entry.
+- #318's length-check gate stays unmade and `POINTER_DEBT` stays at 546. This unit added 10 citations,
+  every one naming its own revision, so the debt did not move; the exempt count went from 57 to 67,
+  which is what pinning a revision costs and what it buys.
+
+## What this unit pruned, and where the two dropped hand-offs are recovered verbatim
+
+Two `## What this unit shipped` sections are dropped by this file, both of them dated reads of a pull
+request that has since merged, and both recoverable whole: the clause-5 hand-off at
+`git show 3c09d6b:NEXT.md`, lines 13 to 30, and the census hand-off — the six-clock tool, the
+`esc_one_home` marker-name repair, and that dispatch's own hand-run census — at
+`git show 38a1fe4:NEXT.md`, lines 35 to 67. Everything from `## What is still owed` downward is carried
+forward from **that second file**, unedited, and that is what brings owed items **5-7** and the
+`Three things a stranger will break here` section into this branch's copy: the head this branch wrote at
+`2dd751a` carried the four-item owed list and the `Two things` section out of `3c09d6b`, and `H-0249`'s
+unit added three owed items, one stranger-warning about a branch left red by its own last commit, and a
+rewritten probe bullet now that the census has a tracked script — all three taken here rather than
+rewritten here. Also carried: the 56 numbered inherited rows, PR #402's three non-blocking review items,
+`Hard rules for whoever picks this up`, and that unit's own prune list, the section further down with
+the near-identical heading, which is the only record of what it dropped from the 1,174-line file it
+inherited. A dropped owed line is the worse failure, and item 4 of the inherited list says so.
 
 ## What is still owed (all of it, carried forward; none of it silent)
 
@@ -78,18 +129,53 @@ stamp is parsed at `-0500` (`/etc/localtime` is `America/Toronto`) and the insta
    ticket, because the number was recalled instead of read. #425 is what the measurement is about. A
    referent named from memory is the same class of defect as a coordinate that was never opened.
 
-## Two things a stranger will break here
 
+5. **The census tool's own two gaps, both stated in its output and neither repaired here.** Row **E**
+   cannot be priced at a pinned `--now` — `find -mtime` reads the real clock and takes no reference time,
+   so the tool refuses (exit 2) rather than print a row off two clocks; a future change that wants E at a
+   `--now` has to set the fixture's mtimes to that instant, which is exactly what `rc_live_fixture` does
+   for the live-fault leg. And `--bytes` prices the **transcript** set only: `journal:` prints
+   `supervisor.log`'s bytes and line count so an operator can see what a cap would do, but the
+   keep-newest-B-bytes arithmetic and the generation/rotation-point rules are owed item 2's, and the
+   script says `journal line: 1 of 7 rows` for that reason. Anyone who implements 1 and 2 should extend
+   this script rather than write a second instrument, or the two will disagree in production the way the
+   six clocks disagree in the fixture.
+6. **A `bash -x` self-test is refused, and the refusal is the only thing that keeps that leg honest.**
+   If a future unit finds the guard inconvenient, the fix is not to widen it: a traced function returns
+   its trace on stdout (`rc_row` and `rc_find_cut` are command substitutions), so the legs read rows that
+   are not rows — measured at 13 failed legs and 67 of 79 row assertions, all of them naming the leading
+   `+ local tz=…` line as a row whose first field was not one of A–F. Run `bash factory/retention-census.sh
+   --self-test`, or `bash -B`/`set -u`, both of which stay allowed and stay green.
+7. **The park is still #437's, and #311's merged PR did not create the marker.** Re-measured at
+   `00:08:17Z`: 18 labels, none of them the name `factory/escalation-label.sh` prints; `blocked` on
+   exactly 334 and 311; triage's own stderr says nothing is parked because that marker name is not a
+   label in this repository, so no issue can be parked at all -- #311. (That stderr sentence spells the
+   name out; this file may not -- `esc_one_home` keeps the name in `factory/common.sh` alone.)
+   Creating the label is a human verb and no unit here ran it; until it happens, expect this
+   ticket to be dispatched again, and read the ticket's eleven comments before measuring anything — the
+   last five units each found something the previous one missed, and none of them chose the number.
+
+## Three things a stranger will break here
+
+- **Green is a property of a tree and its leg set, never of a branch.** The census dispatch ran the suite
+  six times green and *then* committed a NEXT.md that spelled the escalation marker's name three times —
+  while the leg that scans NEXT.md for it (`esc_one_home` at `factory/selftest.sh:9745` `esc_one_home [root] -- the name is spelled once, and that once is common.sh`)
+  was already live in its own base: `git show 64ec65e:factory/selftest.sh` carries the `claim_leg`.
+  So the branch tip was red from the minute that commit landed, nothing re-gated it because the branch
+  was never pushed, and the next dispatch's first `make verify` met it. Re-run the full gate after the
+  last file your last commit touches.
 - **Line numbers in these logs are live coordinates, and an insertion moves them.** `make verify` re-opens
   every `path:line` in both decision logs and exits 1 naming the true line; this unit's own edit tripped it
   twice inside ten minutes, once by two lines and once by three. So add to the *end* of the section you are
   editing, then re-aim: `python3 scripts/check-decisions.py --citations docs/factory.md` lists every
   pointer aimed at a page before you touch it, and `POINTER_DEBT` may only fall.
-- **The probe in clause 5 is documentation, and it fails quietly rather than loudly.** Its worst answer is
-  six zeroes at exit 0, which is what it prints wherever the journal directory is not — and it is not
-  tracked, so it exists only in the one checkout where the harness has actually run. `total` is printed for
-  exactly that reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is
-  your own working directory.
+- **The probe in clause 5 is still documentation and still fails quietly; the tool is what refuses.** The
+  block prints six zeroes at exit 0 wherever the journal directory is not — measured again on an empty
+  directory at this head, every one of the six arms printing `0` — and the probe is not tracked, so it
+  exists only where someone typed it. `factory/retention-census.sh` is the tracked half and it exits 3 on
+  the same directory naming the glob it found nothing behind. `total` is printed by both for exactly that
+  reason: six zeroes beside a nonzero `total` is the finding, six zeroes beside `total 0` is your own
+  working directory.
 
 ## What this unit pruned out of the hand-off it inherits, and how to get it back
 
