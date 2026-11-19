@@ -1,4 +1,93 @@
-# NEXT — issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
+# NEXT — issue-391 unit (branch `issue-391`, PR #472: the gate question each `verify` clause is asked is now answerable, and a chunk counted as a step must also be able to fail the recipe — review round 2, `H-0311`)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: at
+2026-11-19T18:09:28Z `gh issue view 391 --json number,state,url` answers `391 OPEN
+https://github.com/vicowa-botworks/parental-lockout/issues/391`, and `gh pr view 472 --json
+headRefName,state,reviewDecision` answers `issue-391 OPEN CHANGES_REQUESTED` — the pull request
+exists, this branch is its head, and `hermesvicowa`'s review is the live verdict. The tree's own
+state: `git log --oneline -1` is `62b23c3 chore(checkpoint): pre-H-0311 the tree the
+status-reaches-shell arm is written against`, taken before the judgement call; the shipped head
+`8f7cd14` is the single commit carrying `Decision: H-0310`, stacked on its checkpoint `0859372`,
+whose parent `de01cf0` is the merge of #471. The Record below is `8f7cd14`'s own head, carried whole
+with its rows unrenumbered. Both blocking findings in the quoted review were re-derived on the
+checkpoint's bytes with control probes before anything was built, not accepted from the review's
+prose: the B1 pipe-hole — `invocation_problems()` read from `62b23c3` and handed the live `verify`
+recipe whose gate clause ends `| cat` returns NO problem, while a throwaway Makefile's
+`false | cat; \` under `set -e` reaches its closing echo at rc 0; the B2 false-prefix — the
+deny-list's self-test chunk at `Makefile:130` IS the gate-invocation prefix the old sentence denied,
+and each sibling's own classifier routes that chunk to its own sentence regardless.
+
+## What this round shipped
+
+The second round on this branch ships what the review's two blocking findings asked for and nothing
+else, in `scripts/check-decisions.py` (+82 −13 on the checkpoint):
+
+- The `_status_reaches_shell` arm, ported in shape from `scripts/check-denies.py`: a matched chunk
+  counts as a step only when its exit status can fail the recipe.
+- The third refusal, `STATUS_SENTENCE`, as a constant — every `&&`/`||`-list and pipeline shape the
+  arm names is refused by a sentence the mutants can assert by name.
+- The seventh mutant `recipe-gate-piped`: the command stays, both patterns still match, the chunk is
+  piped into `cat` — and it owes the `status` refusal beside the gate's, so an arm removed at the
+  call site turns `--self-test` red by name.
+- The loop variable #472's review called shadowed is renamed `says`.
+- The prose correction, in all three places that carried it: `H-0310`'s Follow-up row, owed item 3
+  below, and the pull-request body's Not-in-scope paragraph.
+
+Plain gate on these bytes: rc 0, 1240 `path:line` citations, 583 owing an anchor, 0 refused
+outright, 7 `Effect:` diff tallies; `--self-test` answers 83 cases that must fail and 54 that
+must pass. Three coordinates this entry first wrote landed in the unanchored bucket and all three
+are paid on these bytes — one lesson worth carrying: a citation written as `` `Makefile:122`
+"== decision log" `` anchors at 15 characters, because the citation span itself eats the leading
+`==`; quote from inside the shell string, not around it.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review. A push into a reviewed pull request spends the standing verdict (#269). The ask the
+   previous head of this file recorded landed — #472's review came back — and this round's push
+   spends that verdict, so the re-ask is the supervisor's poke (`factory_request_review` in
+   `factory/factory.sh`), not this unit's: the verb a unit would use, `gh pr edit --add-reviewer`,
+   exits 1 on this account's retired `projectCards` field and writes nothing (`H-0010`).
+2. The two unanchored pointers, with their targets now measured instead of guessed:
+   `factory/DECISIONS.md` row 4395's two coordinates name the one-option and bad-sha refusals, and
+   those assertions are at 1799 and 1802 on these bytes; `DECISIONS.md` row 3342's file-less
+   coordinate names the renumber advice, and that assertion is at 2510 (`sed -n '1799p;1802p;2510p'
+   scripts/check-decisions.py` shows all three). Whoever pays this also owes `factory/DECISIONS.md`
+   row 14202 the truth: its sentence says the first of the pair "names row 566". They sit in the
+   bucket `POINTER_DEBT` does not count, so this is debt in the reader's hand, not in the ratchet.
+3. The single-question guards that are still single. `make verify` reads the same recipe four times:
+   this script, `scripts/check-denies.py`, `scripts/check-doc-labels.py` and `scripts/check-next-md.sh`.
+   Neither of the two named in `H-0310`'s Follow-up has #391's hole today — but NOT, as that row used
+   to claim, because neither script's gate invocation is a prefix of its own self-test invocation:
+   the deny-list's self-test chunk at `Makefile:130` IS that prefix on these bytes. What refuses it
+   in both scripts is each script's classifier routing that chunk to its own sentence, plus the
+   `_status_reaches_shell` arm each already ships -- and which this script did NOT ship until this
+   round's port. The hazard still
+   arrives the day anyone gives one of them an argument the other does not lack, and one shared guard
+   is still the fix that outlives that day; it is its own ticket. The measured correction is
+   recorded in `H-0311`.
+4. The mutant table probes a synthetic recipe, not the live file. The `verify` fixture inside
+   `scripts/check-decisions.py` writes `echo "== decision log"` where `Makefile` writes
+   `echo "==> decision log"`, so the seven Makefiles test the classifier and only `verify_invocation()`
+   looks at the bytes `make` actually runs. The precondition guard turns drift into a refusal rather
+   than a silent pass, which is the minimum; a table generated from the live recipe is the
+   improvement, and it is not small.
+5. The ratchet is judging again. Both lists the gate exempts it for are empty on these bytes — 0
+   refused outright, 0 anchors cut by a newline — so 583 against `POINTER_DEBT` is a real comparison
+   again, and the next rise will be refused rather than narrated.
+
+## Constraints a stranger would break here
+
+- `INVOCATION` matches the self-test invocation on purpose. Ordering is the contract: the caller must
+  ask `SELFTEST_INVOCATION` first. A word boundary bars a longer FILENAME, not a longer argument, so
+  "fix the regex" is not available; the three named arm mutants are what pin it, and the seventh one
+  now pins the arm that reads the chunk's tail.
+- The three refusal sentences are constants because the mutants assert them by name. Inlining them
+  back into `invocation_problems` makes every new mutant assert "some problem was printed", which is
+  the exact weakness that let #391 stand.
+- A mutant built with `str.replace` over a recipe constant silently equals its base the day the
+  recipe's shape changes. The loop refuses that; do not widen the guard, change the fixture.
+
+## Record — the issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: `gh pr view
 471 --json reviewDecision,mergeable,mergeStateStatus,headRefOid` at 16:20Z answers `CHANGES_REQUESTED`,

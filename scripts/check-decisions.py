@@ -331,37 +331,124 @@ def layout_problems(label, entries):
 
 
 # The two `verify` recipe lines this file insists on, in the Makefile's own shape: `echo "..."` and
-# the command share a line, so the guard below reads command chunks rather than whole lines.
-RECIPE_GOOD = ('\t@set -e; \\\n'
-               '\techo "== decision-log contract"; python3 scripts/check-decisions.py --self-test; \\\n'
-               '\techo "== decision log"; python3 scripts/check-decisions.py; \\\n'
+# the command share a line, so the guard below reads command chunks rather than whole lines. Each is a
+# constant of its own so `RECIPE_BAD` can delete exactly ONE of them: the two clauses differ only by
+# their argument, and #391 measured what a guard that cannot hold them apart fails to see.
+SELFTEST_RECIPE = '\techo "== decision-log contract"; python3 scripts/check-decisions.py --self-test; \\\n'
+GATE_RECIPE = '\techo "== decision log"; python3 scripts/check-decisions.py; \\\n'
+RECIPE_GOOD = ('\t@set -e; \\\n' + SELFTEST_RECIPE + GATE_RECIPE +
                '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n')
 
-# Three edits that all delete the gate. Each is a `make verify` that runs nothing and reports success,
-# and each keeps the string "check-decisions.py" somewhere in the file, which is what a substring
-# guard reads. Reported by review on #217 (5 Nov) as a guard satisfied by the text that removes it; the
-# shapes here are the ones a person reaches for -- comment a step out, rename the file it calls, or
-# replace the step with one that only mentions it.
+# The two sentences this guard prints, named here because #391's hole was a test that could only ask
+# whether *something* was refused: the gate clause deleted, the self-test clause left behind, `verify`
+# running no decision check at all, and the guard reading clean. `RECIPE_BAD` now asserts which shape
+# earns which sentence, so the two assertions cannot quietly collapse back into one.
+GATE_SENTENCE = ("Makefile: no recipe command runs `python3 scripts/check-decisions.py` without "
+                 "`--self-test`; a gate whose invocation has been deleted, commented out, renamed, or "
+                 "answered only by the self-test clause is a suggestion")
+SELFTEST_SENTENCE = ("Makefile: nothing runs `python3 scripts/check-decisions.py --self-test`; the "
+                     "assertions below then run only when someone remembers they exist")
+
+# Seven shapes that each cost `verify` a step this file needs -- six by taking the step out, the
+# seventh by piping it into `cat` so its exit status dies before the shell sees it. Every one is a
+# `make verify` that runs less than it did and still reports success, and every one keeps the string
+# "check-decisions.py" somewhere in the file, which is what a substring guard reads. The first four
+# were reported by review on #217
+# (5 Nov) as a guard satisfied by the text that removes it, and they are the shapes a person reaches
+# for -- comment a step out, rename the file it calls, or replace the step with one that only mentions
+# it. The last two are #391's pair, reported 14 Nov on the tree at `0673832` and re-measured on this
+# branch's checkpoint in a copy outside the gated tree before anything was written here: the gate
+# clause's command is a literal prefix of the self-test clause's, so a match that stops at the
+# filename reads the self-test line as the gate line, and the bare gate step came off `verify` in one
+# line with no red anywhere -- rc 0 and neither sentence, while the same probe with the SELFTEST clause
+# removed refused with its own sentence.
+#
+# Each case names the sentences it must earn, and a shape earns a sentence exactly when the assertion
+# that sentence states is false. Naming them, rather than insisting that SOME refusal happened, is the
+# point of the pair: `("gate",)` is a Makefile whose self-test still runs, so a guard that answered
+# with the self-test sentence -- or with both, the degenerate shape of one shared "is the command in
+# the file" test -- has not told the reader which step is gone. `("gate", "self-test")` is a file that
+# runs neither, which is what the first four are.
 RECIPE_BAD = {
     "commented": ('\t@set -e; \\\n'
                   '\techo "== decision-log contract"; \n'
                   '#\tpython3 scripts/check-decisions.py --self-test; \\\n'
-                  '#\tpython3 scripts/check-decisions.py; \\\n'),
-    "renamed": RECIPE_GOOD.replace("check-decisions.py", "check-decisions-OLD.py"),
+                  '#\tpython3 scripts/check-decisions.py; \\\n', ("gate", "self-test")),
+    "renamed": (RECIPE_GOOD.replace("check-decisions.py", "check-decisions-OLD.py"),
+                ("gate", "self-test")),
     "mentioned": ('\t@set -e; \\\n'
-                  '\techo "== decision log (check-decisions.py)"; $(MAKE) --no-print-directory quiet; \\\n'),
+                  '\techo "== decision log (check-decisions.py)"; $(MAKE) --no-print-directory quiet; \\\n',
+                  ("gate", "self-test")),
     # The one that survived the guard until 6 Nov: the whole step commented out at column 0, with the
     # invocation sitting after a `;` on the same line. `make verify` here runs nothing, and the file
     # still contains the command as plain text for any guard that reads lines instead of chunks.
     "commented-line": ('\t@set -e; \\\n'
                        '#\techo "== decision log"; python3 scripts/check-decisions.py --self-test; \\\n'
                        '#\techo "== decision log again"; python3 scripts/check-decisions.py; \\\n'
-                       '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n'),
+                       '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n',
+                       ("gate", "self-test")),
+    # The two halves of #391, one clause each. Each file still contains BOTH invocations as text and
+    # runs exactly one of them, so exactly one assertion is false and exactly one sentence is owed.
+    # Asserted as a pair because the hole was one-directional on purpose: the self-test question was
+    # already asked, and only the gate question could be answered by the very line that removed it.
+    "gate-deleted": (RECIPE_GOOD.replace(GATE_RECIPE, ""), ("gate",)),
+    "self-test-deleted": (RECIPE_GOOD.replace(SELFTEST_RECIPE, ""), ("self-test",)),
+    # The seventh is #472's B1, measured on `8f7cd14`: nothing is deleted, the command still runs,
+    # both patterns still match the chunk -- and `| cat` decides the chunk's exit status, so a gate
+    # that fails ends the recipe 0 and `verify` never knows. The same shape is refused in words by
+    # the arm `check-denies.py` and `check-doc-labels.py` carry, which this file's guard is "copied
+    # in shape from". The owed set names the refusal that arm prints as well as the gate's, so a
+    # guard that counted the piped chunk as the step (or printed only the old sentence) is refused.
+    # The entry `H-0311` names the review that measured all of this, and refuses both fakes: a
+    # guard that counted the piped chunk as the step, or printed only the old sentence.
+    "gate-piped": (RECIPE_GOOD.replace(
+        GATE_RECIPE,
+        '\techo "== decision log"; python3 scripts/check-decisions.py | cat; \\\n'),
+        ("gate", "status")),
 }
 
 
+# The two invocations the guard is asked about, as two patterns rather than one. `INVOCATION` still
+# matches the self-test line by design -- the word boundary bars a longer FILENAME, not a longer
+# argument, and a chunk that opens with the bare command IS that command with an argument -- so the
+# caller has to look at which pattern answered before it counts anything. Trying `SELFTEST_INVOCATION`
+# first is how `check-denies.py` and `check-doc-labels.py` already order the same pair.
+INVOCATION = re.compile(r"python3[ \t]+scripts/check-decisions\.py(?![^\s])")
+SELFTEST_INVOCATION = re.compile(r"python3[ \t]+scripts/check-decisions\.py[ \t]+--self-test(?![^\s])")
+
+# The third sentence this guard prints, named beside the other two because it refuses a third thing:
+# the invocation is present, matched, and about to be counted -- and cannot fail the recipe. A gate
+# piped into `cat` is the "is a suggestion" GATE_SENTENCE describes, arrived at by a different road,
+# and the reader is owed which repair fits which shape.
+STATUS_SENTENCE = ("Makefile: `%s` runs where its exit status cannot reach the shell -- a "
+                   "command in an && or || list, or a pipeline, can fail and the recipe "
+                   "still ends 0, so this step can never redden `verify`")
+
+
+def _status_reaches_shell(chunk, end):
+    """Whether a non-zero exit from the invocation ending at `end` can end the recipe.
+
+    Ported from `check-denies.py`, which carries the same function and measured on `b5fd0ca` that
+    `A --self-test && B;` under `set -e` prints nothing and exits 0 when A fails, because errexit
+    ignores every command of an AND-OR list but the last. So "the text is in the recipe" and "the
+    recipe fails when this fails" are two different claims, and only the second one is worth a
+    gate. Anything after the invocation in the same chunk -- `&&`, `||`, a pipe -- means something
+    else decides the status; anything before it means the invocation is last, which is the position
+    that counts. #472's review measured this guard shipping without the arm: the piped gate matched,
+    was counted as the step, and read clean -- while `make` on `false | cat; \\` under `set -e`
+    printed `recipe still ends 0` at rc 0.
+    """
+    tail, head = chunk[end:], chunk[:end]
+    if "||" in tail or "&&" in tail or "|" in tail:
+        return False
+    if "|" in head:
+        return False
+    return True
+
+
 def invocation_problems(recipe):
-    """Given the text of a Makefile, say whether `verify` still runs this script and its self-test.
+    """Given the text of a Makefile, say whether `verify` still runs this script and its self-test
+    -- and whether a failure of either could actually fail `verify`.
 
     A filename substring is the wrong assertion: it is satisfied by a comment, by a commented-out
     recipe line, and by an `echo` that names the script while running something else. So the anchor is
@@ -370,6 +457,14 @@ def invocation_problems(recipe):
     that merely starts the same way. The shapes in `RECIPE_BAD` are asserted against this function in
     `--self-test`, so a later edit that weakens the match has to delete those cases as well.
 
+    Each chunk is counted for its OWN question, which is the half #391 measured missing. The gate
+    clause runs the same command as the self-test clause and differs from it only by the argument that
+    follows, so a guard that matched a chunk and then asked "did we see the command?" let the
+    `--self-test` line answer for the gate: deleting the bare gate step from `verify` refused with
+    neither sentence, while deleting the self-test step refused with its own. The gate question is now
+    "a chunk that runs this script and is not the self-test", so each deletion answers with its own
+    sentence and a Makefile missing both says both.
+
     A comment is tested at the *line*, before the split, not at the chunk. Reported by review on #217
     at 869564a: with the step commented as `#\techo "== decision log"; python3
     scripts/check-decisions.py; ` followed by a line-continuation backslash, make hands that line
@@ -377,9 +472,16 @@ def invocation_problems(recipe):
     put the invocation in chunk two where a `chunk.startswith("#")` test could not see it -- so both
     this gate and its own self-test returned 0 while `make verify` ran neither command. The premise the
     docstring used to carry, that a chunk beginning with `#` cannot match, is what the shell refuted.
+
+    A matched chunk must also be in a position to fail the recipe: #472's review measured that a
+    gate piped into `cat` -- `python3 scripts/check-decisions.py | cat; \\` -- ran, matched, and read
+    clean, while `make` reported rc 0 after its failure, because the last command of a pipeline owns
+    its status. `_status_reaches_shell` is the same arm `check-denies.py` and `check-doc-labels.py`
+    already carry; a refusal that names a chunk it cannot redden is a gate in name only, so such a
+    chunk counts toward neither owed sentence and earns `STATUS_SENTENCE` instead.
     """
     problems = []
-    tails = []
+    found = {"gate": False, "self-test": False}
     for raw in recipe.splitlines():
         if raw.lstrip().startswith("#"):
             # make never hands this line to a shell; nothing on it runs, including whatever follows a `;`.
@@ -388,16 +490,27 @@ def invocation_problems(recipe):
             chunk = chunk.strip()
             if chunk.startswith("#"):
                 continue
-            found = re.match(r"python3[ \t]+scripts/check-decisions\.py(?![^\s])(.*)$", chunk)
-            if found:
-                tails.append(found.group(1))
-    if not tails:
-        problems.append("Makefile: no recipe command runs `python3 scripts/check-decisions.py`; a gate "
-                        "whose invocation has been deleted, commented out, or renamed is a suggestion")
-        return problems
-    if not any("--self-test" in tail for tail in tails):
-        problems.append("Makefile: nothing runs `python3 scripts/check-decisions.py --self-test`; the "
-                        "assertions below then run only when someone remembers they exist")
+            match = None
+            if SELFTEST_INVOCATION.match(chunk):
+                match, kind = SELFTEST_INVOCATION.match(chunk), "self-test"
+            elif INVOCATION.match(chunk):
+                # The gate clause, and anything else that runs this script for real: this is the chunk
+                # whose exit status is the decision gate. #391's shape is a file where this arm never
+                # fires while the arm above does, and that used to read as both assertions holding.
+                match, kind = INVOCATION.match(chunk), "gate"
+            if match is None:
+                continue
+            if not _status_reaches_shell(chunk, match.end()):
+                # #472's B1: text that runs where its status cannot reach the shell is decoration,
+                # not a step, so it counts toward neither owed sentence -- and it is refused by name,
+                # because "deleted" and "decorated" are different repairs for a reader to make.
+                problems.append(STATUS_SENTENCE % chunk)
+                continue
+            found[kind] = True
+    if not found["gate"]:
+        problems.append(GATE_SENTENCE)
+    if not found["self-test"]:
+        problems.append(SELFTEST_SENTENCE)
     return problems
 
 
@@ -1773,34 +1886,58 @@ def self_test():
     # asserts its own. Deleting either line from `verify` makes this run refuse.
     counts[1] += 2
     invocation = verify_invocation()
-    if any("no recipe command runs" in p for p in invocation):
-        fails.append("verify-invocation: `make verify` no longer calls check-decisions.py -- %s"
-                     % invocation)
-    if any("nothing runs" in p for p in invocation):
+    if any(GATE_SENTENCE in p for p in invocation):
+        fails.append("verify-invocation: `make verify` no longer calls check-decisions.py for its "
+                     "decision gate -- %s" % invocation)
+    if any(SELFTEST_SENTENCE in p for p in invocation):
         fails.append("verify-invocation: nothing runs `check-decisions.py --self-test` -- %s"
                      % invocation)
 
     # And the guard on the guard. Asserting only against the live Makefile proves the Makefile is
     # fine today; it says nothing about whether this function would notice it stop being fine, which
-    # is the whole job. Each case below is a Makefile in which `make verify` runs no decision gate at
-    # all while still containing the words "check-decisions.py", so a match weakened back to a
-    # substring turns one of these into a pass and this run refuses.
+    # is the whole job. The first four cases below are Makefiles in which `make verify` runs no
+    # decision gate at all while still containing the words "check-decisions.py", so a match weakened
+    # back to a substring turns one of these into a pass and this run refuses. The last two are
+    # #391's pair, and they are what naming the sentences is for: each deletes ONE clause and leaves
+    # the other running, so a guard that cannot tell the two assertions apart passes both of them --
+    # which is exactly how the bare gate step stayed deletable after the self-test leg went in.
     counts[1] += 1
     if invocation_problems(RECIPE_GOOD):
         fails.append("recipe-good: the Makefile's own shape is refused by the guard -- %s"
                      % invocation_problems(RECIPE_GOOD))
-    for name, recipe in sorted(RECIPE_BAD.items()):
+    for name, (recipe, expect) in sorted(RECIPE_BAD.items()):
         counts[0] += 1
-        found = invocation_problems(recipe)
-        if not found:
+        if recipe == RECIPE_GOOD:
+            # A mutant whose edit found nothing to mutate asserts nothing while printing a green row,
+            # the failure `scripts/mutate.py` refuses outright for the same reason. `gate-deleted` and
+            # `self-test-deleted` are `str.replace` over a constant, so the day `verify`'s recipe
+            # changes shape they silently become RECIPE_GOOD again and every one of them passes.
+            fails.append("recipe-%s: the case's own edit changed nothing, so it asserts nothing -- the "
+                         "Makefile no longer holds the invocation shape this case documents" % name)
+            continue
+        says = invocation_problems(recipe)
+        # `says`, not `found`: the dict `invocation_problems` builds under that name answers
+        # "did a step run", and a list of refusations in the same reader's view under the same
+        # name is how a later edit reads the wrong one. `status` is named by fragment, not by the
+        # constant, because STATUS_SENTENCE is a `%s` template by then.
+        earned = set(n for n, s in (("gate", GATE_SENTENCE), ("self-test", SELFTEST_SENTENCE),
+                                    ("status", "runs where its exit status cannot reach the shell"))
+                     if any(s in p for p in says))
+        if not says:
             fails.append("recipe-%s: a Makefile that runs no decision gate passed the guard; a "
                          "substring is not an invocation" % name)
-        elif not any("no recipe command runs" in p for p in found):
-            # The reason is asserted, not just the refusal. All three Makefiles lack the *command*,
-            # so "nothing runs --self-test" as the only complaint would mean the guard matched
-            # something in a file that runs nothing -- which is the substring behaviour this case
-            # exists to catch.
-            fails.append("recipe-%s: refused for the wrong reason -- %s" % (name, found))
+        elif earned != set(expect):
+            # The reason is asserted, not just the refusal. Before #391 the four cases above were the
+            # whole table and all four asked for the gate sentence, because all four lack the command
+            # outright; nothing asked what a file that keeps the self-test and loses the gate owes. A
+            # guard that answers every question with one sentence, or answers the gate question from
+            # the self-test line, passes that table and leaves the gate step deletable. The seventh
+            # case owes `status` as well as `gate`, which is what pins #472's arm: a guard that
+            # counted the piped chunk as the step says nothing, and one that only missed the step
+            # says `gate` alone.
+            fails.append("recipe-%s: owes %s, says %s -- %s"
+                         % (name, " and ".join(sorted(expect)) or "nothing",
+                            " and ".join(sorted(earned)) or "nothing", says))
 
     # The cross-log id rule, asserted both ways. A collision must be named, and the D-/H- pair that the
     # split exists to allow must not be. Deleting `cross_log_problems`' loop would otherwise leave this
@@ -2583,7 +2720,7 @@ def self_test():
             print("  %s" % f)
         return 1
     print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
-          "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
+          "invocations in `verify`, seven Makefiles each owing a named sentence, the cross-log id rule, "
           "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, and "
           "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
           "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
