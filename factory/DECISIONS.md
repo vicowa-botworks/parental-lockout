@@ -16143,3 +16143,55 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   for the same reason. One leg, `gate: an unreadable heading`, planted in `factory/selftest.sh` above
   the tally block so the count below it does not move. Repairs to the row named above, byte-neutral at
   86 rows changed and none added or removed, and this record.
+
+## H-0318 · An id citation that names no entry is reported with its count and its names, because the count is 152 and a refusal on the first day indicts every branch
+
+- Question: the gate opens `path:line` citations and nothing else, so `` `H-NNNN` `` in prose can name a
+  record that does not exist with `make verify` green. What does it do about that class now?
+- Options: (a) refuse -- every such citation fails `make verify` | (b) report it on the clean run, with
+  the count and the ids named | (c) say nothing until the rows are repaired, then refuse | (d) escalated
+  to a maintainer
+- Chose: (b) report it on the clean run, with the count and the ids named
+- Why: #393 reserved this exact call -- "The ratchet question for that new class is the user's, not a
+  unit's ... so a unit that lands the check should land it as a report-only list first and say how many
+  rows it finds" -- so the shape is asked for, not inferred. The count is why the refusal is not:
+  measured at `origin/main` `25d290478`, 152 citations name 22 ids with no heading in either log, and 21
+  of the 22 have no heading on ANY ref this clone holds (`refs/heads` and `refs/remotes` both swept),
+  `H-0122` on `backup-tip` being the exception. Read as classes rather than as a number: 79 citations of
+  11 ids are fixture names quoted as evidence of a measurement (`D-0001`-`D-0010`, `D-0020`, `D-9999`),
+  never meant to be entries; 35 of 4 are the documented holes and the documented renumber (`H-0031`,
+  `H-0032`, `H-0057`, `D-0027`), each explained in prose on trunk; 31 of 3 are the allocator-race ids
+  named inside the very entries that explain the gap (`H-0260`, `H-0262`, `H-0277`); 4 of 3 are prose
+  about a collision resolved by renumbering (`D-0091`, `D-0094`, `D-0099`); and 3 of 1 is `H-0122`, the
+  stranded record that opened the issue. (a) turns every branch red the day it ships, including the one
+  landing it, and sets a constant over a corpus whose largest class is fixture prose. (c) is the silence
+  the issue names -- count unchanged, exit 0, the pointer false forever. (d) is what the class ends at,
+  but not here: a report refuses nothing and publishes nothing, so nothing irreversible happens while it
+  waits, and the number it prints is what the maintainer needs in order to decide.
+- What it lost: the count does not fall when a pointer is re-aimed, because a record that explains a
+  stranded id necessarily names it: `H-0316` took three citations of `H-0122` out of the log and the prose
+  that explains the re-aim cites it again, so the census books the repair as a dangling mention. Read this
+  report against `origin/main` `25d290478`, where it is 152 and 22, and not against the branch repairing
+  it, where the entries that repair it keep it alive -- its floor is the number of records that explain the
+  gaps, not zero, and the sentence says `Reported, not refused` so the number cannot be read as a verdict.
+  A `#`-qualified mention (`backup-tip:factory/DECISIONS.md#H-0122`) is exempt by design, which makes
+  naming the ref the cheap repair for a stranded id and means the class can be satisfied without restoring
+  anything. And the line is capped at 30 names with the remainder counted, so a corpus that grows past the
+  cap loses the list and keeps the number.
+- Confidence: high on the mechanism -- one leg plants the mention and requires a green run that names the
+  id, and requires the same fixture without the mention to say nothing at all; re-running the leg against
+  the gate as it stood at the previous checkpoint makes it fail on the planted id, so the leg measures the
+  sentence rather than the fixture. Medium on the classification above: the 22 ids and their counts are
+  machine-read, which class each one belongs to is my reading of the prose around it, and the line prints
+  all 22 so a reader can disagree without re-deriving anything.
+- Revisit: the number this prints is the number a `POINTER_DEBT`-shaped constant would take, and that is
+  the user's call (#374 argues the ratchet forbids debt rising without obliging it to fall). When it is
+  set, the fixture-id class and the `#` exemption have to be decided in the same breath or the constant
+  counts `D-9999`.
+- Checkpoint: 7d75b65a2
+- Effect: `scan_id_mentions`, `dangling_line` and `DANGLING_SHOWN` at the bottom of
+  `scripts/check-decisions.py`, called from the clean-run block beside the tally line. That seam -- below
+  every row the two logs quote out of this file -- is what keeps the move invisible to the anchor gate:
+  the citation run before this entry and the run after both print 1258 citations and the same debt of 583,
+  and the entry count moves 385 -> 386 by this entry alone. One leg, `gate: an id citation with no entry`,
+  appended below the leg H-0317 added so nothing above it moves.

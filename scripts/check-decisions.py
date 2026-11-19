@@ -2901,6 +2901,15 @@ def main(argv):
         line = tally_line(len(tally))
         if line:
             print(line)
+        # The id-citation census, over the same corpus the entries were read from -- `where_seen` is the
+        # union of every heading this run parsed, monoliths and filed entries alike, which is exactly the
+        # set a reader following an id expects to land in. A second pass over the texts rather than a
+        # clause in the loop above, because the loop sits above lines the two logs quote by number.
+        dangling = scan_id_mentions([(os.path.relpath(p, ROOT), read(p)[0]) for p in paths],
+                                    set(where_seen))
+        line = dangling_line(dangling)
+        if line:
+            print(line)
     return 0
 
 
@@ -2914,6 +2923,10 @@ def main(argv):
 # guard, which nothing quotes.
 HEADING_LIKE = re.compile(r"^(#{1,6})\s+([DH]-\d{4})\b")
 
+# How many unresolved ids the clean-run sentence names before it says `and N more`. Thirty because the
+# census this shipped under found twenty-three, and a line that holds the whole set is a line a reader
+# can act on without re-deriving the census by hand.
+DANGLING_SHOWN = 30
 
 
 def invisible_heading_problems(text, label):
@@ -2956,6 +2969,71 @@ def invisible_heading_problems(text, label):
                 "refuse on its own fields once it parses; that refusal is the point of this one"
                 % (label, n, shaped.group(2)))
     return problems
+
+
+def scan_id_mentions(pairs, known):
+    """Every `D-NNNN`/`H-NNNN` in the logs' text that names no entry in `known`, with where it sits.
+
+    A heading DEFINES an id; a mention anywhere else CITES it. `HEADING_LIKE` is the test for the first,
+    so a heading line never reports itself, and everything else carrying an id token is a promise that a
+    reader can arrive at a record -- which is what `DECISIONS.md`'s preamble says ids exist for ("Ids are
+    shared across the repository rather than per branch, because `git log --grep 'Decision: D-0011'` has
+    to name exactly one commit"). A mention whose id is in `known` is that promise kept and is dropped;
+    one whose id is in no log is what #393 was filed about.
+
+    Two exemptions, both the issue's own:
+
+    * a token the previous character introduces with `#` -- `backup-tip:factory/DECISIONS.md#H-0122` --
+      names the ref it lives on, so the reader has an address even though the log does not hold it;
+    * a file this run could not read is not a file with no citations. `read()` reports the failure and
+      the caller refuses on it; a census that read it as empty would be a count of nothing.
+
+    Deliberately NOT exempt: an id in a `Checkpoint:` or `Effect:` field. Those are prose a reader
+    follows, and `Decision: H-NNNN` in a commit message is the same promise one layer out.
+    """
+    mentions = []
+    for label, text in pairs:
+        if text is None:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if HEADING_LIKE.match(line):
+                continue
+            for m in ID_TOKEN.finditer(line):
+                if m.group(0) in known:
+                    continue
+                if m.start() and line[m.start() - 1] == "#":
+                    continue
+                mentions.append({"id": m.group(0), "label": label, "line": n,
+                                 "text": line.strip()})
+    return mentions
+
+
+def dangling_line(mentions):
+    """The clean-run sentence about id citations that resolve to nothing, or None when there are none.
+
+    Report-only, and the sentence says so: #393 asks for this class "as a report-only list first and say
+    how many rows it finds", and its own census is the reason. Measured 19 Nov on the tree this entry was
+    written against: the count this function prints is not single figures, so a refusal turned every
+    branch red on the day it shipped -- including the branch whose job is to land the check -- which is
+    the opposite of what a ratchet is for. `POINTER_DEBT` was raised the same way for `path:line` rows
+    and its comment still carries the number it opened at.
+
+    The ids are printed, not just counted, because the set is small enough to act on and a count without
+    the names sends a reader to re-derive the census with a script of their own, which is how #393 had to
+    argue its case. Capped, because the line is one line: the cap is stated rather than silent, so a
+    reader who sees `…` knows there are more and how many more.
+    """
+    if not mentions:
+        return None
+    ids = sorted({m["id"] for m in mentions})
+    shown = ", ".join(ids[:DANGLING_SHOWN])
+    if len(ids) > DANGLING_SHOWN:
+        shown += " and %d more" % (len(ids) - DANGLING_SHOWN)
+    return ("check-decisions: %d id citation(s) in the two logs name %d id(s) no entry in either log "
+            "carries (%s) -- a reader sent to grep for them lands in a hole. Reported, not refused: "
+            "#393 asks for the class as a report first, because these rows predate the rule and a gate "
+            "that refuses every branch on the day it ships cannot be the branch that fixes them"
+            % (len(mentions), len(ids), shown))
 
 
 if __name__ == "__main__":
