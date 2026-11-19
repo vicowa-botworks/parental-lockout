@@ -77,6 +77,11 @@ the gate ran, not before.
   the reviewed head had (353 entries, 1164 citations, 583 debt, 0 refused), and
   `python3 scripts/check-decisions.py --citations` on both edited files names no pointer aimed at
   either edited row, so nothing the logs quote moved.
+- This section's insertion moved every `NEXT.md` row below it down 25 lines, which took 14
+  anchored `NEXT.md:1557`/`NEXT.md:1661` citations in six other units' entries (`H-0252`,
+  `H-0280`–`H-0284`, `H-0286`) off their rows — `make verify` refused them at rc 1 and the repair
+  is the checker's own: re-aim the numbers in the same commit, digits only, anchors re-opened
+  after. That repair is why `H-0291`'s review round ships as two commits, not one.
 - This push lands on a `CHANGES_REQUESTED` head. Whatever the review rows read after it, a
   re-review is owed, and the re-ask is the supervisor's poke (`factory_request_review`,
   `FACTORY_REVIEWER_TEAM`), not a unit's verb.
