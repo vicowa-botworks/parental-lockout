@@ -2780,3 +2780,52 @@ At 00:03:41Z the same tool with `--bytes 20000000`, the figure the issue itself 
 70 of the 240 and evicts 170 of them -- 41,151,232 B of the audit trail, a kept set the size of
 2.4 days at the directory's own measured rate. Both are readings of one minute, and the tool
 re-derives both in the time it takes to ask.
+
+## A tick's session gets no MCP servers, because a grandchild nobody asked for is torn down loudly
+
+The dispatch is `opencode --standalone`, chosen so that the 2700 s ceiling can actually reach the
+server. A private instance reads the user's own configuration, and `opencode` starts every MCP
+server that configuration declares as a child of the instance that read it -- so on a machine whose
+`~/.config/opencode/opencode.json` names MCP servers, every activation puts those servers, and
+everything they in turn start, inside the unit's cgroup. Read from inside an activation on 19 Nov,
+by a session that asked the kernel and not a tool: `/proc/self/cgroup` named
+`/user.slice/user-1000.slice/user@1000.service/app.slice/parental-lockout-factory.service`, and that
+cgroup's `cgroup.procs` held twenty processes, three of them the three configured servers. One is
+`StudioMCP.exe`, a Windows binary under Vinegar's Wine.
+
+Nothing in the harness asks for an MCP server, and a ticket about Go and shell has no use for one.
+What it gets instead is teardown, and systemd keeps that bill. `journalctl --user -u
+parental-lockout-factory.service` read per day on 19 Nov: 17 Nov carries 24 lines of `State
+'stop-sigterm' timed out. Killing.` and 24 kills, every one of them `winedevice.exe`; 18 Nov carries
+6 and 6, again every one `winedevice.exe`; 19 Nov carries none up to the read at 20:18Z, and still
+one activation that day held the teardown 44 s with nothing in the journal to explain it
+(`REAP-HELD hold=44s how=unexplained`, 17:11:09Z -- the `--status` sentence for that is H-0123). The
+kills say a Wine child does not answer `SIGTERM`; the unexplained 44 s says the hour is paid even
+when nothing is killed. The day buckets above are this box's own, rendered at `-05:00`; the report in
+the issue renders the same journal at `+05:30` and so counts a different eleven hours as "today",
+which is why only the total -- 30 timeouts, every one of them `winedevice.exe` -- is a number two
+readings of this machine agree on.
+
+So the dispatch hands the session one policy on `OPENCODE_CONFIG_CONTENT`:
+`{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}`, in the shell as
+`FACTORY_MCP_FENCE` (`factory/common.sh`). The documented semantics are that a denied MCP server is
+removed however it was configured, which is the whole fence. It travels as an environment layer so
+that it belongs to the dispatch and not to a file: the timer, `factory.sh --once` and a hand-run
+pass all fence the same way, and the configuration a person uses interactively is left alone.
+`factory/selftest.sh` pins the value, the hand-over and the layer: that the shipped string parses as
+one deny of every MCP server and that the parser refuses the near misses; that a real tick receives
+it verbatim and sees nothing at all once the dispatch line is replaced by an inert one; and that a
+private `opencode` instance reads the policy out of that layer where the same instance, handed no
+policy, reads the fixture's declared server and no `mcp.use` statement. The two CLI legs SKIP where
+`opencode` is not on PATH, and neither one spends a token.
+
+What the fence has not yet been shown to do is stop a process, only stop a configuration: the
+instrument for that is the unit's cgroup, and only an activation stands in one. The read is
+`awk -F: '$1==0{print $3}' /proc/self/cgroup`, then that path's `cgroup.procs` under
+`/sys/fs/cgroup`, from inside the first tick after the merge -- no MCP server should be in the list,
+and the entry that decided this is `H-0312`.
+
+What the fence is not: a sandbox, and not a statement about any other kind of child. A grandchild a
+tick *does* start -- a compiler, a test runner -- is still in the unit's cgroup and still systemd's
+to kill at the end of the activation; #390's other half, confining what lands there, is a
+tamper-resistance question and has never been decided here.

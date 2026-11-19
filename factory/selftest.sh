@@ -18312,6 +18312,275 @@ proc_leg 'the ticket'"'"'s unit is caught' \
 	'a heading numbered by eye reports UNEARNED with the dispatch'"'"'s own unit and branch' \
 	dpn_w2_leg
 
+# ------------------------------------------------------------------- the MCP fence on the session (#390)
+#
+# Three claims, each in the form a reader can re-run.
+#
+#   1. the shipped value is a fence: it parses, and the one statement it carries denies `mcp.use` on
+#      every resource. Parsed, not grepped, because the CLI drops a statement that fails validation
+#      and keeps the rest of the list -- a near-miss would read as a fenced tick with its servers
+#      running, and the only sign would be a warning in a log nobody reads.
+#   2. the dispatch hands it to the session, byte for byte, and the session sees nothing without it.
+#      The probe is a session: the tick's own `PROC_TICK_ALLOC` arm runs inside the dispatched
+#      `opencode`, so it can say what `OPENCODE_CONFIG_CONTENT` held. The control replaces the
+#      shipped env line with an inert one under `proc_mutate_factory`'s rules -- one hit or refuse.
+#   3. the layer lands in the configuration a private `opencode` instance reads, and does not land
+#      when the fence is not handed over. This one asks the installed CLI, so it SKIPS where
+#      `$FACTORY_OPENCODE` is not on PATH (CI) and where a private instance cannot start. It spends
+#      no tokens and starts no MCP server: `debug config` answers from configuration alone.
+#
+# What these legs do NOT claim, in so many words: that a denied server is never started. The CLI says
+# a denied server is removed however it was configured, and `debug config` proves the deny reaches
+# the instance -- but the instrument for "no grandchild" is the unit's cgroup, and only a real
+# activation stands in one. docs/factory.md names that read for the first tick after the merge.
+#
+# The instrument's own nulls, measured while writing this and recorded because each one is a way to
+# read a green leg about nothing: `opencode mcp list` without `--standalone` asks the shared
+# background service and on this box answers `Managed service port 49374 ... already in use`; with
+# `--standalone` it answered `No MCP servers configured` for a fixture file that declares three
+# servers; and a strict `json.loads` of a whole `debug config` dump fails `Extra data` at line 38,
+# because that command prints more than one JSON document. So the legs below use `--standalone debug
+# config`, decode document by document, and assert the PRESENCE of the declared server in the open
+# dump before they believe its absence of a policy anywhere else.
+
+mcp_fence_work=$work/mcp-fence
+mkdir -p "$mcp_fence_work/home/.config/opencode"
+cat >"$mcp_fence_work/home/.config/opencode/opencode.json" <<'MCPCLI'
+{
+  "mcp": {
+    "fence-probe": { "type": "local", "command": ["/bin/true"], "enabled": true }
+  }
+}
+MCPCLI
+
+# mcp_fence_is_deny <value> -> 0 only when the value parses as a configuration layer carrying exactly
+# one policy statement, and that statement is `mcp.use` on every resource with effect `deny`.
+mcp_fence_is_deny() {
+	python3 -c '
+import json, sys
+try:
+    layer = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(1)
+if not isinstance(layer, dict):
+    sys.exit(1)
+policies = layer.get("policies")
+if not isinstance(policies, list) or len(policies) != 1:
+    sys.exit(1)
+statement = policies[0]
+if not isinstance(statement, dict):
+    sys.exit(1)
+got = (statement.get("action"), statement.get("resource"), statement.get("effect"))
+sys.exit(0 if got == ("mcp.use", "*", "deny") else 1)
+' "$1"
+}
+
+mcp_fence_shape_leg() {
+	mcp_fence_is_deny "$FACTORY_MCP_FENCE" && return 0
+	printf '            the shipped fence is not one deny of every MCP server. The CLI drops a\n' >&2
+	printf '            statement that fails validation and keeps the rest of the list, so a near-miss\n' >&2
+	printf '            here is a tick with no fence and a warning in a log nobody reads:\n' >&2
+	printf '              %s\n' "${FACTORY_MCP_FENCE-<unset>}" >&2
+	return 1
+}
+proc_leg 'the fence is a fence' \
+	'FACTORY_MCP_FENCE parses as a layer whose one policy denies mcp.use on every resource' \
+	mcp_fence_shape_leg
+
+# The parser's own nulls and near misses, asked in the leg's own shadow: a probe that answers yes to
+# an empty policy list, to an `allow`, or to a later `allow` would pass on any string carrying the
+# word `deny`, and the leg above would be a fixture that cannot fail.
+mcp_fence_rejects_leg() {
+	local bad
+	for bad in '' '{}' '{"policies":[]}' '{"policies":{}}' 'not json at all' \
+		'{"policies":[{"action":"mcp.use","resource":"*","effect":"allow"}]}' \
+		'{"policies":[{"action":"tool.use","resource":"*","effect":"deny"}]}' \
+		'{"policies":[{"action":"mcp.use","resource":"github","effect":"deny"}]}' \
+		'{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"},{"action":"mcp.use","resource":"x","effect":"allow"}]}'; do
+		if mcp_fence_is_deny "$bad"; then
+			printf '            the parser accepted %s, which is not one deny of every MCP server:\n' "$bad" >&2
+			printf '            the leg above would go green on a fence that does not fence.\n' >&2
+			return 1
+		fi
+	done
+	return 0
+}
+proc_leg 'and every near miss is refused' \
+	'the same parser refuses no layer, no policies, an allow, another action, one named server, and a later allow' \
+	mcp_fence_rejects_leg
+
+# The session's side of leg 2: say out loud what the dispatch handed this session, then earn a
+# decision id so the tick looks like a tick to everything else the pass checks. The answer lands in
+# `$FACTORY_RUN`, the one run-scoped directory a session can name from the inside -- the fixture pass
+# exports it (proc_run's own env line) and `common.sh:380` gives a real tick the same variable for
+# the same purpose. A planted file in the tree would be dirt the pass has to mirror, and this leg is
+# about an environment variable, not about a tree.
+mcp_fence_session=$mcp_fence_work/session.sh
+cat >"$mcp_fence_session" <<'MCPFENCES'
+#!/usr/bin/env bash
+set -eu
+printf '%s\n' "${OPENCODE_CONFIG_CONTENT-<absent>}" >"$FACTORY_RUN/mcp-fence.txt"
+cd -- "$1"
+next=$(bash factory/next-decision-id.sh DECISIONS.md)
+printf '## %s · an id earned behind the fence\nbody\n' "$next" >>DECISIONS.md
+git add DECISIONS.md
+git commit -qm "docs(decisions): $next"
+MCPFENCES
+
+proc_new mcp-w1
+proc_tick_alloc=$mcp_fence_session
+proc_plant
+proc_run mcp-w1-1
+proc_tick_alloc=''
+mcp_w1_seen=$(cat "$proc_rundir/mcp-fence.txt" 2>/dev/null || printf '<unreadable>')
+mcp_w1_leg() {
+	[ "$mcp_w1_seen" = "$FACTORY_MCP_FENCE" ] && return 0
+	printf '            the session read %s from OPENCODE_CONFIG_CONTENT, not the shipped fence, so\n' \
+		"'$mcp_w1_seen'" >&2
+	printf '            whatever fenced that tick, it was not this dispatch:\n' >&2
+	printf '              want: %s\n              got:  %s\n' "$FACTORY_MCP_FENCE" "$mcp_w1_seen" >&2
+	return 1
+}
+proc_leg 'the dispatch hands it over' \
+	'a real tick receives FACTORY_MCP_FENCE verbatim in OPENCODE_CONFIG_CONTENT' \
+	mcp_w1_leg
+
+# The control drops the one env line and hands the session nothing in its place. Without this the
+# leg above cannot tell the dispatch's work from the environment's: a box whose own config happens to
+# carry a policy, or a value inherited from whoever started the pass, reads identical from the inside.
+proc_new mcp-w1c
+proc_mutate_factory 'OPENCODE_CONFIG_CONTENT="$FACTORY_MCP_FENCE"' \
+	"		FACTORY_MCP_FENCE_DROPPED=1 \\" || proc_mcp_w1c_planted=0
+proc_tick_alloc=$mcp_fence_session
+proc_plant
+proc_run mcp-w1c-1
+proc_tick_alloc=''
+mcp_w1c_seen=$(cat "$proc_rundir/mcp-fence.txt" 2>/dev/null || printf '<unreadable>')
+mcp_w1c_leg() {
+	if [ "${proc_mcp_w1c_planted:-1}" = 0 ]; then
+		printf '            the env line could not be dropped, so this control ran the shipped dispatch\n' >&2
+		printf '            and whatever it saw is the shipped code handing it over.\n' >&2
+		return 1
+	fi
+	[ "$mcp_w1c_seen" = '<absent>' ] && return 0
+	printf '            with the dispatch line gone the session still read %s: the fence has another\n' \
+		"'$mcp_w1c_seen'" >&2
+	printf '            source than the tick'"'"'s own environment, and the leg above is not the\n' >&2
+	printf '            dispatch doing it.\n' >&2
+	return 1
+}
+proc_leg 'and nothing else does' \
+	'with that line replaced the session reads no OPENCODE_CONFIG_CONTENT at all' \
+	mcp_w1c_leg
+
+# Leg 3 asks the installed CLI which configuration a private instance actually reads. Both dumps are
+# taken here, outside the legs, so a box that cannot answer is reported once as a SKIP instead of
+# failing two legs for the same missing capability.
+mcp_cli_dump() { # <content> -> whatever `debug config` printed, or a non-zero status
+	local content=$1
+	HOME="$mcp_fence_work/home" XDG_CONFIG_HOME="$mcp_fence_work/home/.config" \
+		OPENCODE_CONFIG_CONTENT="$content" \
+		timeout --signal=TERM --kill-after=5 90 "$FACTORY_OPENCODE" --standalone debug config 2>&1
+}
+
+# mcp_cli_documents -> every JSON document of a `debug config` dump, re-emitted as one array. Exits 2
+# on anything that is not a sequence of JSON documents: a leg may not fall back to a substring of
+# unparsed bytes and call it a parse.
+mcp_cli_documents() {
+	python3 -c '
+import json, sys
+raw = sys.stdin.read()
+dec, i, docs = json.JSONDecoder(), 0, []
+while True:
+    while i < len(raw) and raw[i] in " \t\r\n":
+        i += 1
+    if i >= len(raw):
+        break
+    try:
+        obj, i = dec.raw_decode(raw, i)
+    except Exception:
+        sys.exit(2)
+    docs.append(obj)
+if not docs:
+    sys.exit(2)
+json.dump(docs, sys.stdout)
+'
+}
+
+mcp_cli_open=$(mcp_cli_dump '{}') || mcp_cli_open_rc=$?
+mcp_cli_open_rc=${mcp_cli_open_rc:-0}
+mcp_cli_open_doc=$(printf '%s' "$mcp_cli_open" | mcp_cli_documents 2>/dev/null) || mcp_cli_open_doc=''
+if [ "$mcp_cli_open_rc" != 0 ] || [ -z "$mcp_cli_open_doc" ]; then
+	printf '  SKIP  %-34s %s could not answer a private instance (rc=%s), so there is no CLI here\n' \
+		'the fence in the CLI config layer' "$FACTORY_OPENCODE" "$mcp_cli_open_rc"
+	printf '        to ask which layer it reads. The two legs about the shipped value and the\n'
+	printf '        dispatch above do not need it, and they ran.\n'
+elif ! printf '%s' "$mcp_cli_open_doc" | grep -q 'fence-probe'; then
+	# Not a skip: the fixture is the thing that failed. A dump that never named the declared server
+	# would "prove" the fence removed it while removing nothing at all.
+	mcp_cli_pre_leg() {
+		printf '            the fixture declares an MCP server named `fence-probe` under a pinned HOME\n' >&2
+		printf '            and XDG_CONFIG_HOME, and the CLI read none of it, so a fenced dump that\n' >&2
+		printf '            names no server would be the fixture'"'"'s silence, not the fence'"'"'s work:\n' >&2
+		printf '%s\n' "$mcp_cli_open" | head -6 | sed 's/^/              /' >&2
+		return 1
+	}
+	proc_leg 'the probe can see a server' \
+		'an open private instance reads the fixture'"'"'s declared MCP server' \
+		mcp_cli_pre_leg
+else
+	mcp_cli_fenced=$(mcp_cli_dump "$FACTORY_MCP_FENCE") || mcp_cli_fenced_rc=$?
+	mcp_cli_fenced_doc=$(printf '%s' "$mcp_cli_fenced" | mcp_cli_documents 2>/dev/null) || mcp_cli_fenced_doc=''
+
+	mcp_cli_open_pure_leg() {
+		printf '%s' "$mcp_cli_open_doc" | grep -q 'mcp.use' && {
+			printf '            the OPEN dump already carries an `mcp.use` policy, so the fenced dump\n' >&2
+			printf '            beside it proves nothing: the fixture is not starting from no policy.\n' >&2
+			return 1
+		}
+		return 0
+	}
+	proc_leg 'the open layer has no policy' \
+		'with no fence handed over, the instance reads the probe server and no mcp.use statement' \
+		mcp_cli_open_pure_leg
+
+	mcp_cli_fenced_leg() {
+		if [ -z "$mcp_cli_fenced_doc" ]; then
+			printf '            the fenced dump is not JSON this file can decode (the dump rc=%s),\n' "${mcp_cli_fenced_rc:-0}" >&2
+			printf '            so nothing below can say the policy reached the instance:\n' >&2
+			printf '%s\n' "$mcp_cli_fenced" | head -6 | sed 's/^/              /' >&2
+			return 1
+		fi
+		printf '%s' "$mcp_cli_fenced_doc" | grep -q 'mcp.use' || {
+			printf '            OPENCODE_CONFIG_CONTENT carrying the shipped fence produced no\n' >&2
+			printf '            `mcp.use` statement in what a private instance reads. The layer is not\n' >&2
+			printf '            a configuration source on this build, and a tick would run every\n' >&2
+			printf '            server the user configured:\n' >&2
+			printf '%s\n' "$mcp_cli_fenced" | head -6 | sed 's/^/              /' >&2
+			return 1
+		}
+		printf '%s' "$mcp_cli_fenced_doc" | grep -q '"deny"' || {
+			printf '            the fenced dump names mcp.use without a deny effect, which is the\n' >&2
+			printf '            near miss the parser leg above refuses on the shipped value:\n' >&2
+			return 1
+		}
+		# The declaration stays: a denied server is removed from use, not from the configuration. An
+		# earlier probe of this file treated the server's disappearance as the success condition and
+		# would have failed a fence that works.
+		printf '%s' "$mcp_cli_fenced_doc" | grep -q 'fence-probe' || {
+			printf '            the fenced dump no longer names `fence-probe`. That is not what a deny\n' >&2
+			printf '            does to a configuration -- so the dump on this build is not the one the\n' >&2
+			printf '            open case read, and the comparison above is not between two dumps of\n' >&2
+			printf '            one fixture.\n' >&2
+			return 1
+		}
+		return 0
+	}
+	proc_leg 'the fence lands in the layer' \
+		'the same instance, handed FACTORY_MCP_FENCE, reads one mcp.use deny beside the probe server' \
+		mcp_cli_fenced_leg
+fi
+
 # --------------------------------------------------------------------------- the refs the pass reads
 #
 # H-0075 (#256). Everything the pass decides is a reading of refs: `triage.sh` reports this tree's
@@ -25327,6 +25596,136 @@ claim_leg 'trunk: dry-run promises' tci_dry
 claim_leg 'trunk: branch argument' tci_branch_arg
 claim_leg 'trunk: defaults to FACTORY_BASE' tci_branch_env
 
+# ---------------------------------------------------------------- the capture that must not end the pass
+#
+# `mcp_cli_dump` is called from two top-level statements, and this file runs `set -euo pipefail` at its
+# own top: a top-level `x=$(f)` whose status is non-zero ends the file where it stands, so the status
+# never reaches the arm written to read it. Measured on the #473 runner at `55c74aa`, 19 Nov: the last
+# `ok` the pass printed was the dispatch control, the very next statement was the open dump, and the job
+# ended `RUN INCOMPLETE -- died with exit 127 after 669 ok and 0 FAIL, before any verdict` at 21:19Z and
+# named no leg. The runner has no `opencode` on PATH, `FACTORY_OPENCODE` defaults to that bare word,
+# `timeout` reports 127 for a binary that is not there, and the SKIP arm written for exactly that box sat
+# one statement downstream of a fatal one -- so the runner could not arrive at the verdict it was owed,
+# and the check went red with nothing in it to read. `factory_preflight` refuses a *tick* over a missing
+# CLI, but `make verify` is not a tick: the pass owes its own verdict, and a status is only useful to a
+# shell that lives to read it.
+#
+# Reproduced on this box at the same commit by taking the CLI off PATH rather than pretending it was
+# missing -- `env -u FACTORY_OPENCODE PATH=<a PATH carrying no opencode> bash factory/selftest.sh` -- and
+# the reproduction is the runner's line byte for byte, `669 ok and 0 FAIL`, exit 127. Same PATH, this
+# repair: `896 passed, 0 failed`, and the SKIP arm prints `opencode could not answer a private instance
+# (rc=127)`. The legs below are pinned to a shape measured in both directions and not to the box they
+# happen to run on: their fixture is a binary that cannot exist on either, so they answer the same with
+# the CLI present and with it absent, and the leg that fixes the red `verify` is red on the head that
+# shipped the red `verify`.
+#
+# So both captures carry `|| <var>_rc=$?`, and the open one's status is defaulted on the line after it,
+# because the SKIP printf reads that name under `set -u`. Pinned by legs and not left as prose, for the
+# reason this file already gives elsewhere (`no scan can kill the step`): the shape has been warned about
+# in this file's own comments twice and came back anyway, and a warning that does not fail is not a
+# guard.
+#
+# The block sits here, and not beside the captures it tests, because of where this file's readers are.
+# `python3 scripts/check-decisions.py --citations factory/selftest.sh`, run this round before the edit,
+# counts 220 pointers into this file and 163 of them carry the quotation the gate compares -- so one line
+# inserted above any of their coordinates is 163 refusals. The highest coordinate any of them names is
+# 25590, read off every row because the listing is sorted by entry and not by number, and nothing in the
+# tracked tree is cited above it: `NEXT.md` reaches 21732, `scripts/check-decisions.py` 11568,
+# `docs/factory.md` 4120. A block added below 25590 therefore moves no promise anyone wrote. Added above
+# it, the anchored rows go red for the next unit to find and the 57 that carry no quotation move in
+# silence, because the gate compares only what it can open. Anyone who moves this block up owes that
+# command on both sides of the move.
+mcp_cap_work=$work/mcp-capture
+
+# mcp_cap_fn <name> [sed expr] -> a sourceable fixture: the two shipped capture statements, over
+# `mcp_cli_dump` itself copied out of this file rather than transcribed -- the way the refresh legs take
+# `factory.sh`'s function, because a transcription is a second source that drifts and the legs would
+# pin the copy instead of the code. The mutation is applied when an expression is given, and a mutation
+# that changes no bytes is a refusal rather than a passing control: a control that did not fire proves
+# nothing. Both scans are anchored and spell the subject's `=` as `=[$](`, so neither line matches its
+# own pattern -- a scan that finds itself can never report finding nothing, and the count is the thing
+# that tells a rename from a shipped shape.
+mcp_cap_fn() { # <name> [sed expr] -> the fixture's path, or a refusal
+	local fn=$mcp_cap_work/$1 expr=${2:-} n
+	mkdir -p -- "$mcp_cap_work" || return 1
+	n=$(grep -c '^[[:space:]]*mcp_cli_[a-z]*=[$](mcp_cli_dump ' "$HERE/selftest.sh") || n=0
+	[ "$n" = 2 ] || {
+		pos_say "the shipped captures are not the two these legs read: the scan found $n, want 2."
+		pos_say 'The scan is the subject: a rename of either statement, or a third call site,'
+		pos_say 'changes what is pinned here. Fix the scan and the legs together, never the tally.'
+		return 1
+	}
+	{ awk '/^mcp_cli_dump\(\)/,/^}/' "$HERE/selftest.sh"
+		grep '^[[:space:]]*mcp_cli_open=[$](mcp_cli_dump ' "$HERE/selftest.sh"
+		grep '^[[:space:]]*mcp_cli_fenced=[$](mcp_cli_dump ' "$HERE/selftest.sh"; } >"$fn" || return 1
+	grep -q '^mcp_cli_dump()' "$fn" || {
+		pos_say 'mcp_cli_dump is not in this file in the shape the fixture copies it in, so these'
+		pos_say 'legs would run a capture that is not the shipped one.'
+		return 1
+	}
+	if [ -n "$expr" ]; then
+		sed "$expr" "$fn" >"$fn.mut" || return 1
+		cmp -s "$fn.mut" "$fn" && return 1
+		mv -- "$fn.mut" "$fn" || return 1
+	fi
+	printf '%s' "$fn"
+}
+
+# mcp_cap_run <fixture> -> `alive|<rc>` when both shipped captures answered and the shell that ran them
+# is still standing, `died|<exit>` when one of them ended it. The subshell runs the pass's own contract
+# -- `set -euo pipefail`, then `.` -- which is the shipped statements executing at the top level of a
+# shell that cannot afford their status, and the inputs arrive as positional parameters so the fixture
+# holds no value the shipped statements did not already read. The status is read out of the global the
+# shipped guard sets in that same shell: taking it through `$(…)` would put the guard inside a
+# subshell and report the wrapper's exit about a fixture that was fine.
+mcp_cap_run() { # <fixture> -> the verdict
+	local out rc=0
+	out=$(bash -c 'set -euo pipefail
+			FACTORY_OPENCODE=$2 mcp_fence_work=$3 FACTORY_MCP_FENCE=$4
+			. "$1"
+			printf "%s" "${mcp_cli_open_rc:-<unset>}"' _ "$1" \
+			mcp-cap-no-such-cli "$mcp_cap_work" "$FACTORY_MCP_FENCE" 2>/dev/null) || rc=$?
+	if [ "$rc" = 0 ]; then printf 'alive|%s' "${out:-<empty>}"; else printf 'died|%s' "$rc"; fi
+}
+
+mcp_cap_leg() {
+	local fn v
+	fn=$(mcp_cap_fn shipped) || {
+		printf '            the shipped captures could not be extracted from this file, so this leg\n' >&2
+		printf '            read nothing about them\n' >&2
+		return 1
+	}
+	v=$(mcp_cap_run "$fn") || v='<refused>'
+	[ "$v" = 'alive|127' ] && return 0
+	printf '            the shipped captures, aimed at a CLI that cannot exist, answered %s. They owe\n' "$v" >&2
+	printf '            alive|127: 127 is what an absent binary reports, and staying alive is what the\n' >&2
+	printf '            SKIP arm downstream needs in order to say so. A capture that dies where it\n' >&2
+	printf '            stands takes the whole pass with it and prints neither a FAIL line nor a tally,\n' >&2
+	printf '            which is the shape that left this pull request BLOCKED with nothing to read.\n' >&2
+	return 1
+}
+proc_leg 'the capture cannot end the pass' \
+	'an absent CLI reports 127 to a caller that lives to print the SKIP' \
+	mcp_cap_leg
+
+mcp_cap_ctl_leg() {
+	local fn v
+	fn=$(mcp_cap_fn unguarded 's/ || mcp_cli_[a-z]*_rc=\$?//') || {
+		printf '            the guard could not be taken out of the extracted captures, so this\n' >&2
+		printf '            control no longer reproduces the shape it was written for\n' >&2
+		return 1
+	}
+	v=$(mcp_cap_run "$fn") || v='<refused>'
+	[ "$v" = 'died|127' ] && return 0
+	printf '            the guard-less captures answered %s, so the ok above is the fixture agreeing\n' "$v" >&2
+	printf '            by accident and not the guard doing it: the unguarded assignment is the shape\n' >&2
+	printf '            that killed the runner, and this control is the only thing that shows it still\n' >&2
+	printf '            would. Fix the mutation, not the leg.\n' >&2
+	return 1
+}
+proc_leg 'control: the capture ends the pass' \
+	'drop the ` || rc=$?` and the same fixture dies at 127 before any caller can answer' \
+	mcp_cap_ctl_leg
 # Integration: real `factory.sh` activations through the proc fixture, pinning the three things
 # the function-level legs cannot reach -- that the wiring runs, where in the pass it runs, that it
 # runs ONCE per activation rather than per unit, and that a red trunk halts nothing (report-only
