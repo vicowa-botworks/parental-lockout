@@ -14680,7 +14680,7 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   side only means both entries survive unchanged, and the only re-aiming is of citations whose
   quoted anchor drifted on one side, which the anchor uniquely re-fixes; where the same digit
   carries two decisions, or an anchor is ambiguous, or a non-log conflicts in the same merge, the
-  arbiter refuses (reason=same-digit, anchor rows, no-log-conflict) and aborts with the conflict
+  arbiter refuses (`id-collision`, `anchor-debt`, `other-conflict`) and aborts with the conflict
   exactly as the pre-#381 arm left it, so the collision case keeps the four-step human procedure
   of "the side that has not merged yields" and the tick it always cost. The gate is not a new
   arbiter: the manual resolution in `docs/factory.md` already ends by running
@@ -14691,7 +14691,8 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   back and journals `CONFLICT-READBACK`, deciding nothing itself because GitHub recomputes
   asynchronously, and existing precisely because that gap is where a hand-merge once hid. What
   lost: one function is now two roads and both need fixture boxes, two more proc legs standing
-  guard; the union never renumbers, so same-digit collisions cost what they cost before -- the 30%
+  guard; the union never renumbers, so a shared-digit collision over two different decisions
+  costs what it cost before -- the 30%
   falls by the routine shape, not the whole; and running the arbiter inside the tree costs a
   byte, measured: the first union box journalled `TREE-QUARANTINED ... untracked:
   scripts/__pycache__/check-decisions.cpython-314.pyc` -- importing the gate wrote bytecode
@@ -14833,3 +14834,39 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   own step is a drift source for every `Makefile:line` row above its seam -- so the step
   sits at the recipe's tail, below every line any log anchors to.
 - Checkpoint: f6a1766
+
+## H-0295 · H-0290's record named two reason tokens the code never emitted, and a future audit greps for exactly what the record names: the unmerged entry was corrected in place, and the correction itself is the entry you are reading
+
+- Question: #460 finding 1 measured that H-0290's `Why:` says the arbiter refuses with
+  `reason=same-digit` and `non-log` while the emitted tokens are `id-collision` and
+  `other-conflict` -- neither invented token appears in the script -- and H-0290's own
+  argument for a fixed vocabulary is "the journal counts by cause", so the day someone
+  audits why unions refuse, they grep the journal for the names the record hands them and
+  read a refusal rate of zero for causes the code names differently. Correct a published
+  record by annotation or in place, and does the answer change because this entry has not
+  merged?
+- Options: edit H-0290's two sentences in place, since the entry is this pull request's own
+  unmerged work, and answer the review on the pull request | append a dated annotation to
+  H-0290 quoting the wrong tokens and naming the right ones, the way the renumbering
+  precedents annotate | leave the entry and correct only the PR body, where a reader is
+  standing today
+- Chose: edit H-0290's two sentences in place, since the entry is this pull request's own
+  unmerged work, and answer the review on the pull request
+- Why: an annotation is for a claim that was TRUE when published and the tree moved -- the
+  renumbering precedents annotate exactly that -- and these two sentences were never true:
+  no commit ever emitted `same-digit`, so an annotation would immortalize a fiction the
+  entry told about its own code, and the log's contract is that a reader can go and look.
+  H-0290 is not in `main`; nothing outside this branch has read it, and a review comment is
+  the designed moment to fix a PR's own record -- #433's read-back discipline exists because
+  merged claims are immutable, not as a rule that an unreleased entry may not be corrected
+  before release. The second sentence needed the same pass for a reason the review did not
+  name: after the coordinate-only rule, "same-digit collisions" would have described
+  accepted drift as refused, so it names the collision that remains (`a shared-digit
+  collision over two different decisions`). What lost: in-place correction leaves no trace
+  of the wrong tokens in the log itself -- the audit trail is this entry plus the review
+  thread on #460, and anyone who read the pre-correction branch text will find the record
+  quietly different; and `main` advanced while this PR sat, so if another branch's copy of
+  H-0290's sentences merged first, the union's own `id-collision` refusal on the differing
+  entry is the loud failure that surfaces the clash, which is the designed path, not a
+  silent one.
+- Checkpoint: fa8e253
