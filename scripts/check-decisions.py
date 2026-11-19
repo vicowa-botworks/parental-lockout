@@ -2812,6 +2812,9 @@ def main(argv):
         shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
                        if SHA.match(e["fields"].get("Checkpoint", "").strip())})
         problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+        # Everything above this line judges the list `parse` returned, so the first rule that has to
+        # look at the raw bytes is the one that asks whether that list is the whole log.
+        problems += invisible_heading_problems(text, label)
         cites = scan_citations(text, entries, index)
         for c in cites:
             c["label"] = label
@@ -2899,6 +2902,60 @@ def main(argv):
         if line:
             print(line)
     return 0
+
+
+# The one regex in this file that is deliberately WIDER than `ENTRY`, and therefore the only way this
+# gate can see an entry it has no power to read. Kept beside the rule it serves, below `main`, because
+# the two logs quote this file by line: `--citations scripts/check-decisions.py` lists every one, and
+# the three anchored rows nearest this end of the file -- the `--log` rationale comment and
+# `problems += layout_problems(label, entries)` -- sit ABOVE the seam where a per-file rule can still be
+# called from, so the call went below them and this definition goes below all of them. Anything inserted
+# above a quoted row moves a published coordinate; this seam moves the two lines of the `__main__`
+# guard, which nothing quotes.
+HEADING_LIKE = re.compile(r"^(#{1,6})\s+([DH]-\d{4})\b")
+
+
+
+def invisible_heading_problems(text, label):
+    """Every heading-shaped line the entry parser cannot read: an entry no other rule in this file sees.
+
+    `parse` finds an entry with `ENTRY`, and every other rule here walks the list `parse` returns --
+    the required fields, the `Options` count, the `Chose:`-against-`Options` agreement, checkpoint
+    existence, id reuse and ordering, the filed-file layout rule, the cross-log duplicate. A line that
+    puts an id where a heading belongs, in a shape `ENTRY` does not accept, is therefore never refused
+    as malformed. It is INVISIBLE: the run containing it prints a clean headline one entry short of the
+    truth, and the citations that name that id read to whoever follows them as dangling -- which is how
+    #393 found the one that was genuinely dangling, and found this shape on the same pass.
+
+    Measured 19 Nov taking the census that issue asked for, on `origin/main` at `25d2904`: the two logs
+    answer `382 entries`, and 383 lines in them start with `## ` and an id. The extra line separates its
+    id from its title with an em-dash where `ENTRY` wants `·`, `|` or `-`. The entry was not thin --
+    `Question`, `Options`, `Chose`, `Why`, `Checkpoint`, `Effect`, `Confidence`, `Revisit`, `Scope` and
+    `Status` are all in it and its checkpoint resolves -- and `make verify` had been green over it for
+    two days with none of the rules above ever handed its bytes. Making it visible was one character of
+    punctuation plus the bullets its fields were already using, and it then refused twice on its own
+    field shapes before it passed: which is what a record owes, and exactly what invisibility withheld.
+
+    The boundary, measured on the same tree: this reads a line that BEGINS with one-to-six `#`, a space
+    and an id, so a counterexample printed at the start of a fenced line would refuse here too. Neither
+    log holds one -- every non-`##` heading level shape in both logs counts zero, and the fenced copies
+    of log rows in this repository are in `docs/factory.md`, which is not a log. Quote a malformed shape
+    inside a sentence rather than as a line of its own; `self_test` already refuses to print an example
+    heading `ENTRY` cannot read, which is the same obligation from the writing side.
+    """
+    problems = []
+    for n, line in enumerate(text.splitlines(), 1):
+        shaped = HEADING_LIKE.match(line)
+        if shaped and not ENTRY.match(line):
+            problems.append(
+                "%s:%d: %s is a heading-shaped line the entry parser cannot read, so this gate counts "
+                "no entry there and runs no rule on the record under it -- not its fields, not its "
+                "checkpoint, not id reuse or ordering -- while `--citations` and a reader both see an id "
+                "that resolves to nothing. `ENTRY` wants the id, then one of these separators, then a "
+                "title: `## D-0001 · the question that was asked`. Expect the newly visible entry to "
+                "refuse on its own fields once it parses; that refusal is the point of this one"
+                % (label, n, shaped.group(2)))
+    return problems
 
 
 if __name__ == "__main__":

@@ -13061,92 +13061,92 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 - Effect: six paths differ between the parents and all six move in this commit. Two are resolved by hand here -- `factory/DECISIONS.md` and `NEXT.md`; four arrive from trunk whole, each with both sides' rows accounted: `docs/factory.md` 2278 rows at the base, 2379 on this branch, 2442 merged = 2278 + 101 + 63; `factory/selftest.sh` 21410, 21727, 22291 = 21410 + 317 + 564; `factory/common.sh` 4695 untouched by this branch, 4813 merged, all of trunk's growth; `factory/factory.sh` 1850 on both base and this branch, 1861 merged, trunk's +11 alone. `factory/DECISIONS.md`: 12451 base rows + 238 from this branch's four entries + 201 from trunk's two = 12890 unioned rows, 12891 with the dated Correction bullet inside `H-0237`, 12901 with this entry; 236 `^## H-` headings, of which 235 are the union, `229 + 4 + 2`; ids ascending, with `H-0240` absent here by design (it stands on `refs/heads/issue-362`, one above this id). Each parent's entries are byte-identical to its own parent's copy with that one declared exception, its `Why:` left standing, per `H-0238`'s precedent. Proofs, all re-runnable: the union's entry line-multiset equals ours' block plus trunk's block minus one copy of the shared seam, so nothing was dropped and nothing duplicated; every non-blank row either parent added over the base is present in the merged tree as written, except the 16 rows this unit's own pointer repair re-aimed by digits, and all 16 are present digit-folded; the pre-repair and post-repair logs differ on exactly 15 rows and their digit-folded diff is empty; `^reached_verdict=1$` still occurs exactly once in `factory/selftest.sh` across base, ours, main and merged, because a duplicated terminal verdict line would make the suite's own tally print twice and lie; `bash -n` clean on `factory/common.sh`, `factory/factory.sh`, `factory/selftest.sh`. Pointers: 42 anchored citations re-aimed across 15 rows, and one bare pointer re-aimed because the merge had moved it onto a blank row -- `H-0169`'s pointer at line 5422 of `factory/selftest.sh`, a printf of `PROC_MUT_LINE`, now names line 5526, which holds it and one like it nowhere else. `NEXT.md`: the conflict region held only the two parents' head blocks -- markers at rows 1, 142 and 242, ours 139 rows, trunk's 100 -- so this merge's one deletion is the prose each side wrote about its own round, which is why the resolved head states the two `git show` commands that still read them whole. What is carried is verified, not assumed: every one of ours' 874 rows from `## Queue state the fifth tick read` down is present in the resolved file, raw, 0 absent, owed items 1-52 unrenumbered and contiguous, and trunk added nothing below that heading, measured in both directions. This unit adds item 53 and one re-measurement section. GATE on these exact bytes: `python3 scripts/check-decisions.py` reads rc 0 -- 307 entries, 876 citations, 546 owing an anchor, 0 unopenable, 0 broken anchors, `POINTER_DEBT` held at the recorded 546 with nothing added -- and `make verify`, run with `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` unset from the tick environment, has its exit code and its last line quoted in the pull-request comment beside the sanitization named, per the `H-0230` practice, never from memory (#1180). The push into a pull request that reads `APPROVED` spends that approval without either command saying so; the post-push `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus` is quoted in the same comment, and re-asking a reviewer is the supervisor's poke (`factory_request_review`), not this unit's to write. Nothing merged, no label written, no reviewer asked, no machine-level configuration touched, and only this branch's own ref pushed. Roll back with `git revert -m 1` of the commit this row rides; `a84bde4` is the checkpoint beneath it.
 - What lost: the concatenation, and with it the illusion that a merge of two appends is free. The union also interleaves the parents, so `H-0236` and `H-0239` now read *above* `H-0237` and `H-0238` -- a reader following a forward reference upward, which is what the ascending rule costs and what the log has always paid. Four parent-relative sentences go false on the merged tree and are listed with what they answer here rather than rewritten: `H-0237`'s "`H-0236` appears in neither decision log of this tree -- `grep -c '^## H-0236'` answers 0 against `HEAD` and 0 against `origin/main`" answers **1 and 1** here, and its Correction bullet says so in the entry itself; `H-0236`'s "This branch's own log tops out at `H-0233` … `H-0234` and `H-0235` are held by refs this checkout does not carry" stays true of `issue-341`'s tree at its writing and answers **235 headings, `H-0234` and `H-0235` present below it** on this one; `H-0237`'s "a later read answers `H-0239` with a `PENDING` naming `H-0238`" describes a ref set in which `H-0239` did not exist in either parent, and the same allocator read now returns `H-0241` clean; and this branch's hand-off head claim "`#432` is still open on `issue-341` and still holds `H-0236`" is replaced by a hand-off that says where both narratives still read whole. Also lost, and named as owed item 53: **32** bare `path:line` pointers in this log land on a row that differs from the merge base's, and they stay un-triaged, because a bare pointer carries no quoted text and nothing in this tree can recover the author's intent. Attributed against each parent's tip rather than only against the base -- the step that decides who owes the work -- they are one story: **32 read true at `670df88`, 32 read false at `883b5e8`, 0 read false at both**, so the union moved none of them and this branch moved none; the tree inherits trunk's growth whole. **14** of the 32 are coordinates this unit's own repair rewrote, which a base-referenced sweep can never call correct, leaving **18** displaced and untouched here (13 into `factory/common.sh`, 5 into `factory/selftest.sh`), and 0 land on a blank row. `make verify` reads none of them, so the count survives only in `NEXT.md`. And the dates pin: 12901 rows, 236 headings, 546 bare, 42 re-aims, 32 inherited-and-attributed are this merge at 2026-11-17 against `origin/main` `883b5e8`; the instruments, not the numbers, are the durable thing -- and `NEXT.md` row 53 is where the 32 survive this commit's own re-measurement, which is how a figure that went 44 to 32 mid-unit was caught at all.
 
-## H-0242 — the review of #434 says it in three places and the code says it in one: a closed stop takes the shared clean-stop tail and stamps `last-tick`; the prose is corrected, the tail is not
+## H-0242 · the review of #434 says it in three places and the code says it in one: a closed stop takes the shared clean-stop tail and stamps `last-tick`; the prose is corrected, the tail is not
 
-Question: the review at 2026-11-17T12:21:07Z on `e1590b6` measured — and this tick reproduced it on
-the shipped fixture — that the `closed` arm falls through `esac`/`fi`/`esac` into the shared clean-
-stop tail and stamps `last-tick`, while three shipped sentences — the PR body, corrected at
-`docs/factory.md:2254` "TICK-DONE` journalled, `last-tick` stamped", and `H-0240`'s first "What
-lost" — claimed the stop writes no stamp. One sentence has to move and the question is which.
-Options: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
-tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
-add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
-claim is re-runnable rather than re-asserted | (b) keep the prose and make it true — `return 0` from
-the closed arm before the tail, which takes the `TICK-DONE` line with it | (c) delete the contested
-clauses and say nothing about what a closed stop writes.
+- Question: the review at 2026-11-17T12:21:07Z on `e1590b6` measured — and this tick reproduced it on
+  the shipped fixture — that the `closed` arm falls through `esac`/`fi`/`esac` into the shared clean-
+  stop tail and stamps `last-tick`, while three shipped sentences — the PR body, corrected at
+  `docs/factory.md:2254` "TICK-DONE` journalled, `last-tick` stamped", and `H-0240`'s first "What
+  lost" — claimed the stop writes no stamp. One sentence has to move and the question is which.
+- Options: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
+  tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
+  add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
+  claim is re-runnable rather than re-asserted | (b) keep the prose and make it true — `return 0` from
+  the closed arm before the tail, which takes the `TICK-DONE` line with it | (c) delete the contested
+  clauses and say nothing about what a closed stop writes.
 
-Chose: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
-tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
-add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
-claim is re-runnable rather than re-asserted.
+- Chose: (a) correct the prose to what the closed arm actually does — take the shared clean-stop
+  tail, journal `TICK-DONE`, stamp `last-tick`, clear `stuck-since`, write no bundle, exit `0` — and
+  add a fixture leg that pins the ledger, journal and at-risk state a closed pass leaves behind, so the
+  claim is re-runnable rather than re-asserted
 
-Why: the review itself settled the behavioural half — "stamping is the consistent thing for a tick
-that ran and stopped clean" — so (b) buys prose by changing what the journal reader sees: the mutant
-this tick ran (a `return 0` after the `TICK-CLOSED` log line) leaves `TICK-START` followed by
-`TICK-CLOSED` and no end line — the census at `factory/common.sh:1719` "105 `TICK-START` against 104"
-is what says clean-end markers carry reading weight. (c) is what let the first claim ship:
-the sentence was an argument, and deleting arguments removes the reader's ability to check them.
-Tie-breaker 3: (a) adds a leg, every alternative leaves the ledger unpinned — the review named
-exactly that blind spot, that this family's journal-word assertions cannot see the ledger. Tie-breaker 4:
-(a) touches no shipped behaviour, so the merge surface is prose plus an appended leg. And per this
-repository's own hardest-won rule, a prose claim is only as good as a re-runnable check behind it:
-what was wrong was never the behaviour, it was a claim with no leg. The same review's
-non-blocking pair ships in the same stroke because both were true statements about this branch's
-prose: `docs/factory.md:2265` "stubbed `gh`, pinning the call site and not the installed binary"
-replaces "pins the read to the gh that is actually installed" — the `stateReason` control runs the
-fixture's own stub `gh`, pinning the call site, not the binary — and the `stateReason` fact is
-qualified to its box: this box's `/usr/bin/gh` 2.46.0 answers `--json stateReason` with `Unknown
-JSON field: "stateReason"` at exit 1 (re-measured at this tick), while the review box on gh 2.67.0
-answers `COMPLETED`, so the claim is of the box and the field list stands because it is the answer
-both binaries give; `factory/factory.sh:1451` "2.67.0 review box" is the same qualification in the
-shipped comment. The `H-0240` passage that lost: its refused list first named the `last-tick`
-stamp and a "pull-request URL that does not exist" — corrected above in that entry's own words, with
-the true reason for the absent bundle (nothing ahead of `origin/main`, already pinned) and the true
-ledger. The false lead this repair nearly shipped: extending the existing cost leg in place would
-have moved the `H-0240` anchors that number rows in that file — eight of them, the family's leg rows
-from the queue-seed leg up — and the anchor gate refuses the entry; the new leg is a sibling appended
-below the last cited line, and the
-`docs/factory.md` and `factory/factory.sh` rewrites are line-count neutral (8/8, 2/2) because that
-file carries 111 incoming citations. Second false lead: the new leg's first draft asserted only
-"stamp exists", which is vacuous in this family — every pass shares one stash dir, so a stamp can be
-stale from an earlier pass, and the `unchecked` arm falls through the same tail, so even a closed arm
-that returned early would leave both units stamped by the later `cdec-noread` and `cdec-merged`
-passes; the leg therefore resets both units' rows, plants a `stuck-since` whose disappearance proves
-the tail ran, and reads the ledger through the explicit `FACTORY_LEDGER` the pass writes to rather
-than the ambient variable.
+- Why: the review itself settled the behavioural half — "stamping is the consistent thing for a tick
+  that ran and stopped clean" — so (b) buys prose by changing what the journal reader sees: the mutant
+  this tick ran (a `return 0` after the `TICK-CLOSED` log line) leaves `TICK-START` followed by
+  `TICK-CLOSED` and no end line — the census at `factory/common.sh:1719` "105 `TICK-START` against 104"
+  is what says clean-end markers carry reading weight. (c) is what let the first claim ship:
+  the sentence was an argument, and deleting arguments removes the reader's ability to check them.
+  Tie-breaker 3: (a) adds a leg, every alternative leaves the ledger unpinned — the review named
+  exactly that blind spot, that this family's journal-word assertions cannot see the ledger. Tie-breaker 4:
+  (a) touches no shipped behaviour, so the merge surface is prose plus an appended leg. And per this
+  repository's own hardest-won rule, a prose claim is only as good as a re-runnable check behind it:
+  what was wrong was never the behaviour, it was a claim with no leg. The same review's
+  non-blocking pair ships in the same stroke because both were true statements about this branch's
+  prose: `docs/factory.md:2265` "stubbed `gh`, pinning the call site and not the installed binary"
+  replaces "pins the read to the gh that is actually installed" — the `stateReason` control runs the
+  fixture's own stub `gh`, pinning the call site, not the binary — and the `stateReason` fact is
+  qualified to its box: this box's `/usr/bin/gh` 2.46.0 answers `--json stateReason` with `Unknown
+  JSON field: "stateReason"` at exit 1 (re-measured at this tick), while the review box on gh 2.67.0
+  answers `COMPLETED`, so the claim is of the box and the field list stands because it is the answer
+  both binaries give; `factory/factory.sh:1451` "2.67.0 review box" is the same qualification in the
+  shipped comment. The `H-0240` passage that lost: its refused list first named the `last-tick`
+  stamp and a "pull-request URL that does not exist" — corrected above in that entry's own words, with
+  the true reason for the absent bundle (nothing ahead of `origin/main`, already pinned) and the true
+  ledger. The false lead this repair nearly shipped: extending the existing cost leg in place would
+  have moved the `H-0240` anchors that number rows in that file — eight of them, the family's leg rows
+  from the queue-seed leg up — and the anchor gate refuses the entry; the new leg is a sibling appended
+  below the last cited line, and the
+  `docs/factory.md` and `factory/factory.sh` rewrites are line-count neutral (8/8, 2/2) because that
+  file carries 111 incoming citations. Second false lead: the new leg's first draft asserted only
+  "stamp exists", which is vacuous in this family — every pass shares one stash dir, so a stamp can be
+  stale from an earlier pass, and the `unchecked` arm falls through the same tail, so even a closed arm
+  that returned early would leave both units stamped by the later `cdec-noread` and `cdec-merged`
+  passes; the leg therefore resets both units' rows, plants a `stuck-since` whose disappearance proves
+  the tail ran, and reads the ledger through the explicit `FACTORY_LEDGER` the pass writes to rather
+  than the ambient variable.
 
-Confidence: high — the corrected sentences describe behaviour pinned by a leg that was seen red on
-the option-2 mutant and green on the shipped code.
+- Confidence: high — the corrected sentences describe behaviour pinned by a leg that was seen red on
+  the option-2 mutant and green on the shipped code.
 
-Revisit: if the closed arm is ever given its own `return`, the leg goes red first; decide then whether
-a closed stop should journal `TICK-START` with no end line.
+- Revisit: if the closed arm is ever given its own `return`, the leg goes red first; decide then whether
+  a closed stop should journal `TICK-START` with no end line.
 
-Scope: shipped code touched only in comment prose; behaviour unchanged.
+- Scope: shipped code touched only in comment prose; behaviour unchanged.
 
-Status: decided.
+- Status: decided.
 
-Checkpoint: 7205087ea874548479d9eb8e77c72c14046405c8
+- Checkpoint: 7205087ea874548479d9eb8e77c72c14046405c8
 
-Effect: `docs/factory.md:2254` "TICK-DONE` journalled, `last-tick` stamped" is the published
-phrase; the new leg `factory/selftest.sh:25122` "proc_leg 'a closed ticket leaves a stamped clean ledger'"
-runs the shipped supervisor over both family tickets CLOSED with both ledger rows cleared and a
-`stuck-since` planted, and asserts `last-tick` present for both units, the planted row gone,
-`TICK-DONE` journalled for both, and no `PRESERVED` line and no `.bundle` under `$FACTORY_AT_RISK` —
-the ledger the review's live pass left, pinned for the first time. Measured at this tick: full suite
-`env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH bash factory/selftest.sh` → **817 passed, 0 failed**,
-exit 0 (tmpfs, git 2.53.0); the option-2 mutant run in a scratch repo → **816 passed, 1 failed**, the
-only red this new leg, its diagnostic showing `TICK-CLOSED` then no `TICK-DONE` and no stamp;
-`gh issue view 315 --json stateReason` at `/usr/bin/gh` 2.46.0 → `Unknown JSON field: "stateReason"`,
-exit 1, re-measured here while the review box answers `COMPLETED`; `python3 scripts/check-decisions.py`
-→ 303 entries, 856 citations, 546 owing an anchor (the recorded debt, unchanged), 0 unopenable, rc 0;
-`env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_REVIEWER
--u FACTORY_REVIEWER_TEAM make verify` → `verify: OK`, exit 0, sanitized as the hand-off requires while
-#425 stands open. `Id:` allocator journalled twice: `2026-11-17T12:08:13Z
-DECISION-ID H-0242 unit=unclaimed:364 branch=issue-364` (`REFRESH-BLIND 724s`) and this tick's
-`2026-11-17T12:25:43Z DECISION-ID H-0242 unit=address_review:434 branch=issue-362` (`REFRESH 0s`
-union, immediately after `git fetch --prune origin`); `H-0240`'s precedent holds — ids are owned only
-when committed, the blind read was 17 minutes stale, and if `issue-364` lands its own `H-0242` first
-the duplicate-id rule at merge decides, as it did for `H-0240` itself.
+- Effect: `docs/factory.md:2254` "TICK-DONE` journalled, `last-tick` stamped" is the published
+  phrase; the new leg `factory/selftest.sh:25122` "proc_leg 'a closed ticket leaves a stamped clean ledger'"
+  runs the shipped supervisor over both family tickets CLOSED with both ledger rows cleared and a
+  `stuck-since` planted, and asserts `last-tick` present for both units, the planted row gone,
+  `TICK-DONE` journalled for both, and no `PRESERVED` line and no `.bundle` under `$FACTORY_AT_RISK` —
+  the ledger the review's live pass left, pinned for the first time. Measured at this tick: full suite
+  `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH bash factory/selftest.sh` → **817 passed, 0 failed**,
+  exit 0 (tmpfs, git 2.53.0); the option-2 mutant run in a scratch repo → **816 passed, 1 failed**, the
+  only red this new leg, its diagnostic showing `TICK-CLOSED` then no `TICK-DONE` and no stamp;
+  `gh issue view 315 --json stateReason` at `/usr/bin/gh` 2.46.0 → `Unknown JSON field: "stateReason"`,
+  exit 1, re-measured here while the review box answers `COMPLETED`; `python3 scripts/check-decisions.py`
+  → 303 entries, 856 citations, 546 owing an anchor (the recorded debt, unchanged), 0 unopenable, rc 0;
+  `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u FACTORY_REVIEWER
+  -u FACTORY_REVIEWER_TEAM make verify` → `verify: OK`, exit 0, sanitized as the hand-off requires while
+  #425 stands open. `Id:` allocator journalled twice: `2026-11-17T12:08:13Z
+  DECISION-ID H-0242 unit=unclaimed:364 branch=issue-364` (`REFRESH-BLIND 724s`) and this tick's
+  `2026-11-17T12:25:43Z DECISION-ID H-0242 unit=address_review:434 branch=issue-362` (`REFRESH 0s`
+  union, immediately after `git fetch --prune origin`); `H-0240`'s precedent holds — ids are owned only
+  when committed, the blind read was 17 minutes stale, and if `issue-364` lands its own `H-0242` first
+  the duplicate-id rule at merge decides, as it did for `H-0240` itself.
 
 ## H-0243 · A conflicted path has no stage 0, so the leg that guards the timer's exec bits called a 0755 script `not 100755 in the index` — the leg reads stage 0 alone now and an unmerged path gets a verdict word of its own (#368)
 
@@ -16089,3 +16089,57 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   line above it moved and no pointer into it changed -- `--citations` on this file returns the same
   rows it did at the checkpoint, which is the check that made appending here the legal place for a
   new entry.
+
+## H-0317 · One heading in ten thousand was invisible to every rule in the gate, and the fix is a refusal that can only fire on the shape
+
+- Question: what does this gate owe a record whose heading it cannot read? `parse` finds entries with
+  `ENTRY` and every other rule walks the list it returns -- required fields, the `Options` count, the
+  `Chose:`-against-`Options` agreement, checkpoint existence, id reuse and ordering, the filed-name
+  layout rule, the cross-log duplicate -- so a line that puts an id where a heading belongs, behind a
+  separator `ENTRY` does not accept, is not malformed to this gate. It is absent. Measured 19 Nov at
+  `25d2904`: the two logs parsed 382 entries while 383 lines in them begin with a heading and an id,
+  and the extra row had been sitting under a green `make verify` for two days.
+- Options: (a) widen `ENTRY` to accept the separator the row used | (b) keep `ENTRY` and refuse any
+  heading-shaped line it cannot read | (c) repair the row and add no rule | (d) escalated to a
+  maintainer
+- Chose: (b) keep `ENTRY` and refuse any heading-shaped line it cannot read
+- Why: (c) is the state that produced the defect: the row is repaired by hand and the next one arrives
+  the same way, and #393 was filed precisely because a reader found a hole where a decision should be.
+  (a) splits the definition of a heading across three readers that already disagree. The allocator
+  counts one without testing any separator at all -- `factory/next-decision-id.sh:292` "id = substr(line, 4, 6)", taken off a line whose whole test, one line above, is that it begins with `## ` -- which
+  is why `H-0243` exists although the gate never saw `H-0242`: the allocator allocated past it while
+  the gate refused to read it. Adding a second legal separator to `ENTRY` would leave the allocator
+  right and the gate's example rule, whose self-test refuses an example heading `ENTRY` cannot parse,
+  holding a shape the allocator does not test. (b) is one regex, wider than `ENTRY` on purpose, and it
+  makes the gate see what the allocator already saw without letting any new spelling through. (d) was
+  considered: a new refusal changes what a unit can commit, which is the kind of thing this log keeps
+  asking a maintainer about -- and declined, because it refuses only a shape no entry in either log has
+  ever used to pass, so it cannot turn a green branch red, and the four classes reserved are dependency,
+  tamper-resistance, publishing, deletion.
+- What it lost: the entry the row was, and two refusals that had never been allowed to reach it. Making
+  it visible made it parse, and it then refused on its own bytes: first as missing Question, Options,
+  Chose, Why and Checkpoint, because its fields are written as unbulleted paragraphs in the style the
+  monoliths stopped using, and then because its `Chose:` ends in a period where the option it chose,
+  recorded in the same entry, does not -- so `Chose not in options`. Both were repaired in place, and
+  the repair is byte-neutral on every row it touches because the anchor gate refuses an entry that
+  moves a cited line: 583 is the debt and it may only fall, so a new entry here sits at the end of the
+  file and the separator fix keeps its width by trading the three-byte em-dash for a two-byte middle dot
+  and a space. `Confidence` and `Revisit` were already in the row; `Scope` and `Status` were, too, and
+  are still not fields the parser reads.
+- Confidence: high on the rule and on both repairs -- the self-test fixture proves the readable
+  separator passes and the unreadable one is refused, and re-running the control against the gate as it
+  was at this checkpoint makes the leg fail, so the leg has teeth rather than a verdict. Medium on the
+  census being the whole set: the wider regex is one reading of what a heading looks like, and it is
+  deliberately the widest reading, which is how it would find a row at three or four `#` as readily as
+  the one it found.
+- Revisit: when #429 phase 1 makes `DECISIONS/<id>.md` valid, a filed entry whose FILENAME is right and
+  whose HEADING is malformed still refuses here -- `layout_problems` checks the id in the name against
+  the id in the heading, and that comparison needs a parsed entry, so this rule is the one that keeps
+  the filed layout honest at its own seam.
+- Checkpoint: 54f9a84
+- Effect: `HEADING_LIKE` and `invisible_heading_problems` in `scripts/check-decisions.py`, called from
+  the per-file loop after `checkpoint_problems` -- that seam is the only place a per-file rule can be
+  added without moving a quoted line, and the definition sits below every citation aimed into that file
+  for the same reason. One leg, `gate: an unreadable heading`, planted in `factory/selftest.sh` above
+  the tally block so the count below it does not move. Repairs to the row named above, byte-neutral at
+  86 rows changed and none added or removed, and this record.
