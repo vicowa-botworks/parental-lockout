@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-11T23:45:35Z",
-  "head": "7506fad0afb8a9cf73a7920d8efdece41ae70fde",
+  "captured_at": "2026-11-19T11:35:31Z",
+  "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
   "pages": [
     {
       "capture": {
@@ -19,15 +19,21 @@
         "zone": "-04:00"
       },
       "page": "/audit",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "d8bef5fce5dfe7e5d0edec1b8d935fe54b7e1a1b18d272a7bd8e9586764c19e7"
+      },
       "png": "audit.png",
-      "png_sha256": "fc37cd9adcc5d0a87c77a903b8a93453a18a638575673e70a4c7c1ea726d7902",
+      "png_sha256": "d8bef5fce5dfe7e5d0edec1b8d935fe54b7e1a1b18d272a7bd8e9586764c19e7",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -62,15 +68,21 @@
         "zone": "-04:00"
       },
       "page": "/",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "e68a54ee7bb2bc4604811bbec4474d3d5db309af6262053aacd3adc169117265"
+      },
       "png": "dashboard.png",
-      "png_sha256": "d4d7ed12f2b8fc0ca6018a74d9e6a2a5dcc5a3da1ec76113c4aba29cd95ecbb2",
+      "png_sha256": "e68a54ee7bb2bc4604811bbec4474d3d5db309af6262053aacd3adc169117265",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -81,15 +93,21 @@
         "zone": "-04:00"
       },
       "page": "/lock",
+      "photographed": {
+        "at": "2026-11-19T11:35:26Z",
+        "fixture": "lock",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "2030b2132ee657c607313cf04906230674601a0fc19511130a54f10e8be180d8"
+      },
       "png": "lock.png",
-      "png_sha256": "df49958928685fa0c66ebcdc7ff115e9d8b3dbfbfbfc2f3c11aa573a3d990f3a",
+      "png_sha256": "2030b2132ee657c607313cf04906230674601a0fc19511130a54f10e8be180d8",
       "sources": [
         "internal/web/templates/lock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -102,15 +120,21 @@
         "zone": "-04:00"
       },
       "page": "/profiles",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "7d916312f7bf2a76180f3677d9645765cbbf6d73f2c5c6cea763128f2ce4aefe"
+      },
       "png": "profiles-refused.png",
-      "png_sha256": "9a62a2cd948101b23e62c9e8bf3f3509c0c0b635c54d2c22317114d3aed22101",
+      "png_sha256": "7d916312f7bf2a76180f3677d9645765cbbf6d73f2c5c6cea763128f2ce4aefe",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -123,15 +147,21 @@
         "zone": "-04:00"
       },
       "page": "/profiles",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "b2383c11bb7745f059288cd9ab3a48904a9035ca09a00f6a9f2657233ab02b96"
+      },
       "png": "profiles.png",
-      "png_sha256": "a2bede881152d65e5f55e1a8daa39cd46549895291d6b5612c234d3fd8797944",
+      "png_sha256": "b2383c11bb7745f059288cd9ab3a48904a9035ca09a00f6a9f2657233ab02b96",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -144,15 +174,21 @@
         "zone": "-04:00"
       },
       "page": "/settings",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "d4783403655c2799f272f8bfea7ab270b5859877634b71429e9c5149d8b36f70"
+      },
       "png": "settings.png",
-      "png_sha256": "c47e16d6de93c4be756c470b15aa1730d4837079dfc7f98cf0925c1c83569b80",
+      "png_sha256": "d4783403655c2799f272f8bfea7ab270b5859877634b71429e9c5149d8b36f70",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -163,15 +199,21 @@
         "zone": "-04:00"
       },
       "page": "/testlock",
+      "photographed": {
+        "at": "2026-11-19T11:35:29Z",
+        "fixture": "testlock",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "3ab4db01efff2af3a102ed28afdf34871bd9cf88600ee99d6c3a56e834c08874"
+      },
       "png": "testlock.png",
-      "png_sha256": "d285d1cd0d0389b6a0c662035113ec967e5575af8d5e8702381709cbd4d886ab",
+      "png_sha256": "3ab4db01efff2af3a102ed28afdf34871bd9cf88600ee99d6c3a56e834c08874",
       "sources": [
         "internal/web/templates/testlock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -181,15 +223,21 @@
         "zone": "-04:00"
       },
       "page": "/users",
+      "photographed": {
+        "at": "2026-11-19T11:35:23Z",
+        "fixture": "pages-noprof",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "a9e560307dc96154c44ae614cde02b96110b79b2905199fc271760221bb4e3a1"
+      },
       "png": "users-no-profiles.png",
-      "png_sha256": "4f505c2e37a6f155e104d240528a600f3c8df33d915e3fa80b078963e17768d0",
+      "png_sha256": "a9e560307dc96154c44ae614cde02b96110b79b2905199fc271760221bb4e3a1",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     },
     {
       "capture": {
@@ -202,15 +250,21 @@
         "zone": "-04:00"
       },
       "page": "/users",
+      "photographed": {
+        "at": "2026-11-19T11:35:19Z",
+        "fixture": "pages",
+        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "sha256": "676033537aca7ab77f78fb6a732bc0eb77cb8903f312868a9e2410712f377402"
+      },
       "png": "users.png",
-      "png_sha256": "b1974aaa29c841c3820a89d4ee7de9f1e979ce10cb5985c22f8b86256cd21e7e",
+      "png_sha256": "676033537aca7ab77f78fb6a732bc0eb77cb8903f312868a9e2410712f377402",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
+      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
     }
   ],
   "schema": "capture-manifest/2",
