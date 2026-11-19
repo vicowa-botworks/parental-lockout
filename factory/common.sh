@@ -149,6 +149,11 @@ FACTORY_AGENT=${FACTORY_AGENT:-factory}
 # cold worktree is the outlier), and it is the ceiling on how long a wedged session can hold
 # the lock.
 FACTORY_TICK_TIMEOUT=${FACTORY_TICK_TIMEOUT:-2700}
+# H-0291 (#383): the grace `timeout --kill-after` grants a tick between TERM and SIGKILL. It sat
+# as the bare literal 60 in the `timeout` line while the line that explains a tick's death to an
+# operator could not name it; a leg that shortens the ceiling (proc_run's FACTORY_TICK_TIMEOUT
+# pattern) must be able to shorten the grace with it, or the escalation leg waits a real minute.
+FACTORY_TICK_KILL_AFTER=${FACTORY_TICK_KILL_AFTER:-60}
 FACTORY_MAX_TICKS=${FACTORY_MAX_TICKS:-3}
 # Supervisor wall-clock budget for one invocation, so a systemd `oneshot` cannot overlap the
 # next activation of its own timer.

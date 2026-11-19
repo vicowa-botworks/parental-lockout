@@ -52,7 +52,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 |---|---|---|
 | `merge_now` | approved, `MERGEABLE`, `CLEAN`, every check passed | supervisor, in bash, after re-reading all four from the API |
 | `needs_reviewer` | no verdict that still stands -- no rows at all, or every `APPROVED`/`CHANGES_REQUESTED` row voided by a push, or comments only -- **and** `/requested_reviewers` has neither `users` nor `teams` | supervisor: ask the team, at most once per `FACTORY_REVIEW_POKES` |
-| `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
+| `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`, with the decision-log union tried first (#381: a both-logs conflict the shipped gate certifies is merged and pushed without a tick); a tick only if the merge still conflicts |
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
@@ -1787,6 +1787,16 @@ four steps, in this order:
    branch that kept it, and that the two decisions share nothing but the digit. A gap in a log is
    citable when an entry says why it is empty, and inexplicable when it does not.
 
+Since #381 the steps above are what a *human or a tick* still does when two decisions reached for the
+same number, because that collision is the case the code refuses on purpose. The routine shape -- each
+side added its own entries, no digit shared -- is now machine work: the conflict arm runs
+`scripts/merge-decisions.py` over the conflicted tree, the shipped gate arbitrates the union, and a
+certified merge is committed, pushed and read back with no conflict tick at all. Every seam is a
+refusal that leaves the old route intact: a shared digit, a pointer only one side drifted, a non-log
+conflict in the same merge, and the merge is aborted and the tick dispatched exactly as before #381.
+`factory/selftest.sh` pins both routes end to end through the real supervisor: a logs-only conflict
+that must not cost a tick, and a mixed conflict that must still cost one.
+
 ### Why there is no reservation
 
 The alternative to a rule at the merge is a reservation before the write -- a fourth ref each session
@@ -1879,6 +1889,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
+| `FACTORY_TICK_KILL_AFTER` | `60` | the grace between TERM and SIGKILL when a tick is reaped, seconds (#383) — the number `TICK-FAILED` prints in its 137 sentence, which is why it is a constant and not a literal inside the `timeout` argument |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on each `git fetch` an activation does (H-0075; #342 adds the harness tree beside the primary checkout, so a split arrangement fetches each); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |

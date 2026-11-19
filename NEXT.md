@@ -1,4 +1,122 @@
-# NEXT — issue-380 conflict tick (PR #459, base sync onto `5188844`; ONE conflicted path, `factory/DECISIONS.md`, 27 hunks: 26 are the same sentence whose `path:line` anchors each parent re-pointed at its own tree and were re-aimed by the shipped gate's own refusal, 1 is the tail junction unioned by ascending id so both `H-0287` and `H-0288` ship; 72 drifted pointers moved digits-only; the pass is `H-0289`; the finding is that issue-380's own unit never wrote a hand-off at all, which the shape gate cannot see; merging belongs to the supervisor)
+# NEXT — issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: branch `issue-383` rebased onto
+`b6b8a55` (`origin/main` at read time, which carries #459's merge with `H-0288` and `H-0289`),
+tree clean at entry to this pass, no `factory/HALT`. The id chain is disclosed rather than
+quiet: this unit checkpointed first under `H-0288`, `origin/main` then took that id for #459's
+refusal-arm entry while this unit was in flight. Two allocator reads were journalled and each
+got one clause, because the first was the wrong log: `2026-11-19T02:44:11Z DECISION-ID D-0086
+unit=unclaimed:383 branch=issue-383 (allocator, DECISIONS.md, REFRESH 285s union)` — the root
+`D` log, named because the path is the selector and I typed the wrong prefix, an answer that
+belongs to no entry — and the correct `factory/next-decision-id.sh factory/DECISIONS.md` read
+answering `PENDING H-0291 is in factory/DECISIONS.md and on no ref this clone can see ... so
+H-0291 is free`, ceiling `H-0290` on the union: the tool confirms the id this entry already
+holds rather than issuing a new one. A hand union read over every `refs/heads` and
+`refs/remotes` this clone names independently puts `H-0290` on `origin/issue-381` and nothing
+at `H-0291` — so this unit ships
+`H-0291`, and `git grep '^## H-0291'` over every `refs/heads` and `refs/remotes` this clone can
+name answered nothing at read time. If `issue-381` merges after this branch is cut, nothing
+collides: `origin/issue-381` holds `H-0290` and this branch holds `H-0291`. What DOES still
+collide is the older pair `#459`'s head warns about — `H-0289` journalled for `unclaimed:381`
+at `2026-11-19T00:50:21Z` and re-issued to #459 — and that row is carried below, not re-decided
+here. `make verify`'s verdict and the post-push review read are quoted in the pull-request body
+(#1180: an `Effect:` written before the gate runs is a prophecy), and this head is written after
+the gate ran, not before.
+
+## What this dispatch pushed
+
+- One effect commit over four files, `Decision: H-0291`, on one checkpoint
+  (`chore(checkpoint): pre-H-0291`, re-taken at the re-sync because the checkpoint first existed
+  under the id #459 then took). `factory/factory.sh`'s failed-tick arm now `case`es on `$status`:
+  124 prints the ceiling TERM landed at, 137 prints the ceiling, the grace, the SIGKILL and the
+  reason that matters (the tick trapped the signal and would not stop), `*)` says not-a-ceiling-
+  death and explains both codes. There is no default branch — a new ceiling means a new sentence.
+- `FACTORY_TICK_KILL_AFTER` joins `FACTORY_TICK_TIMEOUT` in `factory/common.sh`: the same
+  `timeout` line feeds it and the 137 sentence prints it, so the grace cannot be re-spelled into
+  a journal that lies about the wait it imposed.
+- Five arms in `factory/selftest.sh`: the 137 escalator (tick B still runs after a wedged A), the
+  124 TERM death (asserts the 5 s ceiling it set and carries no escalation claim), the `*)` arm
+  witnessed by the fail family's own shipped run at zero extra runtime, a wording mutant proving
+  the 137 assertion bites the shipped sentence's exact claim, and a deletion control that removes
+  `--kill-after` and shows the wedge holds the pass open until the outer bound — the #383 outage
+  in miniature, asserted by requiring the outer 124|137 plus a journal that never reaches
+  `TICK-FAILED`. The ceiling arms do not inherit `PROC_STUB`: the stub is built once in the box
+  body, and a ceiling leg must rewrite the `opencode` stub, not the unit script.
+- `docs/factory.md`'s constants table gains the `FACTORY_TICK_KILL_AFTER` row: the number the
+  137 sentence prints is a journal-visible fact, so it cannot live only inside the `timeout`
+  argument. (No cause table quoted the old sentence — `docs/factory.md:94` is a historical quote
+  of the #212-era journal and stays verbatim.)
+
+## What this push spent
+
+- One branch force-history: none. `issue-383` had no upstream before this push; the rebase of the
+  pre-H-0291 checkpoint happened before any ref left this machine, so no rewrite is in anyone's
+  past. After the push the history is permanent: `allow_squash_merge` and `allow_rebase_merge`
+  are both false, so whatever merges is a merge commit forever.
+- The same standing spend every unit makes: the sync plus this unit's insertions moved the
+  ground under the citations — **178 lines of `factory/DECISIONS.md` re-aimed, 242 numeric
+  tokens, digits-only**, proved the way `#459`'s head prescribes: fold every digit in the
+  committed diff and the folded diff shows only this unit's entry additions, nothing else moved.
+  The 14 anchors whose new coordinate answered to more than one line were adjudicated by
+  opening both candidates; the rest moved to coordinates where the anchor is unique.
+  `POINTER_DEBT` itself is unmoved at 583 and judged again — with the two `__pycache__`
+  directories the suite run left (ignored, the interpreter's not the logs') present, the
+  comparison still came back judged: rc 0, 0 refused, 0 unopenable pointers.
+
+## Review round 1 — `CHANGES_REQUESTED` at 2026-11-19T03:28:18Z (hermesvicowa, review 5968895974), answered
+
+- The blocking ask: two source comments this branch added carried `H-0288 (#383)` while the
+  decision this PR ships is `H-0291`; `H-0288` is the merged #380 lock-holder-journalling entry.
+  Independently re-derived before anything changed: `git blame` dated both comments to this
+  branch's effect commit `d845517`, and the third `H-0288` in the tree — `factory/factory.sh:2017`,
+  inside the flock-refusal arm — comes from `2aa6dac`, an ancestor of `origin/main`, and cites the
+  right decision for the arm it annotates, so it stays.
+- The fix re-aims `factory/common.sh:152` and `factory/factory.sh:1472` to `H-0291 (#383)` —
+  comment text only, two files, two lines. Verified on the tree after the fix: `git grep
+  'H-0288 (#383)'` is empty, `python3 scripts/check-decisions.py` reads rc 0 with the same counts
+  the reviewed head had (353 entries, 1164 citations, 583 debt, 0 refused), and
+  `python3 scripts/check-decisions.py --citations` on both edited files names no pointer aimed at
+  either edited row, so nothing the logs quote moved.
+- This section's insertion moved every `NEXT.md` row below it down 25 lines, which took 14
+  anchored `NEXT.md:1557`/`NEXT.md:1661` citations in six other units' entries (`H-0252`,
+  `H-0280`–`H-0284`, `H-0286`) off their rows — `make verify` refused them at rc 1 and the repair
+  is the checker's own: re-aim the numbers in the same commit, digits only, anchors re-opened
+  after. That repair is why `H-0291`'s review round ships as two commits, not one.
+- This push lands on a `CHANGES_REQUESTED` head. Whatever the review rows read after it, a
+  re-review is owed, and the re-ask is the supervisor's poke (`factory_request_review`,
+  `FACTORY_REVIEWER_TEAM`), not a unit's verb.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+- Re-review of the round-1 pointer fix is owed: the post-push review read is quoted in the pull
+  request, and the supervisor re-asks on its own schedule, bounded by `FACTORY_REVIEW_POKES`.
+- The ticket's second half — the #246 row-2 shape where the tick pushed BEFORE the ceiling took
+  it — is named in the 137 sentence's consequence only. The `TICK-UNDELIVERED` mirror already
+  runs after every failed tick and is exercised by its own family (#364); this unit changed what
+  the failure line says, not what the mirror checks. If a successor wants the two lines
+  cross-referenced in the journal itself, that is a new ticket, not a leftover of this one.
+- `H-0291`'s `Chose:` names the grace knob; `FACTORY_TICK_KILL_AFTER` is honoured by the one
+  shipped `timeout` line. If a second ceiling ever appears (a per-unit ceiling, a budget-side
+  kill), it must print through the same `case` or it re-creates #383 exactly.
+- Carried from the issue-380 head below, unchanged: the `H-0289` allocator collision (the
+  journalled-id-no-union-can-retire class, two timestamps) — if `issue-381` wakes before this
+  branch merges, one of the two entries has to move.
+- Carried: issue-380's own unit never wrote a hand-off; #459's head below is the reconstruction
+  and is the reason the shape question stays open.
+- Carried: `python3 scripts/check-close-verb.py NEXT.md` answers rc 1 on the two carried rows
+  and this head adds no third (its own rows name issues without keywords); `check-close-verb.py
+  factory/DECISIONS.md` rc 1 is trunk-carried (`closes #211`), unchanged here.
+- Carried: the `install` half of #377 is still an operator act (`systemctl --user daemon-reload`
+  and a unit regeneration on each installed machine), not a unit's.
+
+## What this head pruned, and how to get it back
+
+- Nothing. The issue-380 head is demoted whole to a Record below — a one-direction line-multiset
+  census of `git show b6b8a55:NEXT.md` against this file holds exactly one missing line, the
+  demoted level-1 heading itself, the same census #459's head ran. To read the pre-insert bytes:
+  `git show b6b8a55:NEXT.md`.
+
+## Record — the issue-380 conflict tick (PR #459, base sync onto `5188844`; ONE conflicted path, `factory/DECISIONS.md`, 27 hunks: 26 are the same sentence whose `path:line` anchors each parent re-pointed at its own tree and were re-aimed by the shipped gate's own refusal, 1 is the tail junction unioned by ascending id so both `H-0287` and `H-0288` ship; 72 drifted pointers moved digits-only; the pass is `H-0289`; the finding is that issue-380's own unit never wrote a hand-off at all, which the shape gate cannot see; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this tick, raw JSON and never a `-q` template: PR #459
 reads `OPEN`, `reviewDecision=APPROVED`, `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, head
