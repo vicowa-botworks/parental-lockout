@@ -20,10 +20,14 @@ THE CONTRACT:
   Accept -- an entry one side added and the other lacks; an entry both added with identical
   bytes; an entry both edited with identical bytes; an entry only one side edited (the other
   left it as base had it -- that is what a base sync and a pointer re-aim look like); two
-  edits of one entry whose whole difference is DIGITS where one side's numbers are
-  consistently larger (the drifted line coordinate, the shape of 15 of #435's 16 hunks); and
-  a drifted `path:line` citation re-aimed to the line its anchor text is UNIQUELY on in the
-  merged tree.
+  edits of one entry whose whole difference is DIGITS INSIDE `path:line` COORDINATES -- one
+  reading consistently larger (the drifted line coordinate, the shape of 15 of #435's 16
+  hunks), or both readings moved the SAME way from base by different amounts, which is one
+  seam re-aimed twice by two branches, kept per row at the larger reading because the re-aim
+  pass below anchor-verifies the survivor anyway. A digit that differs OUTSIDE any coordinate
+  is prose -- a budget, a constant, a sha -- and a changed claim is nobody's sort to settle.
+  And a drifted `path:line` citation is re-aimed to the line its anchor text is UNIQUELY on
+  in the merged tree.
 
   Refuse -- everything else, with one machine-readable line naming why. A vocabulary of
   fixed `reason=` tokens, so the journal counts by cause and a model tick is dispatched at
@@ -189,55 +193,109 @@ def side_map(label, text):
     return preamble, raw, [ident for _, ident in order]
 
 
-def digits_only_diff(ours, theirs):
-    """(accept, ours_wins) for two raw blocks of the same entry that differ.
+def _coord_spans(text):
+    """Character spans of the `path:line` coordinate fields in one text -- by the GATE's own
+    `CITATION` regex, the same grammar `citation_spans` replays, carrying the scanner's own
+    skip rule (a range whose dash swallowed a newline is not a coordinate). A digit run that
+    sits outside every span is a PROSE claim -- a measured budget, a ratchet constant, a sha
+    -- and the #460 review is why this file refuses to accept one: a rule that decided
+    "about 30% of every tick budget" by which side wrote the bigger number decided someone's
+    claim, not a line coordinate."""
+    return [m.span(2) for m in gate.CITATION.finditer(text) if "\n" not in m.group(0)]
 
-    The drift shape (#435 measured 15 of its 16 conflict hunks as exactly this) is two copies
-    of one entry whose ENTIRE difference is digits -- a re-aimed line coordinate, nothing else.
-    So: strip every digit and the two must be byte-equal (the skeleton), and the digit runs
-    must zip with the same count. Direction then decides: one side larger in EVERY differing
-    run is a coordinate that moved down the file, which is what appending entries does, and
-    that side is the later truth. A mixed direction is not drift -- two different edits that
-    happened to touch only digits -- and whose claim survives is a decision, not a sort.
+
+def _digit_runs(text):
+    """[(value, is_coordinate)] for every digit run of one text, in order."""
+    spans = _coord_spans(text)
+    return [(int(m.group(0)), any(s <= m.start() and m.end() <= e for s, e in spans))
+            for m in re.finditer(r"\d+", text)]
+
+
+def coord_pair_diff(ours, theirs):
+    """How do two raw blocks of one same-id entry, known to differ, differ in their digits?
+
+      'skeleton'  -- not digit twins: words differ, run counts differ, or a run is a
+                     coordinate on one side and prose on the other. `id-collision`.
+      'prose'     -- skeletons twin, but a digit OUTSIDE every coordinate differs: a number
+                     quoted in running text is a claim that moved. `id-collision`.
+      'up'/'down' -- every coordinate run that differs moves the same way between the sides:
+                     the drifted line coordinate, the shape of 15 of #435's 16 hunks, whose
+                     consistently larger reading is the later truth.
+      'mixed'     -- coordinate runs disagree on direction: only the base can arbitrate --
+                     two branches re-aiming one seam the same way by different amounts is
+                     drift (three_way takes the larger reading per row), anything else is
+                     sorting someone's claims.
+      'same'      -- no coordinate moved either; unreachable behind the caller's byte check.
     """
-    def digits(text):
-        return [int(m.group(0)) for m in re.finditer(r"\d+", text)]
-
     if re.sub(r"\d+", "", ours) != re.sub(r"\d+", "", theirs):
-        return False, None
-    ro, rt = digits(ours), digits(theirs)
+        return "skeleton"
+    ro, rt = _digit_runs(ours), _digit_runs(theirs)
     if len(ro) != len(rt):
-        return False, None
+        return "skeleton"
     gt = lt = 0
-    for a, b in zip(ro, rt):
-        if a > b:
+    for (a, ia), (b, ib) in zip(ro, rt):
+        if ia != ib:
+            return "skeleton"
+        if not ia:
+            if a != b:
+                return "prose"
+        elif a > b:
             gt += 1
         elif a < b:
             lt += 1
-    if gt and not lt:
-        return True, True
-    if lt and not gt:
-        return True, False
-    return False, None
+    if gt and lt:
+        return "mixed"
+    if gt:
+        return "up"
+    if lt:
+        return "down"
+    return "same"
 
 
 def same_direction(base, ours, theirs):
-    """Did both sides shift every digit run the same way relative to base?"""
+    """Did both sides move every COORDINATE the same way from base (or leave it alone)?
+
+    A prose digit that moved on either side answers False -- a claim changed, and the drift
+    rules do not read claims. A classification mismatch answers False for the mirror
+    reason: nothing here may decide what a coordinate IS.
+    """
     if re.sub(r"\d+", "", base) != re.sub(r"\d+", "", ours):
         return False  # base's own skeleton differs: this is not one file shifting
 
-    def digits(text):
-        return [int(m.group(0)) for m in re.finditer(r"\d+", text)]
-
-    rb, ro, rt = digits(base), digits(ours), digits(theirs)
+    rb, ro, rt = _digit_runs(base), _digit_runs(ours), _digit_runs(theirs)
     if not (len(rb) == len(ro) == len(rt)):
         return False
     seen = set()
-    for b, o, t in zip(rb, ro, rt):
+    for (b, ib), (o, io), (t, it) in zip(rb, ro, rt):
+        if not ib == io == it:
+            return False
+        if not io:
+            if o != b or t != b:
+                return False
+            continue
         for delta in (o - b, t - b):
             if delta:
                 seen.add(delta > 0)
     return len(seen) <= 1  # one direction, or nobody moved a coordinate at all
+
+
+def merge_coord_max(ours, theirs):
+    """One text per row from two coordinate twins (the caller proved twin skeletons, equal
+    prose runs, equal classification): the LARGER reading per coordinate, prose digits
+    taken verbatim. An estimate's record, never a verdict -- repoint anchor-verifies every
+    anchored survivor row against the merged tree before the union stages anything, and a
+    row with no anchor was never re-aimable by this file anyway.
+    """
+    mo, mt = list(re.finditer(r"\d+", ours)), list(re.finditer(r"\d+", theirs))
+    spans = _coord_spans(ours)
+    out, pos = [], 0
+    for a, b in zip(mo, mt):
+        out.append(ours[pos:a.start()])
+        in_coord = any(s <= a.start() and a.end() <= e for s, e in spans)
+        out.append(str(max(int(a.group(0)), int(b.group(0)))) if in_coord else a.group(0))
+        pos = a.end()
+    out.append(ours[pos:])
+    return "".join(out)
 
 
 def three_way(label, ident, base_raw, ours_raw, theirs_raw, stats):
@@ -248,7 +306,8 @@ def three_way(label, ident, base_raw, ours_raw, theirs_raw, stats):
     while the other left it alone -- a base sync, the single most common thing a trunk merge
     does to these logs. What no side may do silently is LOSE an entry (`dropped-entry`, keyed
     by presence, checked before this function runs) or contradict a published CLAIM
-    (`id-collision`: words differ, not just coordinates).
+    (`id-collision`: words differ, or digits outside a coordinate differ -- coordinates are
+    what drifts; prose numbers are claims).
     """
     if ours_raw == theirs_raw:
         # Byte-identical resolutions, usually git splitting one identical edit into two hunks.
@@ -259,24 +318,47 @@ def three_way(label, ident, base_raw, ours_raw, theirs_raw, stats):
     if base_raw and theirs_raw == base_raw:
         stats["ours"] += 1
         return ours_raw
-    accept, ours_wins = digits_only_diff(ours_raw, theirs_raw)
-    if accept and base_raw and not same_direction(base_raw, ours_raw, theirs_raw):
-        # Every coordinate moved, but the sides disagree about WHICH WAY the file shifted:
-        # one branch read the anchor higher than base and the other lower. Merging cannot
-        # both add and remove lines above one point, so at most one side saw the truth, and
-        # nothing keys which. (Anchored rows still get re-verified by repoint after the
-        # survivor is chosen -- the direction rule gates entry to the union; the anchor
-        # settles the final coordinate.)
-        raise Refuse("id-collision", "%s %s is digits-only on both sides but moved in "
-                     "OPPOSITE directions from base -- one branch says the lines moved up, "
-                     "the other down, and a merge is one tree; whose reading survives is "
-                     "the author's call, not a sort" % (label, ident))
-    if not accept:
-        raise Refuse("id-collision", "%s %s differs on both sides by more than digits -- two "
-                     "claims about one decision, and whose claim survives is the author's call, "
-                     "not a sort" % (label, ident))
-    stats["drift"] += 1
-    return ours_raw if ours_wins else theirs_raw
+    verdict = coord_pair_diff(ours_raw, theirs_raw)
+    if verdict == "same":  # unreachable behind the byte check above; the safe reading.
+        return ours_raw
+    if verdict in ("up", "down"):
+        if base_raw and not same_direction(base_raw, ours_raw, theirs_raw):
+            # Every coordinate moved one way BETWEEN the sides, but the sides disagree about
+            # which way they each moved FROM base: one branch read the anchor higher than
+            # base and the other lower. Merging cannot both add and remove lines above one
+            # point, so at most one side saw the truth, and nothing keys which. (Anchored
+            # rows still get re-verified by repoint after the survivor is chosen -- the
+            # direction rule gates entry to the union; the anchor settles the final one.)
+            raise Refuse("id-collision", "%s %s is digits-only on both sides but moved in "
+                         "OPPOSITE directions from base -- one branch says the lines moved "
+                         "up, the other down, and a merge is one tree; whose reading survives "
+                         "is the author's call, not a sort" % (label, ident))
+        stats["drift"] += 1
+        return ours_raw if verdict == "up" else theirs_raw
+    if verdict == "mixed" and base_raw and same_direction(base_raw, ours_raw, theirs_raw):
+        # The sides disagree about the MAGNITUDE, not the direction: both re-aimed the same
+        # seam the same way, each against its own tree, and the merged tree grew past both
+        # readings. Measured live at this branch's own merge of origin/main@b6b8a55: ours
+        # re-aimed one published entry's coordinate 2366 -> 2376, trunk re-aimed the same
+        # coordinate 2366 -> 2384 -- one seam moved twice, not two claims colliding, and a
+        # sort between the sides' numbers was refusing arithmetic. The larger reading per
+        # row keeps each side's legitimate re-aim; repoint is the verifier, not this line.
+        stats["drift"] += 1
+        return merge_coord_max(ours_raw, theirs_raw)
+    if verdict == "mixed":
+        raise Refuse("id-collision", "%s %s moves coordinates in OPPOSITE directions with no "
+                     "base agreement to read as one file growing%s -- whose reading survives "
+                     "is the author's call, not a sort"
+                     % (label, ident,
+                        "" if base_raw else " (no base holds this entry to compare against)"))
+    if verdict == "prose":
+        raise Refuse("id-collision", "%s %s differs between the sides in a digit OUTSIDE any "
+                     "`path:line` coordinate -- a budget, a constant, a sha: prose numbers "
+                     "are claims, and whose claim survives is the author's call, not a sort"
+                     % (label, ident))
+    raise Refuse("id-collision", "%s %s differs on both sides by more than coordinate "
+                 "digits -- two claims about one decision, and whose claim survives is the "
+                 "author's call, not a sort" % (label, ident))
 
 
 def union_log(label, base_text, ours_text, theirs_text, stats):
@@ -765,6 +847,41 @@ def self_test():
                            PRE + e("D-0001", "base", "c1", "the gate lives at `x.py:9` now"))
     check("unit: mixed-direction digit edits refuse -- drift moves one way or it is a claim",
           kind == "refuse" and got == "id-collision", str(extra))
+    # #460 finding 2, on the reviewer's own fixture: a digit outside any coordinate is a
+    # PROSE claim. The skeleton twins and only the number moves; size must not adjudicate.
+    prose_base = PRE + e("D-0001", "base", "c1", "the ceiling is 2700 s of every tick")
+    kind, got, extra = uni("DECISIONS.md", prose_base,
+                           PRE + e("D-0001", "base", "c1", "the ceiling is 2701 s of every tick"),
+                           PRE + e("D-0001", "base", "c1", "the ceiling is 4200 s of every tick"))
+    check("unit: digits differing OUTSIDE coordinates refuse -- a budget is a claim, not a "
+          "coordinate (the pre-fix rule handed the entry to the larger number)",
+          kind == "refuse" and got == "id-collision", str(extra))
+    # The same seam re-aimed twice, once per branch (measured live at this branch's merge of
+    # origin/main@b6b8a55): both sides moved the same direction from base, by different
+    # amounts. Pre-fix this refused as id-collision on the live merge; the per-row larger
+    # reading keeps each side's legitimate re-aim, and repoint arbitrates against the tree.
+    seam = ("- Why: the row sits at `a.py:%d` and the block at `b.md:%d` per their anchors.\n")
+    seam_base = PRE + ("## D-0001 · seam fixture\n\n- Question: where does the seam sit?\n"
+                       "- Options: re-aim | refuse\n- Chose: re-aim\n" + seam % (3, 40)
+                       + "- Checkpoint: c1\n\n")
+    seam_ours = PRE + ("## D-0001 · seam fixture\n\n- Question: where does the seam sit?\n"
+                       "- Options: re-aim | refuse\n- Chose: re-aim\n" + seam % (5, 40)
+                       + "- Checkpoint: c1\n\n")
+    seam_theirs = PRE + ("## D-0001 · seam fixture\n\n- Question: where does the seam sit?\n"
+                         "- Options: re-aim | refuse\n- Chose: re-aim\n" + seam % (3, 45)
+                         + "- Checkpoint: c1\n\n")
+    kind, got, extra = uni("DECISIONS.md", seam_base, seam_ours, seam_theirs)
+    check("unit: both branches re-aiming the same seam the SAME way by different amounts "
+          "accept, each side's larger reading kept per row",
+          kind == "ok" and "`a.py:5`" in got and "`b.md:45`" in got and extra["drift"] == 1,
+          str(got)[:200])
+    # ...and without a base to compare against, an opposite-direction pair is unprovable.
+    kind, got, extra = uni("DECISIONS.md", PRE,
+                           PRE + e("D-0002", "minted both", "c1", "see `p.py:9` and `q.py:20` now"),
+                           PRE + e("D-0002", "minted both", "c1", "see `p.py:3` and `q.py:30` now"))
+    check("unit: opposite-direction coordinate edits with NO base refuse -- nothing proves "
+          "one file grew, so the author decides", kind == "refuse" and got == "id-collision",
+          str(extra))
     # dropped on one side vs retraction on both.
     kind, got, extra = uni("DECISIONS.md", PRE + u1, PRE + u1 + e("D-0002", "ours", "c1"),
                            PRE + e("D-0003", "theirs dropped base", "c1"))

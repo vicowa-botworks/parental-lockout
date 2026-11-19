@@ -14751,3 +14751,48 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   reason the original did: a rollback that stops halfway mid-merge strands worse than one
   that finishes and reports.
 - Checkpoint: d60bbf9
+
+## H-0293 · The digits-only accept was judging prose: the reviewer's fixture showed a budget number decided by magnitude, this branch's own merge of `b6b8a55` showed two legitimate re-aims of one seam refused as a collision, so drift is now defined over coordinate fields only and same-direction pairs union per row
+
+- Question: #460 finding 2 measured `union_log` accepting a base sync where the whole
+  difference was the sentence "the ceiling is 2700 s" vs "...2701..." vs "...4200..." --
+  a one-sided prose edit wins, a both-sided prose collision resolves by magnitude, `drift=1`,
+  no anchor consulted -- while the very merge this branch was doing when the review landed
+  refused at `id-collision` on a published entry whose coordinate both sides had re-aimed
+  the SAME direction from base (2366 went to 2376 on the branch, to 2384 on trunk: one seam
+  moved twice). Where is the line between arithmetic and adjudication?
+- Options: classify every digit run by whether it sits inside a `path:line` coordinate
+  field -- spans replayed from the gate's own `CITATION` regex, the same skip rule
+  `citation_spans` carries -- refuse any pair whose digits outside coordinates differ, keep
+  the direction rule over coordinate runs only, and accept same-direction-from-base pairs
+  at the LARGER reading per row | thread the tree index into `union_log` and reuse the full
+  `scan_citations` rows for the classification | keep the whole-entry digit rule and document
+  that prose numbers are drift-eligible
+- Chose: classify every digit run by whether it sits inside a `path:line` coordinate
+  field -- spans replayed from the gate's own `CITATION` regex, the same skip rule
+  `citation_spans` carries -- refuse any pair whose digits outside coordinates differ, keep
+  the direction rule over coordinate runs only, and accept same-direction-from-base pairs
+  at the LARGER reading per row
+- Why: the entry's own justification is that coordinates are what drifts -- the accept's
+  docstring said "the drifted line coordinate" from the first commit -- so the option that
+  reads claims is a bug, not a rule, and the option that keeps it just records the bug;
+  between the two mechanics, `union_log` is a pure text function that every unit leg drives
+  directly, and threading the tree index through it to reuse the full scanner would make the
+  adjudication rules need a working tree, which is the dependency H-0290's entry-model
+  section exists to avoid; a digit that is NOT provably inside a coordinate now refuses, and
+  refusing costs a model tick where accepting can cost a claim, the ticket's own tie-break
+  order. The live specimen decided the second half: the pre-fix rule refused the merge of
+  `b6b8a55` outright, and a sort between two branch-side readings of one grew file was
+  refusing arithmetic -- per-row max keeps each side's legitimate re-aim, and the survivor
+  is never trusted: repoint anchor-verifies every anchored row against the merged tree
+  before the union stages, and the replay over the real stage-1/2/3 blobs of that merge
+  shows all four re-aimed coordinates surviving with no stale row. What lost: the union now
+  REFUSES shapes it used to accept -- a published entry whose prose number both branches
+  edited, and coordinate pairs with no base to prove one file grew -- each one a model tick,
+  which is what refusals are for; `id-collision` gained three distinct sentences under one
+  token, accepted for the journal's counts staying token-stable (H-0290's reason-vocabulary
+  argument) at the cost of one grep not naming which seam; and per-row max can over-shoot
+  (the merged file may sit below both readings), which is safe only because every anchored
+  row is re-verified afterwards -- rows the ratchet grandfathered were never re-aimable
+  here either way, and are not made worse.
+- Checkpoint: 35aeed8
