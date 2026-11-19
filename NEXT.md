@@ -1,4 +1,4 @@
-# NEXT — issue-389 unit (PR for `issue-389`: `H-0093`'s two `Effect:` tallies are annotated by a dated entry and their bytes were not touched, and `scripts/check-decisions.py` now prints how many `Effect:` diff tallies the two logs hold while re-measuring none of them — the fresh-or-stale comparison ships only as `tally_verdict(claims, measure)` behind nine `--self-test` legs, because this gate reads no history (#253) and a halting re-measure would stop the queue on a sentence about a merge from 10 Nov; 27 pointer repairs in this log and 18 in `docs/factory.md`, and one row's pointer re-qualified to the commit its reading was taken at; the pass is `H-0307`; merging belongs to the supervisor)
+# NEXT — issue-389 unit (PR for `issue-389`: `H-0093`'s two `Effect:` tallies are annotated by a dated entry and their bytes were not touched, and `scripts/check-decisions.py` now prints how many `Effect:` diff tallies the two logs hold while re-measuring none of them — the fresh-or-stale comparison ships only as `tally_verdict(claims, measure)` behind nine `--self-test` legs, because this gate reads no history (#253) and a halting re-measure would stop the queue on a sentence about a merge from 10 Nov; 37 coordinates in this log re-aimed, 19 onto `scripts/check-decisions.py` and 18 onto `docs/factory.md`, plus 14 onto this file moved three times, and one row's pointer re-qualified to the commit its reading was taken at; the pass is `H-0307`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this unit: the ticket, fresh off the API at
 2026-11-19T14:14Z, not off the dispatch — `gh issue view 389 --json number,state,title,url` answers
@@ -178,6 +178,26 @@ nothing here is a partner-node call. The build product `plock` stayed untracked
 - The supervisor's merge, and nothing else this branch owns. The review request is the poke's, not
   this unit's (`AGENTS.md`, "Requesting a reviewer is part of opening a pull request, not a later
   courtesy").
+- **`make verify` can go red on a branch for a reason the branch does not own, and the suite writes to
+  a real checkout while it does it.** This unit's first `make verify` answered
+  `factory/selftest.sh: 885 passed, 5 failed` at 14:15:32Z, and the five are the shipped-supervisor
+  dispatch legs (`the pass runs, over two units`, `quarantines A, mirrors both paths`, `…then starts a
+  tick for unit B`, `…and gives the rescued unit its turn`, `the clean unit is not credited with a
+  rescue`). The fixture journal names the cause: `UNIT-DIVERGED
+  installed=/home/rodney/prj/parental-lockout this=/tmp/plock-factoryselftest-wyfBuH/supervisor/shipped`,
+  then `SUPERVISOR-FF cfe1559 -> ab9ad8d commits=12 tree=/home/rodney/prj/parental-lockout`, then
+  `SUPERVISOR-RERUN the pass stops here with exit 9: no triage, no id, no tick`. The self-update guard
+  found the *installed* checkout 12 commits behind `origin/main` (#470 had merged 18 minutes earlier),
+  fast-forwarded that real tree, and stopped the pass as designed -- so the legs read a journal holding no
+  `TICK-START`. Control on the same bytes at 14:21:24Z, the install level: `bash factory/selftest.sh`
+  answered `890 passed, 0 failed`, rc 0. Two alternatives were ruled out first: no other supervisor tick
+  was live in that window (`factory/log/supervisor.log` between 14:05Z and 14:21Z holds this unit's
+  `DECISION-ID` lines and nothing else), and the box was idle (load 2.17, 32 threads). What is owed is a
+  decision before a repair: either the fixture holds its own installed tree, so a unit's `make verify`
+  cannot fast-forward `/home/rodney/prj/parental-lockout` as a side effect, or the legs state the
+  precondition and refuse loudly when the install is behind rather than reporting their own unit as the
+  defect. The first is honest; the second still leaves every tick that runs while trunk moves explaining a
+  red suite to whoever reads it next.
 - **A number this branch's history asserts and the tree cannot reproduce.** `769c2bf`'s message
   quotes a nav-width census — `widths=109,72,100,116,82 rows=66,36,36,36,36 … budget=165 … needs at
   least 198 px … tallest row measured 66 px`. `git grep -n "109,72\|budget=165\|nav_width"` returns
