@@ -1320,7 +1320,7 @@ Inventing the ask is the failure this repository has written up more often than 
 	# `factory_decision_provenance` below reads that journal at the end of the tick. A session that
 	# sanitises its own environment loses the journalling and gains an `UNEARNED` report -- the
 	# report is the point; the allocator answers exactly the same either way.
-	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
+	timeout --signal=TERM --kill-after="$FACTORY_TICK_KILL_AFTER" "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
 		FACTORY_LOG="$FACTORY_LOG" \
 		FACTORY_TICK_UNIT="$unit" \
@@ -1530,7 +1530,24 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
-	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
+	# H-0291 (#383): name the death the code produced, do not annotate one of the two codes and
+	# leave the other naked. The old parenthetical explained 124 only, and 124 is the code that
+	# needs no explanation -- it is the boring ceiling death. 137 (128+SIGKILL) is the interesting
+	# one: TERM was delivered at the ceiling and the tick trapped it, and `--kill-after` escalated
+	# at ceiling+grace. Measured on this box before this case was written, nested exactly as the
+	# call above is nested: a stub sleeping with default TERM handling died under
+	# `timeout --signal=TERM --kill-after=2 5` with 124 at 5s; the same stub with `trap '' TERM`
+	# died with 137 at 7s. The old line printed that second, escalated death as `exit=137 (124
+	# means the 2700s ceiling)` -- a green-looking annotation on the one event that says the tick
+	# would not stop, which is also the event the #1748 posture (re-assert, trust no signal the
+	# controlled side handles its own way about) says must be visible.
+	local ceiling_note
+	case "$status" in
+	(124) ceiling_note="the ${FACTORY_TICK_TIMEOUT}s ceiling: TERM landed at it and the tick died" ;;
+	(137) ceiling_note="the ${FACTORY_TICK_TIMEOUT}s ceiling, then ${FACTORY_TICK_KILL_AFTER}s ignoring TERM, then SIGKILL -- the tick trapped the signal and would not stop" ;;
+	(*) ceiling_note="not a ceiling death (124 is TERM at the ${FACTORY_TICK_TIMEOUT}s ceiling; 137 is SIGKILL after TERM was ignored)" ;;
+	esac
+	log_event "TICK-FAILED $unit exit=$status ($ceiling_note) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
 	# The same mirror as the `exit=0` arm, and for the same reason: exit 124 is the ceiling firing
 	# mid-message, which is exactly when a branch holds commits nobody has pushed. Measured on the
 	# tick this repository came here for: `15:30:32Z TICK-FAILED unclaimed:235 exit=124`, and the

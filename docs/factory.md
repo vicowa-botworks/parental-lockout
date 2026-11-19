@@ -1889,6 +1889,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
+| `FACTORY_TICK_KILL_AFTER` | `60` | the grace between TERM and SIGKILL when a tick is reaped, seconds (#383) — the number `TICK-FAILED` prints in its 137 sentence, which is why it is a constant and not a literal inside the `timeout` argument |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on each `git fetch` an activation does (H-0075; #342 adds the harness tree beside the primary checkout, so a split arrangement fetches each); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
