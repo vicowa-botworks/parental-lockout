@@ -2395,8 +2395,10 @@ repository's name to work, that is a defect in it, not a convenience.
 ## A citation in a decision log carries its own anchor
 
 `DECISIONS.md` and `factory/DECISIONS.md` hold backticked `path:line` citations, and the closing line
-of `python3 scripts/check-decisions.py` is the only figure to trust — it reads how many it read and how
-many owe an anchor; `--citations` names the exempt classes. Never copy its readings into prose. A coordinate is how
+printed by `python3 scripts/check-decisions.py` is the only figure to trust — the debt line reads how
+many it read and how many owe an anchor, and when the logs hold any `Effect:` diff tally a third line
+reports how many, with none re-measured and the reason on the same line (`H-0307`, #253); `--citations`
+names the exempt classes. Never copy its readings into prose as though they were still its readings. A coordinate is how
 an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
 `triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
 of an entry a
