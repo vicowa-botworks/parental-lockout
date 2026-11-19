@@ -5220,3 +5220,53 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the new call site with the battery re-validated whole. `make verify` and the reads after
   the push are quoted with their exit statuses in the pull-request body, not here, because an
   `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0087 · #387: the shell gains a skip link — which anchor reaches the content, and which collapse idioms can hide a thing a keyboard still has to reach
+
+- Question: #204's one undelivered bullet: every page the shell renders paints a masthead of
+  five links and a sign-out form before the content, nothing skips past them, and the template
+  carried a comment apologising for the missing link in prose instead of carrying the link.
+  #387 asks for one first-focusable anchor that resolves to a real target, without shifting
+  the layout of any of the nine acceptance frames. The mechanism is the decision: the link
+  must be invisible at rest and reachable by Tab, and the two obvious ways to hide an element
+  — `display: none` and `visibility: hidden` — remove it from the sequential focus navigation
+  order outright, so the naive "hidden" link is exactly the link the one input it exists for
+  can never reach.
+- Options: leave the bullet in prose and open a follow-up | add a `display:none` hidden anchor
+  with no CSS reveal | add a hidden `href="#"` anchor at the top of the content region, no
+  stylesheet change | put an id on `<main>` and a real anchor as the first child of `<body>`,
+  collapsed with the clip idiom `table.rows thead` already uses and revealed by releasing
+  width, height and clip while `position: absolute` holds, so the focused state reflows
+  nothing | same anchor, but reveal it by returning the box to the flow (`position: static`)
+- Chose: put an id on `<main>` and a real anchor as the first child of `<body>`, collapsed
+  with the clip idiom `table.rows thead` already uses and revealed by releasing width, height
+  and clip while `position: absolute` holds, so the focused state reflows nothing
+- Why: `display: none` and `visibility: hidden` were refused by what they do to the focus
+  order, not by taste — a skip link a keyboard cannot land on is the bullet undelivered with
+  the markup present. A hidden `href="#"` is reachable but lands at the top of the document,
+  which is where the masthead already is: it is the #387-named false pass seen from the other
+  end, an href whose target does not answer the question the link asks. Static reveal was
+  refused for the reason the ticket states as a requirement — a box that re-enters the flow on
+  focus pushes the masthead down on every Tab and pulls it back on every blur, a layout shift
+  per keystroke on every page, against "without shifting the layout". The absolute reveal
+  floats over the page instead. The collapse idiom is not invented here: app.css already
+  hides the table's head at phone width with `position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%)` and its own comment "Out of the layout, but not
+  out of the accessibility tree" — the same claim this link needs, one rule away.
+- What lost: prose lost — it is what #204 through #387 already lived with, and an apology in
+  a comment is a bullet nobody is guard-keeping. `display:none` lost on the focus order. The
+  `href="#"` anchor lost on its landing point. Static reveal lost with it, and with that the
+  simpler focus rule: `position: static` on focus needs one property, the absolute reveal
+  needs the box to be positioned in both states and a `z-index` so it paints over what it
+  overlaps. The overlap is the accepted residue of this choice: while focused, the link
+  covers part of the masthead area, and nothing else.
+- Checkpoint: d6cb007
+- Effect: the commit carrying this entry — `page.tmpl` gains the anchor as the first element
+  of every shell page and the id on `<main>`, and its masthead comment no longer apologises;
+  app.css gains the `.skip` collapse and `.skip:focus` reveal;
+  `TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage` guards resolution, singleness,
+  text and order per page, its fixture proven against seven defect shapes before it was
+  trusted; W303 and W304 put the deletion and the orphaned-fragment shapes back for the
+  battery. Gate receipts and the re-capture are read back with their exit statuses in the
+  pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy
+  (#1180).

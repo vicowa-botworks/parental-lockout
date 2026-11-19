@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 292,
+  "expected_mutants": 294,
   "mutants": [
     {
       "id": "W1",
@@ -2211,6 +2211,20 @@
       "old": "{{.At.Format \"2006-01-02T15:04:05Z07:00\"}}",
       "new": "{{.At.Format \"2006-01-02T15:04:05 MST\"}}",
       "note": "the `datetime` attribute starts carrying a zone NAME, so the machine-readable half of the row disagrees with the text beside it: the attribute has printed the numeric offset since it existed and #210 made the human text agree with it, which is the whole claim the cell makes. Killed by the attribute assertion in the same test, not by the text assertion -- a distinct killer, which is why this is its own row rather than an inference from W301: W301 leaves the attribute untouched and this leaves the text untouched, and each has exactly one killer. Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#210)"
+    },
+    {
+      "id": "W303",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "<a class=\"skip\" href=\"#main\">Skip to content</a>\n",
+      "new": "",
+      "note": "the shell stops emitting the skip link -- #387's defect itself, and #204's undelivered bullet restated: the keyboard reader is back to walking the whole masthead to reach the page they are already on, and every whole-body assertion in the package still passes because nothing else in the document changes. Killed by the targeting count in TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage (zero links aim at the content region). Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387)"
+    },
+    {
+      "id": "W304",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "<main id=\"main\">",
+      "new": "<main>",
+      "note": "the target loses the id while the link keeps its href -- the exact false pass #387 names: `href=\"#main\"` now resolves to nothing, the link is decoration, and every grep that asks 'does the skip link exist' still says yes. Killed by the empty-id arm of TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage, which reads the id off the element and the fragment off the link instead of matching either literal. Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387)"
     }
   ]
 }

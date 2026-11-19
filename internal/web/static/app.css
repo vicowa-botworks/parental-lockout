@@ -512,6 +512,41 @@ input:focus-visible {
 	outline-offset: 2px;
 }
 
+/* The shell's skip link (#387, delivering #204's last undelivered bullet): it is the first
+   element in the document, so it is the first Tab stop on every page, and it stays invisible
+   until it has focus. Collapsed with the idiom `table.rows thead` already uses below — out of
+   the layout, out of the paint, still in the accessibility tree and still focusable. It is NOT
+   `display: none`, which removes the subtree from the sequential focus navigation order
+   altogether: a keyboard reader could never reach the link that exists for keyboard readers
+   (D-0087). The revealed state does NOT return the box to the flow either: a revealed skip
+   link that pushed the masthead down would reflow every page on every Tab press — the same
+   repaint the enforcement loop is made to tolerate for being cheap (#1748's reasoning), but
+   here for no reason. It floats over the page instead: width, height and clip release,
+   position stays absolute. Colours ride the same tokens the dark block swaps, so the revealed
+   link reads in either scheme. */
+.skip {
+	position: absolute;
+	left: .5rem;
+	top: .5rem;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.skip:focus {
+	width: auto;
+	height: auto;
+	overflow: visible;
+	clip-path: none;
+	padding: .4rem .8rem;
+	background: var(--bg);
+	border: 1px solid var(--ink);
+	border-radius: 4px;
+	z-index: 10;
+}
+
 /* The request id is printed on every error so it can be read out over the phone.
    It is selectable on purpose: copying it into a log search is the whole point. */
 .request-id {
