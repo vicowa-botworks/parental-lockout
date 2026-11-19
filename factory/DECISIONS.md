@@ -15486,13 +15486,13 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
 
 ## H-0307 · `H-0093`'s two `Effect:` tallies were false on the commit that carries them and no later entry says so: is the repair an edit inside that row, a dated annotation beside it, a gate that re-runs each receipt's own diff at verify time, a gate that halts the queue on a mismatch, or a count that says what the file can know and not one word more?
 
-- Question: `factory/DECISIONS.md:2907` (`H-0093`) says `adds 54 (one heading)` and
-  `factory/DECISIONS.md:2908` (`H-0093`) says `adds 429 (nine headings)`. Measured from that merge's own
+- Question: `factory/DECISIONS.md:2907` "deletes 0 content lines and adds 54 (one heading)" (`H-0093`) and
+  `factory/DECISIONS.md:2908` "deletes 0 content lines and adds 429 (nine headings)" are read from that merge's own
   two sides, in any checkout holding them: `git diff --numstat 5a1a559 6442e8f -- factory/DECISIONS.md`
   answers `112 0`, `git diff --numstat c149fe9 6442e8f -- factory/DECISIONS.md` answers `504 0`, and
   `git diff -U0 <base> 6442e8f -- factory/DECISIONS.md | grep '^+## '` counts 2 and 10 added headings.
-  #389 files this row as the one in its batch that no later entry annotates, and `nine headings` does
-  survive on exactly one line in either log. What is the repair?
+  #389 files this row as the one in its batch that no later entry annotates, and `nine headings` did survive
+  on one line in either log at `ab9ad8d` (five at this head, this entry's rows among them). What is the repair?
 - Options: edit the two figures inside `H-0093` | this entry annotates and the row keeps its bytes |
   `scripts/check-decisions.py` re-runs every tally it recognises against the two revisions the row names
   and refuses a mismatch | it reports a mismatch and keeps walking | it counts the receipts the logs
@@ -15528,7 +15528,7 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   class the comparison has no second operand: the left sides are two shas the row names and both are on
   the machine, the right side is a working tree that never became a commit, and where a row writes
   `origin/main` instead of a sha the value that ref held that day is not recorded either. Option three
-  also asks this file to run `git diff`, and `factory/selftest.sh:16162` (`gate_reads_no_refs`) greps
+  also asks this file to run `git diff`, and `factory/selftest.sh:16162` "gate_reads_no_refs() { # [path]" greps
   this file's code for a `"git", "<subcommand>"` pair with `cat-file` the only exception -- a leg in
   another unit's suite that `make verify` runs -- so a shipped re-measure would be refused by a check,
   and `H-0051`/`H-0052` settled what a refused check does to this queue: it stops it. Option four is the
@@ -15570,8 +15570,8 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   What lost, as measured: the machine still cannot tell a true receipt from a drifted one, and the
   printed number counts occurrences of a pattern, not defects. A quotation of a figure is a second
   occurrence, so this entry moves the count from 2 to 7 on the tree it commits: five quotations of the
-  two figures, two in its `Question:`, one in its `Why:`, two in its `Effect:`, and each of the two
-  receipts is now quoted three times over. The shipped line on this tree therefore reads 7 with two
+  two figures, two in its `Question:`, one in its `Why:`, two in its `Effect:`, and the `54` receipt is
+  quoted three times while the `429` receipt is quoted twice. The shipped line therefore reads 7 with two
   receipts behind it, which is the misreading demonstrated on the number's own face rather than warned
   about in prose. The report path is
   unreachable in the shipped run, so its correctness rests on fixtures and not on the logs it would
@@ -15611,7 +15611,7 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   beside it: 583 read off this tree before the entry was appended, 587 after, the four being this entry's
   own coordinates, each anchored on the text it quotes, and `--citations` re-derives the number the rule
   says may only fall. Raising that constant moved a quote that names a value, and
-  the gate caught it: `factory/DECISIONS.md:15255` (`H-0303`) still quotes `POINTER_DEBT = 583`, read off
+  the gate caught it: `factory/DECISIONS.md:15255` "POINTER_DEBT = 583" (`H-0303`) still quotes it, read off
   the tree its merge resolved, and line 771 of this file reading 586 made that pointer unopenable. The
   row keeps its bytes and its coordinate now names the commit the reading was taken at --
   `eacdaa9:scripts/check-decisions.py:771`, which `git show eacdaa9:scripts/check-decisions.py | sed -n
@@ -15619,3 +15619,66 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   sentence. Asked after the fact, not before: AGENTS.md tells a person to run
   `python3 scripts/check-decisions.py --citations <path>` before editing a file the logs quote, and this
   unit learned of the collision from the refusal instead, which is the rule's own argument.
+
+## H-0308 · the review of #471 ran `--citations` at `83a428e` and put the four coordinates `H-0307` calls anchored in the gate's UNANCHORED bucket: is the repair to give those four a real anchor, to rewrite the three sentences that promise an enforcement the gate disclaims, or to widen the anchor rule until it reaches a quotation already on the line?
+
+- Question: `H-0307` says its two `Question:` citations "are anchored on" the tallies "so the gate
+  refuses the day either one is quietly corrected", and its own ratchet comment called all four of them
+  anchored on the text they quote, at the row named in the `Effect:` below. The shipped classifier
+  disagreed about all four at the head that
+  shipped them: `--citations` answered UNANCHORED for each, and the four are the whole of the 583 to 587
+  rise, in the one bucket the ratchet counts. The cause is the gap rule at
+  `scripts/check-decisions.py:832` "ANCHOR_AFTER = re.compile" -- a double-quoted fragment must sit
+  within three spaces of the coordinate's closing backtick, and `(`H-0093`) says` was standing in the
+  gap. So the sentence promised a refusal that did not fire: editing the tally at 2907 from 54 to 55 on
+  those bytes left the gate silent at rc 0, exactly as the reviewer measured and as this unit re-measured
+  below. What is the repair?
+- Options: the four coordinates take a flush fragment of their own, the sentences keep their promise,
+  and the constant re-measures down | the four stay debt and the three sentences are rewritten to say the
+  gate cannot tell | `ANCHOR_AFTER` widens past a bracketed entry reference so a quotation later on the
+  line counts as the anchor
+- Chose: the four coordinates take a flush fragment of their own, the sentences keep their promise, and
+  the constant re-measures down
+- Why: the exemption is available and paid for, so the promise can be made true rather than walked back.
+  Measured on the repaired tree, in that order: all four rows classify as anchored; the debt is 583, the
+  number that `scripts/check-decisions.py:771` "citations that owe an anchor; may only fall" carries on
+  this tree; the gate answers rc 0 on the tree that ships this entry, 376 entries and 1220 citations
+  with 0 refused outright and the 7 tallies unmoved; and the `--citations` histogram moves
+  by exactly those four rows -- `factory/selftest.sh` 50 to 49 and `factory/DECISIONS.md` 22 to 19, which
+  is 587 to 583 with no other row crossing the boundary. That last composition is what tells a repair
+  from a coincidence: the 583 is not assumed, it is the four named rows leaving. The direction the entry
+  promises was then tested both ways on a fixture root whose own baseline is 15 problems before any edit
+  (git names a different top level there, so 95 rows read as unopenable), so only its difference is
+  quoted, and the reviewer's rc-0-and-silent reading of the same drift on the shipped bytes stands as
+  the absolute statement: with the flush anchor, changing the tally at 2907 to 55 answers rc 1 and
+  names `factory/DECISIONS.md:15489` "deletes 0 content lines and adds 54" as anchored on text that is
+  not there; with that one anchor taken back out to the gap shape, the identical tally change answers the
+  same 15 and no anchored-mismatch refusal at all. The anchor does the work, not the sentence describing
+  it, which is also the argument against the second option: the promise was cheap to honour, not merely
+  cheap to delete. The third option was measured rather than declined on taste, by importing this gate
+  and changing one regex over the real corpus: a gap of 8 characters answers 16 problems, a gap of 16
+  answers 27 and a gap of 24 answers 29, where the shipped rule answers 0 -- and 13 of those 27, and 17
+  of those 29, are rows refusing that their new anchor "points at text that is not there". A quotation
+  reached across a gap belongs to whichever coordinate it was written for, so widening does not
+  exempt honest rows, it recruits evidence off its neighbours; the same option is refused in this file at
+  `scripts/check-decisions.py:838` "was measured and refused" on H-0170's numbers, and at this head the
+  bill has grown from three pointers to 27 refusals.
+- Checkpoint: c240a35
+- Effect: `factory/DECISIONS.md` rows 15489, 15490, 15531 and 15614 carry flush fragments on their own
+  physical lines -- 15489 "deletes 0 content lines and adds 54", 15490 "deletes 0 content lines and adds
+  429" and 15614 "the gate caught it" -- and the fourth row, 15531, is the one aimed at
+  `factory/selftest.sh:16162` "0 when that gate asks git for nothing but object lookups". The log keeps
+  its 15621 physical lines above this entry, so nothing aimed at a line number moved, and that is read
+  rather than assumed: every anchored row in both logs is re-opened against the line it names and the
+  answer is 0 refused outright after the append, and the 14 rows aiming at `NEXT.md` 2257 and 2361 are
+  each still anchored. `scripts/check-decisions.py` changes in one place, the ratchet comment at
+  `scripts/check-decisions.py:771` "citations that owe an anchor; may only fall": 587 to 583, and that
+  comment's own two errors corrected in the same breath -- it claimed 21 rows for the
+  `factory/DECISIONS.md` pair where the tree printed 22, and it claimed no row had arrived in the
+  unanchored shape where four had. Two further sentences in `H-0307` were measured before they were
+  repaired, both by this gate's own tally census: the 54 receipt appears on rows 15489, 15543 and 15599
+  and the 429 receipt on 15490 and 15599, so "each of the two receipts is quoted three times over" became
+  three and two; and `nine headings` survived on one line of `factory/DECISIONS.md` at `ab9ad8d` and on
+  no line of `DECISIONS.md`, where at this head it is on six with this entry's own quotation among them,
+  so that sentence now names the tree it was read on. Nothing here re-measures a receipt: the 7 tallies counted at this head are the same 7, and the
+  shipped arm still counts and never opens a diff.
