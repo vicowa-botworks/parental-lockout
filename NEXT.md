@@ -1,4 +1,117 @@
-# NEXT — issue-388 conflict tick (PR for `issue-388`: the base sync this branch met — `origin/main@cfe1559` (the #467 merge, carrying #387's skip link `D-0087` and its base-sync pass `D-0089`) landed on this branch's shell-word rename `D-0088`; TWO conflicted paths — `DECISIONS.md`, seated as the ascending-id union `D-0083` prescribes (0087, 0088, 0089, so this branch's id sits in the gap #387's allocator could not see), and `docs/screenshots/360/manifest.json`, taken OURS on the one measurable ground the merge offered and paid back in the commit after it by re-photographing all nine frames off the merged sources; this hand-off was stacked by hand with the issue-387 head carried whole as the Record beneath it; the pass is `D-0088`; merging belongs to the supervisor)
+# NEXT — issue-389 unit (PR for `issue-389`: `H-0093`'s two `Effect:` tallies are annotated by a dated entry and their bytes were not touched, and `scripts/check-decisions.py` now prints how many `Effect:` diff tallies the two logs hold while re-measuring none of them — the fresh-or-stale comparison ships only as `tally_verdict(claims, measure)` behind nine `--self-test` legs, because this gate reads no history (#253) and a halting re-measure would stop the queue on a sentence about a merge from 10 Nov; 27 pointer repairs in this log and 18 in `docs/factory.md`, and one row's pointer re-qualified to the commit its reading was taken at; the pass is `H-0307`; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this unit: the ticket, fresh off the API at
+2026-11-19T14:14Z, not off the dispatch — `gh issue view 389 --json number,state,title,url` answers
+`{"number":389,"state":"OPEN", …}`, so neither deliverable had been taken by anyone else. The tree is
+`/home/rodney/prj/wt/issue-389` on branch `issue-389`, synced to `origin/main` by `git merge --ff-only`
+early in the unit and `git status --short` empty before the first edit; no `factory/HALT`. The drift was
+re-derived before it was described rather than inherited from the ticket:
+`git diff --numstat 5a1a559 6442e8f -- factory/DECISIONS.md` answers `112 0` and
+`git diff --numstat c149fe9 6442e8f -- factory/DECISIONS.md` answers `504 0`, while
+`git diff -U0 <base> 6442e8f -- factory/DECISIONS.md | grep -c '^+## '` answers 2 and 10 — each figure
+short by exactly one heading, and in both pairs the missing heading is `## H-0093` itself. That closes by
+size, because all four bases and the merge are in this clone and each comparison deletes nothing: the
+file is 2829 lines at `6442e8f`, 2717 at `5a1a559`, 2325 at `c149fe9`, so an added-line count IS the
+difference of two file sizes and the row's 54 and 429 describe working trees of 2771 and 2754 lines that
+were never committed. `nine headings` survives on exactly one row of either log. The allocator was asked
+before the judgement call and its first answer was refused by its own read — `REFRESH-BLIND 431s union` —
+so `git fetch --prune origin` ran and the id was re-read as `H-0307 (REFRESH 0s union)`; that is why the
+entry's `Checkpoint:` is `9fbe280` and not the commit the id was first printed on. Before this unit,
+`python3 scripts/check-decisions.py --self-test` captioned 78 cases that must fail and 47 that must pass,
+the logs held 2 `Effect:` diff tallies, and `POINTER_DEBT` read 583.
+
+## What this dispatch pushed
+
+`9fbe280` is the checkpoint: the tree the annotation and the count leg were written against, taken before
+the judgement call, as the contract orders.
+
+`9c036bf` carries `Decision: H-0307` and both halves of #389. The gate half is five names in
+`scripts/check-decisions.py` — `DIFF_TALLY`, `tally_claims`, `measure_no_history`, `tally_verdict`,
+`tally_line` — nine legs and eleven assertions in `--self-test`, and a third line on a clean run:
+`check-decisions: 7 \``+`Effect:`\``+` diff tallies counted in the two logs, none re-measured — this
+gate reads no history (#253), so a tally a later merge outgrew is named by that entry and never edited
+(#389)`. The self-test goes 78 must-fail / 47 must-pass to 80 / 54, read off the caption this commit
+ships. The comparison #389 asked for exists as `tally_verdict(claims, measure)` with a leg injecting a
+fixture diff — `tally-stale-reported` runs #389's own pair, `adds 54 (one heading)` against a measure
+answering 112 lines and 2 headings — while `tally-shipped-counts-only` fails the moment anyone wires a
+real diff into the shipped arm. Five mutants were run against the new code with the rest of the file
+untouched: `M1-pattern-no-singular`, `M4-headings-uncounted` and `M3b-measure-empty-stub` go red;
+`M2-report-drops-measured` is caught by `tally-report-names-both`; `M3-measure-reads-diff` SURVIVES and
+the entry says why in so many words, because a measure that agrees with every claim reports no drift and
+no fixture-built leg can tell that from a clean run. The annotation half is `H-0307` itself, at
+`factory/DECISIONS.md:15487`, and `H-0093`'s row keeps every byte: its two tallies are the read that
+proves its merge lost neither side, so editing them would destroy the evidence the correction is about.
+`POINTER_DEBT` goes 583 -> 587 with this entry's four anchored coordinates, and raising it moved a quote
+that names a value — `H-0303` quotes `POINTER_DEBT = 583` off the tree its own merge resolved, the gate
+refused that pointer once line 771 read 586, and the row now reads
+`eacdaa9:scripts/check-decisions.py:771`, which `git show eacdaa9:scripts/check-decisions.py | sed -n
+771p` still answers `POINTER_DEBT = 583`. 27 drifted pointers in this log were re-aimed by the gate's own
+refusal (19 from the code landing, 8 of them twice, because a repair preceded the last edit) and 18 in
+`docs/factory.md` moved +2 from this entry's correction to a sentence there. And
+`docs/factory.md`'s "the closing line … is the only figure to trust" stopped being true the moment a clean
+run prints three, so it now reads every line the gate prints — that sentence's own line, so nothing below
+it moved.
+
+This file, in the commit after those, is the hand-off; the issue-388 head is carried whole beneath as a
+Record with its rows unrenumbered. Stacking it moved 14 `NEXT.md:NNNN` pointers in this log by +111 --
+`H-0286`, `H-0300` and the rows that cite the hazard table -- and the same shipped refusal named all 14
+for the hand-off commit to pay.
+
+## What this push spent
+
+No cloud, no credits, no GitHub write before the pull request. Locally: the gate and its `--self-test`
+on every edit round, `python3 scripts/check-scripts.py` (it takes no file arguments — narrowing it to a
+file is what made `check-mutations.py --help` open a file named `--help`), `bash scripts/check-next-md.sh`,
+five mutant runs of the gate against `/tmp/opencode/tallyprobe/` copies of itself, one `git fetch --prune
+origin`, two local commits, and zero pushes until the one below. #389 is still `OPEN` by design: the
+`Closes #389` rides in the pull-request body, so the issue closes on the merge and not before it.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+1. The pull request for `issue-389` is only opened once it is read back from the API — `gh pr view 4NN
+   --json headRefName,mergeable,reviewCounts` — not from the exit status of the command that made it
+   (#1180). The reviewer ask is the supervisor's poke, not this unit's: `gh pr edit --add-reviewer` exits
+   1 on this account's retired `projectCards` field and writes nothing (`H-0010`).
+2. #389 closes when the supervisor merges, via the body keyword. Until then the row at
+   `factory/DECISIONS.md:2907` (`H-0093`) still reads 54 and 429 — deliberately, and `H-0307` is what
+   names them stale.
+3. The shipped arm still cannot tell a true receipt from a drifted one. Anyone who wants that wants
+   something this file cannot hold: an immutable pair per receipt, which means the commit carrying an
+   entry has to be knowable before the entry is written — `H-0306`'s "measured before the entry itself
+   joins the corpus" is the same defect read from the inside. `measure_no_history` is the seam to
+   replace; `tally-shipped-counts-only` is the leg that refuses the version that halts the queue.
+4. `M3-measure-reads-diff` surviving is an open gap in the leg set, recorded in the entry rather than
+   papered over: nobody has written a leg that catches an always-agrees measure.
+5. The printed number counts occurrences of a pattern. On this commit it prints 7 and there are two
+   receipts — five of the seven are `H-0307` quoting the two figures. Do not read that line as a defect
+   count; nothing in this file can make it one.
+6. Every row of the carried hand-offs below is unchanged and none of it was taken by this unit. The
+   issue-388 head beneath this one is delivered — `origin/main` at `ab9ad8d` is `Merge pull request #470
+   from vicowa-botworks/issue-388`, read off `git log` in this tree — and its owed rows stand as it wrote
+   them for whoever owns them.
+
+## Constraints a stranger would break on this branch
+
+- `factory/selftest.sh:16162` (`gate_reads_no_refs`) greps `scripts/check-decisions.py` for a
+  `"git", "<subcommand>"` pair with `cat-file` the only exception, and `make verify` runs that leg. So the
+  tally arm cannot be "finished" by calling `git diff` from the gate; it will be refused by another unit's
+  suite, not by review.
+- Editing `scripts/check-decisions.py` moves coordinates that 19 rows of this log cite, and editing
+  `docs/factory.md` moved 18 more below the edit point. Ask first with
+  `python3 scripts/check-decisions.py --citations <path>`, then repair by the shipped gate's refusal in
+  the same commit as the edit — this unit measured the ordering rule twice over, once by repairing before
+  the last edit and once by paying for a repair that preceded it.
+- Raising `POINTER_DEBT` breaks every row that quotes its value. The repair is to name the commit the
+  reading was taken at (`eacdaa9:scripts/check-decisions.py:771`), never to edit the quoted prose, and the
+  number may only rise beside an entry that records the measurement.
+- The allocator refuses to be the only evidence for an id: `REFRESH-BLIND` and `REFRESH …s union` are its
+  warnings, and `git fetch --prune origin` followed by a second read is what makes the id somebody else's
+  neighbour-proof.
+- `NEXT.md` holds exactly one level-1 heading, naming the unit that wrote it, and an owed section; new work
+  is stacked above and the previous head is demoted whole to `## Record — …` with its rows unrenumbered
+  (`scripts/check-next-md.sh` enforces the shape and cannot see whether the content is true).
+
+## Record — the issue-388 conflict tick (PR for `issue-388`: the base sync this branch met — `origin/main@cfe1559` (the #467 merge, carrying #387's skip link `D-0087` and its base-sync pass `D-0089`) landed on this branch's shell-word rename `D-0088`; TWO conflicted paths — `DECISIONS.md`, seated as the ascending-id union `D-0083` prescribes (0087, 0088, 0089, so this branch's id sits in the gap #387's allocator could not see), and `docs/screenshots/360/manifest.json`, taken OURS on the one measurable ground the merge offered and paid back in the commit after it by re-photographing all nine frames off the merged sources; this hand-off was stacked by hand with the issue-387 head carried whole as the Record beneath it; the pass is `D-0088`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this tick: the dispatch was the queue's `conflict` row
 for `issue-388`, and the read-back agreed — no PR exists for this head yet, so there was no
