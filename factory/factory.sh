@@ -931,6 +931,12 @@ factory_verify_closure() {
 #   0  merged and pushed
 #   1  origin/main genuinely does not merge into the branch -- only a reader can resolve it
 #   2  something temporary is in the way; try again next activation, do not open a tick
+#
+# Since #381 there is one step between "it does not" and a tick: if every conflicted path is a
+# decision log, `scripts/merge-decisions.py` adjudicates the merge as code -- the union those
+# logs' own rules prescribe, certified by the shipped gate as its subprocess arbiter -- and the
+# codes above mean what they always meant, with the union's reason journalled beside the
+# verdict when it declines. A refusal returns the tree to exactly the state git left it in.
 factory_resolve_conflict() {
 	local pr=$1 branch=$2 tree
 	local age
@@ -1001,10 +1007,52 @@ factory_resolve_conflict() {
 		printf 'DRY-RUN  git -C %s merge --no-edit origin/%s\n' "$tree" "$base"
 		return 2
 	fi
-	if ! git -C "$tree" merge --no-edit "origin/$base" >"$FACTORY_LOG/conflict-$pr.log" 2>&1; then
-		git -C "$tree" merge --abort >/dev/null 2>&1 || true
-		log_event "CONFLICT-UNRESOLVED pr:$pr origin/$base does not merge cleanly into $branch -- queued for a tick"
-		return 1
+	# Status stored before it is tested, never re-read through the negation (the `no status read
+	# through a negation` guard is what the shape below would trip, and it is right: a `$?` under
+	# a negated test answers the negation, not the command).
+	git -C "$tree" merge --no-edit "origin/$base" >"$FACTORY_LOG/conflict-$pr.log" 2>&1
+	local merge_rc=$?
+	if [ "$merge_rc" -ne 0 ]; then
+		# #381: a conflicted merge whose files are all decision logs is no longer, by itself,
+		# a model's work. The rules those logs impose are mechanical -- entries keyed by id,
+		# a union in id order, drifted pointers re-aimed by their anchors, the shipped gate
+		# as arbiter -- and `scripts/merge-decisions.py` applies them as code (the ticket's
+		# own numbers: 35 conflict ticks, 14.16 h, about 30% of every tick the factory spent).
+		# The arbiter runs from the TREE's copy, which after a conflicted merge is the merged
+		# version of itself; it rules only when every conflicted path is a decision log and
+		# refuses everything else with the conflict exactly as git left it, so every other
+		# shape of conflict still takes the old road to a tick. A branch too old to carry
+		# the script is one of those shapes.
+		local merged_by="git" union_rc=0 union_outcome=""
+		if [ -f "$tree/scripts/merge-decisions.py" ]; then
+			union_outcome=$(python3 "$tree/scripts/merge-decisions.py" --tree "$tree" 2>&1) ||
+				union_rc=$?
+		else
+			union_rc=2
+			union_outcome="UNION-REFUSED reason=no-script $tree/scripts/merge-decisions.py is not on this branch"
+		fi
+		if [ "$union_rc" -eq 0 ]; then
+			if ! git -C "$tree" commit --no-edit >>"$FACTORY_LOG/conflict-$pr.log" 2>&1; then
+				# The union certified the tree and git then refused the commit -- a hook, or a
+				# tree that moved under us. The merge is still open, which is a state no later
+				# guard here was written for: abort to a known shape and let the tick have it.
+				git -C "$tree" merge --abort >/dev/null 2>&1 || true
+				log_event "CONFLICT-UNRESOLVED pr:$pr the decision-log union certified the tree but git refused the merge commit -- queued for a tick"
+				return 1
+			fi
+			merged_by="decision-log union (${union_outcome##*$'\n'})"
+		else
+			git -C "$tree" merge --abort >/dev/null 2>&1 || true
+			if [ "$union_rc" -eq 2 ]; then
+				# Exit 2 is the arbiter declining -- no merge visible to it, no gate to certify
+				# with. That is this function's own "not now" vocabulary, not a content verdict,
+				# and journaling it as CONFLICT-UNRESOLVED would put a tick on a tree problem.
+				log_event "CONFLICT-BLOCKED pr:$pr the decision-log arbiter declined: $(printf '%s' "$union_outcome" | tr '\n' ' ' | cut -c1-220)"
+				return 2
+			fi
+			log_event "CONFLICT-UNRESOLVED pr:$pr origin/$base does not merge cleanly into $branch; the decision-log union refused it: $(printf '%s' "$union_outcome" | tr '\n' ' ' | cut -c1-220) -- queued for a tick"
+			return 1
+		fi
 	fi
 	if ! run_action git -C "$tree" push origin "HEAD:refs/heads/$branch"; then
 		# The merge is in the local tree and the branch on origin has not moved. That is not a
@@ -1014,13 +1062,26 @@ factory_resolve_conflict() {
 		log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed -- retried next activation"
 		return 2
 	fi
-	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
+	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch by $merged_by"
 	factory_ledger_clear "pr:$pr" stuck-since
 	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
 	# reason a finished tick does -- see `factory_quarantine_after_tick`. This site is not redundant with
 	# that one: the conflict pass's streak is kept under `pr:$pr` while a conflict tick's is kept under
 	# `conflict:<pr>`, two ledger keys, so each needs its own clearing.
 	factory_quarantine_reset "pr:$pr"
+	# The push is an act, not a verdict (#1180): what GitHub now believes about the merge is
+	# read back in the same breath and journalled, so a `CONFLICT-RESOLVED` line never stands
+	# alone as the account of the state. This line decides nothing -- GitHub recomputes
+	# `mergeable` asynchronously and the merge leg at the top of this file re-reads it under
+	# its own teeth -- but `CONFLICTING` after a push is worth its own timestamp in the
+	# journal, because that gap is exactly where a hand-merge once got hidden. It sits after
+	# the reset because the `a tick ends the streak` leg pins the reset to the RESOLVED line,
+	# and that adjacency is a safety invariant worth more than the ordering of this comment.
+	local conflict_read
+	if conflict_read=$(gh pr view "$pr" --json mergeable,mergeStateStatus --jq '"mergeable=\(.mergeable) state=\(.mergeStateStatus)"' 2>/dev/null) &&
+		[ -n "$conflict_read" ]; then
+		log_event "CONFLICT-READBACK pr:$pr $conflict_read"
+	fi
 	return 0
 }
 
