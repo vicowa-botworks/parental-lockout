@@ -5220,3 +5220,72 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the new call site with the battery re-validated whole. `make verify` and the reads after
   the push are quoted with their exit statuses in the pull-request body, not here, because an
   `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0086 · #378: the probe table witnessed 61 of its 81 rules by a raise alone — the probe sat on the rule's path but never tested the judgement the rule's name claims — add a kind that makes a guard ANSWER and re-derive every hollow rule, widen only the rules a reviewer names, or keep the raise-only floor
+
+- Question: `RULE_PROBES` in `testing/capture/pages.py` states every row is a break aimed at the
+  thing the rule's `why` names. Measured 14 Nov by an instrumented classification `print` in the
+  probe loop (the recipe, with its command and output, is in #378): of 81 rules TWENTY append a
+  problem sentence for their break, SIXTY-ONE react only because the break's exception escapes
+  through them, and none are silent. A raise proves the break sat on the path the rule drives;
+  it does not prove the rule would notice the guard ANSWERING without refusing — which is the
+  judgement every one of those rows claims. The kinds that answer (`empty`, `data`, `page`,
+  `shadow`) existed only where derivation could reach a file or a table, not the callable guards
+  the sixty-one name.
+- Mechanism of the choice: `("returns", "<module>.<name>", value)` stands a callable in that
+  answers the value the entry names whatever it is called with, refusing before it touches
+  anything if the spec names a number or carries no value. Every one of the sixty-one re-derived per rule,
+  one subprocess per rule so one crash cannot hide the rest, against every candidate callable
+  whose leaf name shares a word with the rule's `why` (the derivation convention `D-0076`
+  already ran hollowing breaks under), values `None`, `[]`, `{}`, `0`, `""` and a
+  deliberate wrong answer; a candidate scores only where the rule's own comparison appends its
+  problem AND the rule passes the whole self-test on a clean tree first — the baseline arm proves
+  every rule passes unbroken before any break is trusted. Fifty entries kept their guard and
+  changed kind; ten moved to the neighbouring guard whose answer the rule actually reads; seven
+  needed an alternate candidate re-scored in the shipped probe order, because their isolated
+  clean-report degraded to a raise once the other eighty probes ran before them — the ordering
+  the harness comment itself calls the worst case. Measured on this tree with the same
+  instrumented loop: EIGHTY-ONE report, ZERO raise-only, ZERO silent. The arm-3 machinery
+  witness now additionally holds the broken guard to the spec's own value, at two sentinels so a
+  hardwired constant cannot pass it, and the reject loop undoes an improperly accepted shape
+  before naming it — #378 measured that a leaked swap of the rules-count constant makes the
+  sibling suite's pre-flight answer check refuse the row as INVALID, arriving as broken plumbing
+  instead of as a named refusal. Five CAUGHT rows in `scripts/attack-capture-self-test.py` pin
+  raise-instead-of-answer, answer-one-constant, undo-restores-nothing and both refused specs.
+- Options: repair per rule only the rows a reviewer names | add a kind that makes a callable
+  guard ANSWER the value the table names and re-derive every raise-only row with it, extending
+  the existing apply/restore witness to hold the answer to the spec | same kind, but with a
+  dedicated fifth harness arm to witness it | same kind and keep the 61 raise-only rows too,
+  pinning nothing about which shape witnessed which rule | leave the table alone and downgrade
+  its header sentence to say sixty-one rows are witnessed by reaction location only
+- Chose: add a kind that makes a callable guard ANSWER the value the table names and re-derive
+  every raise-only row with it, extending the existing apply/restore witness to hold the answer
+  to the spec
+- Why: no existing kind makes a guard answer — `hollow` and `refuse` force a raise by
+  construction, `data` swaps only a shipped table, `shadow` rewrites files on disk — so the
+  judgement half of the table's claim was unprovable by the machinery as built, not merely
+  unmeasured. All sixty-one rather than a named subset because a subset leaves the table's
+  sentence true only for the rows that were upgraded, and the in-context alternates closed every
+  remaining rule at zero cost to any rule's strength — the subset version measured 74/7/0 and
+  still carried the exact gap the issue names. Two sentinels because the per-rule pass counts a
+  raise as a reaction and is structurally blind to an arm that raises or answers one constant;
+  the witness is the only machine positioned to see it.
+- What lost: the per-rule repair for only the reviewer-named rules lost — cheaper, and leaves
+  sixty claims unwitnessed. A fifth harness arm dedicated to the `returns` witness lost — arm 3
+  is the apply-and-restore witness and an unwitnessed arm is the listed-floor pattern this suite
+  exists to refuse. Pinning `RAISED == 0` inside `_rule_probes_are_live` lost: a raise remains a
+  legitimate witness for a rule whose contract IS an escaping refusal, so a zero floor would
+  forbid honest future rows — 81/0/0 is this table's measured state, recorded here and in the
+  paragraph above the table, not a harness floor. A `returns` arm whose answer is computed from
+  the call arguments lost: every rule needed a constant answer, and a computed answer wants a
+  spec vocabulary this table has no present reason to invent. Scoring candidates only in the
+  shipped order lost as the sole method: it hides which alternate candidate serves which rule
+  once the order shifts, so the isolated per-rule sweep is the derivation and the shipped-order
+  re-score is the acceptance gate.
+- Checkpoint: 6358c12
+- Effect: the commit carrying this entry — the `returns` arm in `_apply_probe` with the note
+  built before the swap, the two-sentinel witness and the undo-before-naming reject loop in
+  arm 3, the 61 re-pointed entries, the kinds list and the re-measured split in the paragraph
+  above the table, the five attack rows, and `EXPECTED_ROWS` 73 to 78. `make verify` and the
+  reads after the push are quoted with their exit statuses in the pull-request body, not here,
+  because an `Effect:` written before a gate runs is a prophecy (#1180).
