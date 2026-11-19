@@ -4655,6 +4655,38 @@ factory_preserve_unpushed() { # unit tree branch -> 0 mirrored, 1 nothing ahead,
 		log_event "PRESERVE-SKIPPED $unit no branch, so there is nothing to mirror"
 		return 1
 	fi
+	# H-0301 (#384): is the bundle the only copy? The count below answers "how far is $branch ahead
+	# of origin/$FACTORY_BASE?", which is the right trigger for bundling and the wrong basis for the
+	# sentence: 14 Nov, `conflict:382` journaled `PRESERVED … (4 commit(s) on issue-311 at 5e24bb0
+	# ahead of origin/main) -- recover with …` over four commits that were ALL on `origin/issue-311`
+	# (measured at the time: local 5e24bb0 == origin/issue-311 5e24bb0) -- already-pushed work
+	# called at risk, with a recovery recipe for a ref the remote already holds. Bundling both
+	# cases stays right -- the harness has burned this project before and a belt-and-braces bundle
+	# of pushed work costs 13 956 bytes -- but the CLAIM moves to a field: `pushed=true` when
+	# `origin/$branch` holds this very tip (the bundle is a spare), `pushed=false` when it does not
+	# (the bundle is the only copy: no remote ref, or one that stopped short of this tip).
+	# A push-state read that fails -- a tree whose refs cannot be parsed -- is `pushed=unknown`,
+	# never `false`: #228's polarity, a failed read is not evidence of the clean state, and here
+	# the clean-looking reading ("not pushed, all at risk!") is the one that misleads.
+	#
+	# The read costs two `rev-parse` calls per preserve, against a `git bundle create` the same
+	# call already pays for.
+	local local_tip='' remote_tip='' pushed_desc='pushed=false (no remote-tracking origin/branch)'
+	if local_tip=$(git -C "$tree" rev-parse "$branch" 2>/dev/null); then
+		if remote_tip=$(git -C "$tree" rev-parse "refs/remotes/origin/$branch" 2>/dev/null); then
+			if [ "$local_tip" = "$remote_tip" ]; then
+				pushed_desc='pushed=true'
+			else
+				pushed_desc="pushed=false (origin/$branch is at ${remote_tip:0:7}, not this tip)"
+			fi
+		else
+			pushed_desc="pushed=false (no remote-tracking origin/$branch in this tree)"
+		fi
+	elif git -C "$tree" rev-parse --git-dir >/dev/null 2>&1; then
+		pushed_desc='pushed=unknown (the local tip could not be read)'
+	else
+		pushed_desc='pushed=unknown (the tree is not a readable git repository)'
+	fi
 	if ! ahead=$(git -C "$tree" rev-list --count "origin/$FACTORY_BASE..$branch" 2>/dev/null); then
 		log_event "PRESERVE-FAILED $unit how far $branch is ahead of origin/$FACTORY_BASE could not be read -- nothing was mirrored"
 		return 2
@@ -4671,21 +4703,25 @@ factory_preserve_unpushed() { # unit tree branch -> 0 mirrored, 1 nothing ahead,
 	tip=$(git -C "$tree" rev-parse --short "$branch" 2>/dev/null) || tip=unknown
 	path="$FACTORY_AT_RISK/branch-$(factory_slug "$unit")-${tip}.bundle"
 	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
-		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and $FACTORY_AT_RISK could not be created -- nothing was mirrored"
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and $FACTORY_AT_RISK could not be created -- nothing was mirrored; $pushed_desc"
 		return 2
 	fi
 	if ! why=$(git -C "$tree" bundle create "$path" "origin/$FACTORY_BASE..$branch" 2>&1); then
 		# `git bundle create` refuses an empty bundle itself (`fatal: Refusing to create empty
 		# bundle.`), which is the same verdict the count above already reached. Getting here means the
 		# two reads disagree, so git's own sentence goes in the journal rather than a paraphrase.
-		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and no bundle was written :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)"
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and no bundle was written; $pushed_desc :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)"
 		return 2
 	fi
 	if ! why=$(git -C "$tree" bundle verify "$path" 2>&1); then
-		log_event "PRESERVE-UNVERIFIED $unit $path exists but git refuses to verify it :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) -- do not trust this bundle to hold the work"
+		log_event "PRESERVE-UNVERIFIED $unit $path exists but git refuses to verify it; $pushed_desc :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) -- do not trust this bundle to hold the work"
 		return 2
 	fi
-	log_event "PRESERVED $path ($ahead commit(s) on $branch at $tip ahead of origin/$FACTORY_BASE) -- recover with \`git clone <remote> r.git && git -C r.git fetch $path refs/heads/$branch\`"
+	# The sentence says BOTH what the bundle holds and whether anything else on earth holds it.
+	# `pushed=true` is not a reason to skip the bundle -- 14 Nov's own lesson is that pushed work
+	# gets force-pushed over -- it is the answer to "is this the only copy?", which the old
+	# `at ... ahead of origin/main -- recover with` shape could not tell from a real rescue.
+	log_event "PRESERVED $path ($ahead commit(s) on $branch at $tip ahead of origin/$FACTORY_BASE; $pushed_desc) -- recover with \`git clone <remote> r.git && git -C r.git fetch $path refs/heads/$branch\`"
 	return 0
 }
 
