@@ -495,6 +495,10 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # for a computed style at all. Unconditional, because the shell is one template and a page whose
     # navigation was never censused would not fail the guard -- it would answer `nav=0 links`.
     extra += "," + cdp.NAV_JS
+    # The skip link (#387), unconditional for the identical reason: the shell is one template, a
+    # page whose fragment was never resolved would not fail the guard -- it would answer no census
+    # -- and `require_skip_link` refuses exactly that, so the splice rule below pins the asking.
+    extra += "," + cdp.SKIP_JS
     # And the state vocabulary (#199), unconditional for the same reason: the classes are on four
     # of the five pages and the stylesheet is one file, so a page whose state words were never
     # read would not fail the guard -- it would answer `states=0` and be believed.
@@ -615,6 +619,11 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # the six guards above: the words are rendered by four of the five templates out of one
     # stylesheet, and a page that overflows reports its width first.
     cdp.require_state_legible(got, page)
+    # The skip link (#387), at both viewports and on every page: the shell is one template, and
+    # the refusal this guard exists for -- a fragment that resolves to nothing -- is invisible to
+    # every byte-level check, so the browser is the only witness. After the state guards for the
+    # standing reason: width and links report first, because they are the alarming facts.
+    cdp.require_skip_link(got, page)
     # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
     # still up, and one call cannot drift from its twin when someone moves the split.
     cap.require_running()
@@ -1198,7 +1207,7 @@ def main(shoot_fn=None, record_fn=None):
 # an entry naming the thing it claims to guard, and the pass breaks it and requires THAT rule to go
 # red. A rule added without an entry reddens the run rather than passing unexamined, so the number
 # here and the table there are the two halves of one claim.
-EXPECTED_RULES = 81
+EXPECTED_RULES = 84
 
 
 # The bytes `_FakeSession.screenshot()` hands `cdp.capture_refused`, spelled a SECOND time inside
@@ -1621,6 +1630,30 @@ def _nav(*items, **over):
     return base
 
 
+# --------------------------------------------------------------------------- #
+# The skip link, transcribed rather than invented (#387), same discipline as NAV_HEADER:
+# these are the strings Chrome 157 reported on /users at 360 px off the stylesheet this
+# change writes -- measured on the live fixture on 19 Nov: the box is 1 px square at
+# x=8 y=8 (the `.5rem` inset), text "Skip to content", `disp:block vis:visible` -- the
+# two computed values the D-0087 refusal turns on: the resting state is out of the layout
+# and paint, not out of the focus order. Run the fixture and the printed census is these
+# numbers; a rule that fakes a skip link passes its own row, exactly as the #204 rules
+# fake their own nav.
+# --------------------------------------------------------------------------- #
+
+
+def _skip_link(**over):
+    """The skip link as the shell renders it at rest, defaulted to the passing row."""
+    item = {"text": "Skip to content", "href": "#main", "targetId": "main", "ttag": "MAIN",
+            "before": True, "x": 8, "y": 8, "w": 1, "h": 1,
+            "disp": "block", "vis": "visible"}
+    item.update(over)
+    return item
+
+
+SKIP_LINK_CLEAN = {"links": [_skip_link()]}
+
+
 @contextlib.contextmanager
 def _fake_browser(got, nav="/"):
     """The CDP reads, replaced, so the real `shoot()` can be called with no Chrome.
@@ -1642,7 +1675,7 @@ def _fake_browser(got, nav="/"):
     cdp.measure = lambda session, extra="": (
         _LAST_EXTRA.append(extra),
         dict({"controls": CLEAN_CENSUS, "nav": clean_nav(nav), "header": dict(NAV_HEADER),
-              "states": cdp.CLEAN_STATES},
+              "states": cdp.CLEAN_STATES, "skip": {"links": [_skip_link()]}},
              **got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
@@ -2461,6 +2494,12 @@ RULE_PROBES = {
      ("hollow", "cdp.require_declared_sessions"),
     "the navigation census is asked for, at both viewports":
      ("hollow", "pages.shoot"),
+    "the skip-link census is asked for, at both viewports":
+     ("hollow", "pages.shoot"),
+    "a shell without a reachable skip link refuses":
+     ("hollow", "cdp.require_skip_link"),
+    "a skip fragment that resolves to nothing refuses":
+     ("hollow", "cdp.require_skip_link"),
     "a navigation that marks nothing refuses":
      ("hollow", "cdp.require_nav_marked"),
     "a link still in the browser's own values refuses":
@@ -4734,6 +4773,92 @@ def self_test():
         if "states=0 drawn=0" not in line.getvalue():
             problems.append(f"a page with no state word prints no zeros: {line.getvalue()!r}")
 
+    # #387, delivering #204's skip-link bullet from the browser's side. Same three-way shape
+    # as the #204 set: one rule pins that the census is ASKED, and two rules drive the guard's
+    # refusals, split by which half of the bullet they carry -- reachability and resolution.
+    def the_skip_link_census_is_asked_for(problems):
+        """shoot() splices cdp.SKIP_JS in, at both viewports, whatever kind of page it is.
+
+        Pinned by identity like NAV_JS and STATE_JS: `skip` is a word the page's own prose
+        carries, so only the fragment itself says the measurement was taken. Without the
+        splice the guard refuses every page with "no skip-link census was taken" -- a run
+        that refuses for the wrong reason on every page reads from outside like one that
+        found the defect (#387).
+        """
+        for width in WIDTHS:
+            _LAST_EXTRA.clear()
+            try:
+                _run_shoot(_run_width(_nav_users(), width), width)
+                if not any(cdp.SKIP_JS in e for e in _LAST_EXTRA):
+                    problems.append(f"at {width} px shoot() never asked the browser for the "
+                                    "skip-link census, so the #387 guard compares a key "
+                                    "nobody measured")
+            finally:
+                _LAST_EXTRA.clear()
+
+    def a_shell_without_a_reachable_skip_link_refuses(problems):
+        """Zero links, and the D-0087 trap, refused through the real shoot(); the honest page accepted.
+
+        The missing-census arm is driven direct for the standing reason (the fake browser
+        defaults a census so other rules can be about something else -- only a direct call
+        hands the guard the nothing it has to refuse on). `display:none` and `visibility:hidden`
+        are the two shapes whose bytes are IDENTICAL to a correct link's: they are only
+        observable as computed values, which is half of why this guard lives in the browser.
+        """
+        try:
+            cdp.require_skip_link({"scroll": 360}, "/users")
+            problems.append("the skip-link guard passed a page with no census at all")
+        except SystemExit as exc:
+            if "skip-link census" not in str(exc):
+                problems.append(f"the skip-link guard refused for a reason that does not name "
+                                f"the missing census: {exc}")
+        except Exception as exc:
+            problems.append(f"the skip-link guard raised {type(exc).__name__} instead of "
+                            "refusing; a traceback is not an answer")
+        for key, over, want in [
+            ("no fragment link at all", {"links": []}, "skips past the masthead"),
+            ("a display:none link", {"links": [_skip_link(disp="none")]},
+             "sequential focus navigation"),
+            ("a visibility:hidden link", {"links": [_skip_link(vis="hidden")]},
+             "sequential focus navigation"),
+        ]:
+            _log, refusal = _run_shoot(dict(_nav_users(), skip=over), ARTIFACT_WIDTH)
+            if refusal is None or want not in refusal:
+                problems.append(f"a shell with {key} was accepted: {refusal!r}")
+            if any(k[0] == "png" for k in _log):
+                problems.append(f"a shell with {key} still staged a photograph")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the shell as #387 delivers it was refused: {refusal!r}")
+
+    def a_skip_fragment_that_resolves_to_nothing_refuses(problems):
+        """#387's named false pass and its three siblings, each refused, control included.
+
+        The headline row is the one no byte guard can see: the anchor sits in the markup,
+        resolves to nothing, and greps perfectly. The siblings are the same bullet seen from
+        the other three properties a static render can settle -- one link not two, text a
+        reader can hear, and a position before the thing it skips. Each defect is alone in
+        its row so every refusal is attributable to exactly one guard arm.
+        """
+        for key, over, want in [
+            ("the fragment resolves to no element", {"links": [_skip_link(ttag=None)]},
+             "resolves to"),
+            ("the link announces nothing", {"links": [_skip_link(text="")]}, "empty text"),
+            ("the link sits behind the masthead it skips",
+             {"links": [_skip_link(before=False)]}, "at or after the navigation"),
+            ("two fragment links claim the job",
+             {"links": [_skip_link(), _skip_link(href="#main", text="skip there too")]},
+             "2 fragment links"),
+        ]:
+            _log, refusal = _run_shoot(dict(_nav_users(), skip=over), ARTIFACT_WIDTH)
+            if refusal is None or want not in refusal:
+                problems.append(f"a shell with {key} was accepted: {refusal!r}")
+            if any(k[0] == "png" for k in _log):
+                problems.append(f"a shell with {key} still staged a photograph")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the resolving fragment was refused: {refusal!r}")
+
     def every_state_class_the_pages_render_is_in_the_census(problems):
         """The census list is the vocabulary the templates use, in both directions.
 
@@ -5237,6 +5362,14 @@ def self_test():
          the_state_census_is_printed_for_every_page)
     rule("the census is the vocabulary the templates use",
          every_state_class_the_pages_render_is_in_the_census)
+
+    # #387: the skip link, from the browser's side.
+    rule("the skip-link census is asked for, at both viewports",
+         the_skip_link_census_is_asked_for)
+    rule("a shell without a reachable skip link refuses",
+         a_shell_without_a_reachable_skip_link_refuses)
+    rule("a skip fragment that resolves to nothing refuses",
+         a_skip_fragment_that_resolves_to_nothing_refuses)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).
