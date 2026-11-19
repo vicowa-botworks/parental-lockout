@@ -37,6 +37,15 @@ cached as immutable for a year.
 {{with .CSS}}<link rel="stylesheet" href="{{.}}">{{end}}
 </head>
 <body class="page-{{template "pagename" .}}">
+<a class="skip" href="#main">Skip to content</a>
+    {{/* #387 delivers the skip link #204 listed as its one undelivered bullet, and it is the
+        FIRST element of every page the shell renders -- before the masthead, so it is first in
+        the tab order. Collapsed by class, never by `display: none`: an element in a display:none
+        subtree is not focusable at all, and a link a keyboard can never reach is not a skip
+        link (D-0087). The collapse and the reveal both live in app.css (.skip, .skip:focus);
+        TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage is the byte-level guard. No trim
+        dashes on this element either -- it is one line with nothing beside it, and #261 is
+        above every edit to this block. */}}
 <header class="masthead">
   {{/* Two findings, one pair of elements.
 
@@ -44,9 +53,10 @@ cached as immutable for a year.
       "title" block -- the same block <title> is built from, so the tab strip and the heading
       cannot disagree. It used to hold the product's name, so the first heading of every page in
       the site said the same two words and a reader moving heading to heading never learned which
-      page they were on. (There is no skip link in this shell yet -- #204 -- so the heading list
-      is the only such navigation today; it is still the one that was broken.)
-      TestEveryPageNamesItselfInTheHeading is that guard.
+      page they were on. The heading list was long the only such navigation -- the shell's
+      comment apologised for the missing skip link (#204) until #387 delivered it, and the
+      apology went with the defect. TestEveryPageNamesItselfInTheHeading is this guard, and
+      TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage guards the other.
 
       #204 measured two anchors in this header with the same `href="/"` on the page the root
       renders, differing only in weight -- "One of them is not a navigation target, and nothing
@@ -95,7 +105,7 @@ cached as immutable for a year.
     </form>
   </nav>
 </header>
-<main>
+<main id="main">
 {{template "body" .Data}}
 </main>
 {{with .JS}}<script src="{{.}}" defer></script>{{end}}

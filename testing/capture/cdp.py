@@ -1729,6 +1729,160 @@ def session_rows(session):
         "  return {result: c.map(x => x.getAttribute('data-label')),"
         "          vals: c.map(x => x.innerText.trim())};}))")
 
+# --------------------------------------------------------------------------- #
+# #387, delivering #204's last undelivered bullet: the skip link.
+#
+# The census below is the capture-side join of that bullet: the shell now opens with a
+# fragment anchor, and a fragment anchor is the one link shape whose failure is invisible
+# to every other guard in this file -- the anchor can sit in the markup, compute a colour,
+# precede the masthead in the bytes, and still skip to nothing, because the element its
+# href names is not on the page. That named false pass is why resolution, not existence,
+# is what this reads from the browser.
+# --------------------------------------------------------------------------- #
+
+# The id every shell page aims its skip link at, and every shell page's content region
+# carries. The Go-side copy of this contract reads the same id off the element in the
+# rendered bytes (`internal/web/nav_test.go`); this is the browser's copy, and the two
+# refuse independently of each other on purpose -- a shared fixture would fail open
+# together the day the template drifts.
+SKIP_TARGET = "main"
+
+SKIP_JS = (
+    "'skip':(function(){"
+    "var links=[];var nav=document.querySelector('nav');"
+    "Array.prototype.forEach.call(document.querySelectorAll('a'),function(a){"
+    "var href=a.getAttribute('href')||'';"
+    "if(href.charAt(0)!=='#'){return;}"
+    "var s=getComputedStyle(a);var r=a.getBoundingClientRect();"
+    "var t=document.getElementById(href.slice(1));"
+    "links.push({text:(a.textContent||'').replace(/\\s+/g,' ').trim(),href:href,"
+    "targetId:href.slice(1),ttag:t?t.tagName:null,"
+    "before:nav?!!(nav.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING):false,"
+    "x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),"
+    "disp:s.display,vis:s.visibility});});"
+    "return {links:links};})()"
+)
+
+
+def require_skip_link(got, what):
+    """The page carries exactly one fragment link, it RESOLVES, it has text, it precedes
+    the navigation, and nothing about it removes it from the keyboard's path (#387).
+
+    Why this is a browser census and not another grep: every byte-level fact about the
+    skip link can be true while the link skips to nothing. #387 named the false pass
+    itself -- an `href="#main"` with no element bearing that id -- and a link that greps
+    beautifully into a hole is exactly the defect the shell's own comment apologised for
+    while claiming the shape was fine. Resolution is only answerable where the document
+    exists, so it is asked here, of Chrome, next to the navigation census it belongs to.
+
+    Every refusal names the shape it refuses:
+
+    No census at all is the splice deleted or the script broken -- this file's standing
+    refusal for "the guard is asking a key nobody measured" (`the_navigation_census_is_
+    asked_for` pins that the real `shoot()` asks).
+
+    Zero fragment links is #387's headline: a shell that paints five masthead links and
+    a sign-out form before its content with nothing skipping past them. More than one
+    CLAIMING THE CONTENT REGION is the same class of defect as two `aria-current` marks:
+    the site now has two opinions about where "skip to content" goes, and a reader with a
+    keyboard has to tab through both to find out. The contract counts links by what they
+    claim, not by their leading hash -- the shell's byte-level leg in nav_test.go refuses
+    exactly the duplicate claim and deliberately tolerates other in-page fragments, and a
+    future `Back to top` pointing at its own `#faq` is a legal anchor, not a second skip
+    link. Two gates, one contract: whichever page grows that anchor, neither gate may
+    call it the defect the other one says it is not.
+
+    `ttag: null` is the named false pass -- the fragment resolves to no element.
+    `text` empty is a link a screen reader announces as nothing and a screenshot cannot
+    see, collapsed at rest as it is. `before: false` puts the link after the very thing
+    it exists to skip: a Tab order that reaches it behind the masthead is the bullet
+    undelivered with the markup present.
+
+    And the trap the design entry records (D-0087), in both of the clothes it wears: a
+    rest state of `display: none` or `visibility: hidden` on the link itself, and an
+    ANCESTOR removed from layout. Both take the element out of the sequential focus
+    navigation order, so the "hidden" link is the link the one input it exists for can
+    never reach. The link's own values catch the first by computed value -- the only
+    place that fact is true, since the bytes of such a link are identical to a correct
+    one's -- and the second is caught by the one browser fact that survives the ancestor:
+    a removed subtree has no box, so a link reporting its own values as fine yet
+    measuring 0x0 is a link nobody can Tab to. The honest rest state is the clip idiom's
+    1x1 at (8,8), measured off Chrome on every frame; no refusal lives between 1 and 0.
+
+    One pin, said rather than left to inference: this leg names the content region by
+    the literal `main` (SKIP_TARGET), independently of the byte leg. A rename on both
+    ends at once -- `<main id="MAIN">` with `href="#MAIN"` -- is a working skip link the
+    byte leg passes by its documented intent, and THIS leg will refuse it with a message
+    that does not use the word "rename". That is deliberate: a shared symbol between the
+    two gates is one edit away from silence, and a future renamer's job is to update
+    both legs knowingly, not to have the capture run discovered three days later.
+
+    What this does NOT ask, said rather than left to inference: what the link LOOKS like
+    once focused, and whether its reveal moves the page. A static census cannot press
+    Tab, and the reveal is measured where it can be -- the executed keyboard probe
+    disclosed on #387 -- while `capture` keeps its own claim: the artifact's rest-state
+    pixels, which the nine frames are the evidence of.
+    """
+    skip = (got or {}).get("skip")
+    if skip is None:
+        raise SystemExit(
+            f"{what}: no skip-link census was taken, so the guard comparing fragments is "
+            "reading a key nobody measured -- is cdp.SKIP_JS still spliced in pages.shoot? (#387)")
+    links = skip.get("links") or []
+    claiming = [l for l in links if l["targetId"] == SKIP_TARGET]
+    if not claiming:
+        others = ", ".join(f"{l['href']!r}" for l in links)
+        raise SystemExit(
+            f"{what}: the shell renders {len(links)} fragment link(s)"
+            + (f" [{others}], none claiming the content region" if others else "")
+            + f", so nothing on the page skips past the masthead's five entries and its "
+            "sign-out form -- #204's skip-link bullet is undelivered on this page (#387)")
+    if len(claiming) > 1:
+        joined = ", ".join(f"{l['href']!r} ({l['text'][:32]!r})" for l in claiming)
+        raise SystemExit(
+            f"{what}: the page carries {len(claiming)} fragment links claiming #{SKIP_TARGET} "
+            f"[{joined}]; exactly one is the skip link and a second is a second opinion about "
+            "where the content is (#387)")
+    link = claiming[0]
+    if link["ttag"] is None:
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} resolves to "
+            + "no element on the page"
+            + f", and the contract is that it resolves to the content region `#{SKIP_TARGET}` "
+            "-- a fragment into a hole is the false pass #387 names: the bytes are there and "
+            "the keyboard lands nowhere")
+    if link["ttag"] != "MAIN":
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} resolves to a <{link['ttag'].lower()}>,"
+            " not the <main> content region -- getElementById answers with the FIRST element"
+            " bearing the id, so a duplicate id standing ahead of the content region shadows"
+            " it: Tab-and-Enter lands on a box that still contains the masthead, which is"
+            " the defect D-0087 rejected, with every byte of the link correct (#387)")
+    if not link["text"]:
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} has empty text -- collapsed at rest, a "
+            "screen reader announces nothing and no frame can show anything; the link is "
+            "present for greps and for nobody else (#387)")
+    if not link["before"]:
+        raise SystemExit(
+            f"{what}: the skip link sits at or after the navigation in document order, so the "
+            "first Tab reaches the masthead it is supposed to skip before it reaches the link "
+            "-- first in the document is the whole of the feature (#387)")
+    if link["disp"] == "none" or link["vis"] == "hidden":
+        raise SystemExit(
+            f"{what}: the skip link computes display:{link['disp']}, visibility:{link['vis']} "
+            "-- either removes it from the sequential focus navigation order, so the link the "
+            "keyboard exists for is the link the keyboard can never reach; collapse it out of "
+            "the layout and paint instead, not out of the tree (D-0087)")
+    if link["w"] == 0 and link["h"] == 0:
+        raise SystemExit(
+            f"{what}: the skip link's own box measures 0x0 while its own computed values "
+            "read fine, so the thing removing it from the page is an ANCESTOR -- a removed "
+            "subtree has no box and no place in the sequential focus navigation order, and "
+            "every arm that reads only the link's own values calls this a correct link. The "
+            "honest rest state is the clip idiom's 1x1, measured off Chrome; nothing lies "
+            "between 1 and 0 (D-0087's trap in its parent's clothes, #387)")
+
 
 # The first words of the self-session note, as one string in one place. Both result pages render
 # the same Detail cell, and the check below is about the seam between that cell's two sentences.

@@ -5289,3 +5289,118 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   above the table, the five attack rows, and `EXPECTED_ROWS` 73 to 78. `make verify` and the
   reads after the push are quoted with their exit statuses in the pull-request body, not here,
   because an `Effect:` written before a gate runs is a prophecy (#1180).
+## D-0087 · #387: the shell gains a skip link — which anchor reaches the content, and which collapse idioms can hide a thing a keyboard still has to reach
+
+- Question: #204's one undelivered bullet: every page the shell renders paints a masthead of
+  five links and a sign-out form before the content, nothing skips past them, and the template
+  carried a comment apologising for the missing link in prose instead of carrying the link.
+  #387 asks for one first-focusable anchor that resolves to a real target, without shifting
+  the layout of any of the nine acceptance frames. The mechanism is the decision: the link
+  must be invisible at rest and reachable by Tab, and the two obvious ways to hide an element
+  — `display: none` and `visibility: hidden` — remove it from the sequential focus navigation
+  order outright, so the naive "hidden" link is exactly the link the one input it exists for
+  can never reach.
+- Options: leave the bullet in prose and open a follow-up | add a `display:none` hidden anchor
+  with no CSS reveal | add a hidden `href="#"` anchor at the top of the content region, no
+  stylesheet change | put an id on `<main>` and a real anchor as the first child of `<body>`,
+  collapsed with the clip idiom `table.rows thead` already uses and revealed by releasing
+  width, height and clip while `position: absolute` holds, so the focused state reflows
+  nothing | same anchor, but reveal it by returning the box to the flow (`position: static`)
+- Chose: put an id on `<main>` and a real anchor as the first child of `<body>`, collapsed
+  with the clip idiom `table.rows thead` already uses and revealed by releasing width, height
+  and clip while `position: absolute` holds, so the focused state reflows nothing
+- Why: `display: none` and `visibility: hidden` were refused by what they do to the focus
+  order, not by taste — a skip link a keyboard cannot land on is the bullet undelivered with
+  the markup present. A hidden `href="#"` is reachable but lands at the top of the document,
+  which is where the masthead already is: it is the #387-named false pass seen from the other
+  end, an href whose target does not answer the question the link asks. Static reveal was
+  refused for the reason the ticket states as a requirement — a box that re-enters the flow on
+  focus pushes the masthead down on every Tab and pulls it back on every blur, a layout shift
+  per keystroke on every page, against "without shifting the layout". The absolute reveal
+  floats over the page instead. The collapse idiom is not invented here: app.css already
+  hides the table's head at phone width with `position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%)` and its own comment "Out of the layout, but not
+  out of the accessibility tree" — the same claim this link needs, one rule away.
+- What lost: prose lost — it is what #204 through #387 already lived with, and an apology in
+  a comment is a bullet nobody is guard-keeping. `display:none` lost on the focus order. The
+  `href="#"` anchor lost on its landing point. Static reveal lost with it, and with that the
+  simpler focus rule: `position: static` on focus needs one property, the absolute reveal
+  needs the box to be positioned in both states and a `z-index` so it paints over what it
+  overlaps. The overlap is the accepted residue of this choice: while focused, the link
+  covers part of the masthead area, and nothing else.
+- Checkpoint: d6cb007
+- Effect: the commit carrying this entry — `page.tmpl` gains the anchor as the first element
+  of every shell page and the id on `<main>`, and its masthead comment no longer apologises;
+  app.css gains the `.skip` collapse and `.skip:focus` reveal;
+  `TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage` guards resolution, singleness,
+  text and order per page, its fixture proven against seven defect shapes before it was
+  trusted; W303 and W304 put the deletion and the orphaned-fragment shapes back for the
+  battery. Gate receipts and the re-capture are read back with their exit statuses in the
+  pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy
+  (#1180).
+
+## D-0089 · #387: a base sync met this branch at one junction where both parents rewrote the same probe-table rows — which KIND the new rows ship in, when the gate prints the same verdict for both answers
+
+- Question: the sync of `origin/main` at `623f685` (the #465 merge: #466's answering-kind pass
+  `D-0086`, #465's label gate `H-0304`..`H-0306`) onto this branch's skip-link work `D-0087`
+  conflicted on exactly two paths. `DECISIONS.md` is the shipped union's to settle and it settled
+  it; `testing/capture/pages.py` is this entry's. Git split one junction into two hunks: trunk
+  replaced the navigation rule's row `("raises", "pages.select", None)` with
+  `("returns", "pages.shoot", None)`, and this branch replaced the state-census and nav-state
+  rows with `("raises", "pages.cdp", "Page.setDeviceMetricsOverride")` and
+  `("raises", "pages.js", "window.__plockNav")` and added the new rule's row as
+  `("hollow", "pages.shoot", None)`. `D-0086` had left all four of trunk's rows raising while
+  naming those same three methods, so both parents were editing one table in one place, and the
+  merged registry is the union of their rules — 84, which is what `EXPECTED_RULES` claims. What
+  had to be decided is the KIND of the three rows this branch wrote, because a row is a
+  measurement and the two spellings are not equivalent: `hollow` is the kind `D-0086` exists to
+  retire, and on the merged bytes `pages.shoot` answers `window.__plockFocus`.
+- Options: keep this branch's three rows as written, since they are what the delivery unit
+  measured and a conflict tick moves no other unit's claims | adopt trunk's answering kind for
+  all three, since the merged tree answers every method they name | resolve only where the
+  parents collided — trunk's answering row for the navigation rule, the other two left raising | settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Chose: settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Why: measured 19 Nov on these bytes, twice, with the file copied out and the shipped function
+  imported unchanged rather than retyped — the three rows as this branch wrote them score 80
+  REPORTED, 2 REPORTED-RAISE, 2 RAISE-ONLY, 0 silent; as merged, navigation answering and the
+  other two answering the methods they name, they score 84 REPORTED, 1 REPORTED-RAISE, 0
+  RAISE-ONLY, 0 silent. The tie-break order is not reached: one answer measures the merged tree
+  and the other measures each parent's own. Both spellings leave
+  `python3 testing/capture/pages.py --self-test` at exit 0, which is the finding and not an
+  aside — the gate cannot tell a retired `hollow` row from a live one, so the number belongs in
+  this record rather than in a green checkmark. The direction is not dictated by `D-0086`, which
+  refused to pin `RAISED == 0` because "a raise remains a legitimate witness for a rule whose
+  contract IS an escaping refusal" — and none of these three is such a rule: each names a guard
+  the rule calls and reads, and all three report when that guard answers.
+- What lost: keeping this branch's `hollow` spelling lost — it is the cheapest diff and the
+  delivery unit's own witness, and it is false of the tree it would ship into: the instrumented
+  pass scored it two rules short of the merged registry's reporting count. The collide-only
+  resolution lost — it leaves a `hollow` row in a kind the trunk pass had already outgrown, and
+  reports a split that measures neither parent. And `D-0087`'s witness lost as a claim about
+  this head: its rows are now witnessed by an answer rather than by a raise. That entry is not
+  edited here, because a published `Effect:` is a receipt of the tree it was written against and
+  this commit's witness is this entry.
+- Checkpoint: 89a48bc496714ff524781d0d050b092ad1e16006
+- Effect: `testing/capture/pages.py` — the navigation row takes trunk's
+  `("returns", "pages.shoot", None)`, the state-census and nav-state rows take
+  `("returns", "pages.cdp", None)` and `("returns", "pages.js", None)`, the skip-link row takes
+  `("returns", "pages.shoot", None)`, and the count paragraph above the table now carries both
+  splits with the tree each was measured against, because trunk's paragraph names its own
+  parent's 81-rule registry and the merged registry is not that file. `DECISIONS.md` unioned by
+  `python3 scripts/merge-decisions.py --tree .` once `testing/capture/pages.py` and `NEXT.md`
+  were final and staged: it refused once, `UNION-REFUSED reason=id-collision DECISIONS.md D-0085
+  is digits-only on both sides but moved in OPPOSITE directions from base`, on a seam where this
+  branch's only delta from base is the blank separator line before its own next entry while
+  trunk's is the same coordinate re-aimed two lines down, because trunk's own `verify` recipe
+  gained two `check-doc-labels` steps above that one. Measured 19 Nov here, and the anchor is on
+  the same physical line as its coordinate: `Makefile:155` "fixture window guard". That seam is
+  adjudicated theirs, the index's stage-2 blob was rewritten so this one entry matched base's
+  bytes, and the shipped tool then unioned the whole file: `UNION entries=73 ours=1 theirs=2
+  drift=0 repointed=14 files=1`. `NEXT.md` was hand-stacked first and staged for that reason —
+  this head on top, the issue-386 head demoted whole beneath it — and its zero-loss census is in
+  its own text. The union ran a SECOND time after the last edit to `NEXT.md`: the first run
+  re-aimed fourteen of trunk's pointers into a hand-off that then grew by eight lines, and
+  `check-decisions` read 14 anchored citations landing eight lines low as a result. A repoint is
+  only a claim about the bytes that ship with it, so the order is hand-off final, then union,
+  then this entry. Gate receipts are read back with their exit statuses in the pull-request body,
+  not here, because an `Effect:` written before a gate runs is a prophecy (#1180).

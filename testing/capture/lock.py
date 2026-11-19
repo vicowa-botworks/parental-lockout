@@ -135,7 +135,8 @@ def capture(cap, name):
     g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                              "'flag':(document.querySelector('p.flag')||{}).innerText||'',"
                              "'rows':document.querySelectorAll('table.rows tbody tr').length"
-                             "," + cdp.CONTROLS_JS + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
+                             "," + cdp.CONTROLS_JS + "," + cdp.NAV_JS + "," + cdp.STATE_JS
+                             + "," + cdp.SKIP_JS)
     # The page has to be the verdict page, not an error page wearing its URL: the banner is
     # the sentence the feature exists to render, and an empty one means nothing was captured
     # no matter what scrollWidth says.
@@ -165,6 +166,11 @@ def capture(cap, name):
     cdp.require_nav_marked(g, "the lock result page", "/users")
     cdp.require_nav_in_palette(g, "the lock result page")
     cdp.require_nav_distinguishable(g, "the lock result page", "/users")
+    # #387, on the same reasoning as the nav ask two lines up: this frame is one of the two
+    # pages pages.py does not photograph, and its pixels carry the shell's skip link just
+    # like every other page's. Without the ask here, the fragment this branch's own guard
+    # calls the only witness for its named false pass is never consulted on this frame.
+    cdp.require_skip_link(g, "the lock result page")
     # #199, and this is the page the issue's answer is actually about. `state-held` is the red
     # "locked" and `state-unknown` is the plain "not locked" in the same Result column: two
     # opposite verdicts, one of them drawn and one of them left as prose, on the one page an
