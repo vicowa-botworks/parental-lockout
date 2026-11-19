@@ -1,4 +1,69 @@
-# NEXT — issue-389 unit (PR for `issue-389`: `H-0093`'s two `Effect:` tallies are annotated by a dated entry and their bytes were not touched, and `scripts/check-decisions.py` now prints how many `Effect:` diff tallies the two logs hold while re-measuring none of them — the fresh-or-stale comparison ships only as `tally_verdict(claims, measure)` behind nine `--self-test` legs, because this gate reads no history (#253) and a halting re-measure would stop the queue on a sentence about a merge from 10 Nov; 37 coordinates in this log re-aimed, 19 onto `scripts/check-decisions.py` and 18 onto `docs/factory.md`, plus 14 onto this file moved three times, and one row's pointer re-qualified to the commit its reading was taken at; the pass is `H-0307`; merging belongs to the supervisor)
+# NEXT — issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: `gh pr view
+471 --json reviewDecision,mergeable,mergeStateStatus,headRefOid` at 16:20Z answers `CHANGES_REQUESTED`,
+`MERGEABLE`, `BLOCKED`, head `833cfcd2feb7b98e59d0f9b619e9664fdefb7e16`; `gh pr view 471 --json reviews`
+holds two `CHANGES_REQUESTED` submissions from `hermesvicowa`, at 14:57:56Z and 16:00:07Z, so the newer
+review is the live verdict and it postdates the head commit at 15:48:33Z. Two rows of the brief were
+stale on arrival and were re-read rather than repeated: the head had already moved one commit past the
+`172d62d` the reviewer counted, and that commit had already re-scoped the review's second accused row;
+the review body is 5672 bytes on the API read, not the 5713 the dispatch quoted. Both blocking claims
+were re-counted on the tree this round ships before anything was written -- the census phrase stands
+on seven rows of `factory/DECISIONS.md` at `172d62d` and at `833cfcd`, on six at `dcbb0f4`, on five at
+`83a428e`, and on one at `ab9ad8d`, so the sentence that said five "at this head" was false on every
+commit that ever held it -- and a third the review did not name: the pull-request body's census
+sentence counted four added diff lines carrying the phrase, all inside `H-0307`, where the same diff
+through `grep -n` on the phrase answers six at `833cfcd` and six on these bytes, four inside `H-0307`
+and two inside `H-0308`, with no `-` line either side.
+
+## What this round shipped
+
+`b50bba4` is the checkpoint, taken before the judgement call. The commit after it carries
+`Decision: H-0309` and three changes, every one of them a scope rather than a fresh figure:
+
+- `factory/DECISIONS.md:15495` names `83a428e`, `dcbb0f4` and `172d62d` where it said "this head", and
+  keeps the review's kept clause -- this row is among the counted ones, at each of the three.
+- `H-0308`'s census sentence names `factory/DECISIONS.md` as the log its five sits in, which is the
+  referent the review asked to be spelled out; the phrase is on no line of `DECISIONS.md` at any ref.
+- `H-0309` records the choice, the options that lost and what the repair cost, and does not quote the
+  counted phrase -- so the seven it reports is the seven its own tree answers. Both rows were rewritten
+  on their own physical lines, one line in and one out, so no row below either moved and no coordinate
+  aimed into the log needed re-aiming.
+
+The pull-request body was corrected beside its own sha rather than restated here: its census sentence
+now says six added lines, four inside `H-0307` and two inside `H-0308`. Plain gate on these bytes: rc
+0, 377 entries, 1222 `path:line` citations, 583 owing an anchor, 0 refused outright, 7 `Effect:` diff
+tallies, and `--self-test` unchanged at 80 must fail and 54 must pass.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review. A push into a reviewed pull request spends the standing verdict (#269) and the re-ask is
+   the supervisor's poke -- `factory_request_review`, `FACTORY_REVIEWER_TEAM` -- never this unit's,
+   because `gh pr edit --add-reviewer` exits 1 on this account's retired `projectCards` field and writes
+   nothing (`H-0010`).
+2. The supervisor's merge, and nothing else this branch owns. The ticket's own verb rides in the
+   pull-request body, so the ticket is taken by the merge, not by a hand and not by this file.
+3. Non-blocking and left open on purpose: nothing in the tree re-measures a census figure written in
+   prose, which is #433's complaint wearing a different coat. A gate that could read one is its own
+   ticket, and `H-0309`'s `Follow-up:` says so instead of widening this scope.
+4. Every owed row in the Records beneath this head stands exactly as the unit that wrote it left it,
+   and none of it was taken by this round.
+
+## Constraints a stranger would break here
+
+- A row that counts this log's own rows names a commit, never a head. `git show <sha>:<path>` answers
+  the same in every checkout and cannot be edited by a later row, while "this head" is falsified by the
+  next row anybody writes. `H-0308` carries the mechanism, `H-0309` the rule and what lost.
+- Do not spell `adds <n> (<word> heading)` inside an `Effect:` field, even to quote somebody else's
+  receipt: `DIFF_TALLY` reads it as a tally this entry measured and moves the gate's own closing figure
+  from 7 to 8. Quote the numbers, not the shape.
+- Do not add an unanchored `path:line` to either log. `POINTER_DEBT` is 583 and may only fall; the
+  refusal names your row. Anchor on the quoted text, on the same physical line as the coordinate.
+- Fourteen pointers in `factory/DECISIONS.md` aim at two rows of THIS file -- 2257 and 2361 before this
+  head, re-aimed in this same commit -- so any insertion here moves them. Ask
+  `python3 scripts/check-decisions.py --citations NEXT.md` before you insert, not after it refuses.
+
+## Record — the issue-389 delivery unit, rounds 1-2 (PR for `issue-389`: `H-0093`'s two `Effect:` tallies are annotated by a dated entry and their bytes were not touched, and `scripts/check-decisions.py` now prints how many `Effect:` diff tallies the two logs hold while re-measuring none of them — the fresh-or-stale comparison ships only as `tally_verdict(claims, measure)` behind nine `--self-test` legs, because this gate reads no history (#253) and a halting re-measure would stop the queue on a sentence about a merge from 10 Nov; 37 coordinates in this log re-aimed, 19 onto `scripts/check-decisions.py` and 18 onto `docs/factory.md`, plus 14 onto this file moved three times, and one row's pointer re-qualified to the commit its reading was taken at; the pass is `H-0307`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this unit: the ticket, fresh off the API at
 2026-11-19T14:14Z, not off the dispatch — `gh issue view 389 --json number,state,title,url` answers
