@@ -4533,18 +4533,18 @@ factory_stop_reason() { # logfile -> the reason on stdout
 	clean=$(tr -d '\033\r' <"$log" 2>/dev/null) || clean=''
 	# The test is "is there a non-blank byte", not "is the string empty": a log of nothing but newlines
 	# is a non-empty string and every reader downstream would be handed a blank as if it were content.
-	# The test streams, and that is load-bearing. The shape this replaced -- `[ -z "${clean//[[:space:]]/}" ]`
-	# -- asked the same question of one bash expansion, and a whole-value expansion re-synchronises its
-	# multibyte decode from byte 0 for every multibyte character in the value. Measured on a real 441,215-byte
-	# tick log holding 487 of them (EM DASH, MIDDLE DOT, arrows -- ordinary model prose): 162.88 s and 164.43 s
-	# on a quiet box, against 0.007 s for this line. Placement, not count, is the driver: two synthetic files of
-	# the same size with the same 487 characters cost 207.96 s scattered and 9.29 s clustered. Over the 114 logs
-	# the timer's own directory held, 60 needed more than the 25 s probe bound and 98 more than a second. It sat
-	# in the `exit=0`-with-no-PR arm, which runs AFTER `timeout` has returned, so nothing bounded the wait: the
-	# tick ceiling was already spent and the stall was charged to the unit's `TimeoutStartSec`. A here-string
-	# rather than a pipe so the status is `grep`'s alone -- `factory.sh` runs with `pipefail`, and a `printf`
-	# killed by `SIGPIPE` mid-write would otherwise answer for a pipeline that had already found its match.
-	if ! grep -q '[^[:space:]]' <<<"$clean"; then
+	# The matcher answers it -- not the expansion this line wore before #352, and not the streamed grep
+	# #352 shipped. The expansion (`[ -z "${clean//[[:space:]]/}" ]`) re-synchronises its multibyte decode
+	# from byte 0 for every multibyte character in the value: 162.88 s and 164.43 s on a real 441,215-byte
+	# log holding 487 of them, ordinary prose (H-0160) -- and this arm sits where no timeout can reach it.
+	# The streamed grep bought that cost back wrongly: under a UTF-8 locale grep cannot match an undecodable
+	# byte with a negated bracket class, so a log whose only bytes are undecodable answered "holds nothing"
+	# -- `ff fe`, `ff 20`, `a0 a0`, and the truncations `e2 80` and `c2` that a `timeout` kill leaves when
+	# it cuts a stream mid-character (issue #372's five shapes, measured against the shipped line) -- while
+	# `if !` folded grep's own failure (127 unreachable, 2 error) into the same arm. The matcher cannot
+	# fail, and it treats an undecodable byte as the ordinary byte it is: it agrees with the replaced
+	# expansion on all seven shapes #372 measured, exotic whitespace included, at 0.002 s against 15.8-17.3.
+	if [[ $clean != *[![:space:]]* ]]; then
 		printf 'the tick log %s holds nothing -- the session wrote no output at all\n' "${log##*/}"
 		return 2
 	fi

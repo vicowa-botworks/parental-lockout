@@ -1,4 +1,60 @@
-# NEXT — issue-391 unit (branch `issue-391`, PR #472: the gate question each `verify` clause is asked is now answerable, and a chunk counted as a step must also be able to fail the recipe — review round 2, `H-0311`)
+# NEXT — issue-372 unit (branch `issue-372`, PR for `issue-372`: the streamed `grep` #352 shipped answered "holds nothing" for five byte shapes the predicate it replaced answered content, and the repair is the matcher that predicate was made of — `H-0315`; merging belongs to the supervisor)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: `gh issue
+view 372 --json number,state,url` answers `372 OPEN .../issues/372` with zero comments, and no pull
+request carries `issue-372` as its head. The tree: `2f3e52c` (`pre-H-0312`, a prior tick's
+checkpoint) on `origin/main@b9aef1d`, clean; this round's checkpoint is `f330ff1` (`pre-H-0315`),
+taken before the judgement call. Every ticket claim was re-measured against `main` first — the
+shipped predicate, the `dash_ctl` inequality, the 1,200-vs-1,300-line prose, and the `172 0` read —
+because the ticket is a claim about the world, not the world.
+
+## What this round shipped
+
+The four review items and the two provenance nits from #352, and nothing else:
+
+- Item 1: `factory_stop_reason` asks "is there a non-blank byte" of the cleaned log with the glob
+  matcher `[[ $clean != *[![:space:]]* ]]` — the matcher #352's expansion was made of, at 0.002 s
+  against the expansion's 15.8–17.3 s on the dense fixture, and correct on the five undecodable-byte
+  shapes the streamed grep failed (`ff fe`, `ff 20`, `a0 a0`, `e2 80`, `c2`).
+- Item 2 dissolved rather than fixed: the matcher has no exit 127 and no exit 2, so there is no
+  grep-failure arm to separate.
+- Item 3: `dash_ctl` now asserts `[ "$rc_ok" = 1 ]`, so a `factory_stop_reason` stubbed to
+  `return 0` can no longer pass the cost bound.
+- Item 4: the fixture comment reads its measured size — 1,301 lines, 137,835 bytes, 5,200 EM DASHes,
+  a 105-byte line carrying 97 characters.
+- The pins: six `stop_leg`s on the shipped function over the five shapes plus a prose control, and
+  two legs under a pinned UTF-8 locale (ideographic space answers rc 2 `no output at all`; matcher
+  and replaced expansion answer the seven-shape table identically), SKIPping with the reason named
+  where `locale -a` lists no UTF-8 locale. All eight legs sit below `selftest.sh:25321`, the last
+  line any log row cites.
+- The records: `H-0160`'s `Effect:` carries a `CORRECTED by H-0315` clause; `H-0173`'s splice
+  sentence now says the `172 0` read is head-local (the same pair reads `1226 35` at head; the
+  durable claim is the deletions column); the #352 body carries both corrections and was read back
+  byte-identical at md5 `2545ed0405697f0d96b6bcd5e5418f03`; three stale `"if ! grep -q ..."` quotes
+  in `H-0173`/`H-0203`/`H-0230` were re-aimed at the matcher line with the move named beside them.
+
+Plain gate on these bytes: `make verify` rc 0 -- `factory/selftest.sh` reported 898 passed and 0
+failed, all nine new legs ok, `check-decisions` rc 0 over 380 entries and 1244 citations, the measured
+anchor debt held at its recorded figure (the entry's two refused-shape coordinates were re-formed so
+the number never moved); `make check-shell` -> `check-shell: 0.10.0 over 33 scripts`,
+exit 0. Both figures are quoted from the runs whose logs are named in the pull-request body
+(#1180), and the locale caveat row 7 of the `H-0283` Record keeps is untouched by this round — it
+names `dash_ctl`'s locale pin, which is not a #372 requirement, and the new legs carry their own
+locale pin or a SKIP so the scrubbed-environment red the row measured is not reproduced by them.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of the new PR — the ask is the supervisor's poke (`factory_request_review`), not this
+   unit's (`H-0010`: `gh pr edit --add-reviewer` exits 1 on this account's retired `projectCards`
+   field and writes nothing).
+2. Row 7 of the `H-0283` Record — `dash_ctl`'s locale pin — stays owed to the harness; this round
+   pinned the locale only in its own new legs, because the row's pay is a different file's edit.
+3. The two `#372` nits about the #352 body landed as body edits on a MERGED pull; if the project
+   wants merged-pull errata to live in the log instead, `H-0315`'s `Effect:` row is the text to
+   move — it already quotes the body's read-back md5.
+
+## Record — the issue-391 unit (branch `issue-391`, PR #472: the gate question each `verify` clause is asked is now answerable, and a chunk counted as a step must also be able to fail the recipe — review round 2, `H-0311`)
+## Record — the issue-391 unit (branch `issue-391`, PR #472: the gate question each `verify` clause is asked is now answerable, and a chunk counted as a step must also be able to fail the recipe — review round 2, `H-0311`)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: at
 2026-11-19T18:09:28Z `gh issue view 391 --json number,state,url` answers `391 OPEN
