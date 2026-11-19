@@ -3938,7 +3938,71 @@ factory_installed_tree() {
 	return 0
 }
 
-# factory_unit_lines <this-tree> [UNIT_FILE]
+# factory_generator_env_names [GENERATOR_FILE]
+#   The Environment variable NAMES the generator's unit template writes, sorted, one per line --
+#   names only. Values are never read here, because drift lives in the names: a template line added
+#   after an install is absent from the install whatever its value would have been, and an installed
+#   line with an EMPTY value (`Environment=FACTORY_REVIEWER_TEAM=`, the documented "ask the
+#   individual" override #241) is an operator's choice, not drift.
+#
+#   rc 1 means the file cannot be read as a regular file. That is not the same answer as the empty
+#   set of a generator that writes no Environment lines, and the caller has to be able to tell them:
+#   an empty set answered from a failed read would print the clean state for a comparison that never
+#   ran (#228's polarity, carried here from `factory_installed_tree`).
+factory_generator_env_names() {
+	local gen=${1:-$FACTORY_DIR/install-timer.sh} out=''
+	[ -f "$gen" ] && [ -r "$gen" ] || return 1
+	out=$(awk '/^[[:space:]]*Environment[[:space:]]*=/ { sub(/^[^=]*=/, ""); sub(/=.*/, ""); if ($0 != "") print }' \
+		"$gen" 2>/dev/null) || return 1
+	[ -n "$out" ] || return 0
+	printf '%s\n' "$out" | sort -u
+}
+
+# factory_unit_env_lines <UNIT_FILE> [GENERATOR_FILE]
+#   One `UNIT-ENV-STALE` line per Environment name the generator writes and the installed unit does
+#   not carry -- one fact per sentence like every sibling verdict here, so a journal grep is the
+#   whole query and `grep -c '^UNIT-ENV-STALE'` counts names. #377's measurement: the installed unit
+#   predated two generator lines, both components kept behaving correctly by falling back to script
+#   defaults, and nothing anywhere said a word -- the drift is not an outage, it is an operator who
+#   lost a lever (`Environment=FACTORY_REVIEWER_TEAM=` is unreachable from an install that predates
+#   the line, and `FACTORY_SERVICE_UNIT` is guessed from the repository name instead of recorded) and
+#   lost the drift's own visibility. So this is a warning, never a halt: the pass works. And the fix
+#   -- re-running the generator -- rewrites and reloads the unit that drives the queue and re-derives
+#   PATH from the caller's environment, which is an act for whoever maintains the timer, not for a
+#   pass mid-activation.
+#
+#   Silence means exactly one thing: this install carries every name that generator writes. The
+#   generator side keeps #228's polarity -- an unreadable generator answers `UNIT-ENV-UNKNOWN`,
+#   because a failed read is not evidence of the clean state. Callers run this only after
+#   `factory_installed_tree` has said the unit IS a readable file of this harness: the uninstalled,
+#   foreign and unreadable arms already own their sentences, and comparing the expected set against
+#   a file that cannot be read -- or a hand-written unit no generator wrote -- manufactures drift
+#   out of the inability to see.
+factory_unit_env_lines() {
+	local file=$1 gen=${2:-$FACTORY_DIR/install-timer.sh} names have n
+	names=$(factory_generator_env_names "$gen") || {
+		printf 'UNIT-ENV-UNKNOWN unit=%s generator=%s -- this pass cannot read that generator, so which Environment names it writes is unknown; the absence of a UNIT-ENV-STALE line is not a match here (#377)\n' \
+			"$file" "$gen"
+		return 0
+	}
+	have=$(awk '/^[[:space:]]*Environment[[:space:]]*=/ { sub(/^[^=]*=/, ""); sub(/=.*/, ""); if ($0 != "") print }' \
+		"$file" 2>/dev/null) || {
+		printf 'UNIT-ENV-UNKNOWN unit=%s -- the unit cannot be read for the Environment comparison, so its set is unknown; the absence of a UNIT-ENV-STALE line is not a match here (#377)\n' \
+			"$file"
+		return 0
+	}
+	while IFS= read -r n; do
+		[ -n "$n" ] || continue
+		printf '%s\n' "$have" | grep -qxF -- "$n" && continue
+		printf 'UNIT-ENV-STALE unit=%s name=%s -- the installed unit carries no Environment=%s line, so it predates the generator that writes it; re-running factory/install-timer.sh is the fix and that is whoever maintains the timer'"'"'s act, and until it happens the script answers this name from its own default (#377)\n' \
+			"$file" "$n" "$n"
+	done <<EOF
+$names
+EOF
+	return 0
+}
+
+# factory_unit_lines <this-tree> [UNIT_FILE] [GENERATOR_FILE]
 #   The pass's sentences about the installed unit: one per fact, so a journal grep is the whole query,
 #   exactly as `factory_supervisor_lines` does it. Same polarity too -- it reports and never halts.
 #   Moving a tree the timer executes from is editing a script while bash is reading it, and #249 left
@@ -3946,8 +4010,14 @@ factory_installed_tree() {
 #
 #   `UNIT-AT <tree>` is on every pass, the way `SUPERVISOR-AT` is: a read nobody prints is a read that
 #   cannot be told apart from a read that is not there.
+#
+#   The third argument is the test seam for #377: the generator whose `Environment=` name-set the
+#   installed unit is compared against. It defaults to this file's own tree, because the drift that
+#   matters is between the install and the code that runs the pass -- and a tree older than the
+#   install cannot report a generator line it does not have, which is honest rather than a miss:
+#   whichever tree runs carries the newest expectation is the one that prints.
 factory_unit_lines() {
-	local this=${1:-$FACTORY_HARNESS} file=${2:-} installed='' rc=0
+	local this=${1:-$FACTORY_HARNESS} file=${2:-} gen=${3:-} installed='' rc=0
 	[ -n "$file" ] || file="$(factory_units_dir)/$(factory_service_unit)"
 	rc=0
 	installed=$(factory_installed_tree "$file") || rc=$?
@@ -3971,6 +4041,12 @@ factory_unit_lines() {
 			printf 'UNIT-DIVERGED installed=%s this=%s -- the unit execs one checkout and this pass is running from another, so the code under test is not the code the loop will run next (#260)\n' \
 				"$installed" "$this"
 		fi
+		# The Environment set is the second half of what the unit carries -- it is the environment a
+		# tick runs with (#377). Inside this arm and not above the `case`, because the other three
+		# arms already say their own sentence, and a comparison against nothing-installed, a
+		# hand-written unit, or an unreadable file would print invented drift where the honest
+		# sentence is the one the arm prints.
+		factory_unit_env_lines "$file" "$gen"
 		;;
 	esac
 	return 0

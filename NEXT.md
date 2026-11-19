@@ -1,4 +1,207 @@
-# NEXT — issue-311 unit (PR #455 conflict tick: the base sync onto `292b4d9` seats this branch's `H-0285` below trunk's `H-0283`/`H-0284` by entry id at a one-junction tail, this head replaces the issue-375 `H-0284` head, the hazard-row pointers are re-aimed at the moved hand-off, `POINTER_DEBT` re-measured on the merged corpus, `H-0286`; merging belongs to the supervisor)
+# NEXT — issue-380 conflict tick (PR #459, base sync onto `5188844`; ONE conflicted path, `factory/DECISIONS.md`, 27 hunks: 26 are the same sentence whose `path:line` anchors each parent re-pointed at its own tree and were re-aimed by the shipped gate's own refusal, 1 is the tail junction unioned by ascending id so both `H-0287` and `H-0288` ship; 72 drifted pointers moved digits-only; the pass is `H-0289`; the finding is that issue-380's own unit never wrote a hand-off at all, which the shape gate cannot see; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick, raw JSON and never a `-q` template: PR #459
+reads `OPEN`, `reviewDecision=APPROVED`, `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, head
+`2aa6dac7710564318a0b17b7096006576c4b2bfc`, five checks all `COMPLETED/SUCCESS` (`verify`,
+`shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)`), and its one review row is
+`hermesvicowa APPROVED` at `2026-11-19T00:44:37Z` against that same head `2aa6dac` — so this push
+spends it, and the post-push read is quoted in the pull-request body rather than claimed here
+(#1180). `git merge origin/main` conflicted on exactly ONE path, `factory/DECISIONS.md`, 27 hunks;
+`NEXT.md`, `docs/factory.md`, `factory/common.sh` and `factory/selftest.sh` arrived from `ort`, and
+`factory/factory.sh` needed no merge because trunk never touched it. The tree was clean at entry
+(`git status --porcelain` empty, no `factory/HALT`), and this tick IS the `conflict:459` unit the
+journal opened at `2026-11-19T01:14:19Z` in this tree, so no second writer holds it. The allocator
+was asked after `git fetch --prune origin` and before the checkpoint (`H-0289`, journalled `REFRESH
+28s union`, no `PENDING`, no `REFRESH-BLIND`) and `## H-0289` sat on no ref or tree this clone could
+name at read time, and re-verified after `git fetch --prune origin` rather than trusted: `git grep '^## H-0289'` over every `refs/heads` and `refs/remotes` answers nothing and trunk ships 280 headings to `H-0287` — which is ALL that stands between this id and a collision, because the journal line 24 minutes above this tick's is `2026-11-19T00:50:21Z DECISION-ID H-0289 unit=unclaimed:381 branch=issue-381`, a second unit handed this same id that landed nothing (no remote ref, its local tip IS trunk's `51c87d3`), so the allocator re-issued it for want of anything readable that had taken it: the journalled-id-no-union-can-retire class with two timestamps on it. Re-read before honoring this id on any successor's authority — and if `issue-381` wakes before this branch merges, one of the two entries has to move to `H-0290`, because the allocator cannot see the other claim either way; only this file can.
+
+## What this dispatch pushed
+
+- One merge commit carrying `Decision: H-0289`, over one conflicted path. The tail junction is a
+  union, not a choice: trunk's `H-0287` seated first, this branch's `H-0288` after it, both entries
+  whole — the log ships 281 `## H-` headings, unique and ascending to `H-0288`, no duplicate, no
+  marker, no line of either entry edited.
+- The other 26 hunks are one defect seen 26 times: the SAME sentence on both sides whose `path:line`
+  coordinates each parent had re-pointed at its own tree, so neither parent's number is true of the
+  merged tree. Trunk's spelling was taken for the shared prose (the convention the carried entries
+  call "trunk's body is the ground"), and every pointer the shipped gate then refused was re-aimed
+  at the line the gate's own refusal named — 72 pointers across 48 rows, digits only, no row added
+  or removed, offsets clustering at +1 (`factory/factory.sh`), +18 (`docs/factory.md`), +28 (one row
+  of this branch's own `H-0288`) and +56 (`factory/common.sh`).
+- 11 of those 72 anchors answered to MORE THAN ONE line in the merged tree, so the gate's answer was
+  not a number but a set. Each was adjudicated by opening every candidate and the citing sentence —
+  a call site over a comment that merely names it, `factory_journal_age`'s own `tail -n 1` over an
+  unrelated one, the busy-guard `awk` over the census's `git` calls, the precondition paragraph over
+  the later row that quotes it, the enumerating comment block over the shipped `printf` — and each
+  then agreed with its parent's offset cluster, which is the cross-check, not the preference.
+- Both intents verified rather than asserted: `check-decisions` rc 0 on these bytes (351 entries,
+  1161 citations, 583 owing an anchor, 0 refused in every must-be-zero bucket, `POINTER_DEBT`
+  unmoved at 583 and JUDGED again, the suspension having been the 72 themselves), and a second
+  sweep written against no code of the gate's own reading 483 anchored citations and opening each
+  target, which lands 480 and names three — all three artifacts of the sweep's cruder matcher (a
+  possessive `'s` after the coordinate, and two bare basenames), one of which was then opened by
+  hand and reads true.
+
+## What this push spent
+
+- One decision id (`H-0289`), one checkpoint (`24c4dd3`, the branch tip before the merge), one base
+  sync (`5188844`).
+- A merge commit on a permanent-history branch (both squash and rebase merge are off here), which is
+  why the resolution was made by reading 27 hunks rather than by picking a side.
+- No cloud spend, no third-party dependency, no live systemd object, no GitHub write before this
+  file's own pull-request step.
+- 72 citation re-aims — a repair, not a change of promise: every one keeps its own anchor text and
+  moves only the number.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+1. Review on PR #459: the approval this branch held (`hermesvicowa`, `2026-11-19T00:44:37Z`, filed at
+   `2aa6dac`) is spent by this push, as #269 measured a conflict push spends one. There is no
+   dismissal timestamp in any read a tick can make, so the push is the honest event to name. The
+   poke (`factory_request_review`, `FACTORY_REVIEWER_TEAM`) owns the re-ask and a unit never asks, so
+   `reviewDecision` reads `REVIEW_REQUIRED` and `mergeStateStatus` `BLOCKED` until it does.
+2. The hand-off this unit is writing was never written by the unit that opened PR #459. Measured:
+   `git log --oneline origin/main..HEAD -- NEXT.md` on `2aa6dac` is empty, so `issue-380` shipped a
+   feature, an entry and a green gate with no hand-off of its own, and the merge therefore handed the
+   supervisor trunk's head as if it were this branch's. `scripts/check-next-md.sh` leg 1 stayed green
+   the whole time and CANNOT see this — it counts one level-1 heading naming *a* unit, never whether
+   that unit is the one whose branch is under it (H-0286 already named the cause: "the gate reads
+   structure and never authorship"). Named here and not opened: the leg that catches it is a harness
+   change, and a conflict tick must not widen a gate it is standing in front of.
+3. The 26-of-27 shape is #381, still open and still exact: every merge re-conflicts every open branch
+   on these logs, the union is keyed by id and mechanical, and a model does it by hand. This tick
+   spent the majority of its ceiling on digits. #440 is the sibling and its row above shows the
+   damage: an anchor whose quote sits on several rows is accepted today, so 11 of 72 repairs here were
+   a judgement the gate could have made and did not.
+4. If a later conflict tick base-syncs this branch: the `H-0289` Effect quotes `check-decisions` as
+   measured on THESE bytes; a union that moves the lines this entry re-aimed must re-aim by anchor,
+   never by offset — the row that cites one coordinate twice is what an offset repair silently
+   collapses (the slip `H-0287`'s head discloses at its own row 44 is that failure, measured).
+5. Carried from the issue-377 Record below, none of it touched by this tick: its rows 1-5 stand as
+   written there — the review-poke row, #377 half 1 (re-running `factory/install-timer.sh` rewrites
+   and reloads the unit that drives the queue: an operator act, never a tick's, and until it happens
+   the pass prints `UNIT-ENV-STALE` for the two names by design), its own base-sync warning, the
+   journalled-id-no-union-can-retire class, and everything that head carries from `H-0286` — the two
+   `#425` hazard rows and the `H-0252` `Follow-up:` claim resting on them, the #311/#334 operator
+   waits, the exported-`FACTORY_TICK_UNIT` allocator legs and the `dash_ctl` locale row.
+
+## What this conflict tick pruned, and how to get it back
+
+| Dropped | Where it is whole | Why it is a record and not an instruction |
+|---|---|---|
+| the issue-377 dispatch head's level-1 heading (line 1 of `git show 5188844:NEXT.md`) | that blob | demoted to a Record heading below; its state read and all four of its record sections — pushed, spent, owed, pruned — are carried whole beneath it, so "this dispatch" names one unit |
+
+Everything else the file held is carried forward unedited, including that Record's owed section and
+every instruction section below the Records. No owed line was dropped: the census is the
+one-direction line-multiset diff of `git show 5188844:NEXT.md` against this file, and it is printed
+by the splice that wrote this head. `python3 scripts/check-close-verb.py NEXT.md` still rc 1 on the
+two carried `#425` hazard rows, disclosed, unchanged: this unit edits no line another unit's claim
+rests on, and it added no third.
+
+## Record — the issue-377 unit (PR for `issue-377`: the pass now compares the generator's `Environment=` name-set against the installed unit and prints `UNIT-ENV-STALE` per missing name, or `UNIT-ENV-UNKNOWN` when either side cannot be read; the comparison lives inside the readable arm of `factory_unit_lines`; four selftest legs each carry their control; `H-0287`; the install half of #377 is an operator act and is NOT done by this unit; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick, raw JSON and never a `-q` template: this
+checkout is `/home/rodney/prj/wt/issue-377` on branch `issue-377`, base `origin/main` at `51c87d3`
+(the #455 merge, agreed by `git ls-remote` at fetch time), merged in as `d6f7b59` before any decision
+file was written, so the `H-0287` tail seats behind trunk's `H-0286` with no junction. The allocator
+was asked after that fetch and again immediately before the entry (`H-0287` both times, journalled
+`REFRESH` union, no `PENDING`, no `REFRESH-BLIND`), and `## H-0287` sat on no ref or tree this clone
+could name at read time; re-read before honoring this id on any successor's authority. `git status
+--short --ignored` in this tree holds only the files this unit edited, so the `check-decisions`
+ratchet was judged, not exempted. No live unit was read, rewritten or reloaded here, and no
+`systemctl` call was made: the install is the operator's (#377 half 1, named below and never acted on).
+
+## What this dispatch pushed
+
+- `factory/common.sh`: `factory_generator_env_names` (sorted NAMES the generator's template writes;
+  rc 1 only for a file that cannot be read, so the readable-but-empty generator is the empty set and
+  not a failed read) and `factory_unit_env_lines` (one `UNIT-ENV-STALE unit=… name=…` sentence per
+  name the install lacks, `UNIT-ENV-UNKNOWN` for either unreadable side, names compared never
+  values, which is what keeps #241's documented empty-value override from being nagged). The call
+  sits inside the readable arm of `factory_unit_lines`, after `UNIT-AT`/`UNIT-DIVERGED`, not above
+  the `case`: the uninstalled, foreign and unreadable arms already own their sentences, and a
+  comparison against an absent, hand-written or unreadable unit would print invented drift.
+  `factory_unit_lines` grew a third argument — the generator path — defaulting to this file's own
+  tree, which is the #260 rule that the tree running carries the newest expectation.
+- `factory/selftest.sh`: four `claim_leg` legs after `unit_records_its_own_name` — drift names every
+  missing name (with the empty-value fixture and the arm-deletion control rewriting the sentence
+  out of a copy of `common.sh` and re-running the same fixture in a fresh `bash`); match-is-silent
+  plus the discriminating rewrite (one name added to the generator flips silence to exactly one
+  sentence naming it) plus the empty-generator case plus the `#Environment=` comment case;
+  unreadable-generator prints `UNKNOWN`, never a match, with its own arm-deletion control and a
+  readable-generator flip-back; and the three other arms print no set verdict at all, gated by the
+  hoist control that moves the call above the `case` in a copy and requires the UNINSTALLED case to
+  start speaking. Every control premise-checks its own rewrite before believing it (the H-0184
+  shape), and a control that answers nothing while its premise held prints the fixture-is-inert
+  message rather than passing.
+- `docs/factory.md`: a paragraph beside the #260 unit reads quoting the shipped sentence, the
+  warning-not-halt polarity, the names-not-values rule and the operator-act fix.
+- `factory/DECISIONS.md`: `H-0287` with four lost options each carrying its reason, checkpoint
+  `6e3e0e0`; and the 147 drifted anchored citations the shipped gate refused (measured by its own
+  first scan on this tree: 147 rows across 114 lines in 49 entries, all of them moved by this
+  unit's own insertions) re-aimed at the line the gate's own refusal named, `check-decisions` green
+  on these bytes with `POINTER_DEBT` unmoved at 583 and 0 refused (the count is the same number;
+  what moved is which line each citation names). One slip, disclosed: the first repair helper
+  replaced every occurrence of a coordinate on a row, and `factory/DECISIONS.md:12503` (H-0235's
+  Effect row) carries the same coordinate twice — seven of its eight `selftest.sh` pointers
+  collapsed onto one line number — caught by the shipped gate on the next run and the row rebuilt
+  from `git show HEAD:` with the gate's per-anchor verdicts as the identity, not an offset.
+- The reproduction that motivated the shape, run against the shipped code before the legs existed:
+  a three-`Environment=` unit planted against the real 5-line generator answered exactly the two
+  names #377 measured missing (`FACTORY_REVIEWER_TEAM`, `FACTORY_SERVICE_UNIT`) and nothing else;
+  the empty-value override answered no sentence. Both are legs now.
+
+## What this push spent
+
+- One decision id (`H-0287`), one checkpoint (`6e3e0e0`), one base sync (`d6f7b59`, trunk
+  `51c87d3`, clean, zero conflicts, zero content movement).
+- No cloud spend, no GitHub write before this file's own pull-request step, no live systemd object.
+- 147 citation re-aims (a repair, not a change of promise: every one keeps its own anchor text and
+  moves only the number, and the gate re-opened each one by reading the anchor at the new line —
+  that read is what `check-decisions` rc 0 means here).
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+1. Review on this unit's PR: the poke (`factory_request_review`, `FACTORY_REVIEWER_TEAM`) owns the
+   first ask; a unit never asks. Whether the merge moved the review state is a post-push read
+   quoted in the body, not a claim of this file.
+2. #377 half 1 is NOT delivered by this branch and cannot be: the live installed unit on this
+   machine still predates the two generator lines, and re-running `factory/install-timer.sh`
+   rewrites and reloads the unit that drives the queue and re-derives `PATH` from the caller's
+   environment — an act for whoever maintains the timer, never a tick's (`systemctl` is in the
+   denial list; `H-0287` carries the split). After this lands, the pass itself will print
+   `UNIT-ENV-STALE` twice a day naming those two names: that journal noise is the feature working
+   against the un-reinstalled install, and the quiet fix is the operator's reinstall, not silencing
+   the read.
+3. If this branch is base-synced by a later conflict tick: the `H-0287` Effect quotes `check-decisions`
+   output as measured on THESE bytes (`51c87d3` + this unit); a union that moves the lines my own
+   citations re-aimed must re-aim by anchor, never by offset — the slip disclosed above is exactly
+   what an offset repair does to a row that cites one coordinate twice.
+4. The allocator journalled `H-0287` to this unit; if the entry never lands, the journal holds an id
+   no union can retire — the standing class the carried rows below name, unfixed and un-papered.
+5. Carried from the `H-0286` head above this Record, none of it touched by this tick: its rows 1-8
+   stand as written there (the #455 review row, the two `#425` hazard rows and their `H-0252`
+   `Follow-up:` claim, the #311/#334 operator waits, the two harness defects (a) the exported
+   `FACTORY_TICK_UNIT`/`FACTORY_LOG` allocator legs — which this unit re-measured the same way as
+   its own gate run, under `env -u` of the six exported `FACTORY_*` names, and (b) the
+   journalled-id-invisible-to-union class — the census-by-anchor lesson, and the `dash_ctl`
+   locale row).
+
+## What this head pruned, and how to get it back
+
+| Dropped | Where it is whole | Why it is a record and not an instruction |
+|---|---|---|
+| the issue-311 `H-0286` dispatch head's level-1 heading (line 1 of `git show 51c87d3:NEXT.md`) | that blob | demoted to a Record heading below; its state read and all four of its record sections — pushed, spent, owed, pruned — are carried whole beneath it, so "this dispatch" names one unit |
+
+Everything else the file held is carried forward unedited, including that Record's owed section and
+every instruction section below the Records. No owed line was dropped: the census is the one-direction
+line-multiset diff of `git show 51c87d3:NEXT.md` against this file (lines of the parent absent here;
+this head's own added lines are not the census's subject), and it found exactly one — the demoted
+heading itself. `python3 scripts/check-close-verb.py NEXT.md` still rc 1 on the two carried `#425`
+hazard rows, disclosed, unchanged: this unit edits no line another unit's claim rests on.
+
+
+## Record — the issue-311 unit (PR #455 conflict tick: the base sync onto `292b4d9` seats this branch's `H-0285` below trunk's `H-0283`/`H-0284` by entry id at a one-junction tail, this head replaces the issue-375 `H-0284` head, the hazard-row pointers are re-aimed at the moved hand-off, `POINTER_DEBT` re-measured on the merged corpus, `H-0286`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this conflict tick, one read per call, raw JSON and
 never a `-q` template: **#455** `OPEN` (raw `url` says `/pull/455`), `reviewDecision` empty,
