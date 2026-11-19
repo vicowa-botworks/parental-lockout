@@ -8,12 +8,21 @@ real `main()` in a copy of the tree with the browser faked and the operator's st
 
 Nothing here is filed by this branch: filing is one command, run from the repository root.
 
+The label name below comes from `docs/labels.txt`, the one file that holds the set this repository
+carries, and `scripts/check-doc-labels.py` (in `make verify`) refuses any documented name it does not
+hold. The two names this recipe carried until #386 — `testing` and `ux` — are not names this
+repository has, so the command failed at the label step with `could not add label: 'testing' not
+found`, exit 1, nothing created. Both collapse onto `area:ui`, the label the capture tree already
+carries on #294, #301 and #302; the collapse and what it costs are recorded in `H-0304` of
+`factory/DECISIONS.md`. This row reads as a defect in a shipped driver, so a filing human adds `bug`
+beside it: `gh issue edit <N> --add-label bug`.
+
 ---
 
 ## 1. A report that dies in the *fixture* arm escapes as a traceback, so the run's exit code is the laundered one and the operator reads nothing
 
 ```
-gh issue create --label testing,ux --title \
+gh issue create --label area:ui --title \
   'lock.py/testlock.py: a refusal whose report raises in the fixture arm ends in a traceback, not a refusal' \
   --body-file /tmp/issue-report-dies-fixture.md
 ```

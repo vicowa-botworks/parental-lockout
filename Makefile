@@ -122,6 +122,8 @@ verify:
 	echo "==> decision log"; python3 scripts/check-decisions.py; \
 	echo "==> hand-off contract"; bash scripts/check-next-md.sh --self-test; \
 	echo "==> hand-off file"; bash scripts/check-next-md.sh; \
+	echo "==> documented label names contract"; python3 scripts/check-doc-labels.py --self-test; \
+	echo "==> documented label names"; python3 scripts/check-doc-labels.py; \
 	echo "==> journal retention census"; bash factory/retention-census.sh --self-test; \
 	echo "==> factory dirt verdict"; bash factory/selftest.sh; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \

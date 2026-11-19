@@ -13,12 +13,23 @@ it was the last in its class, the class with it`. That is the acceptance test, a
 
 Nothing here is filed by this branch: filing is one command each, run from the repository root.
 
+Every label name below comes from one file: `docs/labels.txt` is the set this repository carries
+(re-read it there rather than re-typing it), and `scripts/check-doc-labels.py`, run by `make verify`,
+refuses a documented name that file does not hold. The two names these recipes carried until #386 —
+`guard` and `testing` — are not names this repository has, so all five commands here failed at the
+label step with `could not add label: 'guard' not found`, exit 1, nothing created. What each absent
+name was replaced with, and why, is `H-0304` in `factory/DECISIONS.md`: a missing guard is
+maintenance of a checking tool, the work `kind:chore` names (the precedent is #389 and #242), and the
+capture tree these five rows are about is the surface `area:ui` names (the precedent is #294, #301 and
+#302). A row you read as a product defect rather than a chore takes `bug` from a filing human
+afterwards: `gh issue edit <N> --add-label bug`.
+
 ---
 
 ## 1. A rule whose body was emptied is invisible to the count — 3 of 3 emptied rules came back green
 
 ```
-gh issue create --label guard,testing --title \
+gh issue create --label kind:chore,area:ui --title \
   'pages.py --self-test: a rule whose body was emptied keeps the count at 76 and prints green' \
   --body-file /tmp/issue-hollow-rule.md
 ```
@@ -44,7 +55,7 @@ Not accepted: adding more counted rules. That raises the number a hollowed rule 
 ## 2. `rule()`'s crash arm is the only place a crashing rule becomes a problem, and nothing checks it
 
 ```
-gh issue create --label guard,testing --title \
+gh issue create --label kind:chore,area:ui --title \
   'pages.py --self-test: a rule that throws is recorded as a passing rule when the crash arm is emptied' \
   --body-file /tmp/issue-crash-arm.md
 ```
@@ -79,7 +90,7 @@ and assert its own `{why}: {type(exc).__name__}` sentence arrives in `probe_bad`
 ## 3. A refusal's kept frame is never read — an empty PNG satisfies every sentence about it
 
 ```
-gh issue create --label testing --title \
+gh issue create --label area:ui --title \
   'capture refusal contract: the kept frame is only ever listed, never read, so an empty PNG passes' \
   --body-file /tmp/issue-empty-frame.md
 ```
@@ -106,7 +117,7 @@ assertion with a zero-byte hole in it.
 ## 4. The verdict's last links are one edit above everything a rule compares
 
 ```
-gh issue create --label guard,testing --title \
+gh issue create --label kind:chore,area:ui --title \
   'pages.py --self-test: if bad:, the reach comparison and `if counts != [1, 0]` police nothing that polices them' \
   --body-file /tmp/issue-verdict-floor.md
 ```
@@ -140,7 +151,7 @@ comparison is unguarded; its absence is not unnoticed.
 ## 5. `manifest.py --self-test` has no attack suite, and `lock.py`/`testlock.py` have no self-test at all
 
 ```
-gh issue create --label guard,testing --title \
+gh issue create --label kind:chore,area:ui --title \
   'the capture tree has three unaudited surfaces: manifest.py --self-test, lock.py, testlock.py' \
   --body-file /tmp/issue-capture-coverage.md
 ```

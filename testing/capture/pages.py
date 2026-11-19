@@ -2045,12 +2045,21 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
 #     the kind an entry declares. Both reacting shapes retire #322's defect -- a body
 #     emptied to `return` does neither, and `rule()` turns the raise into a problem named by the rule's
 #     own `why`, the arm #323's crash canary witnesses on every run -- but they prove different
-#     strengths, and the weaker reading of the 61 is the true one: a raise says the rule sits on the
+#     strengths, and the weaker reading of the 61 was the true one: a raise says the rule sits on the
 #     path of the guard its name names, not that it JUDGES that guard. Only a break that changes what
 #     the guard ANSWERS can show the judgement, which is why `empty`, `data`, `page` and `shadow` exist
 #     where they were derivable and why `_rule_probes_are_live` refuses a pass in which nothing at all
-#     reports. #378 carries widening the reporting set: a `returns`-style break per guard, and the
-#     baseline it has to beat is the 20 above.
+#     reports. #378 closed the split: the `returns` kind answers a callable with a value the table
+#     names, and the sixty-one were re-derived with it -- per rule, one subprocess per rule, every
+#     candidate break whose name shares a word with the rule's `why`, scored only where the rule's
+#     own comparison reports and a clean-tree baseline passes first. Measured on this tree with the
+#     same instrumented loop: EIGHTY-ONE append a problem of their own, ZERO react on the raise
+#     alone, ZERO answer nothing. #387's merge re-ran that loop on 19 Nov over the 84 rules the
+#     merged registry holds and read EIGHTY-FOUR append, ZERO raise-only, ZERO silent: its three
+#     skip-link rows were re-derived to `returns` for that reason, because the same three rows
+#     spelled `hollow` read TWO raise-only and one that both appends and raises. That split is
+#     this paragraph's record, not a pinned number --
+#     the contract still lets a legitimately raise-witnessed rule join the table.
 #   * It does not write outside a temp directory. Two rules read files from disk, so no `setattr`
 #     reaches them. `_probe_shadow` copies what they read into a directory laid out so that
 #     `cdp.HERE/../../internal/web/templates` still resolves, edits the copies, and moves `cdp.HERE`
@@ -2071,6 +2080,9 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
 #   hollow    the named function's body raises. The nearest mechanical stand-in for what #297
 #             shipped: from outside, an emptied function and an absent one are the same object.
 #   refuse    the named function refuses every page (see the first bullet above).
+#   returns   the named callable answers the value the entry names, whatever it is called with,
+#             and refuses to apply if it names a number or carries no value: the rule's own
+#             comparison is what reacts, so the row is witnessed by the judgement, not a raise.
 #   empty     the named `manifest` function answers nothing, so the recorder reports no page.
 #   page      `DEFAULT_FIXTURE` moves, so `Page.__init__`'s own coupling test can no longer fire.
 #   data      a module-level table shrinks: `PAGES`, `CENSUS`.
@@ -2189,6 +2201,23 @@ def _apply_probe(spec):
             raise _ProbeUnapplicable(f"data variant {variant!r} is not one this file implements")
         setattr(owner, name, broken)
         return (lambda: setattr(owner, name, original)), f"{spec[1]} is {variant}"
+    if kind == "returns":
+        if len(spec) < 3:
+            raise _ProbeUnapplicable(f"{spec!r} is a returns spec with no value to answer with")
+        owner, name = _probe_target(spec[1])
+        original = getattr(owner, name)
+        if not callable(original):
+            raise _ProbeUnapplicable(f"{spec[1]} is a {type(original).__name__}, so making it "
+                                     "answer a value changes nothing a rule can notice")
+
+        def broken(*_a, **_k):
+            return spec[2]
+
+        # The note is built before the swap so a malformed spec fails the arm without having
+        # touched the module: a probe that refuses must leave nothing patched behind.
+        note = f"{spec[1]} returns {spec[2]!r}"
+        setattr(owner, name, broken)
+        return (lambda: setattr(owner, name, original)), note
     if kind == "shadow":
         undo, changed = _probe_shadow(spec[1])
         if not changed:
@@ -2308,13 +2337,35 @@ def _probe_harness(registry, ran, bad):
     # 3. The machinery, on a break aimed at itself: applying has to change the object named and put
     #    it back, and an entry the table cannot honour has to refuse rather than no-op. An
     #    `_apply_probe` hollowed to `return (lambda: None, "done")` would report all 81 rules as
-    #    probed while touching nothing, and no other line in this file would notice.
+    #    probed while touching nothing, and no other line in this file would notice. The `returns`
+    #    swap is additionally held to its ANSWER (D-0086): the witness calls the broken guard and
+    #    requires the value the spec named, because an arm that raised instead of answering, or
+    #    answered the wrong thing, would turn reporting rules back into raising ones while every
+    #    per-rule count stayed perfect.
     marker = cdp.capture_out
     try:
         undo, _note = _apply_probe(("hollow", "cdp.capture_out"))
         applied = cdp.capture_out is not marker
         undo()
         restored = cdp.capture_out is marker
+        # The `returns` kind has to be witnessed for more than the swap: an arm that stood in a
+        # function but raised from it, or answered something other than the value the spec named,
+        # would slide every reporting rule back to a raise -- the exact degradation #378 exists to
+        # retire -- and the per-rule pass still counts a raise as a reaction. So the witness calls
+        # the broken guard and holds it to the spec's own value, at TWO values: an arm hardwired
+        # to answer one constant whatever the spec named passes a single sentinel and fails this.
+        answered_ok = True
+        for sentinel in ("probe-sentinel", "probe-sentinel-2"):
+            undo, _note = _apply_probe(("returns", "cdp.capture_out", sentinel))
+            try:
+                answered = cdp.capture_out(None)
+            except Exception:  # noqa: BLE001 -- a broken break that crashes is the finding, not a crash
+                answered = None
+            answered_ok = answered_ok and cdp.capture_out is not marker and answered == sentinel
+            undo()
+            answered_ok = answered_ok and cdp.capture_out is marker
+        applied = applied and answered_ok
+        restored = restored and cdp.capture_out is marker
     except Exception as exc:  # noqa: BLE001 -- the witness answers, it does not crash the run
         applied = restored = False
         bad.append(f"{PROBE}: the probe machinery raised on its own witness break: "
@@ -2328,15 +2379,23 @@ def _probe_harness(registry, ran, bad):
                    "probe poisons every probe after it and the transcript names the wrong rule")
     for shape, label in ((("nonsense", "cdp.capture_out"), "an unknown kind"),
                          (("data", "pages.PAGES", "nonsense"), "an unknown data variant"),
-                         (("hollow", "pages.EXPECTED_RULES"), "a spec naming a number")):
+                         (("hollow", "pages.EXPECTED_RULES"), "a spec naming a number"),
+                         (("returns", "pages.EXPECTED_RULES", 1), "a returns spec naming a number"),
+                         (("returns", "cdp.capture_out"), "a returns spec with no answer value")):
         try:
-            _apply_probe(shape)
+            undo, _note = _apply_probe(shape)
         except _ProbeUnapplicable:
             continue
         except Exception as exc:  # noqa: BLE001 -- named, not crashed through
             bad.append(f"{PROBE}: {label} escaped as {type(exc).__name__} instead of refusing, so a "
                        "corrupted table entry reads as a verdict")
             continue
+        # An accepted shape means the refusal died, and the swap is LIVE in this process now: the
+        # count comparison further down reads `EXPECTED_RULES`, and #378 measured that a leaked
+        # swap makes the sibling attack suite's own pre-flight answer check refuse the row as
+        # INVALID -- the finding arrives, but as broken plumbing, not as a named refusal. Undo
+        # before naming the crime, so the row reads as what it is.
+        undo()
         bad.append(f"{PROBE}: {label} was applied as though it were a break. An entry that cannot be "
                    "honoured has to refuse: a probe that no-ops is a rule that passes")
     arms += 1
@@ -2386,15 +2445,15 @@ def _rule_probes_are_live(registry, ran, bad):
 
 RULE_PROBES = {
     "a refusal on every page still measures every page":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "the literal census matches the page declaration":
      ("data", "pages.CENSUS", "empty"),
     "a fixture mode selects only its own pages":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "an unknown fixture refuses before the browser starts":
-     ("hollow", "pages.fixture_mode"),
+     ("returns", "pages.fixture_mode", None),
     "a page from the wrong document refuses":
-     ("hollow", "pages.require_needles"),
+     ("returns", "pages.require_needles", None),
     "a needle page must name a non-default fixture":
      ("page",),
     "capture_out resolves --out and returns one directory":
@@ -2402,34 +2461,34 @@ RULE_PROBES = {
     "a page is recorded where it is photographed":
      ("empty", "capture_manifest.pages_by_artifact"),
     "one refusal names it and counts the rest":
-     ("hollow", "cdp.refusal_note"),
+     ("returns", "cdp.capture_refused", None),
     "a clean run publishes and exits 0":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a clean run hands the publish the fixture it ran under, which is the only "
      "thing that makes the run's receipt writable (#302)":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a crash in shoot is a refusal, not an abort":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "a refused run says where its frames are":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.capture_refused", None),
     "each fixture keeps its refused frames apart":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "pages.fixture_mode", None),
     "a kept frame is moved out of the publish queue":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a refused directory is opened once and cleared once":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a keep that could be read as evidence is refused":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a dead browser still leaves the refusal standing":
      ("hollow", "cdp.capture_refused"),
     "report_refusal reports and returns":
      ("refuse", "cdp.report_refusal"),
     "a missing token census refuses":
-     ("hollow", "pages.require_unbreakable"),
+     ("returns", "pages.require_unbreakable", None),
     "a token under the floor refuses":
-     ("hollow", "pages.require_unbreakable"),
+     ("returns", "pages.require_unbreakable", None),
     "an absent stress row refuses":
-     ("hollow", "pages.require_stress_row"),
+     ("returns", "pages.require_stress_row", None),
     "a stress row needs a table":
      ("hollow", "pages.main"),
     "somebody must carry the stress row":
@@ -2443,116 +2502,116 @@ RULE_PROBES = {
     "a refusal in a fixture still disposes of itself once":
      ("hollow", "cdp.keep_refused"),
     "a page whose keeping died does not stop the sweep":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.capture_refused", None),
     "a desktop-only refusal fails the run":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "every page is measured at every viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "each summary line names its viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "the viewport is moved before the page is loaded":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "only the artifact viewport writes bytes":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a refusal names the viewport that failed":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "the fixture guards run at the artifact viewport only":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "the viewport is verified, not assumed":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a fixture refusal carries to the other viewport":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.fixture_mode", None),
     "an untested page is not a refusal at the other viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a photographed refusal has to be a refusal":
-     ("hollow", "pages.require_refusal"),
+     ("returns", "pages.require_refusal", None),
     "the refusal is produced by clicking the shipped form":
-     ("hollow", "pages.refusal_form"),
+     ("returns", "pages.refusal_form", None),
     "the kept box is read out of the form that posted":
-     ("hollow", "pages.refusal_extra"),
+     ("returns", "pages.refusal_extra", []),
     "the fill script slices a NodeList like an array":
-     ("hollow", "pages.fill_script"),
+     ("returns", "pages.fill_script", []),
     "a script that never parsed is not a vanished form":
-     ("hollow", "cdp.Session.value"),
+     ("returns", "cdp.Session.value", None),
     "the refused artifact is refused about its own refusal":
-     ("hollow", "pages.require_refusal"),
+     ("returns", "pages.require_refusal", None),
     "the control census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a control in the browser's own font refuses":
-     ("hollow", "cdp.require_control_font"),
+     ("returns", "cdp.require_control_font", None),
     "two field widths on one page refuse":
-     ("hollow", "cdp.require_control_width"),
+     ("returns", "cdp.require_control_width", None),
     "a field sized by nothing refuses":
-     ("hollow", "cdp.require_control_width"),
+     ("returns", "cdp.require_control_width", None),
     "a tick box outside its words refuses":
-     ("hollow", "cdp.require_choice_groups"),
+     ("returns", "cdp.require_choice_groups", None),
     "the census a page was shown is printed":
-     ("hollow", "cdp.census_line"),
+     ("returns", "cdp.census_line", None),
     "a census that was never taken refuses":
      ("hollow", "cdp.require_control_font"),
     "a frame photographed over the wrong session census refuses":
-     ("hollow", "cdp.require_declared_sessions"),
+     ("returns", "cdp.require_declared_sessions", None),
     "the navigation census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "the skip-link census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a shell without a reachable skip link refuses":
-     ("hollow", "cdp.require_skip_link"),
+     ("returns", "cdp.require_skip_link", None),
     "a skip fragment that resolves to nothing refuses":
-     ("hollow", "cdp.require_skip_link"),
+     ("returns", "cdp.require_skip_link", None),
     "a navigation that marks nothing refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a link still in the browser's own values refuses":
-     ("hollow", "cdp.require_nav_in_palette"),
+     ("returns", "cdp.require_nav_in_palette", None),
     "two entries marked current refuse":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark on the wrong entry refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark no property can see refuses":
-     ("hollow", "cdp.require_nav_distinguishable"),
+     ("returns", "cdp.require_nav_distinguishable", None),
     "a mark on a target nobody can hit refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark the browser never draws refuses":
-     ("hollow", "cdp.require_nav_distinguishable"),
+     ("returns", "cdp.require_nav_distinguishable", None),
     "a mark outside the header refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a navigation row of one link refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a navigation census that was never taken refuses":
      ("hollow", "cdp.require_nav_distinguishable"),
     "the accepted mark is printed":
-     ("hollow", "cdp.nav_census_line"),
+     ("returns", "pages.shoot", None),
     "the state census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a driver that measures the state census prints it":
      ("shadow", (("lock.py", "cdp.state_census_line",
                     "cdp.CENSUS_LINE_WITHDRAWN"),
                    ("testlock.py", "cdp.state_census_line",
                     "cdp.CENSUS_LINE_WITHDRAWN"))),
     "a state the stylesheet never drew refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "a state marked only by its parent's box refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "any one visible channel counts as drawn":
      ("refuse", "cdp.require_state_legible"),
     "an invisible state is skipped, its neighbour still refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "a state census that was never taken refuses":
      ("hollow", "cdp.require_state_legible"),
     "the state census is printed, zeros included":
-     ("hollow", "cdp.state_census_line"),
+     ("returns", "cdp.state_census_line", None),
     "the census is the vocabulary the templates use":
      ("shadow", ((".tmpl", "state-held", "state-held-renamed"),)),
     "a published set of PNGs is recorded in the manifest":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a refused run records no manifest":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.refused_dir", ''),
     "the declared state is the thing photographed":
-     ("hollow", "pages.require_declared_state"),
+     ("returns", "pages.require_declared_state", None),
     "the audit row count is the fixture's":
-     ("hollow", "pages.require_declared_rows"),
+     ("returns", "pages.require_declared_rows", None),
     "the driver hands the recorder the envs of the fixtures it photographed":
-     ("hollow", "pages.fixture_envs"),
+     ("returns", "pages.fixture_envs", []),
     "the conditions are handed over at the manifest step":
      ("hollow", "pages.main"),
     "the scripts condition reaches the browser, not just the manifest":

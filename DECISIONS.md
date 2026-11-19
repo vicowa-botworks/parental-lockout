@@ -5210,7 +5210,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   nowhere in the file, an argument that advertised a dependency it did not have. The
   guard #355 proposed — refusing fixture windows that end at `23:59` — lost to nothing:
   this same branch later wrote it (`scripts/check-fixture-window.sh`, wired into
-  `Makefile:153` "fixture window guard"), as decision H-0202, which amends this
+  `Makefile:155` "fixture window guard"), as decision H-0202, which amends this
   bullet — the pinned gap-minute cells and the shape guard now police the class together.
 - Checkpoint: ac936ae
 - Effect: the commit carrying this entry — `unenforcedCandidates` takes `now`;
@@ -5221,6 +5221,74 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the push are quoted with their exit statuses in the pull-request body, not here, because an
   `Effect:` written before a gate runs is a prophecy (#1180).
 
+## D-0086 · #378: the probe table witnessed 61 of its 81 rules by a raise alone — the probe sat on the rule's path but never tested the judgement the rule's name claims — add a kind that makes a guard ANSWER and re-derive every hollow rule, widen only the rules a reviewer names, or keep the raise-only floor
+
+- Question: `RULE_PROBES` in `testing/capture/pages.py` states every row is a break aimed at the
+  thing the rule's `why` names. Measured 14 Nov by an instrumented classification `print` in the
+  probe loop (the recipe, with its command and output, is in #378): of 81 rules TWENTY append a
+  problem sentence for their break, SIXTY-ONE react only because the break's exception escapes
+  through them, and none are silent. A raise proves the break sat on the path the rule drives;
+  it does not prove the rule would notice the guard ANSWERING without refusing — which is the
+  judgement every one of those rows claims. The kinds that answer (`empty`, `data`, `page`,
+  `shadow`) existed only where derivation could reach a file or a table, not the callable guards
+  the sixty-one name.
+- Mechanism of the choice: `("returns", "<module>.<name>", value)` stands a callable in that
+  answers the value the entry names whatever it is called with, refusing before it touches
+  anything if the spec names a number or carries no value. Every one of the sixty-one re-derived per rule,
+  one subprocess per rule so one crash cannot hide the rest, against every candidate callable
+  whose leaf name shares a word with the rule's `why` (the derivation convention `D-0076`
+  already ran hollowing breaks under), values `None`, `[]`, `{}`, `0`, `""` and a
+  deliberate wrong answer; a candidate scores only where the rule's own comparison appends its
+  problem AND the rule passes the whole self-test on a clean tree first — the baseline arm proves
+  every rule passes unbroken before any break is trusted. Fifty entries kept their guard and
+  changed kind; ten moved to the neighbouring guard whose answer the rule actually reads; seven
+  needed an alternate candidate re-scored in the shipped probe order, because their isolated
+  clean-report degraded to a raise once the other eighty probes ran before them — the ordering
+  the harness comment itself calls the worst case. Measured on this tree with the same
+  instrumented loop: EIGHTY-ONE report, ZERO raise-only, ZERO silent. The arm-3 machinery
+  witness now additionally holds the broken guard to the spec's own value, at two sentinels so a
+  hardwired constant cannot pass it, and the reject loop undoes an improperly accepted shape
+  before naming it — #378 measured that a leaked swap of the rules-count constant makes the
+  sibling suite's pre-flight answer check refuse the row as INVALID, arriving as broken plumbing
+  instead of as a named refusal. Five CAUGHT rows in `scripts/attack-capture-self-test.py` pin
+  raise-instead-of-answer, answer-one-constant, undo-restores-nothing and both refused specs.
+- Options: repair per rule only the rows a reviewer names | add a kind that makes a callable
+  guard ANSWER the value the table names and re-derive every raise-only row with it, extending
+  the existing apply/restore witness to hold the answer to the spec | same kind, but with a
+  dedicated fifth harness arm to witness it | same kind and keep the 61 raise-only rows too,
+  pinning nothing about which shape witnessed which rule | leave the table alone and downgrade
+  its header sentence to say sixty-one rows are witnessed by reaction location only
+- Chose: add a kind that makes a callable guard ANSWER the value the table names and re-derive
+  every raise-only row with it, extending the existing apply/restore witness to hold the answer
+  to the spec
+- Why: no existing kind makes a guard answer — `hollow` and `refuse` force a raise by
+  construction, `data` swaps only a shipped table, `shadow` rewrites files on disk — so the
+  judgement half of the table's claim was unprovable by the machinery as built, not merely
+  unmeasured. All sixty-one rather than a named subset because a subset leaves the table's
+  sentence true only for the rows that were upgraded, and the in-context alternates closed every
+  remaining rule at zero cost to any rule's strength — the subset version measured 74/7/0 and
+  still carried the exact gap the issue names. Two sentinels because the per-rule pass counts a
+  raise as a reaction and is structurally blind to an arm that raises or answers one constant;
+  the witness is the only machine positioned to see it.
+- What lost: the per-rule repair for only the reviewer-named rules lost — cheaper, and leaves
+  sixty claims unwitnessed. A fifth harness arm dedicated to the `returns` witness lost — arm 3
+  is the apply-and-restore witness and an unwitnessed arm is the listed-floor pattern this suite
+  exists to refuse. Pinning `RAISED == 0` inside `_rule_probes_are_live` lost: a raise remains a
+  legitimate witness for a rule whose contract IS an escaping refusal, so a zero floor would
+  forbid honest future rows — 81/0/0 is this table's measured state, recorded here and in the
+  paragraph above the table, not a harness floor. A `returns` arm whose answer is computed from
+  the call arguments lost: every rule needed a constant answer, and a computed answer wants a
+  spec vocabulary this table has no present reason to invent. Scoring candidates only in the
+  shipped order lost as the sole method: it hides which alternate candidate serves which rule
+  once the order shifts, so the isolated per-rule sweep is the derivation and the shipped-order
+  re-score is the acceptance gate.
+- Checkpoint: 6358c12
+- Effect: the commit carrying this entry — the `returns` arm in `_apply_probe` with the note
+  built before the swap, the two-sentinel witness and the undo-before-naming reject loop in
+  arm 3, the 61 re-pointed entries, the kinds list and the re-measured split in the paragraph
+  above the table, the five attack rows, and `EXPECTED_ROWS` 73 to 78. `make verify` and the
+  reads after the push are quoted with their exit statuses in the pull-request body, not here,
+  because an `Effect:` written before a gate runs is a prophecy (#1180).
 ## D-0087 · #387: the shell gains a skip link — which anchor reaches the content, and which collapse idioms can hide a thing a keyboard still has to reach
 
 - Question: #204's one undelivered bullet: every page the shell renders paints a masthead of
@@ -5270,3 +5338,69 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   battery. Gate receipts and the re-capture are read back with their exit statuses in the
   pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy
   (#1180).
+
+## D-0089 · #387: a base sync met this branch at one junction where both parents rewrote the same probe-table rows — which KIND the new rows ship in, when the gate prints the same verdict for both answers
+
+- Question: the sync of `origin/main` at `623f685` (the #465 merge: #466's answering-kind pass
+  `D-0086`, #465's label gate `H-0304`..`H-0306`) onto this branch's skip-link work `D-0087`
+  conflicted on exactly two paths. `DECISIONS.md` is the shipped union's to settle and it settled
+  it; `testing/capture/pages.py` is this entry's. Git split one junction into two hunks: trunk
+  replaced the navigation rule's row `("raises", "pages.select", None)` with
+  `("returns", "pages.shoot", None)`, and this branch replaced the state-census and nav-state
+  rows with `("raises", "pages.cdp", "Page.setDeviceMetricsOverride")` and
+  `("raises", "pages.js", "window.__plockNav")` and added the new rule's row as
+  `("hollow", "pages.shoot", None)`. `D-0086` had left all four of trunk's rows raising while
+  naming those same three methods, so both parents were editing one table in one place, and the
+  merged registry is the union of their rules — 84, which is what `EXPECTED_RULES` claims. What
+  had to be decided is the KIND of the three rows this branch wrote, because a row is a
+  measurement and the two spellings are not equivalent: `hollow` is the kind `D-0086` exists to
+  retire, and on the merged bytes `pages.shoot` answers `window.__plockFocus`.
+- Options: keep this branch's three rows as written, since they are what the delivery unit
+  measured and a conflict tick moves no other unit's claims | adopt trunk's answering kind for
+  all three, since the merged tree answers every method they name | resolve only where the
+  parents collided — trunk's answering row for the navigation rule, the other two left raising | settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Chose: settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Why: measured 19 Nov on these bytes, twice, with the file copied out and the shipped function
+  imported unchanged rather than retyped — the three rows as this branch wrote them score 80
+  REPORTED, 2 REPORTED-RAISE, 2 RAISE-ONLY, 0 silent; as merged, navigation answering and the
+  other two answering the methods they name, they score 84 REPORTED, 1 REPORTED-RAISE, 0
+  RAISE-ONLY, 0 silent. The tie-break order is not reached: one answer measures the merged tree
+  and the other measures each parent's own. Both spellings leave
+  `python3 testing/capture/pages.py --self-test` at exit 0, which is the finding and not an
+  aside — the gate cannot tell a retired `hollow` row from a live one, so the number belongs in
+  this record rather than in a green checkmark. The direction is not dictated by `D-0086`, which
+  refused to pin `RAISED == 0` because "a raise remains a legitimate witness for a rule whose
+  contract IS an escaping refusal" — and none of these three is such a rule: each names a guard
+  the rule calls and reads, and all three report when that guard answers.
+- What lost: keeping this branch's `hollow` spelling lost — it is the cheapest diff and the
+  delivery unit's own witness, and it is false of the tree it would ship into: the instrumented
+  pass scored it two rules short of the merged registry's reporting count. The collide-only
+  resolution lost — it leaves a `hollow` row in a kind the trunk pass had already outgrown, and
+  reports a split that measures neither parent. And `D-0087`'s witness lost as a claim about
+  this head: its rows are now witnessed by an answer rather than by a raise. That entry is not
+  edited here, because a published `Effect:` is a receipt of the tree it was written against and
+  this commit's witness is this entry.
+- Checkpoint: 89a48bc496714ff524781d0d050b092ad1e16006
+- Effect: `testing/capture/pages.py` — the navigation row takes trunk's
+  `("returns", "pages.shoot", None)`, the state-census and nav-state rows take
+  `("returns", "pages.cdp", None)` and `("returns", "pages.js", None)`, the skip-link row takes
+  `("returns", "pages.shoot", None)`, and the count paragraph above the table now carries both
+  splits with the tree each was measured against, because trunk's paragraph names its own
+  parent's 81-rule registry and the merged registry is not that file. `DECISIONS.md` unioned by
+  `python3 scripts/merge-decisions.py --tree .` once `testing/capture/pages.py` and `NEXT.md`
+  were final and staged: it refused once, `UNION-REFUSED reason=id-collision DECISIONS.md D-0085
+  is digits-only on both sides but moved in OPPOSITE directions from base`, on a seam where this
+  branch's only delta from base is the blank separator line before its own next entry while
+  trunk's is the same coordinate re-aimed two lines down, because trunk's own `verify` recipe
+  gained two `check-doc-labels` steps above that one. Measured 19 Nov here, and the anchor is on
+  the same physical line as its coordinate: `Makefile:155` "fixture window guard". That seam is
+  adjudicated theirs, the index's stage-2 blob was rewritten so this one entry matched base's
+  bytes, and the shipped tool then unioned the whole file: `UNION entries=73 ours=1 theirs=2
+  drift=0 repointed=14 files=1`. `NEXT.md` was hand-stacked first and staged for that reason —
+  this head on top, the issue-386 head demoted whole beneath it — and its zero-loss census is in
+  its own text. The union ran a SECOND time after the last edit to `NEXT.md`: the first run
+  re-aimed fourteen of trunk's pointers into a hand-off that then grew by eight lines, and
+  `check-decisions` read 14 anchored citations landing eight lines low as a result. A repoint is
+  only a claim about the bytes that ship with it, so the order is hand-off final, then union,
+  then this entry. Gate receipts are read back with their exit statuses in the pull-request body,
+  not here, because an `Effect:` written before a gate runs is a prophecy (#1180).

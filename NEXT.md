@@ -1,4 +1,269 @@
-# NEXT — issue-384 conflict tick (PR for `issue-384`: #463 — the third live seam in a row met by the shipped machine union: 294 entries decided, seven seam rows adjudicated by anchor uniqueness on the merged bytes, ten anchor-debt rows seated by the sentences that cite them, zero content retired beyond six displaced quotations; the pass is `H-0303`; merging belongs to the supervisor)
+# NEXT — issue-387 conflict tick (PR #467: the base sync this branch met — `origin/main@623f685` (the #465 merge, carrying #466's capture pass `D-0086` and #465's label gate `H-0304`..`H-0306`) landed on this branch's skip-link work `D-0087`; TWO conflicted paths — `testing/capture/pages.py`, where both parents wrote into the same probe table at the same junction, and `DECISIONS.md`, where the shipped machine union refused once and the refusing seam was adjudicated on the merged bytes before it was let back in; this hand-off was stacked by hand with the issue-386 head carried whole as the Record beneath it; the pass is `D-0089`; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: the dispatch was the queue's `conflict`
+row for PR #467 and the read-back agreed with the brief — `mergeable=CONFLICTING`,
+`mergeStateStatus=DIRTY`, `reviewDecision=APPROVED`, head `1db3327`, base `main`, worktree
+clean, no `factory/HALT`, branch matches. `git fetch --prune origin` rc 0; `origin/main` is
+`623f685`, the branch fork sits at `963c2e4`, and `git merge origin/main` conflicted on exactly
+those TWO paths. The allocator was asked after that fetch (`D-0089`, journalled `REFRESH 102s
+union`), asked again later and refused itself with `REFRESH-BLIND 415s union`, which was answered
+by `git fetch --prune origin` — rc 0, `origin/main` still `623f685` — and a re-read journalling
+`REFRESH 1s union` immediately before the entry was appended; `D-0088` is not an inexplicable gap
+— `refs/heads/issue-388` carries that heading, which is what moved the union's ceiling past it.
+The order of the next two moves is NOT the rollback order the skill wants, and it is recorded
+rather than smoothed: the dispatch arrived with `git merge origin/main` already in flight in this
+worktree from the supervisor's own attempt, so the conflict surface was read from
+`git merge-tree --write-tree`, which touches no working tree, and the empty checkpoint `89a48bc`
+could only be taken ON TOP of that merge. While the merge is uncommitted the way back is
+`git merge --abort`, which lands on a tree still holding that checkpoint and nothing else of this
+judgement; once it is committed, force-push being denied here, the only move is a new commit on
+top. That is what a checkpoint taken after the fact is worth, and a resolved conflict cannot be
+un-resolved to slide one underneath it — replaying the merge instead would throw away the
+adjudication recorded in `D-0089`.
+
+## What this dispatch pushed
+
+- One merge commit carrying `Decision: D-0089`, with the `D-0089` entry in `DECISIONS.md` in the same commit as what it decides.
+- `testing/capture/pages.py` by hand with BOTH intents kept: trunk's answering `("returns", "pages.shoot", None)` at the navigation row this branch had left in the raise-only spelling, and this branch's three skip-link rows in that same kind. Which kind was not read off the neighbours — an instrumented copy of `_probe_every_rule` ran over the merged 84-rule registry twice on these bytes: the three rows as this branch wrote them (`hollow`) score 80 report, 2 report-and-raise, 2 raise-only; as merged they score 84 report, 1 report-and-raise, 0 raise-only, 0 silent. `python3 testing/capture/pages.py --self-test` exits 0 either way, so the gate cannot see the difference and the entry carries the measurement instead.
+- The count paragraph above the table carries the re-measured split for the merged registry beside trunk's, each dated to the tree it measured: `EXPECTED_RULES` is this branch's 84 because the registry is the union of both parents' rules.
+- `DECISIONS.md`, where the shipped union is the authority and it refused once: `UNION-REFUSED reason=id-collision … D-0085 … moved in OPPOSITE directions from base`. That seam is not two claims — this branch's only delta from base on `D-0085` is the blank separator line before its own next entry, while trunk's is the same coordinate re-aimed two lines down because trunk's `verify` recipe gained two steps above that one, so the merged tree decides it and `Makefile:155` is where the step is here. The seam was adjudicated theirs by rewriting this path's stage-2 blob in the index until that one entry matched base's bytes — the index only, never the worktree file — after which the shipped tool unioned the whole log: `UNION entries=73 ours=1 theirs=2 drift=0 repointed=14 files=1`, and it ran a second time with this file final, because the first run re-aimed fourteen pointers into a hand-off that then grew by eight lines and `check-decisions` read all fourteen landing eight lines low. Order that works: hand-off final, stage it, run the union, append the entry.
+- One hazard found while doing that, because a stranger will reach for it: `git checkout -m -- DECISIONS.md` does NOT put a conflict back. It re-runs git's line-anchored three-way pass and stages the result, so the stage labelled "ours" arrives pre-filled with trunk's entries — measured here: after that checkout, `:2:DECISIONS.md` ended with trunk's re-capture sentence and carried `## D-0087` with no separator, neither of which is true of `HEAD:DECISIONS.md`. Restoring the three stages from the trees the merge names (`963c2e4`, `HEAD`, `origin/main`) and asserting each `:N:` against its blob is what made the union's inputs true again. Second papercut found in the same minute: once the index holds BOTH a stage-0 entry and the three stages — which is what the union's own `git add` left here — a plain `git add -- DECISIONS.md` returns 0 and clears nothing, and `git commit` answers `Committing is not possible because you have unmerged files`; `git update-index --force-remove -- DECISIONS.md` followed by `git add` is what takes the path to a single stage-0 entry, and `git ls-files -u` is the read that says so.
+- This file, hand-stacked FIRST and staged, so the union's repointer aimed every pointer at the bytes this file ships: this head on top, the issue-386 conflict-tick head demoted whole to the Record beneath it with no line edited or dropped, and every Record below it carried as trunk shipped it. Zero-loss census: the multiset diff of nonblank lines against `origin/main:NEXT.md` is empty, and against this branch's own parent it is missing exactly one line — the superseded issue-384 level-1 heading, whose body trunk carries under its own demoted Record heading.
+
+## What this push spent
+
+- One decision id (`D-0089`), one checkpoint (`89a48bc`), one merge commit on a branch whose history is permanent here (squash and rebase merge are both off on this repository).
+- Nothing, as far as the review is concerned — and that is a measurement, not a hope: the `APPROVED` verdict on PR #467 was submitted against `1db3327…`, which is still the head this branch holds while this file is written, so no commit of this tick had dismissed it. Whether the head this push lands does is read back afterwards, because #269 measured a conflict-resolution push dismissing a `REJECTED` review and that is not the verdict carried here. `factory_request_review` (`FACTORY_REVIEWER_TEAM`) owns any re-ask; a unit never asks, and this tick sends no poke. The post-push reads live in the pull-request comment.
+- No GitHub write beyond the branch push this unit owes: no comment, no label, no reviewer ask, no issue touched, nothing merged.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+1. Review on PR #467 after the push. Measured before it, by two plain calls: `reviews[0]` is a `DISMISSED` submission from `vicowa-qwen3-max` whose `commitOID` equals the head under review, `1db3327…`, submitted `2026-11-19T09:23:34Z`, and `reviewDecision=APPROVED` — so this tick's commits do not dismiss it, and whether the incoming head does is a read-back question, not an assumption: #269 measured a conflict-resolution push dismissing a `REJECTED` review, which is not the verdict carried here. Re-read with `gh pr view 467 --json reviewDecision,reviews,mergeable,mergeStateStatus,headRefOid` and let the supervisor's poke re-ask; nothing here claims the branch is ready.
+2. Two harness sentences still print `81` where the merged registry holds 84: arm 4's "all 81 rules reported as probed", and `_rule_probes_are_live`'s "`81 refusal rules hold` says nothing about it". Both quote the print at the head each was written, so they are measurements of their own merge and must NOT be bulk-repaired — the class is named in the carried Records below. Widening them is a capture-harness change with its own entry, not a conflict tick's.
+3. Whether #387's skip-link bullet is delivered is the delivery unit's claim and this sync moved none of that behaviour: it re-spelled the vocabulary that witnesses three of its probe rows and re-measured the split. `D-0087`'s `Effect:` and PR #467's body carry the frames and the Go leg.
+4. A phantom gate named in the dispatch text rather than in the tree: this tick's brief told the tick to run a shell file named `attack-decision-pointers.sh` under the scripts prefix, and no such path exists on `origin/main`, on this branch, or on any ref this clone holds, while the live skill's Step-4 line asks only for `make verify` and quotes its last line. Whoever owns the dispatch template owes that correction. This hand-off cannot name the phantom the way the brief did — the leg of `check-next-md` that refuses a hand-off naming a tool that is not there would refuse this file for it, which is the whole point of that leg and the proof the defect belongs upstream of the tick.
+5. Every owed row in the Records beneath this head stands as written there, none re-adjudicated by this tick — including the `docs/labels.txt` re-read the issue-386 Record owes and the journalled-id class the earlier Records name.
+
+## Constraints a stranger would break on this branch
+
+- `DECISIONS.md` is append-only and keyed by id, and the union belongs to `scripts/merge-decisions.py`: it is atomic, it re-aims drifted citations itself, and it refuses while a non-log path is still conflicted. Hand-merging a log seam is what #381's 35 conflict ticks paid for.
+- A row in `RULE_PROBES` is a measurement, not a spelling: run the new row through the probe pass and score whether it REPORTS, because a raise-only row green-lights exactly the gap `D-0086` closed and the self-test stays exit 0 either way.
+- `gh pr edit` and `gh pr edit --add-reviewer` die on this account's retired `projectCards` field while looking like they worked; a pull-request body is written with `gh issue edit <N> --body-file` only after both type reads name the pull, because that same verb once destroyed an unrelated issue.
+- Merging, approving, tagging and pushing `main` belong to the supervisor; force-push is denied and rebase merge is off, so a resolution here moves forward only as a new commit.
+
+## Record — the issue-386 conflict tick (PR for `issue-386`: the second trunk sync this branch met — `origin/main@37e8370` (the #466 merge, carrying #463’s `H-0300`..`H-0303` and #466’s capture pass `D-0086`) landed on this branch’s `H-0304`/`H-0305` work; TWO conflicted paths: `factory/DECISIONS.md`, unioned by the shipped machine union after ONE seam adjudication (`H-0299`, where ours’ only delta from base was a stray separator blank over trunk’s disclosed re-aim) and zero anchor-debt rows, and `NEXT.md`, stacked by hand with both live heads carried whole as Records beneath this head; the pass is `H-0306`; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: the dispatch was the queue’s `conflict`
+row for PR #465 — the brief’s live read (`CONFLICTING`/`DIRTY`) matched the read-back,
+`reviewDecision=APPROVED`, head `0ed205b`, the five-row roll-up all `SUCCESS`, tree clean, no
+`factory/HALT`. `git fetch --prune origin` rc 0; `origin/main` is `37e8370`, the branch fork
+sits at `ad3201e` (the #462 merge), and `git merge --no-commit --no-ff origin/main` conflicted
+on exactly TWO paths — `factory/DECISIONS.md` and `NEXT.md` — while `DECISIONS.md` auto-merged.
+That raw merge was aborted and the checkpoint taken FIRST (`f927a7d`), because the resolution
+is a judgement (`H-0306`). The allocator was asked after the fetch and before the checkpoint
+(`H-0306`, journalled `REFRESH 34s union`, no `PENDING`, no `REFRESH-BLIND`) and re-read
+immediately before the entry commit; this branch’s journal also carries the delivery tick’s
+three disclosed rows (`H-0306` twice unearned, `H-0305` earned), named in `H-0306` itself
+rather than papered over. The tool refused twice before accepting: `reason=other-conflict`
+fixed the order — the hand-off had to be line-final before the log union, because the repointer
+aims every `NEXT.md` pointer at the bytes this file ships — then one `id-collision` on
+`H-0299`, adjudicated for theirs on the reading above and pre-patched into the stage so the
+shipped tool, unchanged, decided the rest. The push spends the standing approval (#269 measured
+a conflict push spends one); `make verify`’s verdict and the post-push review read are quoted
+in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+
+## What this dispatch pushed
+
+- One merge commit carrying `Decision: H-0306`. `NEXT.md` was resolved by hand FIRST and
+  staged: this head on top, the issue-386 delivery head demoted whole to a Record, the
+  issue-384 conflict-tick head demoted whole to a Record with its delivery Record beneath
+  it, and trunk's widened wording of the issue-383 record heading seated as the single
+  heading for that body — every other line of both parents carried unedited.
+- The shipped machine union against these final `NEXT.md` bytes: `UNION entries=297 ours=4 theirs=61 drift=8 repointed=14 files=1`, exit 0 — after the one seam above; zero `anchor-debt` rows, the 14 re-aims the tool opened and verified itself.
+- Zero-loss censuses (nonblank line-multiset diffs run before staging): `git show 0ed205b:NEXT.md` against this file is missing exactly 2 lines, `git show 37e8370:NEXT.md` exactly 1 — the three headings the pruned table names, nothing else; `python3 scripts/check-decisions.py` on the staged pair rc 0: 369 entries, 1206 citations, `POINTER_DEBT` unmoved at 583 where both parents ship 583, 0 refused; `bash scripts/check-next-md.sh` on this file: its verdict is in the pull-request body.
+- The `H-0306` entry, appended after `H-0305` at the unioned log's tail in id order —
+  recorded in the same commit as the merge it decides, with the checkpoint above.
+
+## What this push spent
+
+- One decision id (`H-0306`), one checkpoint (`f927a7d`), one merge commit on a
+  permanent-history branch (squash and rebase merge are both off here).
+- The APPROVED verdict PR #465 carried: a push into a reviewed pull request dismisses it
+  (#269), and the supervisor's poke owns the re-ask — a unit never asks.
+- No GitHub write beyond the branch push this unit owes: no comment, no label, no reviewer
+  ask, no issue touched, nothing merged.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+1. Review on PR #465: whatever verdict the head before this push held is spent by it; the
+   post-push read lives in the pull-request body, and `factory_request_review`
+   (`FACTORY_REVIEWER_TEAM`) owns the re-ask.
+2. `docs/labels.txt` is a dated snapshot and the label owner still owes the tracker re-read
+   whenever a real new label lands — every owed row in the issue-386 delivery Record below
+   stands as written there, including the CI-can-never-run-`--live` row and the prose-that-spells-
+   the-flag row.
+3. Every owed row in the two issue-384 Records below stands as written there — the three
+   double-homed `factory/selftest.sh` rows the next repoint must read by sentence, the bare
+   prose numbers that are measurements at their own merge and must NOT be "repaired", and the
+   journalled-id class.
+4. `#381`’s shape: this sync met the union with ONE refusal, and it was a separator blank,
+   not a seam of competing claims — the measurement says why (disjoint entry tails), not
+   that refusals are retired; the adjudication contract (`H-0303`) stands for the next
+   seam. Neither ticket is a conflict tick’s to widen.
+5. Every numbered owed row in the Records beneath, including the tail's numbered list down to
+   the `#378` row trunk brought, remains owed where it says so.
+
+## What this conflict tick pruned, and how to get it back
+
+| Dropped | Where it is whole | Why it is a record and not an instruction |
+|---|---|---|
+| the issue-386 delivery head's level-1 heading (line 1 of the branch `NEXT.md`) | `git show 0ed205b:NEXT.md` | demoted to a Record heading below; its state read and all five record sections carried whole beneath it, so "this dispatch" names one unit |
+| the issue-384 conflict-tick head's level-1 heading (line 1 of trunk's `NEXT.md`) | `git show 37e8370:NEXT.md` | demoted to a Record heading below; its state read, all four record sections and its own delivery Record carried whole beneath it |
+| this branch's spelling of the issue-383 record heading | trunk's widened wording of the same heading, which adds the state-read clause | one heading per record body; the widened spelling is the one both Records beneath cite |
+
+Everything else either parent held is carried forward unedited. The census behind this table
+is the raw one-direction line-multiset diff of `git show 0ed205b:NEXT.md` and
+`git show 37e8370:NEXT.md` against this file, run before staging; the only missing lines are
+the three named above.
+
+## Record — the issue-386 delivery unit (PR for `issue-386`: six documented `gh issue create` recipes named three labels this repository does not carry — `guard`, `testing`, `ux` — and nothing in the tree ever compared a documented name with the set GitHub actually has; `H-0304` re-points the six at names that exist and records the set in `docs/labels.txt`, `H-0305` ships `scripts/check-doc-labels.py`, which reads that file offline and the live API under `--live`, refuses drift in either direction, and refuses its own `verify` step being deleted; 12 self-test legs, the copy-the-gate-under-another-name launder test among them; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: branch `issue-386` cut from `ad3201e`
+(`origin/main` at read time, which carries #462), tree clean at entry to this pass, no
+`factory/HALT`, and `git merge-base --is-ancestor origin/main HEAD` answers true after the fetch
+that refreshed the allocator's union — this branch is not behind trunk and no sync was needed.
+`git ls-remote --heads origin issue-386` answered nothing before this push, so there is no upstream
+to rewrite: the history below is written once and `allow_squash_merge`/`allow_rebase_merge` are both
+false, so whatever merges is permanent history.
+
+The id chain is disclosed rather than quiet, because three reads were needed to earn one id. The
+allocator was run twice with the entry already in the working copy and both times it answered
+`H-0306` — its own words name the reason: "H-0305 is in factory/DECISIONS.md and on no ref this
+clone can see — so this read says the ceiling came from the log you are writing, not from a
+sibling", and it told this unit to keep the id it had taken. That answer is true and useless to the
+provenance pass, which wants a journalled allocation FOR the id this unit ships, so the entry was
+held aside (the file truncated at its own heading, the bytes kept at `/tmp/opencode/decisions-H0305.md`)
+and the third read issued `H-0305`. The journal therefore holds three rows for this branch:
+`08:21:33Z DECISION-ID H-0306 (REFRESH-BLIND 921s union)`, `08:21:36Z DECISION-ID H-0306 (REFRESH 2s
+union)` and the earning row `DECISION-ID H-0305 (REFRESH 29s union)`; `H-0304` was journalled at
+`08:08:49Z (REFRESH 157s union)` before its own checkpoint. The restore was verified by md5 on both
+sides (`24d9b59ff29948713a1710c6687cc2ca`) and `check-decisions.py` over the restored tree reads
+rc 0 with 364 entries, 1189 citations and the anchor debt unmoved at 583 — the held-aside window
+moved no byte that the gate can see.
+
+## What this dispatch pushed
+
+- Two decisions, two checkpoints, two effect commits. `H-0304` (checkpoint `be1a40f`, effect
+  `d1c472b`) is the repair: four commands in `docs/issues-from-d-0058.md` and one in
+  `docs/issues-from-d-0065.md` take `kind:chore,area:ui`, one takes `area:ui`, both pages name the
+  ground file and the mapping, and `docs/labels.txt` holds the live 19 Nov read. `H-0305`
+  (checkpoint `df77270`, this commit) is the gate that keeps it true.
+- `scripts/check-doc-labels.py` censuses `--label` across every text file in the tree (369 files
+  today) and refuses five things: a name the ground does not carry; a ground file that contradicts
+  itself (a duplicate, a name out of C order, a whitespace-padded name no token can equal) or holds
+  no names at all; an empty census reported as `commands=0` rather than as coverage; the gate's own
+  source included in its own census — the exemption is by `samefile`, and a leg proves that copying
+  the file under another name buys nothing; and its own `verify` step deleted, commented, or joined
+  into an `&&` list where errexit cannot see it. It reports and does not judge the
+  `--add-label`/`--remove-label`/`labels=` family — 25 occurrences today — because those act on an
+  issue that already exists.
+- Ground truth is `docs/labels.txt` offline and the API under `--live`, which refuses drift in BOTH
+  directions and prints `SKIPPED` with exit 2, in words, when the API cannot be reached. That is
+  #391's rule (a live arm that skips silently is a gate that prints) and #443's (the skip is the
+  thing that must be witnessed), and it is why the default step reads a file rather than the
+  network: `.github/workflows/ci.yml` carries no `gh auth` step and no `GH_TOKEN`, so a
+  verify-time API call would be a skip on every CI run — measured by `grep -in
+  'gh auth\|GH_TOKEN\|secrets\.' .github/workflows/ci.yml`, which answers nothing.
+- `Makefile` gains two steps after the hand-off step: the `--self-test` step then the check step, as
+  `check-decisions.py` and `check-denies.py` each do, and the gate reads those two lines back out of
+  the Makefile and refuses if either goes missing or loses its exit status. Default run today:
+  `commands=6 names=10 absent=0 inert=25 files=369 ground=18 verdict=clean`, exit 0; `--live` today
+  against the real API: `names=10 absent=0`, exit 0, naming the ground as the live API re-read and
+  identical to the file, 18 names each side; `--self-test`: 12 legs, exit 0.
+- Anti-scope held: no label was created, renamed or deleted, and no `gh issue create` was run to
+  prove a recipe — the claim this branch makes is name resolution, the half #386 measured as fatal.
+  Nothing under `.opencode/skills/factory/` or `factory/` was touched, so #311's escalation name and
+  #340's literal interpolation stand where those tickets left them.
+
+## What this push spent
+
+- No force-history: `issue-386` had no upstream before this push and none of these commits were
+  rewritten. After the push the history is permanent — merge-commit-only repository.
+- Two pointer spends, both digits-only and both repaired in the commit that moved them. The Makefile
+  insertion shifted every `verify` line from 125 down by two, and seven anchored pointers named a
+  line below the insertion (one at 125, two at 134, four at 153), so they now read 127, 136 and 155;
+  each was opened on these bytes after the edit. This head's own insertion shifts every `NEXT.md`
+  row below it by 136 lines, which took 14 anchored pointers into this file — the two rows seven other
+  units cite, at 1582 and 1686 before this block and at 1718 and 1822 after, in `H-0252`,
+  `H-0280`–`H-0284` and `H-0286` — off their rows; `check-decisions.py`
+  refused them at rc 1 and the repair is its own — re-aim the numbers, then re-open the anchors.
+- `python3 scripts/check-decisions.py` over the pair reads rc 0, and `POINTER_DEBT` is unmoved at
+  583 and *judged* — 0 refused outright, 0 unopenable — with `git status --short --ignored` holding
+  one ignored path this run created, `scripts/__pycache__/`, the interpreter's and not the logs'.
+  The seven citations this entry adds each carry an anchor, so 1182 citations became 1189 with the
+  debt unchanged.
+- One live read: `--live` runs `gh label list` (read-only) against this repository. Nothing was
+  created, posted or merged to produce these numbers.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+- `docs/labels.txt` is a dated snapshot, so a label created on this repository after 19 Nov is
+  REFUSED by `make verify` until a human re-reads the tracker:
+  `gh label list --limit 200 --json name --jq '.[].name' | LC_ALL=C sort > docs/labels.txt`. A gate
+  that refuses a real new label is the safer direction of failure, but it is still a queue for
+  whoever owns labels, and the file's header is the only thing that says how old it is.
+- CI can never run the truest verdict this gate has, because CI has no credential. If the loop ever
+  gives CI a read-only token, the move is a THIRD step running `--live`, kept as its own step so its
+  skip is visible in the log rather than folded into a passing one (#443). Until then `--live` is a
+  human verb and `docs/factory.md` does not say so anywhere — a paragraph there naming when to run
+  it is owed to whoever hits the first false-absent refusal.
+- Prose that spells the flag beside a name is a documented command to this gate, and that includes
+  prose in the decision logs and in this file: `guard,testing` as a value is refused here even in a
+  sentence explaining that the name is absent. This unit re-worded three such sentences rather than
+  widen the regex. A successor who finds that annoying should add a fixture-escape convention to the
+  gate and assert it, not exempt a directory — leg 5 exists to refuse directory-shaped blindness.
+- The 25 `--add-label`/`--remove-label`/`labels=` occurrences are counted and printed, not judged.
+  Judging them needs a ground for labels-on-an-issue, which is a different question from this one;
+  a successor who wants it should start from the count line, not from a wider regex.
+- Outside the census, deliberately: a label named in prose, in a `gh --jq` filter or in a
+  `--template` file. And gh's merge-or-replace semantics when the flag is given twice, one name each
+  time, were never measured here, so the gate makes no claim about that form; whoever measures it should write
+  the measurement into the docstring, not into a regex.
+- Re-review is the supervisor's poke, not this unit's verb: `factory_request_review` addresses
+  `FACTORY_REVIEWER_TEAM` for an open pull request whose `users` and `teams` lists are both empty
+  (`gh pr edit --add-reviewer` exits 1 on this account's retired `projectCards` field and writes
+  nothing, `H-0010`).
+- Carried from the issue-383 head below, unchanged: re-review of its round-1 pointer fix is owed, on
+  its own schedule bounded by `FACTORY_REVIEW_POKES`.
+- Carried: issue-383's second half — the #246 row-2 shape where the tick pushed BEFORE the ceiling
+  took it — is named in the 137 sentence's consequence only; a journal cross-reference between the
+  failure line and the `TICK-UNDELIVERED` mirror would be a new ticket, not a leftover.
+- Carried: `FACTORY_TICK_KILL_AFTER` is honoured by the one shipped `timeout` line; a second ceiling
+  must print through the same `case` or it re-creates #383 exactly.
+- Carried from the issue-380 head below, unchanged: the `H-0289` allocator collision (the
+  journalled-id-no-union-can-retire class, two timestamps) — if `issue-381` wakes before that branch
+  merges, one of the two entries has to move.
+- Carried: issue-380's own unit never wrote a hand-off; #459's head below is the reconstruction and
+  is the reason the shape question stays open.
+- Carried: `python3 scripts/check-close-verb.py NEXT.md` answered rc 1 on two carried rows before
+  this head, and this head adds no third (its own rows name issues without keywords, per #1256);
+  `check-close-verb.py factory/DECISIONS.md` rc 1 is trunk-carried (`closes #211`), unchanged here.
+- Carried: the `install` half of #377 is still an operator act (`systemctl --user daemon-reload` and
+  a unit regeneration on each installed machine), not a unit's.
+
+## What this head pruned, and how to get it back
+
+- Nothing. The issue-383 head is demoted whole to a Record below — its heading, its state paragraph,
+  its pushed/spent/review-round/owed/pruned sections all kept in full below this block. To read the
+  pre-insert bytes: `git show ad3201e:NEXT.md`. The only content this block adds above it is this
+  unit's own five sections and fourteen `Carried` rows folded from the head it supersedes.
+- One mechanical cost, stated so the next unit does not re-derive it: this insertion moves every row
+  below line 1 down by the length of this block, and the 14 anchored `NEXT.md` pointers named in
+  `What this push spent` were re-aimed in the same commit. If you are reading a `NEXT.md:NNNN`
+  citation and the sentence is not there, run `python3 scripts/check-decisions.py --citations
+  NEXT.md` before believing your own eyes about the number.
+
+## Record — the issue-384 conflict tick (PR for `issue-384`: #463 — the third live seam in a row met by the shipped machine union: 294 entries decided, seven seam rows adjudicated by anchor uniqueness on the merged bytes, ten anchor-debt rows seated by the sentences that cite them, zero content retired beyond six displaced quotations; the pass is `H-0303`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this tick: the dispatch was the queue's
 `conflict` row for PR #463 — the brief's live read (`CONFLICTING`/`DIRTY`) matched the
@@ -166,7 +431,6 @@ written before the gate runs is a prophecy).
   says so; rows 53, 55 and 59 remain the bare-pointer debt census, each at its own head.
 
 ## Record — the issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; its state read is its own clock's; merging belongs to the supervisor)
-
 State read before this file wrote a byte, by this tick: branch `issue-383` rebased onto
 `b6b8a55` (`origin/main` at read time, which carries #459's merge with `H-0288` and `H-0289`),
 tree clean at entry to this pass, no `factory/HALT`. The id chain is disclosed rather than
@@ -2282,6 +2546,19 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    emit these rows with the author-blob read beside the merged row so a person re-points them by
    reading code, the only method that works where there is no anchor. `make verify` reads none of
    them; row 53 and row 55 are the same debt at other heads, this row is this head's census.
+
+60. **#378 left the reporting split measured, not pinned — and its derivation lives in prose.**
+   `RULE_PROBES` now reads 81 report / 0 raise-only / 0 silent, measured by the instrumented
+   classification `print` whose recipe is in the issue; `_rule_probes_are_live` still refuses only
+   a pass in which NOTHING reports, on purpose (`D-0086`: a raise remains a legitimate witness for
+   a rule whose contract IS an escaping refusal). So a future row may join the table witnessed by
+   a raise alone and the suite stays green — the defence against that is this row and the
+   paragraph above the table, both prose. If that becomes unacceptable, the repair is not a zero
+   floor but a per-row label (`witness: raise`) that the pass counts and the table prints, so the
+   split becomes visible state instead of a number in two comments. The per-rule derivation
+   harness (one subprocess per rule, clean-tree baseline, word-shared candidate sweep,
+   shipped-order re-score) was rebuilt for #378 from the issue's recipe and is not in the tree;
+   the same instrument is what that labelling job would start from.
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab
@@ -2437,3 +2714,4 @@ failure wearing a number.
   records the measurement.
 - Read the review after the push, not before. `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus`
   after the push is what the body may claim, and `gh pr checks 431` at rc 8 means pending, not failed.
+

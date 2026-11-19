@@ -1,0 +1,39 @@
+# The label set this repository carries, as one file.
+#
+# Why this file exists (#386, measured 19 Nov). Six documented `gh issue create` recipes named three
+# labels this repository does not carry — `guard`, `testing`, `ux` — and every one of them died at the
+# label step: `gh` resolves a name against the live set, prints `could not add label: 'guard' not
+# found`, exits 1 and creates nothing. Nothing in the tree checked a documented name, and the issue
+# that found this had to enumerate all 18 names inline in its own body because there was nowhere to
+# point instead. This file is that place: cite it rather than re-typing a list GitHub can change
+# underneath you.
+#
+# This is the ground `scripts/check-doc-labels.py` compares every documented name against. It is
+# checked in on purpose: `gh label list` needs a network and a token, and a gate that passes quietly
+# because it could not reach the API is worse than no gate. That script's `--live` re-reads the API
+# and refuses — loudly, with a `SKIPPED` line naming what it could not do — whenever it cannot, so
+# this copy is verified rather than trusted.
+#
+# Refresh it in the same commit as the upstream label it records:
+#
+#     gh label list --limit 200 --json name --jq '.[].name' | LC_ALL=C sort
+#
+# One name per line, C-sorted, no blank lines, no duplicates; the shape is the script's to check.
+accessibility
+area:core
+area:ops
+area:platform
+area:ui
+blocked
+bug
+documentation
+duplicate
+enhancement
+good first issue
+help wanted
+invalid
+kind:chore
+question
+release-blocker
+security
+wontfix
