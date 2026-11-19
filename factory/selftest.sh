@@ -3586,6 +3586,29 @@ case "$1 $2" in
 		printf '%s\n' "$_rows" | jq -c '.[0]'
 	fi
 	exit 0 ;;
+'pr view')
+	# (#381) `gh pr view <n> --json <fields> --jq <expr>`, projected per number from `pr-view-<n>.json`
+	# exactly the way `issue view` above projects its object: ONE object into `--jq`, the field list
+	# obeyed through the same wrap/unwrap, no payload for the number an exit 8. The conflict arm reads
+	# `baseRefName` through this call, and the read-back after a resolved merge reads
+	# `mergeable,mergeStateStatus`; a shim that refuses either turns the arm's route into a
+	# `CONFLICT-BLOCKED` over a read the real gh answers.
+	_num=${3:-}
+	_obj="$here/pr-view-$_num.json"
+	if [ ! -f "$_obj" ]; then
+		printf 'proc-shim: no payload for this call: %s\n' "$_obj" >&2
+		exit 8
+	fi
+	_wrap=$(mktemp)
+	printf '[%s]\n' "$(cat "$_obj")" >"$_wrap"
+	_rows=$(gh_json_payload "$_wrap" "$jsonf") || { rm -f "$_wrap"; exit 1; }
+	rm -f "$_wrap"
+	if [ -n "$jqprog" ]; then
+		printf '%s\n' "$_rows" | jq -r ".[0] | ($jqprog)"
+	else
+		printf '%s\n' "$_rows" | jq -c '.[0]'
+	fi
+	exit 0 ;;
 'pr list')
 	# One read, three payloads, told apart by the flag that differs between them -- the same rule
 	# CLAIMSHIM records and for the same reason: a shim that serves the body payload to the field
@@ -7220,6 +7243,163 @@ printf '        line. SIGKILL because it is the death being simulated -- `timeou
 printf '        it, and so does the OOM killer -- and the only one a shell cannot talk itself out of on\n'
 printf '        its way out: `kill -9` is the only way to ask the question that has no answer written by\n'
 printf '        the dying process. rc 137 is what the legs require. Those lines are not a crash.\n'
+
+# ---------------------------------------------------------------------------- the decision-log union (#381)
+#
+# The conflict pass now has a step between "git cannot" and "a model must": when every conflicted
+# path is a decision log, `scripts/merge-decisions.py` adjudicates the merge as code. These boxes
+# drive the REAL supervisor over a REAL git conflict — two full-field entries appended at the tail
+# on both sides, the shape the arbiter's own self-test measures as reliably conflicted — and read
+# back the three things the ticket is about: the merge landed WITHOUT a tick and origin moved; both
+# entries survived in the pushed bytes; and one conflicted non-log file still takes the old road,
+# with the union's refusal journalled beside the verdict rather than swallowed.
+#
+# The box's origin is a PRIVATE bare repo, not the shared `$proc_up`: this family pushes, and a
+# pushed `issue-900` carrying decision entries in the shared trunk would be a side effect every
+# later box inherited. `pr-open.json` is put back like the kill family does, for the same reason.
+proc_union_box() { # <name> <extra: extra-conflict> -> a conflicted PR whose conflict is in the logs
+	local name=$1 extra=${2:-}
+	local up=$proc_work/union-up-$name.git
+	proc_new "union-$name"
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" remote set-url origin "$up" || return 1
+	# The trunk's copy of the arbiter and its gate: the arm runs the TREE's script, and the
+	# script runs the gate beside it, so both must ride the branch the merge happens in.
+	mkdir -p "$proc_repo/scripts" || return 1
+	cp "$HERE/../scripts/check-decisions.py" "$HERE/../scripts/merge-decisions.py" "$proc_repo/scripts/" ||
+		return 1
+	local c0
+	c0=$(git -C "$proc_repo" rev-parse HEAD) || return 1
+	# The gate refuses an existing log with no entry in it -- rightly, an empty log is what a
+	# half-written file looks like -- so the second log arrives already holding one full-field
+	# entry, checkpointed at the clone's own first commit.
+	printf '# Factory decisions\n\n## H-0001 · the factory log'"'"'s one base entry\n\n- Question: what does the fixture factory log decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because the fixture says so, in one clause\n- Checkpoint: %s\n' "$c0" \
+		>"$proc_repo/factory/DECISIONS.md" || return 1
+	printf '# Decisions\n' >"$proc_repo/DECISIONS.md"
+	git -C "$proc_repo" add -A &&
+		git -C "$proc_repo" commit -qm 'fixture trunk: the arbiter, its gate, and empty logs' ||
+		return 1
+	local c1
+	c1=$(git -C "$proc_repo" rev-parse HEAD) || return 1
+	# A full-field entry whose Checkpoint names a commit that exists in every tree the merge
+	# can reach — the arbiter runs the shipped gate over its output, and the gate checks
+	# checkpoints, so a fixture log must satisfy it exactly like a real one.
+	printf '\n## D-0001 · the trunk entry both sides merge past\n\n- Question: what does the fixture trunk decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because the fixture says so, in one clause\n- Checkpoint: %s\n' "$c1" \
+		>>"$proc_repo/DECISIONS.md" || return 1
+	git -C "$proc_repo" commit -qam 'fixture trunk: the base entry' || return 1
+	local b0
+	b0=$(git -C "$proc_repo" rev-parse HEAD) || return 1
+	# The branch side: its own entry at the tail, and for the refusal box one extra line.
+	local br=$proc_work/union-br-$name
+	git -C "$proc_repo" worktree add -q -b issue-900 "$br" "$b0" &&
+		printf '\n## D-1001 · the entry only the branch adds\n\n- Question: what does the branch decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because the branch says so, in one clause\n- Checkpoint: %s\n' "$b0" \
+			>>"$br/DECISIONS.md" || return 1
+	[ -z "$extra" ] ||
+		printf 'ALPHA from the branch\n' >"$br/tracked.txt"
+	git -C "$br" commit -qam 'fixture branch: its entry at the tail' || return 1
+	git -C "$proc_repo" push -q origin issue-900 || return 1
+	git -C "$proc_repo" worktree remove --force "$br" || return 1
+	# The base side: its own entry at the same seam — the tail conflict the arbiter exists for.
+	printf '\n## D-0002 · the entry only main adds\n\n- Question: what does main decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because main says so, in one clause\n- Checkpoint: %s\n' "$b0" \
+		>>"$proc_repo/DECISIONS.md" || return 1
+	[ -z "$extra" ] ||
+		printf 'ALPHA from main\n' >"$proc_repo/tracked.txt"
+	git -C "$proc_repo" commit -qam 'fixture main: its entry at the tail' || return 1
+	git -C "$proc_repo" push -q origin main || return 1
+	# The per-PR read the arm makes: its base, and the state the post-merge read-back answers.
+	printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+		>"$proc_fix/pr-view-900.json" || return 1
+	proc_conflict_row
+}
+
+proc_union_merged() {
+	proc_journal_line "$proc_journal" 'CONFLICT-RESOLVED pr:900' |
+		grep -qF -- 'by decision-log union' || {
+		printf '            no `CONFLICT-RESOLVED … by decision-log union` line. Journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	# The read-back (#1180): a resolved merge is journalled with what GitHub now says, so the
+	# RESOLVED line never stands alone as the account of the state.
+	proc_journal_line "$proc_journal" 'CONFLICT-READBACK pr:900' | grep -q 'mergeable=' || {
+		printf '            no `CONFLICT-READBACK pr:900 mergeable=…` line after the push.\n' >&2
+		return 1
+	}
+	# No conflict tick is the ticket's whole point: 35 model runs retired by this arm, and a
+	# silently-reenabled one would wear the same journal lines as a pass that unioned.
+	# (`proc_journal_line` prints the hit or nothing and always exits 0, so these are emptiness
+	# tests, the way the kill family writes them.)
+	if [ -n "$(proc_journal_line "$proc_journal" 'UNION-REFUSED')" ] ||
+		[ -n "$(proc_journal_line "$proc_journal" 'TICK-START conflict:900')" ] ||
+		grep -q 'conflict:900' "$proc_ticks" 2>/dev/null; then
+		printf '            a conflict tick was dispatched, or the union refused, on a logs-only\n' >&2
+		printf '            conflict -- the whole saving of #381 is that this path runs no session.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	fi
+	# And the bytes, read back from the PRIVATE origin — a push the branch never received would
+	# leave the journal line true and the pull request still conflicting.
+	local pushed
+	pushed=$(git -C "$proc_repo" fetch -q origin issue-900 2>/dev/null &&
+		git -C "$proc_repo" show FETCH_HEAD:DECISIONS.md 2>/dev/null) || {
+		printf '            origin/issue-900 could not be read after the pass.\n' >&2
+		return 1
+	}
+	printf '%s\n' "$pushed" | grep -q '^## D-1001 ' || {
+		printf '            the pushed log lost the branch entry.\n' >&2
+		return 1
+	}
+	printf '%s\n' "$pushed" | grep -q '^## D-0002 ' || {
+		printf '            the pushed log lost main'"'"'s entry.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_union_refused() {
+	proc_journal_line "$proc_journal" 'CONFLICT-UNRESOLVED pr:900' |
+		grep -qF -- 'the decision-log union refused it: UNION-REFUSED reason=other-conflict' || {
+		printf '            no CONFLICT-UNRESOLVED line naming the union refusal (reason=other-conflict).\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	# The tick still comes for what the union refuses -- the arm must never be able to drop work.
+	[ -n "$(proc_journal_line "$proc_journal" 'TICK-START conflict:900')" ] || {
+		printf '            the refused conflict never reached a tick: dropping the union must not\n' >&2
+		printf '            be able to drop the tick.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	# The residue the model was promised: a merge git left ABORTED, not a half-staged index. The
+	# tick that reads the tree must find `git status` answerable, which a staged-logs-above-a-live-
+	# conflict merge is not. (A worktree's gitdir is outside the tree, so git answers this, not a
+	# path test on `.git`.)
+	[ -z "$(git -C "$proc_trees/issue-900" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" ] || {
+		printf '            the refused merge was left in progress in the tree the tick takes over.\n' >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_journal" 'CONFLICT-RESOLVED pr:900')" ]; then
+		printf '            both a RESOLVED and an UNRESOLVED line for one conflict.\n' >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_union_box merged
+proc_run union-merged-1
+proc_leg 'logs-only conflict merges as code' \
+	'CONFLICT-RESOLVED by decision-log union, no conflict tick, both entries on origin' \
+	proc_union_merged
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+proc_union_box refused extra-conflict
+proc_run union-refused-1
+proc_leg 'a non-log conflict still takes the tick' \
+	'UNION-REFUSED journalled, the merge aborted, TICK-START conflict:900 dispatched anyway' \
+	proc_union_refused
+printf '[]\n' >"$proc_fix/pr-open.json"
 
 # ------------------------------------------------------- the reaping a pass reports about itself (#246)
 #

@@ -171,6 +171,7 @@ verify:
 	fi; \
 	echo "==> dependencies"; ./scripts/check-deps.sh; \
 	echo "==> cross-builds"; ./scripts/check-builds.sh; \
+	echo "==> decision-log union contract"; python3 scripts/merge-decisions.py --self-test; \
 	echo "verify: OK"
 
 # check-mutations is the fast half of `mutate`: it never runs a test, it only asks whether
