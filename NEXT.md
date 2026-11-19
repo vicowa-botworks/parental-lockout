@@ -63,8 +63,28 @@ the gate ran, not before.
   directories the suite run left (ignored, the interpreter's not the logs') present, the
   comparison still came back judged: rc 0, 0 refused, 0 unopenable pointers.
 
+## Review round 1 — `CHANGES_REQUESTED` at 2026-11-19T03:28:18Z (hermesvicowa, review 5968895974), answered
+
+- The blocking ask: two source comments this branch added carried `H-0288 (#383)` while the
+  decision this PR ships is `H-0291`; `H-0288` is the merged #380 lock-holder-journalling entry.
+  Independently re-derived before anything changed: `git blame` dated both comments to this
+  branch's effect commit `d845517`, and the third `H-0288` in the tree — `factory/factory.sh:2017`,
+  inside the flock-refusal arm — comes from `2aa6dac`, an ancestor of `origin/main`, and cites the
+  right decision for the arm it annotates, so it stays.
+- The fix re-aims `factory/common.sh:152` and `factory/factory.sh:1472` to `H-0291 (#383)` —
+  comment text only, two files, two lines. Verified on the tree after the fix: `git grep
+  'H-0288 (#383)'` is empty, `python3 scripts/check-decisions.py` reads rc 0 with the same counts
+  the reviewed head had (353 entries, 1164 citations, 583 debt, 0 refused), and
+  `python3 scripts/check-decisions.py --citations` on both edited files names no pointer aimed at
+  either edited row, so nothing the logs quote moved.
+- This push lands on a `CHANGES_REQUESTED` head. Whatever the review rows read after it, a
+  re-review is owed, and the re-ask is the supervisor's poke (`factory_request_review`,
+  `FACTORY_REVIEWER_TEAM`), not a unit's verb.
+
 ## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
 
+- Re-review of the round-1 pointer fix is owed: the post-push review read is quoted in the pull
+  request, and the supervisor re-asks on its own schedule, bounded by `FACTORY_REVIEW_POKES`.
 - The ticket's second half — the #246 row-2 shape where the tick pushed BEFORE the ceiling took
   it — is named in the 137 sentence's consequence only. The `TICK-UNDELIVERED` mirror already
   runs after every failed tick and is exercised by its own family (#364); this unit changed what

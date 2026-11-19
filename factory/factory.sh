@@ -1469,7 +1469,7 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
-	# H-0288 (#383): name the death the code produced, do not annotate one of the two codes and
+	# H-0291 (#383): name the death the code produced, do not annotate one of the two codes and
 	# leave the other naked. The old parenthetical explained 124 only, and 124 is the code that
 	# needs no explanation -- it is the boring ceiling death. 137 (128+SIGKILL) is the interesting
 	# one: TERM was delivered at the ceiling and the tick trapped it, and `--kill-after` escalated
