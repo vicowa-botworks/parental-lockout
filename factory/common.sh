@@ -4655,6 +4655,38 @@ factory_preserve_unpushed() { # unit tree branch -> 0 mirrored, 1 nothing ahead,
 		log_event "PRESERVE-SKIPPED $unit no branch, so there is nothing to mirror"
 		return 1
 	fi
+	# H-0301 (#384): is the bundle the only copy? The count below answers "how far is $branch ahead
+	# of origin/$FACTORY_BASE?", which is the right trigger for bundling and the wrong basis for the
+	# sentence: 14 Nov, `conflict:382` journaled `PRESERVED … (4 commit(s) on issue-311 at 5e24bb0
+	# ahead of origin/main) -- recover with …` over four commits that were ALL on `origin/issue-311`
+	# (measured at the time: local 5e24bb0 == origin/issue-311 5e24bb0) -- already-pushed work
+	# called at risk, with a recovery recipe for a ref the remote already holds. Bundling both
+	# cases stays right -- the harness has burned this project before and a belt-and-braces bundle
+	# of pushed work costs 13 956 bytes -- but the CLAIM moves to a field: `pushed=true` when
+	# `origin/$branch` holds this very tip (the bundle is a spare), `pushed=false` when it does not
+	# (the bundle is the only copy: no remote ref, or one that stopped short of this tip).
+	# A push-state read that fails -- a tree whose refs cannot be parsed -- is `pushed=unknown`,
+	# never `false`: #228's polarity, a failed read is not evidence of the clean state, and here
+	# the clean-looking reading ("not pushed, all at risk!") is the one that misleads.
+	#
+	# The read costs two `rev-parse` calls per preserve, against a `git bundle create` the same
+	# call already pays for.
+	local local_tip='' remote_tip='' pushed_desc='pushed=false (no remote-tracking origin/branch)'
+	if local_tip=$(git -C "$tree" rev-parse "$branch" 2>/dev/null); then
+		if remote_tip=$(git -C "$tree" rev-parse "refs/remotes/origin/$branch" 2>/dev/null); then
+			if [ "$local_tip" = "$remote_tip" ]; then
+				pushed_desc='pushed=true'
+			else
+				pushed_desc="pushed=false (origin/$branch is at ${remote_tip:0:7}, not this tip)"
+			fi
+		else
+			pushed_desc="pushed=false (no remote-tracking origin/$branch in this tree)"
+		fi
+	elif git -C "$tree" rev-parse --git-dir >/dev/null 2>&1; then
+		pushed_desc='pushed=unknown (the local tip could not be read)'
+	else
+		pushed_desc='pushed=unknown (the tree is not a readable git repository)'
+	fi
 	if ! ahead=$(git -C "$tree" rev-list --count "origin/$FACTORY_BASE..$branch" 2>/dev/null); then
 		log_event "PRESERVE-FAILED $unit how far $branch is ahead of origin/$FACTORY_BASE could not be read -- nothing was mirrored"
 		return 2
@@ -4671,21 +4703,25 @@ factory_preserve_unpushed() { # unit tree branch -> 0 mirrored, 1 nothing ahead,
 	tip=$(git -C "$tree" rev-parse --short "$branch" 2>/dev/null) || tip=unknown
 	path="$FACTORY_AT_RISK/branch-$(factory_slug "$unit")-${tip}.bundle"
 	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
-		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and $FACTORY_AT_RISK could not be created -- nothing was mirrored"
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and $FACTORY_AT_RISK could not be created -- nothing was mirrored; $pushed_desc"
 		return 2
 	fi
 	if ! why=$(git -C "$tree" bundle create "$path" "origin/$FACTORY_BASE..$branch" 2>&1); then
 		# `git bundle create` refuses an empty bundle itself (`fatal: Refusing to create empty
 		# bundle.`), which is the same verdict the count above already reached. Getting here means the
 		# two reads disagree, so git's own sentence goes in the journal rather than a paraphrase.
-		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and no bundle was written :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)"
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and no bundle was written; $pushed_desc :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)"
 		return 2
 	fi
 	if ! why=$(git -C "$tree" bundle verify "$path" 2>&1); then
-		log_event "PRESERVE-UNVERIFIED $unit $path exists but git refuses to verify it :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) -- do not trust this bundle to hold the work"
+		log_event "PRESERVE-UNVERIFIED $unit $path exists but git refuses to verify it; $pushed_desc :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) -- do not trust this bundle to hold the work"
 		return 2
 	fi
-	log_event "PRESERVED $path ($ahead commit(s) on $branch at $tip ahead of origin/$FACTORY_BASE) -- recover with \`git clone <remote> r.git && git -C r.git fetch $path refs/heads/$branch\`"
+	# The sentence says BOTH what the bundle holds and whether anything else on earth holds it.
+	# `pushed=true` is not a reason to skip the bundle -- 14 Nov's own lesson is that pushed work
+	# gets force-pushed over -- it is the answer to "is this the only copy?", which the old
+	# `at ... ahead of origin/main -- recover with` shape could not tell from a real rescue.
+	log_event "PRESERVED $path ($ahead commit(s) on $branch at $tip ahead of origin/$FACTORY_BASE; $pushed_desc) -- recover with \`git clone <remote> r.git && git -C r.git fetch $path refs/heads/$branch\`"
 	return 0
 }
 
@@ -5180,4 +5216,73 @@ factory_triage_stream() {
 	# paths; the sweep in `factory.sh` is the backstop for a pass killed between the two.
 	factory_paths
 	printf '%s/triage-stderr.%s\n' "$FACTORY_RUN" "$$"
+}
+
+# ------------------------------------------------------------------ #384: what a stopped tick left behind
+#
+# Ask the delivery question after a FAILED tick, not only after a clean one.
+#
+# #247 put the `gh pr list --head` read-back on the exit=0 arm because a clean stop can deliver
+# nothing, and the queue kept re-offering the issue invisibly. 14 Nov measured the mirror shape:
+# `conflict:382` pushed four commits, opened PR #382, gated the merged head, and died at the 2700s
+# ceiling during its own post-push verification at 16:32:07Z. The journal carried `TICK-FAILED
+# exit=124` and nothing else; the truth, re-read from the API afterwards, was PR #382 OPEN at head
+# 5e24bb0, checks green. A pass that reports delivered work in the same sentence-shape as
+# never-started work tells the next reader to redo four pushed commits, and the only evidence to the
+# contrary is a 245 KB tick log.
+#
+# The postures are the exit=0 arm's, ported, not reinvented:
+#   * the same class whitelist -- `checks_failing` may already sit on a red-checked pull request it
+#     was not asked to produce, exactly as over there;
+#   * `--head ""` is not a filter (measured, it answers an unrelated pull request), so an empty
+#     branch is reported, never read;
+#   * `cmd || rc=$?`, never `if ! cmd; then rc=$?` -- inside a negated test `$?` is the negated
+#     status, 0 whatever gh exited (measured at the exit=0 arm's `:1458-1461`);
+#   * U+001F as the field joiner, because a tab is IFS whitespace and collapses an empty field.
+# A read that fails is `TICK-UNCHECKED`, never a delivery verdict -- the same sentence the exit=0
+# arm says.
+#
+# What deliberately does NOT move: the caller keeps exit 4 and keeps `TICK-FAILED` as the verb.
+# `pr=<n>` is not success -- a pull request opened by a dying tick may be half-verified; the line
+# says the branch is not lost and sends the reader to the pull request before any redo.
+#
+# Cost: one `gh pr list` per failed tick whose class expects a pull request. Failed ticks are
+# minutes apart at worst; the question is the one the mirror of #247 says must always be answerable.
+#
+# usage: factory_delivery_after_failure <unit> <class> <branch> <status>   # always returns 0
+factory_delivery_after_failure() {
+	local unit=$1 class=$2 branch=$3 status=$4
+	local dl_row='' dl_read=0 dl_pr='' dl_oid='' dl_merge=''
+	case "$class" in
+	unclaimed | branch_without_pr | address_review | conflict) : ;;
+	*) return 0 ;;
+	esac
+	if [ -z "$branch" ]; then
+		# The same sentence the exit=0 arm says for the same shape: nothing to check against, said
+		# once, and no gh call.
+		log_event "TICK-UNCHECKED $unit no branch to check a pull request against"
+		return 0
+	fi
+	# `cmd || rc=$?`, never `if ! cmd; then rc=$?`: inside the `then` branch of a NEGATED test `$?`
+	# is the negated status, which is 0 whatever gh exited. Measured at this head, not inherited:
+	# `gh(){ return 8; }; rc=0; row=""; if ! row=$(gh); then rc=$?; fi` prints rc=0, and the same
+	# gh with `row=$(gh) || rc=$?` prints rc=8 -- under `set -e` the `||` arm still runs, so the
+	# refusal lands in `dl_read` and the TICK-UNCHECKED polarity below is reachable. The first
+	# version of this function used the negated form and answered a FAILED read with `pr=none` --
+	# the exact shape H-0300 refuses to ship -- and the standalone probe caught it as a `pr=none`
+	# line on a payload whose gh stub exited 8.
+	dl_row=$(gh pr list --head "$branch" --json number,headRefOid,mergeable \
+		--jq '[(.[0].number // "" | tostring), (.[0].headRefOid // "" | .[0:7]), (.[0].mergeable // "")] | join("\u001f")' 2>/dev/null) || dl_read=$?
+	if [ "$dl_read" -ne 0 ]; then
+		# A read that failed is not a delivery that failed: say which of the two happened.
+		log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$dl_read)"
+		return 0
+	fi
+	IFS=$'\x1f' read -r dl_pr dl_oid dl_merge <<<"$dl_row"
+	if [ -z "$dl_pr" ]; then
+		log_event "TICK-DELIVERY $unit exit=$status pr=none no open pull request on $branch"
+		return 0
+	fi
+	log_event "TICK-DELIVERY $unit exit=$status pr=$dl_pr head=${dl_oid:-unknown} mergeable=${dl_merge:-unknown} -- the branch has a pull request; read it before redoing the unit"
+	return 0
 }

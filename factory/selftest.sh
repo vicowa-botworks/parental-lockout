@@ -3464,7 +3464,11 @@ printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","update
 # The tick's delivery read (`gh pr list --head <branch>`). It is not what any leg below asserts; it
 # is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
 # under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
-printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+# (#384) It now carries every field BOTH delivery reads ask for -- `headRefOid` and `mergeable` join
+# `number` -- because `--json` is a field list this shim obeys: a payload missing a named field
+# refuses the read (#279), and the failure-arm read added in #384 would otherwise end every stall
+# leg's journal with a `TICK-UNCHECKED (gh exit=1)` the legs never asked for.
+printf '[{"number":9001,"headRefOid":"0900112233445566778899aabbccddeeff001122","mergeable":"MERGEABLE"}]\n' >"$proc_fix/pr-head.json"
 # (#370) The trunk's newest push run, as every fixture activation reads it. GREEN and shaped the
 # way gh 2.46.0's `run list --json` actually answers (lowercase status/conclusion, measured): a
 # fixture pass must not print TRUNK-RED for a reason unrelated to its own legs, and the shape a
@@ -3753,6 +3757,40 @@ if [ -n "${PROC_TICK_HANGS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TI
 	sleep 45
 	exit 0
 fi
+# #384 needs the delivered-then-killed session: real work committed, PUSHED to the box's own
+# origin (the family repoints `origin` at a private bare repo before running, the way `proc_union_box`
+# does, because this push must not reach the shared `$proc_up`), and only THEN the sleep that
+# outlives the ceiling. This is the state the issue was filed
+# against -- `conflict:382` pushed, opened its pull request, and died in its own post-push
+# verification -- and no earlier arm can produce it: STALLS and HANGS die with an undelivered tree.
+# The PR itself is the shim's standing answer (`pr-head.json`), which is exactly how the live unit
+# had one: the harness never creates it, it reads whether one exists.
+if [ -n "${PROC_TICK_PUSHES:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_PUSHES"; then
+	printf 'delivered work\n' >>"$tree/tracked.txt"
+	git -C "$tree" add -A
+	git -C "$tree" -c user.email=fixture@invalid -c user.name=fixture \
+		commit -qm 'the delivered commit, pushed before the ceiling'
+	if ! git -C "$tree" push -q origin "HEAD:refs/heads/${PROC_TICK_PUSH_BRANCH:?PROC_TICK_PUSH_BRANCH names the branch}"; then
+		printf 'fixture tick: the push failed, so this is not the delivered-then-killed fixture\n' >&2
+		exit 1
+	fi
+	printf 'fixture tick: %s delivered and now outlives its ceiling\n' "$PROC_TICK_PUSHES"
+	sleep 45
+	exit 0
+fi
+# #384's cause-polarity fixture: a session whose log ENDS the way a well-behaved one ends -- the
+# real failure early (`FileNotFoundError`, the shape the banner rule of 5 Nov reached for), then
+# the unit's own verification echoes, the last of them the passing guard the shipped extractor
+# published as a cause on 14 Nov. Then the ceiling, so TICK-FAILED quotes whatever the pipeline
+# selects from exactly this log.
+if [ -n "${PROC_TICK_ECHOS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_ECHOS"; then
+	printf "FileNotFoundError: [Errno 2] No such file or directory: 'go'\n"
+	printf 'make verify: all green\n'
+	printf 'the sentence that should be there, "679 passed, 0 failed": 0\n'
+	printf 'fatal close pattern, must be 0: 0\n'
+	sleep 45
+	exit 0
+fi
 # #341 needs the `#302` shape: a session that exits 0 with finished, verified, UNCOMMITTED work in
 # its tree -- that is the trigger the quarantine streak arms on. Only when PROC_DIRTY names the
 # unit, so every other fixture sees exactly the stub it always saw.
@@ -3896,6 +3934,9 @@ proc_run() {
 		PROC_TICK_ALLOC="${proc_tick_alloc:-}" \
 		PROC_TICK_STALLS="${proc_tick_stalls:-}" \
 		PROC_TICK_HANGS="${proc_tick_hangs:-}" \
+		PROC_TICK_PUSHES="${proc_tick_pushes:-}" \
+		PROC_TICK_PUSH_BRANCH="${proc_tick_push_branch:-}" \
+		PROC_TICK_ECHOS="${proc_tick_echos:-}" \
 		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
 		FACTORY_OPENCODE=opencode FACTORY_AGENT=factory \
@@ -6906,6 +6947,209 @@ proc_hang_terminated() {
 	return 0
 }
 proc_leg 'the TERM death says TERM landed at the ceiling' 'exit=124 with the 5s ceiling named, no escalation claim, END rc=4 ticks_started=2' proc_hang_terminated
+
+# -- The delivered-then-killed tick (#384, H-0300/H-0301). 14 Nov a tick pushed four commits,
+# had its pull request up, and was killed at the ceiling inside its own post-push verification;
+# the journal said TICK-FAILED and nothing else, a green check became the cause of death, and the
+# four safe commits were recited as at risk. This fixture reproduces the SHAPE end to end: the
+# stub commits, pushes to the fixture's own origin, and THEN sleeps past the ceiling, so the
+# failure arm reads its delivery back from the (shimmed) API while the mirror measures a branch
+# whose remote tip equals the local one.
+proc_new push-stall
+# The box's origin is a PRIVATE bare repo, not the shared `$proc_up`, for the exact reason
+# `proc_union_box` (7476) spells out: a pushed `issue-900` in the shared trunk is a side effect
+# every later box inherits. Measured 19 Nov: pushing to `$proc_up` made the NEXT clone's
+# `worktree add -b issue-900` fall through to the DWIM checkout of `origin/issue-900`, so triage
+# of every later box saw a `branch_without_pr:issue-900` row carrying the delivered commit —
+# UNIT-DIVERGED in the streak family, a quarantine-count in the cdec ledger, fifteen legs that
+# had nothing to do with #384 going red on state this family left behind.
+git init -q --bare "$proc_work/psb-up.git" &&
+	git -C "$proc_work/psb-up.git" config user.email fixture@invalid &&
+	git -C "$proc_work/psb-up.git" config user.name fixture &&
+	git -C "$proc_repo" remote set-url origin "$proc_work/psb-up.git" &&
+	git -C "$proc_repo" push -q origin main ||
+	printf '            the private origin could not replace $proc_up; this box would poison\n' >&2
+# The bare must hold `main` itself: the pass REFRESHes `origin` before it builds a tree, and a
+# fetch against an empty bare prunes `refs/remotes/origin/main`, after which
+# `worktree add -b issue-900 … origin/main` cannot resolve and the unit is TICK-SKIPPED before
+# it ever reaches the push or the ceiling -- measured 19 Nov as `could not create a worktree`.
+# `proc_union_box` pushes `main` to its private bare for the same reason.
+proc_tick_pushes=unclaimed:900
+proc_tick_push_branch=issue-900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=40
+proc_run push-1
+proc_jps=$proc_journal
+proc_tick_pushes=''
+proc_tick_push_branch=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_delivered_killed_journal() {
+	[ -n "$(proc_journal_line "$proc_jps" 'TICK-FAILED unclaimed:900 exit=124')" ] || {
+		printf '            the pushing stub did not die at the ceiling in this box, so nothing\n' >&2
+		printf '            below is a failure arm reading a real delivery:\n' >&2
+		sed 's/^/              /' "$proc_jps" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jps" 'TICK-DELIVERY unclaimed:900 exit=124 pr=9001 head=0900112 mergeable=MERGEABLE')" ] || {
+		printf '            the failure arm did not read the delivery back: the shim holds a pull\n' >&2
+		printf '            request on this very head, so the journal has to SAY so. Measured:\n' >&2
+		proc_journal_line "$proc_jps" 'TICK-DELIVERY' | cut -c1-200 >&2
+		proc_journal_line "$proc_jps" 'TICK-UNCHECKED' | cut -c1-200 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jps" 'TICK-UNCHECKED')" ]; then
+		printf '            a delivery read that SUCCEEDED still printed the unread line: the read\n' >&2
+		printf '            and its failure polarity must not co-fire on one activation.\n' >&2
+		return 1
+	fi
+	[ -n "$(proc_journal_line "$proc_jps" 'PRESERVED')" ] || {
+		printf '            the ceiling stop preserved nothing, so the pushed= field below has no\n' >&2
+		printf '            line to live on:\n' >&2
+		sed 's/^/              /' "$proc_jps" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jps" 'pushed=true')" ] || {
+		printf '            the stub pushed this exact tip minutes before the ceiling, and the\n' >&2
+		printf '            mirror still claimed the work as not-on-the-remote -- the 14 Nov defect,\n' >&2
+		printf '            measured on conflict:382 (local 5e24bb0 == origin/issue-311 5e24bb0):\n' >&2
+		proc_journal_line "$proc_jps" 'PRESERVED' | cut -c1-220 >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a killed tick that delivered reads its delivery back' 'TICK-FAILED exit=124 beside TICK-DELIVERY pr=9001 head=0900112 mergeable=MERGEABLE, and PRESERVED says pushed=true' proc_delivered_killed_journal
+
+# Control for the read-back: the call site restored to the pre-#384 posture -- the delivery read
+# belongs to the success arm only. The same fixture, the same pushed stub. If THIS journal carries
+# TICK-DELIVERY, the leg above was pinning the shim, not the harness.
+proc_new push-stall-ctl
+git init -q --bare "$proc_work/psb-up-ctl.git" &&
+	git -C "$proc_work/psb-up-ctl.git" config user.email fixture@invalid &&
+	git -C "$proc_work/psb-up-ctl.git" config user.name fixture &&
+	git -C "$proc_repo" remote set-url origin "$proc_work/psb-up-ctl.git" &&
+	git -C "$proc_repo" push -q origin main ||
+	printf '            the control box must hold its own origin too, or it re-poisons $proc_up\n' >&2
+proc_mutate_factory \
+	'factory_delivery_after_failure "$unit" "$class" "$branch" "$status"' \
+	'	[ "$status" -eq 0 ] && factory_delivery_after_failure "$unit" "$class" "$branch" "$status"' ||
+	proc_ps_planted=0
+proc_tick_pushes=unclaimed:900
+proc_tick_push_branch=issue-900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=40
+proc_run push-1-ctl
+proc_jpsc=$proc_journal
+proc_tick_pushes=''
+proc_tick_push_branch=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_delivery_read_control() {
+	if [ "${proc_ps_planted:-1}" = 0 ]; then
+		printf '            the call-site mutant did not plant, so its journal is shipped code.\n' >&2
+		return 1
+	fi
+	[ -n "$(proc_journal_line "$proc_jpsc" 'TICK-FAILED unclaimed:900 exit=124')" ] || {
+		printf '            the mutant run did not die at the ceiling, so it read nothing either way:\n' >&2
+		sed 's/^/              /' "$proc_jpsc" | cut -c1-150 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jpsc" 'TICK-DELIVERY')" ]; then
+		printf '            the mutant that SKIPS the failure-arm read still printed a delivery\n' >&2
+		printf '            line -- some other arm answers this shape, so the leg above measures\n' >&2
+		printf '            that arm and not the read #384 asked for.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '…and only because the failure arm asks' 'the same fixture with the read gated to exit=0 prints TICK-FAILED with no TICK-DELIVERY line at all' proc_delivery_read_control
+
+# -- Cause polarity (H-0302): the log ENDS in satisfied verification echoes, with the real failure
+# above them. 14 Nov the extractor published the last token line -- `fatal close pattern,
+# must be 0: 0`, a guard PASSING -- as the cause of death. The shipped pipeline must quote the
+# FileNotFoundError and refuse the echoes.
+proc_new echo-shipped
+proc_tick_echos=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=40
+proc_run echo-1
+proc_jec=$proc_journal
+proc_tick_echos=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_cause_quotes_the_real_failure() {
+	local line
+	line=$(proc_journal_line "$proc_jec" 'TICK-FAILED unclaimed:900')
+	[ -n "$line" ] || {
+		printf '            the echo stub did not die at the ceiling in this box:\n' >&2
+		sed 's/^/              /' "$proc_jec" | cut -c1-150 >&2
+		return 1
+	}
+	case $line in
+	*':: FileNotFoundError: [Errno 2] No such file or directory'*) ;;
+	*)
+		printf '            the cause was not the real failure; the tick log plants it above the\n' >&2
+		printf '            echoes and the extractor still answered:\n              %s\n' "$line" >&2
+		return 1
+		;;
+	esac
+	case $line in
+	*'must be 0: 0'* | *'0 failed'*)
+		printf '            the cause line quotes a satisfied expectation -- the exact 14 Nov\n' >&2
+		printf '            defect:\n              %s\n' "$line" >&2
+		return 1
+		;;
+	esac
+	return 0
+}
+proc_leg 'the cause is the real failure, not the last echo' 'TICK-FAILED ends with the planted FileNotFoundError and quotes neither satisfied echo' proc_cause_quotes_the_real_failure
+
+# Control for H-0302: the selection restored to "the last token line, whatever it is". Same stub,
+# same ceiling. The mutant must reproduce the filed shape -- a passing guard published as the
+# reason -- or the leg above never needed the filter it pins.
+proc_new echo-pre384
+proc_mutate_factory \
+	'reason=$(printf '"'"'%s\n'"'"' "$filtered" | tail -n 1 | cut -c1-160) || true' \
+	'	reason=$(printf '"'"'%s\n'"'"' "$toks" | tail -n 1 | cut -c1-160) || true' ||
+	proc_ec_planted=0
+proc_tick_echos=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=40
+proc_run echo-1-ctl
+proc_jec2=$proc_journal
+proc_tick_echos=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_cause_control_bites() {
+	if [ "${proc_ec_planted:-1}" = 0 ]; then
+		printf '            the selection mutant did not plant, so its journal is shipped code.\n' >&2
+		return 1
+	fi
+	local line
+	line=$(proc_journal_line "$proc_jec2" 'TICK-FAILED unclaimed:900')
+	case $line in
+	*'must be 0: 0'*) return 0 ;;
+	*)
+		printf '            the last-token-line mutant did NOT reproduce the filed shape (it\n' >&2
+		printf '            printed: %s), so the shipped leg is not pinning the last-line rule\n' "${line:-<no TICK-FAILED line>}" >&2
+		printf '            it replaced.\n' >&2
+		return 1
+		;;
+	esac
+}
+proc_leg '…which the last-token-line rule gets wrong' 'the same fixture without the filter publishes `must be 0: 0` as the cause' proc_cause_control_bites
 
 # -- The third parenthetical, witnessed by the fail family's own run: its journal was written by
 # the shipped file above, so `exit=1` already travelled through the new `case` and must have come
@@ -19639,6 +19883,28 @@ FACTORY_AT_RISK=$mirror/ro/nope
 mirror_leg 'an unusable mirror dir is said' 2 'could not be created' unclaimed:897 "$mirror/seed" issue-902
 chmod 700 "$mirror/ro"
 FACTORY_AT_RISK=$mirror/at-risk
+
+# (#384, H-0301) The field 14 Nov proved missing, on the ONE fixture that can show both halves:
+# the legs above run with `origin/issue-902` never pushed -- the ticket's phrase, "both computed
+# with origin/<branch> entirely absent from the fixture" -- so neither ever saw a remote that
+# AGREED. Push the branch, and the same call on the same tip must say `pushed=true`; move the
+# local tip past the remote, and it must say false WITH the remote's oid; a branch the remote has
+# never heard of says false with the missing ref named. These three sentences are the whole
+# difference between a rescue recipe and a spare copy, and no leg before this one could tell them.
+: >"$(mirror_journal)"
+git -C "$mirror/seed" push -q origin issue-902
+git -C "$mirror/seed" fetch -q origin
+mirror_leg 'a pushed tip is still bundled, and says so' 0 'pushed=true' unclaimed:902 "$mirror/seed" issue-902
+git -C "$mirror/seed" checkout -q issue-902
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'one commit the remote has not seen'
+mirror_leg 'a tip ahead of the remote is not pushed' 0 'pushed=false (origin/issue-902 is at' \
+	unclaimed:902 "$mirror/seed" issue-902
+git -C "$mirror/seed" checkout -q -b issue-904 origin/main
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'work on a branch the remote has never seen'
+mirror_leg 'a branch with no remote ref is the other false' 0 'pushed=false (no remote-tracking origin/issue-904 in this tree)' \
+	unclaimed:904 "$mirror/seed" issue-904
 
 # Two stops of one unit at two tips leave two files, not one written over the other: the second stop's
 # commits are the ones nobody has read yet, and the unit is named the same both times.
