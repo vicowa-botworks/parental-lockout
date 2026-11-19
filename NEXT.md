@@ -1,4 +1,98 @@
-# NEXT — issue-387 conflict tick (PR #467: the base sync this branch met — `origin/main@623f685` (the #465 merge, carrying #466's capture pass `D-0086` and #465's label gate `H-0304`..`H-0306`) landed on this branch's skip-link work `D-0087`; TWO conflicted paths — `testing/capture/pages.py`, where both parents wrote into the same probe table at the same junction, and `DECISIONS.md`, where the shipped machine union refused once and the refusing seam was adjudicated on the merged bytes before it was let back in; this hand-off was stacked by hand with the issue-386 head carried whole as the Record beneath it; the pass is `D-0089`; merging belongs to the supervisor)
+# NEXT — issue-388 conflict tick (PR for `issue-388`: the base sync this branch met — `origin/main@cfe1559` (the #467 merge, carrying #387's skip link `D-0087` and its base-sync pass `D-0089`) landed on this branch's shell-word rename `D-0088`; TWO conflicted paths — `DECISIONS.md`, seated as the ascending-id union `D-0083` prescribes (0087, 0088, 0089, so this branch's id sits in the gap #387's allocator could not see), and `docs/screenshots/360/manifest.json`, taken OURS on the one measurable ground the merge offered and paid back in the commit after it by re-photographing all nine frames off the merged sources; this hand-off was stacked by hand with the issue-387 head carried whole as the Record beneath it; the pass is `D-0088`; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: the dispatch was the queue's `conflict` row
+for `issue-388`, and the read-back agreed — no PR exists for this head yet, so there was no
+`mergeable` field to read and the conflict was read off the branch itself: `git merge-base HEAD
+origin/main` was `37e8370`, `git rev-list --count HEAD..origin/main` was 16, and
+`git merge-tree --write-tree HEAD origin/main` conflicted on exactly `DECISIONS.md` and
+`docs/screenshots/360/manifest.json` — 12 conflict regions in the latter, one in the former. No
+`factory/HALT`. `factory_worktree_busy /home/rodney/prj/wt/issue-388` answered free before the
+merge was touched, and a live supervisor tick was seen running on `unclaimed:468`, not here.
+
+## What this dispatch pushed
+
+`a8adf95` resolves the two paths. `DECISIONS.md` is the both-appended tail it always is: ours is
+`D-0088` whole (verified byte-for-byte against the entry this tick extracted from the pre-merge tip —
+one trailing blank, the file's own inter-entry separator, which is why the merged ids run ascending
+rather than in append order) and theirs is `D-0087` + `D-0089` whole; `scripts/check-decisions.py`
+reads the merged file in `make verify`. `manifest.json` took OURS on one ground that is a fact rather
+than a preference: our nine `png_sha256` are the digests of the PNGs the merge actually leaves in the
+tree — `#387` touched no PNG its own way to ours, so the frames diverged on our side only and git took
+ours without a conflict — while theirs would have recorded the digests of frames this tree does not
+contain, which is the one thing `check`'s identity arm refuses. The mechanism behind "no conflict" is
+worth naming because it is also why the re-shoot below came back byte-identical: the anchor #387 adds
+(`page.tmpl:40`, `<a class="skip" href="#main">`) is styled at `app.css:537` as a 1 px square with
+`overflow: hidden` and `clip-path: inset(50%)`, released only by `.skip:focus` — clipped out of the
+paint, so the merged page photographs the same.
+
+`a4f6393` pays the debt that choice creates: `head` and the nine `sources_rev` named a commit that no
+longer described the sources, so the published recipe in `testing/capture/README.md` ("Re-capturing
+the committed artifacts") was run literally against the merged tree — `go build -o plock ./cmd/plock`,
+the four `*-setup.sh` + driver pairs at `--out docs/screenshots/360 --overwrite`, `manifest.py record`
+with all four `--fixture-env` files and the nine `--shot` names, `manifest.py check`. It ended
+`9 photographs current … rc 0`, and its diff is 29 lines in and 29 out with no `png_sha256` among
+them: all nine frames came back byte-for-byte the files `0dc0fde` committed. That equality is the
+measurement of the question the merge raised — the only thing the merge added to a photographed page
+is the skip link, and nine frames over two fixtures, four drivers and two viewports say it costs no
+pixels. The same run's transcript is the rename, still true on the merged tree: `nav=5 links
+marked=Dashboard` on `/`, `marked=Audit trail` on `/audit`, `marked=Lockout profiles` on `/profiles`.
+
+## What this push spent
+
+Four fixture boots and four browser runs (the recipe, start to finish ≈90 s), one `make verify`
+leg against the merged tree, and no quota: nothing here is a partner-node call. The build product
+`plock` stayed untracked (`git ls-files | grep -x plock` is empty at this commit, per `#1264`).
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+- The supervisor's merge, and nothing else this branch owns. The review request is the poke's, not
+  this unit's (`AGENTS.md`, "Requesting a reviewer is part of opening a pull request, not a later
+  courtesy").
+- **A number this branch's history asserts and the tree cannot reproduce.** `769c2bf`'s message
+  quotes a nav-width census — `widths=109,72,100,116,82 rows=66,36,36,36,36 … budget=165 … needs at
+  least 198 px … tallest row measured 66 px`. `git grep -n "109,72\|budget=165\|nav_width"` returns
+  nothing at `0dc0fde`, at `origin/main`, and at this commit, and nothing in `testing/capture/`
+  prints a nav width: `cdp.NAV_JS` measures each anchor's `w` and `h` for the #204 guards and
+  `cdp.nav_census_line` prints only `nav=N links marked=X overflow=N`. So those figures are an
+  uncited measurement, not a guarded claim — the #378 shape (a rule that witnesses by a raise alone,
+  here with no raise at all). It is worse than uncited: it contradicts the numbers this same branch
+  ships in `app.css:399`, which puts the five entries at Dashboard 96, Accounts 78, Audit trail 83,
+  Lockout profiles 130, Settings 70 (457 px of box, nav 312x123, header 192 tall) where the commit
+  message puts the widest entry at 116 px and the narrowest, the root label, at 72 px. One of the two
+  was measured and one was not, and nothing in the tree can say which, because nothing in
+  `testing/capture/` asserts a nav width at all. Nobody should quote either set as though a gate
+  checks it; whoever wants the nav's box guarded has to write the assertion, and #468 is the issue
+  `app.css` already names for exactly that absence.
+- `docs/screenshots/360/manifest.json` will conflict again with any branch that re-photographs, and
+  the resolution is a measurement, not a taste: keep the side whose `png_sha256` matches the frames
+  the merge leaves, then re-run the recipe so `sources_rev` stops lying. Hand-editing a digest is the
+  one move that cannot be defended.
+- Carried whole in the Record beneath this head, unedited: every row of the issue-387 conflict tick,
+  the issue-386 conflict tick, the issue-386 delivery unit and the issue-384 conflict tick.
+
+## Constraints a stranger would break on this branch
+
+- `DECISIONS.md` here is the both-appended tail; the resolution rule is `D-0083`'s ascending-id
+  union, and `scripts/check-decisions.py --citations` is the re-check. This branch's id is `D-0088`
+  and `main` also holds `D-0089`: a census of `^## D-00(8[5-9]) ` over every local and remote ref,
+  taken by this tick after the merge, puts `D-0088` on `issue-388` and `origin/issue-388` alone and
+  `D-0089` on `main`, and every `D-0085` heading in every ref is the same #355 entry — so no id here
+  was minted twice, and the out-of-order tail is the union's shape, not a collision. Re-derive the
+  taken-set over every ref before claiming one; `factory/next-decision-id.sh` reads what has landed,
+  not siblings that have not.
+- `manifest.py record` must be the LAST command of a re-capture and must name every frame it took
+  with `--shot`. The driver `pages.py` records itself at the end of each of its own passes, so a run
+  prints `carries <rev>, which is newer than its own pixels` notes off its own intermediate records;
+  the final nine-named `record` is the one whose output is the verdict, and `check`'s carried-frame
+  clause is what tells a carried row from a re-taken one.
+- `plock` at the repo root is a build product and stays untracked (`#1264`), and `fixture.sh` refuses
+  a binary older than the sources compiled into it — build first, every time, or the frames photograph
+  a page nobody edited.
+- The issue's own second ask is already delivered and merged-green here: `TestEachNavEntryNamesThePageItLinksTo`
+  (`internal/web/page_heading_test.go:136`) reads each `<nav>` entry against the heading of the page
+  its href names, which is the relationship nothing in the suite read before this branch.
+
+## Record — the issue-387 conflict tick (PR #467: the base sync this branch met — `origin/main@623f685` (the #465 merge, carrying #466's capture pass `D-0086` and #465's label gate `H-0304`..`H-0306`) landed on this branch's skip-link work `D-0087`; TWO conflicted paths — `testing/capture/pages.py`, where both parents wrote into the same probe table at the same junction, and `DECISIONS.md`, where the shipped machine union refused once and the refusing seam was adjudicated on the merged bytes before it was let back in; this hand-off was stacked by hand with the issue-386 head carried whole as the Record beneath it; the pass is `D-0089`; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this tick: the dispatch was the queue's `conflict`
 row for PR #467 and the read-back agreed with the brief — `mergeable=CONFLICTING`,
