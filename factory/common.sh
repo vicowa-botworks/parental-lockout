@@ -5286,3 +5286,54 @@ factory_delivery_after_failure() {
 	log_event "TICK-DELIVERY $unit exit=$status pr=$dl_pr head=${dl_oid:-unknown} mergeable=${dl_merge:-unknown} -- the branch has a pull request; read it before redoing the unit"
 	return 0
 }
+
+# ---------------------------------------------------------------------------------------------
+# The MCP fence on every tick's session (#390, H-0312).
+#
+# `opencode` starts every MCP server its configuration declares, as a child of the instance it
+# started them from, and the harness never asked for one. Measured at this head, in a live
+# activation, by reading the unit's own cgroup out of `/proc/self/cgroup` and then
+# `/sys/fs/cgroup<path>/cgroup.procs`: beside the pass and its session stood pid 549102
+# `/home/rodney/.var/app/org.vinegarhq.Vinegar/data/vinegar/versions/version-b2d03e4efaa04174//StudioMCP.exe`,
+# pid 549109 `comfy-mcp` and pid 549111 `browse mcp` -- the three `mcp` entries of
+# `~/.config/opencode/opencode.json`, the first of them a Windows binary running under Vinegar's
+# Wine. The same grep returned five lines, not three: the pass's own `timeout` and `opencode` lines
+# carry this ticket's title in their command line, and the title contains the word "Wine". Three
+# grandchildren, in a cgroup of twenty processes, on an activation working a Go and shell queue.
+#
+# A descendant of a oneshot unit is torn down when the unit stops, and systemd's account of that
+# teardown, read per day with `journalctl --user -u parental-lockout-factory.service`:
+#
+#   17 Nov  24 `State 'stop-sigterm' timed out. Killing.`   24 kills, every one `winedevice.exe`
+#   18 Nov   6                                              6 kills, every one `winedevice.exe`
+#   19 Nov   0 up to 20:18Z, with the same three servers standing in the cgroup when it was read
+#
+# So the shape is not hypothetical and neither is the cost: 30 kills in two days of a process that
+# did not answer `SIGTERM`, and on 19 Nov -- with no kill at all -- one activation still held the
+# teardown 44 s with nothing in the journal to explain it (`REAP-HELD hold=44s how=unexplained`,
+# 17:11:09Z). Whether a given Wine child answers `SIGTERM` is not a thing the harness can rely on,
+# because it is a property of the user's configuration and of whatever that server happens to be.
+#
+# The fence is a `policies` statement denying `mcp.use`, which the documentation states removes a
+# server "however it was configured" (https://opencode.ai/docs/policies/, read 19 Nov, alongside the
+# note that a client older than 2.2.3 ignores the action outright; the installed client is v2.3.0).
+# It travels on `OPENCODE_CONFIG_CONTENT` rather than in a config file for two reasons: a tick then
+# holds the fence wherever it is dispatched from, including a terminal, and a person's own `mcp`
+# entries stay theirs for every session that is not a tick.
+#
+# Measured on the installed client, with `HOME` and `XDG_CONFIG_HOME` pinned to a fixture whose
+# `opencode.json` declares a server named `fence-probe`:
+#
+#   * `opencode --standalone debug config` with `OPENCODE_CONFIG_CONTENT={}` prints `fence-probe`
+#     and no policy line -- the precondition, and the control.
+#   * the same call with this exact value prints `mcp.use`, `deny` and the resource beside
+#     `fence-probe`, which is still listed: a denied server is removed from use, not from the
+#     configuration, so no leg here may assert its absence.
+#
+# `--standalone` is load-bearing on the probe, not decoration. Without it the client asks the shared
+# background service, which was booted with somebody else's environment: `opencode mcp list` on this
+# box answers `Managed service port 49374 ... already in use by PID ...`, and `opencode --standalone
+# mcp list` answers `No MCP servers configured` for a fixture that declares three -- a false null
+# from a broken instrument, which is why the legs below read `debug config` instead and skip a box
+# that cannot start a private instance.
+FACTORY_MCP_FENCE='{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}'
