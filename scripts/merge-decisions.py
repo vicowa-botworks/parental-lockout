@@ -27,14 +27,17 @@ THE CONTRACT:
 
   Refuse -- everything else, with one machine-readable line naming why. A vocabulary of
   fixed `reason=` tokens, so the journal counts by cause and a model tick is dispatched at
-  exactly the residue: a same-id edit that differs by more than digits (`id-collision` -- two
-  claims about one decision, whose resolution belongs to the author), an entry deleted on one
-  side but not the other (`dropped-entry` -- the silent loss this component exists to make
+  exactly the residue: a same-id edit that differs by more than coordinate digits (`id-collision`
+  -- two claims about one decision, whose resolution belongs to the author), an entry deleted on
+  one side but not the other (`dropped-entry` -- the silent loss this component exists to make
   impossible), a side whose log is not strictly ascending (`not-ascending`), a non-log file
   conflicted alongside the logs (`other-conflict` -- the union is atomic: it never stages half
-  a resolution), and a merged tree the shipped gate refuses (`arbiter-red`, `anchor-debt`), in
-  which case the conflicted bytes are put back exactly as the failed merge left them, so the
-  model arrives at the state it was promised.
+  a resolution), a clean planned path with no stage-0 index entry to restore it from
+  (`index-drift`), and a merged tree the shipped gate refuses (`arbiter-red`, `anchor-debt`).
+  A refusal costs nothing anywhere it touched: conflicted paths get their conflict regenerated,
+  and a CLEAN log the clean-file fixup re-aimed gets back the stage-0 bytes the merge itself
+  had staged, in the index and in the worktree -- so the model (or the person the docstring
+  above invites to `git commit` by hand) arrives at exactly the state the failed merge left.
 
 WHY NOT `.gitattributes` union merge or `git merge-file --union`: they do a set operation over
 LINES, not entries. #362 measured the result on the tail seam -- a duplicated heading and
@@ -53,9 +56,10 @@ refused, not trusted: the merge goes to a model, and the worst case is the statu
 a wrong pointer.
 
 Exit status: 0 everything unioned and staged (or, with --plan-only, would have been); 1
-refused, nothing written; 2 usage, or not a merge in progress. The last is deliberately
-distinct -- a caller must not journal "no merge here" as a verdict on log content it never
-looked at.
+refused, nothing written -- every path a refusal had already written is put back first,
+clean fixed-up logs to their stage-0 entry, so exit 1 means nothing moved anywhere; 2
+usage, or not a merge in progress. The last is deliberately distinct -- a caller must not
+journal "no merge here" as a verdict on log content it never looked at.
 """
 
 import argparse
@@ -585,11 +589,33 @@ def plan(tree):
     return planned, fields
 
 
+def restore_point(tree, path):
+    """The cacheinfo spec of one clean path's stage-0 index entry, or None if it is
+    conflicted, or Refuse if it is neither. A clean path is restored from the stage-0
+    entry the merge itself staged -- captured BEFORE `git add` overwrites it, because
+    `checkout -m` on a path with no stages is a silent no-op (measured twice: the #460
+    review, and the G8 leg's control, which caught the refused run's re-aim WRITTEN AND
+    STAGED in the clean log). A planned path that is neither conflicted nor a single
+    stage-0 entry has no bytes any rollback could honestly put back, so it is refused
+    before anything is written."""
+    if git(tree, "ls-files", "-u", "--", path).strip():
+        return None
+    stage0 = [ln for ln in git(tree, "ls-files", "--stage", "--", path).splitlines()
+              if ln.split("\t", 1)[-1] == path]
+    if len(stage0) != 1:
+        raise Refuse("index-drift", "%s is neither conflicted nor one stage-0 index entry -- "
+                     "a planned path whose pre-merge bytes no rollback could restore is "
+                     "refused before anything is written" % path)
+    meta = stage0[0].split("\t", 1)[0].split()
+    return "%s,%s,%s" % (meta[0], meta[1], path)
+
+
 def run(tree, plan_only=False):
     """Plan, then -- and only then -- write, stage, and certify. Raises Refuse otherwise."""
     planned, fields = plan(tree)
     if plan_only:
         return fields
+    restore = {path: restore_point(tree, path) for path in planned}
     for path, text in planned.items():
         with open(os.path.join(tree, path.replace("/", os.sep)), "w", encoding="utf-8",
                   newline="") as f:
@@ -598,10 +624,20 @@ def run(tree, plan_only=False):
     try:
         arbiter(tree)
     except Refuse as refuse:
-        # Back to exactly the failed-merge state -- conflicted bytes and stages, as if this
-        # script had never run. `checkout -m` is the verb that regenerates a conflict.
+        # Back to exactly the failed-merge state, every planned path, as if this script had
+        # never run. `checkout -m` is the verb that regenerates a conflict -- and it reaches
+        # only paths whose stages the index still holds. The clean paths a fixup re-aimed
+        # have no stages to regenerate: their restore point is the stage-0 entry snapshotted
+        # above, put back in the INDEX first (`update-index --cacheinfo`) so the `checkout`
+        # that follows restores the worktree to the merge's own bytes, not to ours.
         for path in planned:
-            subprocess.run(["git", "-C", tree, "checkout", "-m", "--", path], capture_output=True)
+            if restore[path] is not None:
+                subprocess.run(["git", "-C", tree, "update-index", "--cacheinfo",
+                                restore[path]], capture_output=True)
+                subprocess.run(["git", "-C", tree, "checkout", "--", path], capture_output=True)
+            else:
+                subprocess.run(["git", "-C", tree, "checkout", "-m", "--", path],
+                               capture_output=True)
         raise refuse
     return fields
 
@@ -839,6 +875,12 @@ def self_test():
     _sh("git", "-C", repo, "config", "user.email", "fixture@invalid")
     _sh("git", "-C", repo, "config", "user.name", "fixture")
     os.makedirs(os.path.join(repo, "factory"))
+    # tool.py is the clean-file fixup's target: H-0001's citation anchors on its FIRST line,
+    # so a leg that shifts tool.py on one side leaves the CLEAN-merged harness log holding a
+    # row the repoint pass must re-aim -- the shape whose rollback the #460 review caught
+    # leaking. The anchor must stay uniquely on line 1 for every other leg's arbiter run.
+    with open(os.path.join(repo, "tool.py"), "w", encoding="utf-8") as f:
+        f.write("alpha here uniquely\nsecond line\nthird line\n")
     with open(os.path.join(repo, "notes.md"), "w", encoding="utf-8") as f:
         f.write("filler one\nfiller two\nfiller three\n")
     _sh("git", "-C", repo, "add", "-A")
@@ -851,8 +893,15 @@ def self_test():
     # so the logs arrive one commit AFTER the sha they cite, and that first commit is root.
     with open(os.path.join(repo, "DECISIONS.md"), "w", encoding="utf-8") as f:
         f.write("# Product decisions\n\n")
+    # H-0001's Why cites tool.py's first line with its anchor: true in every leg's tree
+    # except the clean-fixup leg, where it is the drifted row the plan must re-aim (and,
+    # after a refusal, must have put back).
+    h0001 = ("## H-0001 · fixture harness entry\n\n- Question: what does H-0001 decide?\n"
+             "- Options: this | that | neither\n- Chose: this\n"
+             "- Why: the tool handles it; see `tool.py:1` \"alpha here uniquely\" for the "
+             "case.\n- Checkpoint: %s\n\n" % checkpoint)
     with open(os.path.join(repo, "factory", "DECISIONS.md"), "w", encoding="utf-8") as f:
-        f.write("# Harness decisions\n\n" + e("H-0001", "fixture harness entry", checkpoint))
+        f.write("# Harness decisions\n\n" + h0001)
     _sh("git", "-C", repo, "add", "-A")
     _sh("git", "-C", repo, "commit", "-qm", "fixture: two seeded logs")
     root = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"], encoding="utf-8", text=True).strip()
@@ -983,6 +1032,64 @@ def self_test():
               rcu == 1 and "reason=arbiter-red" in out, out)
         check("git: the refusal regenerated the conflict -- the model gets the merge it was "
               "promised", conflicted(tree))
+
+        # G8 -- the clean-file fixup and the rollback it used to skip (the #460 review): the
+        # plan re-aims the CLEAN harness log's drifted row (tool.py shifted on ours only, the
+        # harness log merged clean), the shipped gate refuses the merged whole (the Why-less
+        # entry), and exit 1 must mean nothing written for the CLEAN log too -- worktree AND
+        # index back to the merge's own stage-0 bytes. Without the restore_point rollback the
+        # re-aim stays written and STAGED (`checkout -m` on a stage-less path is a no-op), so
+        # a person who hand-finishes the merge commits an uncertified pointer rewrite.
+        tree, rc = merge_leg("cleanfix",
+                             lambda p: (appends("## D-0002 · no Why field\n\n- Question: why?\n"
+                                                "- Options: a | b\n- Chose: a\n- Checkpoint: %s\n\n"
+                                                % checkpoint)(p),
+                                        _write(os.path.join(p, "tool.py"),
+                                               "header ours\nalpha here uniquely\nsecond line\n"
+                                               "third line\n")),
+                             appends(_entry("D-0003", "theirs appended", checkpoint)))
+
+        def harness_log():
+            with open(os.path.join(tree, "factory", "DECISIONS.md"), encoding="utf-8") as f:
+                return f.read()
+
+        def harness_stage():
+            got = subprocess.run(["git", "-C", tree, "ls-files", "--stage", "--",
+                                  "factory/DECISIONS.md"], capture_output=True,
+                                 encoding="utf-8", text=True).stdout
+            return [ln.split()[1] for ln in got.splitlines()
+                    if ln.split("\t", 1)[-1] == "factory/DECISIONS.md"]
+
+        check("git: the fixture clean-merged a harness log holding the drifted row, stage 0, "
+              "anchor moved to line 2 (precondition -- without this the leg proves nothing)",
+              rc != 0 and "<<<<<<<" not in harness_log() and "`tool.py:1`" in harness_log()
+              and len(harness_stage()) == 1
+              and harness_log().count("`tool.py:1`") == 1
+              and open(os.path.join(tree, "tool.py"), encoding="utf-8").read()
+              .splitlines()[1] == "alpha here uniquely")
+        pre_sha = harness_stage()[0]
+        rcu, out = union(tree)
+        post_stage = harness_stage()
+        index_body = ""
+        if post_stage:
+            index_body = subprocess.run(["git", "-C", tree, "cat-file", "blob", post_stage[0]],
+                                        capture_output=True, encoding="utf-8",
+                                        text=True).stdout
+        check("git: a clean fixup plus a refused arbiter comes back as arbiter-red",
+              rcu == 1 and "reason=arbiter-red" in out, out)
+        check("git: the refusal put the CLEAN fixed-up log back in the worktree -- the "
+              "re-aimed row is gone from the text",
+              "`tool.py:2`" not in harness_log() and "`tool.py:1`" in harness_log())
+        check("git: and in the INDEX -- the staged blob is the merge's own stage-0 entry "
+              "again, not the re-aim (the #460 leak was staged, not just written)",
+              post_stage == [pre_sha] and "`tool.py:2`" not in index_body,
+              "post_stage=%s pre=%s" % (post_stage, pre_sha))
+        check("git: and the conflicted log still regenerates beside it -- the model gets "
+              "both files exactly as the failed merge left them", conflicted(tree))
+        rcu2, out2 = union(tree)
+        check("git: the refused tree replans to the same refusal -- the rollback restored "
+              "every byte this run had touched, fixup included",
+              rcu2 == 1 and "reason=arbiter-red" in out2, out2)
 
         # G6 -- a log deleted on one side: git's modify/delete is not a union.
         def rm_log(path):

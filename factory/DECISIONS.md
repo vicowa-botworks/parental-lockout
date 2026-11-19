@@ -14708,3 +14708,46 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   will run on its behalf. No `path:line` citation is written here on purpose: every coordinate
   this unit moved is quoted by its sentence instead, so the ratchet leaves this entry alone.
 - Checkpoint: 4befddf
+
+## H-0292 · A refused merge left the CLEAN log fixed up after it: `checkout -m` restores no stage-less path, the leak measured as staged, so the rollback now snapshots the stage-0 entry the merge staged and a planned clean path with no restore point is refused before anything is written
+
+- Question: the #460 review measured that a run which plans a clean-file fixup and is then
+  refused by the arbiter leaves the re-aimed clean log written AND staged -- `git checkout -m`
+  regenerates a conflict only where the index still holds stages, so on a clean path it is a
+  silent no-op -- and the shipped supervisor masks it because its very next command is
+  `git merge --abort`; the docstring, though, invites a person to call the script and finish
+  by hand, and at that promise "exit 1 refused, nothing written" was false for the other log.
+  What must a refusal put a clean fixed-up log back from?
+- Options: snapshot every planned clean path's stage-0 index entry before the first write,
+  restore it on refusal with `update-index --cacheinfo` and then `checkout --`, and refuse
+  before writing any planned path that is neither conflicted nor a single stage-0 row
+  (`index-drift`) | the reviewer's two-line shape, `git checkout -- <path>` for clean paths,
+  which reads the worktree back from the INDEX -- the very thing this run's own `git add`
+  overwrote | capture the worktree bytes before writing and re-write plus re-`git add` them
+  on refusal
+- Chose: snapshot every planned clean path's stage-0 index entry before the first write,
+  restore it on refusal with `update-index --cacheinfo` and then `checkout --`, and refuse
+  before writing any planned path that is neither conflicted nor a single stage-0 row
+  (`index-drift`)
+- Why: the restore point of a clean path IS the stage-0 entry the merge itself staged, and
+  only the first option names the object: the probe that reproduced the leak found the
+  re-aimed bytes in the staged blob as well as the file (post-refusal `git status` printed
+  `M ` for the harness log and its staged blob carried the drifted coordinate), so the
+  reviewer's `checkout --` reads back exactly what the refused run staged -- its own two-line
+  sketch assumed an index this script had not yet touched -- and re-writing captured bytes
+  makes the worktree the source of truth for the rollback, which a component whose whole
+  design says the arbiter is the one home for validity may not do. `index-drift` joins the
+  vocabulary for the residue shape: a planned path that is neither conflicted nor stage-0
+  has no bytes a rollback could honestly restore, and the honest alternative -- letting
+  `checkout -m` no-op there -- is this entry's own leak wearing a new costume, so refuse
+  before writing rather than proceed. The G8 leg carries its own precondition line (the
+  fixture really clean-merged a drifted-row log at stage 0 with the anchor moved) because a
+  rollback leg whose fixture never re-aimed anything passes forever, and the mutation control
+  is measured: nulling the snapshot in a copy of the script reddens the two restore legs and
+  nothing else. What lost: one more token before any tree has ever emitted it, so H-0290's
+  record needed its reason list corrected in the same pass; `update-index --cacheinfo` zeroes
+  the stat cache and git re-hashes silently -- content is what the arbiter checks; and the
+  restore loop stays best-effort per path, each git call swallowing failure, for the same
+  reason the original did: a rollback that stops halfway mid-merge strands worse than one
+  that finishes and reports.
+- Checkpoint: d60bbf9
