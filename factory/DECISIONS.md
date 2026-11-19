@@ -14796,3 +14796,40 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   row is re-verified afterwards -- rows the ratchet grandfathered were never re-aimable
   here either way, and are not made worse.
 - Checkpoint: 35aeed8
+
+## H-0294 · The suite H-0293 grew ran on nobody's gate: the reviewer counted every sibling's self-test inside `make verify` and this file's 45 legs in none of them, so the union suite got its line -- and the census that would pin every such line stays on the record as owed
+
+- Question: #460 finding 3 measured that `make verify` runs `check-decisions`,
+  `check-scripts`, `mutate`, `check-mutations`, `check-close-verb`, `check-next-md`,
+  `retention-census`, `check-denies`, three attack suites and two capture contracts, and
+  that nothing anywhere referenced `merge-decisions.py --self-test` -- a suite of 45 legs
+  that build real git merges is exactly, in the reviewer's words, "the kind of suite that
+  rots quietly". One line is the fix; the question is what shape of fix, because #391 is
+  still open with the counter-example: `check-decisions`' Makefile pin is satisfied by its
+  own `--self-test` line, so a guard's guard is the chicken-and-egg every option here hits.
+- Options: one `verify` recipe line running the suite, its own echo label, 0.80 s measured
+  at this commit | the line plus a census step inside `factory/selftest.sh` that enumerates
+  every `--self-test` in the tree and refuses one the `verify` recipe does not run | the
+  line plus teaching `check-decisions.py`'s existing Makefile rule to also require this
+  file's invocation
+- Chose: one `verify` recipe line running the suite, its own echo label, 0.80 s measured
+  at this commit
+- Why: the reviewer prescribed exactly this and the tie-break order agrees -- fewest files,
+  and `git revert` of one Makefile line is the whole rollback. The census is the right
+  endgame and it loses here on its own body: #391's lesson is that the census line is
+  itself deletable and needs a witness, so shipping half a witness is the #391 shape
+  re-run with new nouns, and its home in `factory/selftest.sh` is the append-tail #428
+  measured re-conflicting 3 of 8 open branches -- paying a merge seam on every branch to
+  land a check no ticket has designed yet; the honest place for it is the open #391, and
+  NEXT.md carries it. Teaching `check-decisions` to pin a sibling's invocation splits its
+  one home for the gate's own existence rule, and would then itself need pinning. What
+  lost: the line can be deleted and `make verify` stays green until the next conflict
+  merge ships without these 45 legs -- the disclosed debt of this option, with #391 as its
+  named owner -- and the suite now gates every PR, so a fixture that rots on a sibling
+  branch reddens this one's `verify` at merge time: cheaper than 30% of every tick budget
+  spent re-deriving what the union promised. One placement constraint the first attempt
+  measured the hard way: the line went in beside `check-decisions` and the gate then refused
+  10 published citations whose anchored Makefile lines had shifted under it -- this suite's
+  own step is a drift source for every `Makefile:line` row above its seam -- so the step
+  sits at the recipe's tail, below every line any log anchors to.
+- Checkpoint: f6a1766
