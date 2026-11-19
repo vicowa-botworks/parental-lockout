@@ -13479,6 +13479,249 @@ unit_records_its_own_name() {
 }
 claim_leg 'the unit records the name it was installed under' unit_records_its_own_name
 
+# --- the installed unit's `Environment=` set against the generator's (#377) -----------------------
+#
+# The `ExecStart` read asks WHICH tree the unit execs. These legs ask the other half of what the
+# unit carries: the `Environment=` set, which is the environment a tick runs in. #377 measured a
+# live install whose unit carried three `Environment=` lines while the generator emitted five; both
+# components still behaved correctly by falling back to script defaults, and neither `--status`
+# nor the journal ever printed the set -- so the operator had lost the empty-`FACTORY_REVIEWER_TEAM`
+# lever and lost the drift's visibility at the same time. The verdict is one `UNIT-ENV-STALE` line
+# per name the install lacks (a warning, never a halt -- the pass works), `UNIT-ENV-UNKNOWN` when
+# the GENERATOR side cannot be read (#228's polarity: silence from a failed read must not read as
+# a match), and silence on the three arms that already own a sentence. Each leg carries its
+# arm-deletion control in the H-0184 shape -- rewrite the arm away in a COPY of `common.sh`, verify
+# the rewrite landed before believing it, run the same fixture against the copy in a fresh `bash`
+# -- so every line asserted is witnessed by the arm that prints it, and every silence by a control
+# that can make the noise.
+pos_env=$pos_work/env
+mkdir -p -- "$pos_env"
+
+pos_env_gen() { # pos_env_gen <file> <name>... -- a stand-in generator writing one Environment line per name
+	local f=$1 n
+	shift
+	: >"$f" || return 1
+	for n in "$@"; do printf 'Environment=%s=@%s@\n' "$n" "$n" >>"$f" || return 1; done
+	return 0
+}
+pos_env_out() { # pos_env_out <generator> -- the same read a pass makes, against the planted unit
+	factory_unit_lines "$pos_current" "$pos_unit_file" "$1"
+}
+pos_env_stale_count() { # <output> -- how many drift sentences a reading carried
+	printf '%s\n' "$1" | grep -c '^UNIT-ENV-STALE ' || true
+}
+
+unit_env_drift_names_every_missing_name() {
+	local gen=$pos_env/gen1 out
+	pos_env_gen "$gen" ALPHA BRAVO CHARLIE
+	# The planted unit carries one of three names: each absent name must get its own sentence, in
+	# the one-fact-per-sentence shape every sibling verdict here has, so `grep -c` on the journal
+	# counts names and a grep for one name finds exactly its line.
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh" 'Environment=ALPHA=x'
+	out=$(pos_env_out "$gen")
+	[ "$(pos_env_stale_count "$out")" = 2 ] || {
+		pos_say 'two missing names did not produce two stale lines:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "UNIT-ENV-STALE unit=$pos_unit_file name=BRAVO" || {
+		pos_say 'the BRAVO sentence is missing, or it does not name the unit it looked at:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'name=CHARLIE' || {
+		pos_say 'the CHARLIE sentence is missing:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'name=ALPHA ' && {
+		pos_say 'a name the unit carries was reported as drift:'; pos_say "$out"; return 1; }
+	# A warning, not a halt: the ExecStart sentence is still on the pass, or the drift line has
+	# taken the pass's own self-report away with it.
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'drift swallowed the UNIT-AT line, which makes the warning a halt:'; pos_say "$out"; return 1; }
+	# Names are compared, not values: #241's documented override ships as `Environment=X=` with an
+	# EMPTY value, and that line must count as present or the verdict nags every operator who uses
+	# the lever this whole ticket exists to restore.
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh" 'Environment=ALPHA=x' 'Environment=BRAVO='
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'name=BRAVO ' && {
+		pos_say 'an empty Environment=BRAVO= read as drift, which nags #241'"'"'s override:'
+		pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'name=CHARLIE' || {
+		pos_say 'the one still-missing name went quiet beside the empty-value line:'; pos_say "$out"; return 1; }
+	# Arm-deletion control, the H-0184 shape: rewrite the stale arm's sentence out of a COPY of
+	# `common.sh` and run the SAME fixture against the copy. Two things are proved at once -- the
+	# lines above come from that arm, and the fixture really was drifted (a fixture that never was
+	# would leave this control agreeing with the leg).
+	local src=$HERE/common.sh copy=$pos_env/common-no-stale-arm.sh
+	sed 's/UNIT-ENV-STALE/UNIT-ENV-ARM-DELETED/' "$src" >"$copy" || {
+		pos_say 'the control copy could not be written, so this control tested nothing'; return 1; }
+	local n_src n_copy
+	n_src=$(grep -c 'UNIT-ENV-STALE' "$src" || true)
+	n_copy=$(grep -c 'UNIT-ENV-STALE' "$copy" || true)
+	{ [ "$n_src" -ge 1 ] && [ "$n_copy" = 0 ]; } || {
+		pos_say "the rewrite did not land: $src carries $n_src, the copy $n_copy"; return 1; }
+	[ "$(bash -c '. "$1"; type -t factory_unit_lines' _ "$copy")" = function ] || {
+		pos_say 'the rewritten copy does not define factory_unit_lines, so its silence is a sourcing failure'; return 1; }
+	out=$(bash -c '. "$1" >/dev/null; factory_unit_lines "$2" "$3" "$4"' _ "$copy" "$pos_current" "$pos_unit_file" "$gen")
+	printf '%s\n' "$out" | grep -qE '^UNIT-ENV-STALE ' && {
+		pos_say 'the sentence survived the rewrite, so some other arm is answering'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'the control copy lost UNIT-AT too, so it ran nothing and its silence means nothing:'
+		pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'UNIT-ENV-STALE names every name the install lacks' unit_env_drift_names_every_missing_name
+
+unit_env_match_is_silent_and_the_read_is_live() {
+	local gen=$pos_env/gen2 out
+	pos_env_gen "$gen" ALPHA BRAVO
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh" 'Environment=ALPHA=x' 'Environment=BRAVO=y'
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' && {
+		pos_say 'a unit carrying every name the generator writes was still complained about:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'the clean case lost its UNIT-AT line:'; pos_say "$out"; return 1; }
+	# The discriminating rewrite, not an arm deletion: an arm deletion cannot test a silence, since
+	# a dead read is silent too. Add one name to the generator ONLY -- the unit untouched -- and the
+	# silence must flip to exactly one stale sentence naming it. That is what makes the clean case's
+	# quiet a comparison of two sets and not a function that prints nothing to anyone.
+	pos_env_gen "$gen" ALPHA BRAVO CHARLIE
+	out=$(pos_env_out "$gen")
+	[ "$(pos_env_stale_count "$out")" = 1 ] || {
+		pos_say 'one added generator line did not produce exactly one stale sentence:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'name=CHARLIE' || {
+		pos_say 'the stale sentence does not name the added generator line:'; pos_say "$out"; return 1; }
+	# The other half of the same polarity: a READABLE generator that writes no `Environment=` line
+	# is the empty set, not a failed read -- silence is the honest answer, and it must be reachable
+	# without the UNKNOWN arm absorbing it (`factory_generator_env_names` returns rc 0 empty there,
+	# rc 1 only for a file it cannot read).
+	: >"$gen"
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' && {
+		pos_say 'a generator with no Environment lines answered a verdict; the empty set is not a failed read:'
+		pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'the empty-generator case lost its UNIT-AT line:'; pos_say "$out"; return 1; }
+	# And a commented-out template line is not a name the generator writes: one real line and one
+	# `#Environment=` comment must produce a verdict about the real name only -- the awk pattern is
+	# anchored at first non-blank, and this pins that it stays that way when the template edits come.
+	printf '# a note\n#Environment=COMMENTED=@x@\nEnvironment=REAL=@y@\n' >"$gen"
+	out=$(pos_env_out "$gen")
+	[ "$(pos_env_stale_count "$out")" = 1 ] || {
+		pos_say 'a comment-shaped Environment line counted, or the real one went quiet:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'name=REAL' || {
+		pos_say 'the one real generator line was not the name reported:'; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'silence means every name matches, and the read is live' unit_env_match_is_silent_and_the_read_is_live
+
+unit_env_unknown_when_generator_unreadable() {
+	local gen=$pos_env/gen3-dir out
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh"
+	# A directory at the generator path, not `chmod 000`: root ignores a mode, and a leg that only
+	# goes red for non-root reads green in a container -- the same fixture choice the unreadable
+	# UNIT arm made above for the same reason.
+	mkdir -p -- "$gen"
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF "UNIT-ENV-UNKNOWN unit=$pos_unit_file generator=$gen" || {
+		pos_say 'an unreadable generator did not print UNKNOWN naming both sides:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qE '^UNIT-ENV-STALE ' && {
+		pos_say 'a generator that cannot be read still printed missing names, which is drift out of a failed read:'
+		pos_say "$out"; return 1; }
+	# A path with nothing at it is the same sentence, not silence: #228's polarity, because the
+	# silence of "every name matches" and the silence of "there is no generator to ask" would be
+	# one and the same line in the journal.
+	out=$(pos_env_out "$pos_env/gen-missing")
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-UNKNOWN' || {
+		pos_say 'a missing generator answered silence, which reads as a match:'; pos_say "$out"; return 1; }
+	rmdir -- "$gen"
+	# Arm-deletion control: with the UNKNOWN sentence rewritten out of a copy, the same directory
+	# generator answers NOTHING -- the exact failure the arm exists to speak, which proves the
+	# assertion above was watching it and not a fixture that cannot answer.
+	local src=$HERE/common.sh copy=$pos_env/common-no-unknown-arm.sh
+	sed 's/UNIT-ENV-UNKNOWN/UNIT-ENV-ARM-DELETED/' "$src" >"$copy" || {
+		pos_say 'the control copy could not be written, so this control tested nothing'; return 1; }
+	local n_src n_copy
+	n_src=$(grep -c 'UNIT-ENV-UNKNOWN' "$src" || true)
+	n_copy=$(grep -c 'UNIT-ENV-UNKNOWN' "$copy" || true)
+	{ [ "$n_src" -ge 1 ] && [ "$n_copy" = 0 ]; } || {
+		pos_say "the rewrite did not land: $src carries $n_src, the copy $n_copy"; return 1; }
+	[ "$(bash -c '. "$1"; type -t factory_unit_lines' _ "$copy")" = function ] || {
+		pos_say 'the rewritten copy does not define factory_unit_lines, so its silence is a sourcing failure'; return 1; }
+	mkdir -p -- "$gen"
+	out=$(bash -c '. "$1" >/dev/null; factory_unit_lines "$2" "$3" "$4"' _ "$copy" "$pos_current" "$pos_unit_file" "$gen")
+	printf '%s\n' "$out" | grep -qE '^(UNIT-ENV-STALE|UNIT-ENV-UNKNOWN) ' && {
+		pos_say 'UNKNOWN survived the rewrite, so some other sentence is answering'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'the control copy ran nothing, so its silence proves nothing:'; pos_say "$out"; return 1; }
+	rmdir -- "$gen"
+	# And the same unit with a readable generator goes to the drift sentence instead: the UNKNOWN
+	# arm is the readability of one file, not the fixture being inert.
+	pos_env_gen "$pos_env/gen3" ALPHA
+	out=$(pos_env_out "$pos_env/gen3")
+	printf '%s\n' "$out" | grep -qE '^UNIT-ENV-STALE ' || {
+		pos_say 'the readable generator did not produce the drift sentence the unit warrants:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-UNKNOWN' && {
+		pos_say 'the readable generator still answers UNKNOWN:'; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'an unreadable generator prints UNKNOWN, never a match' unit_env_unknown_when_generator_unreadable
+
+unit_env_quiet_on_the_arms_that_already_speak() {
+	local gen=$pos_env/gen4 out
+	pos_env_gen "$gen" ALPHA BRAVO
+	# Uninstalled: the arm's own sentence is the whole report; a set comparison against a file that
+	# is not there is drift manufactured out of an absence.
+	rm -f -- "$pos_unit_file"
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-UNINSTALLED' || {
+		pos_say 'the uninstalled arm lost its sentence:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' && {
+		pos_say 'the uninstalled arm also compared sets:'; pos_say "$out"; return 1; }
+	# Foreign: a hand-written unit was never the generator's output; its env set is its own.
+	pos_unit_exec 'ExecStart=/usr/bin/true'
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-FOREIGN' || {
+		pos_say 'the foreign arm lost its sentence:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' && {
+		pos_say 'the foreign arm also compared sets:'; pos_say "$out"; return 1; }
+	# Unreadable, and read the polarity exactly: #228's rule is that the file says `UNIT-UNREADABLE`
+	# and NEVER "environment matches" -- which here means no ENV sentence at all, since the clean
+	# state prints nothing; a leaked UNKNOWN/STALE line beside UNREADABLE would be a second,
+	# contradictory verdict about the same file.
+	rm -f -- "$pos_unit_file"
+	mkdir -p -- "$pos_unit_file"
+	out=$(pos_env_out "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-UNREADABLE' || {
+		pos_say 'the unreadable arm lost its sentence:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' && {
+		pos_say 'an unreadable unit got an Environment verdict, which is a comparison out of the failed read:'
+		pos_say "$out"; return 1; }
+	rmdir -- "$pos_unit_file"
+	# Gate control, and it is the arm deletion for all three arms at once: the env read is called
+	# inside the readable arm only, so hoisting that call above the `case` in a copy must make the
+	# UNINSTALLED case start speaking an ENV sentence (UNKNOWN, for a file that is not there). The
+	# control's premise is checked line by line before it is believed: the shipped file carries the
+	# call exactly once and the copy exactly twice.
+	local src=$HERE/common.sh copy=$pos_env/common-env-on-every-arm.sh
+	awk -v inject='	factory_unit_env_lines "$file" "$gen"' '
+		{
+			if (seen && !done && index($0, "case \"$rc\" in") == 2) { print inject; print; done = 1; next }
+			if (index($0, "installed=$(factory_installed_tree") > 0) seen = 1
+			print
+		}' "$src" >"$copy" || {
+		pos_say 'the control copy could not be written, so this control tested nothing'; return 1; }
+	local n_src n_copy
+	n_src=$(grep -c 'factory_unit_env_lines "$file" "$gen"' "$src" || true)
+	n_copy=$(grep -c 'factory_unit_env_lines "$file" "$gen"' "$copy" || true)
+	{ [ "$n_src" = 1 ] && [ "$n_copy" = 2 ]; } || {
+		pos_say "the hoist did not land: $src carries the call $n_src time(s), the copy $n_copy"; return 1; }
+	[ "$(bash -c '. "$1"; type -t factory_unit_lines' _ "$copy")" = function ] || {
+		pos_say 'the rewritten copy does not define factory_unit_lines, so its output is a sourcing failure'; return 1; }
+	out=$(bash -c '. "$1" >/dev/null; factory_unit_lines "$2" "$3" "$4"' _ "$copy" "$pos_current" "$pos_unit_file" "$gen")
+	printf '%s\n' "$out" | grep -qF 'UNIT-ENV-' || {
+		pos_say 'the hoisted control answered NOTHING on the uninstalled arm, so the silence above is'
+		pos_say 'not the gate owning it -- the fixture is inert and this leg proves nothing:'
+		pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-UNINSTALLED' || {
+		pos_say 'the hoisted control lost the arm sentence beside it, so it tested a different shape:'; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'the set is compared only where a readable unit exists' unit_env_quiet_on_the_arms_that_already_speak
+
 # What an install says when it MOVES the loop to another checkout. This is the moment on 10 Nov that
 # made a healthy-looking journal go silent, and it was invisible: `TIMER-INSTALLED` in one tree's log
 # at 13:39:05Z, the next `PASS` in another tree's. So the move is said on stdout, journalled, and said
