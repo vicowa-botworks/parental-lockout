@@ -1,4 +1,84 @@
-# NEXT — issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
+# NEXT — issue-391 unit (the branch `issue-389`'s successor `issue-391`: `check-decisions.py`'s Makefile pin stops being satisfied by the gate's own `--self-test` line — each of the two `verify` clauses is now asked its own question, and each of the six mutant Makefiles owes a named sentence (`H-0310`); the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor and is denied to this unit)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: at
+2026-11-19T17:26:56Z `gh issue view 391 --json number,state,url` answers `391 OPEN
+https://github.com/vicowa-botworks/parental-lockout/issues/391`, and `gh pr list --head issue-391
+--json number,state,url` answers `[]` — no pull request existed for this branch when this file was
+written, so nothing here claims one. The tree's own state: `git status --short` held only the files
+this unit edits, and `git log --oneline -1` is `0859372 chore(checkpoint): pre-H-0310 the tree the
+gate-pin discrimination is written against`, whose parent `de01cf0` is the merge of #471 — so this
+unit is stacked on the issue-389 round-3 head, not on a stale base, and that head is carried whole as
+the Record below with its rows unrenumbered. The claim under repair was re-produced rather than
+repeated: `invocation_problems` taken from `0859372` and handed the live `verify` recipe with the gate
+clause deleted returns NO problem at all — which is exactly what #391 says — and the same function
+from these bytes returns the gate sentence.
+
+## What this round shipped
+
+`0859372` is the checkpoint, taken before the judgement call. The commit after it carries
+`Decision: H-0310` and three changes in `scripts/check-decisions.py`, plus the re-aim the log owes:
+
+- The two refusals are constants — the gate's and the self-test's — so a mutant asserts a sentence
+  instead of the shape of "some problem was printed".
+- `invocation_problems` classifies each matching chunk into one arm on two patterns
+  (`SELFTEST_INVOCATION` first, because `INVOCATION` still matches the self-test chunk on purpose), so
+  a recipe whose only invocation carries `--self-test` now fails the gate assertion on its own merits
+  instead of being counted twice.
+- The mutant table gains `recipe-gate-deleted` and `recipe-self-test-deleted`: the first pair that
+  keeps the command and deletes exactly one clause, each asserting the SET of sentences it owes. The
+  loop also refuses a mutant whose `str.replace` changed nothing, which is what would otherwise make
+  both new cases silently green the day `verify`'s recipe changes shape.
+
+Plain gate on these bytes: rc 0, 378 entries, 1233 `path:line` citations, 583 owing an anchor, 0
+refused outright, 7 `Effect:` diff tallies; `--self-test` answers 82 cases that must fail and 54 that
+must pass, up from 80 and 54 measured on the checkpoint's own copy. `bash scripts/check-next-md.sh`
+and `make verify` are quoted in the pull-request body, not here. The 52 coordinate moves this edit
+owes in `factory/DECISIONS.md` -- 38 onto `scripts/check-decisions.py` and 14 onto this file -- were
+driven by the shipped `scan_citations`, and the two coordinates that no check can see -- the pair
+row 14202 of that log names as #374's unanchored class -- were left at the checkpoint's digits.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review. A push into a reviewed pull request spends the standing verdict (#269), and this branch
+   has never had a reviewer asked: `gh pr list --head issue-391` was `[]` at 17:26Z, so the ask is the
+   supervisor's poke (`factory_request_review` in `factory/factory.sh`), not this unit's — the verb a
+   unit would use, `gh pr edit --add-reviewer`, exits 1 on this account's retired `projectCards` field
+   and writes nothing (`H-0010`).
+2. The two unanchored pointers, with their targets now measured instead of guessed:
+   `factory/DECISIONS.md` row 4395's two coordinates name the one-option and bad-sha refusals, and
+   those assertions are at 1799 and 1802 on these bytes; `DECISIONS.md` row 3342's file-less
+   coordinate names the renumber advice, and that assertion is at 2510 (`sed -n '1799p;1802p;2510p'
+   scripts/check-decisions.py` shows all three). Whoever pays this also owes `factory/DECISIONS.md`
+   row 14202 the truth: its sentence says the first of the pair "names row 566". They sit in the
+   bucket `POINTER_DEBT` does not count, so this is debt in the reader's hand, not in the ratchet.
+3. The single-question guards that are still single. `make verify` reads the same recipe four times:
+   this script, `scripts/check-denies.py`, `scripts/check-doc-labels.py` and `scripts/check-next-md.sh`.
+   Neither of the two named in `H-0310`'s Follow-up has #391's hole today — neither script's gate
+   invocation is a prefix of its own self-test invocation — and the hazard arrives the day anyone
+   gives one of them an argument the other does not lack. One shared guard is the fix that outlives
+   that day; it is its own ticket.
+4. The mutant table probes a synthetic recipe, not the live file. The `verify` fixture inside
+   `scripts/check-decisions.py` writes `echo "== decision log"` where `Makefile` writes
+   `echo "==> decision log"`, so the six Makefiles test the classifier and only `verify_invocation()`
+   looks at the bytes `make` actually runs. The precondition guard turns drift into a refusal rather
+   than a silent pass, which is the minimum; a table generated from the live recipe is the
+   improvement, and it is not small.
+5. The ratchet is judging again. Both lists the gate exempts it for are empty on these bytes — 0
+   refused outright, 0 anchors cut by a newline — so 583 against `POINTER_DEBT` is a real comparison
+   again, and the next rise will be refused rather than narrated.
+
+## Constraints a stranger would break here
+
+- `INVOCATION` matches the self-test invocation on purpose. Ordering is the contract: the caller must
+  ask `SELFTEST_INVOCATION` first. A word boundary bars a longer FILENAME, not a longer argument, so
+  "fix the regex" is not available; the named pair of mutants is what pins it.
+- The two refusal sentences are constants because the mutants assert them by name. Inlining them back
+  into `invocation_problems` makes every new mutant assert "some problem was printed", which is the
+  exact weakness that let #391 stand.
+- A mutant built with `str.replace` over a recipe constant silently equals its base the day the
+  recipe's shape changes. The loop refuses that; do not widen the guard, change the fixture.
+
+## Record — the issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: `gh pr view
 471 --json reviewDecision,mergeable,mergeStateStatus,headRefOid` at 16:20Z answers `CHANGES_REQUESTED`,
