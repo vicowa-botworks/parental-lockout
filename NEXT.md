@@ -30,16 +30,24 @@ written before the gate runs is a prophecy).
   decision citation, the #393 class, standing in this branch's own bytes. It now cites `H-0302`,
   whose `Chose:` is verbatim the two-tier design the note annotates. No line count moved, so that
   entry's two anchored `Effect:` citations still open.
-- This hand-off. A line-multiset census of `git show origin/main:NEXT.md` against this file (run
-  by the splice script and reported in the commit message) finds no lost line except the demoted
-  level-1 heading itself — the same census shape #459's head ran.
+- This hand-off. A line-multiset census of `git show origin/main:NEXT.md` against the file
+  `707020b` shipped (run by the splice script and reported in that commit's message) found no lost
+  line except the demoted level-1 heading itself — the same census shape #459's head ran.
+- `ed997a2`, this dispatch's citation repair: the legs commit moved 135 `factory/selftest.sh`
+  pointers (+240 above ~9900 and +262 above ~19700; the tree they were true at is `f8d830c`, which
+  carries `3cc8e44`'s +4 above line 3416) and this hand-off's head block moved 14 `NEXT.md`
+  pointers (+70). Re-aimed by row identity — each pointer opened at the blob it was true at, its
+  line plus a 3-line context window matched into this tree, never a delta — with digits-only
+  asserted by comparing both logs stripped of digits against HEAD.
 
 ## What this push spent
 
-- Two commits (`762c6b2` and this one), one full `make verify` run whose verdict goes in the pull
-  request, one allocator read (disclosed above, nothing taken), and no GitHub write beyond the
-  branch push and the pull-request creation this unit owes. No reviewer ask: the poke is the
-  supervisor's, and this unit's branch had no prior review to spend.
+- Three commits (`762c6b2`, this hand-off and `ed997a2`) plus this top-up, and the `make verify`
+  runs — the first answered rc 2 at the decision-log step on the 149 drifted pointers `ed997a2`
+  repaired, and the verdict quoted in the pull request is taken after this file's final edit — one
+  allocator read (disclosed above, nothing taken), and no GitHub write beyond the branch push and
+  the pull-request creation this unit owes. No reviewer ask: the poke is the supervisor's, and
+  this unit's branch had no prior review to spend.
 
 ## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
 
