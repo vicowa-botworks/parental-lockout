@@ -222,7 +222,7 @@ body {
 	font-style: italic;
 }
 
-/* The hold the operator granted on the status page: "open override: <reason>", and nothing else.
+/* The hold the operator granted on the dashboard: "open override: <reason>", and nothing else.
    #239 moved the other thing this class marked -- the self-session note, a sentence whose whole
    content is that nothing is held and nothing can be -- to `.exempt` below, which is the case the
    issue names: a reader who had learned that this voice means "a hold is open" read the daemon's own
@@ -395,11 +395,21 @@ textarea {
    differed from any sibling, on any page. This block is that half of #199.
 
    The row is flex rather than an inline run of links because an inline run breaks between WORDS
-   and a flex row breaks between ENTRIES. Measured on the dashboard: the five entries want 323 px
-   of box, and inside the 312 px this page has at 360 px the row puts Status, Accounts, Audit and
-   Profiles on its first line and Settings on its second (nav 312x82, header 131 tall); at 1024 px
-   all five plus the sign-out form fit one line (nav 976x40). The other shape was a word broken
-   across those two lines, the failure this file has refused before.
+   and a flex row breaks between ENTRIES. Measured on the dashboard at 360 px on #388's tree: the
+   five entries want 457 px of box -- Dashboard 96, Accounts 78, Audit trail 83, Lockout profiles
+   130, Settings 70 -- and inside the 312 px this page has, in document order, the row puts
+   Dashboard, Accounts and Audit trail on its first line (the last ending at x=310), Lockout
+   profiles and Settings on its second (ending at x=238), and the sign-out form alone on a third:
+   joining the second line would need 238+14+90 = 342 px against the 312 there are, so the third
+   line is forced by the order and the widths rather than by a packer that missed a tighter fit
+   (nav 312x123, header 192 tall). The numbers this comment carried before -- 323 px of entries,
+   nav 312x82, header 131 -- measured the short words on a masthead that had no <h1>, and the 21 px
+   between 131 and 152 is D-0016's heading: #468 is the issue that files the fact that nothing here
+   re-measures a number like that. At 1024 px the pre-rename measurement recorded all five plus the
+   form on one line (nav 976x40); the words measured now sum to 617 px with the form, which fits
+   976 by arithmetic, but no frame can show it on this branch: the capture harness refuses a session
+   wider than 360 px (`scrollWidth 1024 != 360`). The other shape was a word broken across lines,
+   the failure this file has refused before.
 
    Flex also makes the sign-out form a member of the row instead of a block under it, which is
    what the shell's `class="inline-form"` has claimed all along -- a class no rule in this file

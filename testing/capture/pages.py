@@ -1565,23 +1565,38 @@ def _nav_current(text, href, **over):
     return _nav_link(text, href, cur=CUR, color=NAV_INK, weight="600", bc=NAV_MARK, **over)
 
 
-# The dashboard's own row at 360 px: four entries on the first line, the fifth with the sign-out
-# form on the second, and the header's box spanning both -- measured `x=24 y=24 w=312 h=131`, with
-# the nav itself at `y=72 h=82`.
-NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 131}
-# The five entries as the shell writes them, at the boxes Chrome reported -- none of them marked.
-# `clean_nav` puts the mark on whichever entry the page being faked declares as its own.
-_NAV_ITEMS = [_nav_link("Status", "/", x=24),
-              _nav_link("Accounts", "/users", x=97, w=78),
-              _nav_link("Audit", "/audit", x=188, w=49),
-              _nav_link("Profiles", "/profiles", x=250, w=66),
-              _nav_link("Settings", "/settings", x=24, y=114, w=70)]
+# The dashboard's own row at 360 px, re-measured on #388's tree: three entries on the first line,
+# two on the second, the sign-out form on a third line of its own, and the header's box spanning all
+# three -- measured `x=24 y=24 w=312 h=192`, with the nav itself at `y=93 h=123`.
+#
+# Before this branch the transcription said `h=131` with the nav at `y=72 h=82`, and those were
+# honest boxes for a different page: 8db322a measured them, and D-0016 (`9ccbe46`) landed the same
+# day on another branch with the masthead's new `<h1>` above the row, so the merge took boxes that
+# described a masthead without it. Measured at this branch's checkpoint (83f88c7) the `<h1>` sits at
+# `y=45 h=32` and the row starts at `y=93`, where the transcription said `y=72` -- the 21 px the box
+# was short is that heading. Nothing re-measures a transcription: see the issue filed beside #388,
+# which is the finding that a transcription here can be a generation behind the page and every guard
+# stays green, because these numbers are only ever fed to fakes. It is stated here rather than
+# silently fixed because the same drift is why the words below were still `Status`: the file has
+# been `dashboard.tmpl`, and its frame `dashboard.png`, since the commit that added it (d9cd943,
+# 15 Oct), and the word that commit put in its `title` block has been the shell's row's word for it
+# ever since.
+NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 192}
+# The five entries as the shell writes them, at the boxes Chrome reported on the dashboard -- none
+# of them marked. Each word is that page's own name, which is what #388 decided and what
+# `TestEachNavEntryNamesThePageItLinksTo` in the Go suite now refuses the shell to get wrong; the
+# words here are a transcription of that rule, not a second place that gets to choose.
+_NAV_ITEMS = [_nav_link("Dashboard", "/", x=24, y=93, w=96),
+              _nav_link("Accounts", "/users", x=135, y=93, w=78),
+              _nav_link("Audit trail", "/audit", x=227, y=93, w=83),
+              _nav_link("Lockout profiles", "/profiles", x=24, y=136, w=130),
+              _nav_link("Settings", "/settings", x=168, y=136, w=70)]
 
 
 def clean_nav(href):
     """A navigation row, in the measured geometry, with `href` as the current entry.
 
-    Why a function and not a constant: a canned "the current entry is Status" would make every
+    Why a function and not a constant: a canned "the current entry is Dashboard" would make every
     rule that runs `shoot()` against a page other than the dashboard fail on a #204 guard it knows
     nothing about -- and the tempting repair for that failure is the one this file refuses
     everywhere, which is to weaken the guard. The geometry is transcribed once, from the dashboard;
@@ -4318,12 +4333,18 @@ def self_test():
         whose href resolves to the page -- so the passing fixture has to be marked where the page
         declares, not merely marked. Every rule below that wants a defect moves one fact off this
         row and leaves the rest alone, which is what keeps each refusal attributable to one guard.
+
+        The words and the boxes are the row `/users` renders at 360 px, re-measured on #388's tree
+        the same way `_NAV_ITEMS` was; the entry for the root is called `Dashboard` here because
+        that is what the shell writes there now, and a fixture that kept the old word would be the
+        next transcription of this shape to sit a generation behind the page.
         """
-        items = [_nav_link("Status", "/"), _nav_link("Audit", "/audit", x=189, w=49),
-                 _nav_link("Profiles", "/profiles", x=251, w=66),
-                 _nav_link("Settings", "/settings", x=24, y=114, w=70)]
-        head = _nav_current("Accounts", "/users", x=93, w=83) if marked else \
-            _nav_link("Accounts", "/users", x=93, w=83)
+        items = [_nav_link("Dashboard", "/", x=24, y=93, w=92),
+                 _nav_link("Audit trail", "/audit", x=228, y=93, w=83),
+                 _nav_link("Lockout profiles", "/profiles", x=24, y=136, w=130),
+                 _nav_link("Settings", "/settings", x=168, y=136, w=70)]
+        head = _nav_current("Accounts", "/users", x=131, y=93, w=83) if marked else \
+            _nav_link("Accounts", "/users", x=131, y=93, w=83)
         return _nav(head, *items, *extra, **over)
 
     def the_navigation_census_is_asked_for(problems):
@@ -4400,16 +4421,18 @@ def self_test():
         """The second route to the root, marked as well as the entry for it.
 
         #204's secondary fact was that the header held two anchors with `href="/"` on the dashboard
-        -- the title and Status -- differing only in weight. D-0026 took the title out of the row;
+        -- the title and the root's entry, which was then called `Status` and is `Dashboard` since
+        #388 -- differing only in weight. D-0026 took the title out of the row;
         this is the guard that keeps it out, because the failure mode of a fix like that is someone
         putting the link back "for the logo" and the page then answering criterion 1 with two yeses.
         """
-        both = _nav(_nav_current("Status", "/"), _nav_current("Accounts", "/users", x=93, w=83),
-                    _nav_link("Audit", "/audit", x=189, w=49))
+        both = _nav(_nav_current("Dashboard", "/"),
+                    _nav_current("Accounts", "/users", x=131, y=93, w=83),
+                    _nav_link("Audit trail", "/audit", x=228, y=93, w=83))
         _log, refusal = _run_shoot(both, ARTIFACT_WIDTH)
         if refusal is None or "2 navigation entries" not in refusal:
             problems.append(f"two entries marked current were accepted: {refusal!r}")
-        elif "'Status'" not in refusal or "'Accounts'" not in refusal:
+        elif "'Dashboard'" not in refusal or "'Accounts'" not in refusal:
             problems.append(f"the refusal does not name both marked entries: {refusal!r}")
 
     def a_navigation_marking_the_wrong_entry_refuses(problems):
@@ -4420,8 +4443,9 @@ def self_test():
         counts marks. Nine photographs of a plausibly marked row are nine photographs of the wrong
         page, which is what makes this worth a refusal of its own rather than part of the count.
         """
-        wrong = _nav(_nav_current("Status", "/"), _nav_link("Accounts", "/users", x=93, w=83),
-                     _nav_link("Audit", "/audit", x=189, w=49))
+        wrong = _nav(_nav_current("Dashboard", "/"),
+                     _nav_link("Accounts", "/users", x=131, y=93, w=83),
+                     _nav_link("Audit trail", "/audit", x=228, y=93, w=83))
         for width in WIDTHS:
             _log, refusal = _run_shoot(_run_width(wrong, width), width)
             if refusal is None or "marks '/'" not in refusal:
@@ -4430,7 +4454,7 @@ def self_test():
             elif "/users" not in refusal:
                 problems.append(f"the refusal does not name the section the page is in: "
                                 f"{refusal!r}")
-        gone = _nav(_nav_current("Status", "/"), _nav_link("Audit", "/audit", x=60, w=49))
+        gone = _nav(_nav_current("Dashboard", "/"), _nav_link("Audit trail", "/audit", x=99, w=83))
         _log, refusal = _run_shoot(gone, ARTIFACT_WIDTH)
         if refusal is None or "no such href" not in refusal:
             problems.append(f"a page whose own section is missing from the row was accepted: "

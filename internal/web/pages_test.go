@@ -197,8 +197,10 @@ func TestTheMastheadLinksAreSeparatedInTheRenderedBytes(t *testing.T) {
 		// about the login page. The four above are every page the shell renders.
 		//
 		// The list is what stops an empty nav passing: a page whose links all vanished would
-		// certainly contain no glued pair.
-		for _, label := range []string{"Status", "Accounts", "Audit", "Profiles", "Settings"} {
+		// certainly contain no glued pair. The words are the five pages' own names, and
+		// TestEachNavEntryNamesThePageItLinksTo is what keeps that sentence true; this loop's
+		// subject is the whitespace between the elements, so it asks only that each label appear.
+		for _, label := range []string{"Dashboard", "Accounts", "Audit trail", "Lockout profiles", "Settings"} {
 			if !strings.Contains(nav, ">"+label+"</a>") {
 				t.Errorf("%s: the masthead never links to %s", path, label)
 			}
