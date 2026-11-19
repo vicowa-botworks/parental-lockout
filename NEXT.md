@@ -1,5 +1,141 @@
-# NEXT — issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; merging belongs to the supervisor)
+# NEXT — issue-386 unit (PR for `issue-386`: six documented `gh issue create` recipes named three labels this repository does not carry — `guard`, `testing`, `ux` — and nothing in the tree ever compared a documented name with the set GitHub actually has; `H-0304` re-points the six at names that exist and records the set in `docs/labels.txt`, `H-0305` ships `scripts/check-doc-labels.py`, which reads that file offline and the live API under `--live`, refuses drift in either direction, and refuses its own `verify` step being deleted; 12 self-test legs, the copy-the-gate-under-another-name launder test among them; merging belongs to the supervisor)
 
+State read before this file wrote a byte, by this tick: branch `issue-386` cut from `ad3201e`
+(`origin/main` at read time, which carries #462), tree clean at entry to this pass, no
+`factory/HALT`, and `git merge-base --is-ancestor origin/main HEAD` answers true after the fetch
+that refreshed the allocator's union — this branch is not behind trunk and no sync was needed.
+`git ls-remote --heads origin issue-386` answered nothing before this push, so there is no upstream
+to rewrite: the history below is written once and `allow_squash_merge`/`allow_rebase_merge` are both
+false, so whatever merges is permanent history.
+
+The id chain is disclosed rather than quiet, because three reads were needed to earn one id. The
+allocator was run twice with the entry already in the working copy and both times it answered
+`H-0306` — its own words name the reason: "H-0305 is in factory/DECISIONS.md and on no ref this
+clone can see — so this read says the ceiling came from the log you are writing, not from a
+sibling", and it told this unit to keep the id it had taken. That answer is true and useless to the
+provenance pass, which wants a journalled allocation FOR the id this unit ships, so the entry was
+held aside (the file truncated at its own heading, the bytes kept at `/tmp/opencode/decisions-H0305.md`)
+and the third read issued `H-0305`. The journal therefore holds three rows for this branch:
+`08:21:33Z DECISION-ID H-0306 (REFRESH-BLIND 921s union)`, `08:21:36Z DECISION-ID H-0306 (REFRESH 2s
+union)` and the earning row `DECISION-ID H-0305 (REFRESH 29s union)`; `H-0304` was journalled at
+`08:08:49Z (REFRESH 157s union)` before its own checkpoint. The restore was verified by md5 on both
+sides (`24d9b59ff29948713a1710c6687cc2ca`) and `check-decisions.py` over the restored tree reads
+rc 0 with 364 entries, 1189 citations and the anchor debt unmoved at 583 — the held-aside window
+moved no byte that the gate can see.
+
+## What this dispatch pushed
+
+- Two decisions, two checkpoints, two effect commits. `H-0304` (checkpoint `be1a40f`, effect
+  `d1c472b`) is the repair: four commands in `docs/issues-from-d-0058.md` and one in
+  `docs/issues-from-d-0065.md` take `kind:chore,area:ui`, one takes `area:ui`, both pages name the
+  ground file and the mapping, and `docs/labels.txt` holds the live 19 Nov read. `H-0305`
+  (checkpoint `df77270`, this commit) is the gate that keeps it true.
+- `scripts/check-doc-labels.py` censuses `--label` across every text file in the tree (369 files
+  today) and refuses five things: a name the ground does not carry; a ground file that contradicts
+  itself (a duplicate, a name out of C order, a whitespace-padded name no token can equal) or holds
+  no names at all; an empty census reported as `commands=0` rather than as coverage; the gate's own
+  source included in its own census — the exemption is by `samefile`, and a leg proves that copying
+  the file under another name buys nothing; and its own `verify` step deleted, commented, or joined
+  into an `&&` list where errexit cannot see it. It reports and does not judge the
+  `--add-label`/`--remove-label`/`labels=` family — 25 occurrences today — because those act on an
+  issue that already exists.
+- Ground truth is `docs/labels.txt` offline and the API under `--live`, which refuses drift in BOTH
+  directions and prints `SKIPPED` with exit 2, in words, when the API cannot be reached. That is
+  #391's rule (a live arm that skips silently is a gate that prints) and #443's (the skip is the
+  thing that must be witnessed), and it is why the default step reads a file rather than the
+  network: `.github/workflows/ci.yml` carries no `gh auth` step and no `GH_TOKEN`, so a
+  verify-time API call would be a skip on every CI run — measured by `grep -in
+  'gh auth\|GH_TOKEN\|secrets\.' .github/workflows/ci.yml`, which answers nothing.
+- `Makefile` gains two steps after the hand-off step: the `--self-test` step then the check step, as
+  `check-decisions.py` and `check-denies.py` each do, and the gate reads those two lines back out of
+  the Makefile and refuses if either goes missing or loses its exit status. Default run today:
+  `commands=6 names=10 absent=0 inert=25 files=369 ground=18 verdict=clean`, exit 0; `--live` today
+  against the real API: `names=10 absent=0`, exit 0, naming the ground as the live API re-read and
+  identical to the file, 18 names each side; `--self-test`: 12 legs, exit 0.
+- Anti-scope held: no label was created, renamed or deleted, and no `gh issue create` was run to
+  prove a recipe — the claim this branch makes is name resolution, the half #386 measured as fatal.
+  Nothing under `.opencode/skills/factory/` or `factory/` was touched, so #311's escalation name and
+  #340's literal interpolation stand where those tickets left them.
+
+## What this push spent
+
+- No force-history: `issue-386` had no upstream before this push and none of these commits were
+  rewritten. After the push the history is permanent — merge-commit-only repository.
+- Two pointer spends, both digits-only and both repaired in the commit that moved them. The Makefile
+  insertion shifted every `verify` line from 125 down by two, and seven anchored pointers named a
+  line below the insertion (one at 125, two at 134, four at 153), so they now read 127, 136 and 155;
+  each was opened on these bytes after the edit. This head's own insertion shifts every `NEXT.md`
+  row below it by 136 lines, which took 14 anchored pointers into this file — the two rows seven other
+  units cite, at 1582 and 1686 before this block and at 1718 and 1822 after, in `H-0252`,
+  `H-0280`–`H-0284` and `H-0286` — off their rows; `check-decisions.py`
+  refused them at rc 1 and the repair is its own — re-aim the numbers, then re-open the anchors.
+- `python3 scripts/check-decisions.py` over the pair reads rc 0, and `POINTER_DEBT` is unmoved at
+  583 and *judged* — 0 refused outright, 0 unopenable — with `git status --short --ignored` holding
+  one ignored path this run created, `scripts/__pycache__/`, the interpreter's and not the logs'.
+  The seven citations this entry adds each carry an anchor, so 1182 citations became 1189 with the
+  debt unchanged.
+- One live read: `--live` runs `gh label list` (read-only) against this repository. Nothing was
+  created, posted or merged to produce these numbers.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+- `docs/labels.txt` is a dated snapshot, so a label created on this repository after 19 Nov is
+  REFUSED by `make verify` until a human re-reads the tracker:
+  `gh label list --limit 200 --json name --jq '.[].name' | LC_ALL=C sort > docs/labels.txt`. A gate
+  that refuses a real new label is the safer direction of failure, but it is still a queue for
+  whoever owns labels, and the file's header is the only thing that says how old it is.
+- CI can never run the truest verdict this gate has, because CI has no credential. If the loop ever
+  gives CI a read-only token, the move is a THIRD step running `--live`, kept as its own step so its
+  skip is visible in the log rather than folded into a passing one (#443). Until then `--live` is a
+  human verb and `docs/factory.md` does not say so anywhere — a paragraph there naming when to run
+  it is owed to whoever hits the first false-absent refusal.
+- Prose that spells the flag beside a name is a documented command to this gate, and that includes
+  prose in the decision logs and in this file: `guard,testing` as a value is refused here even in a
+  sentence explaining that the name is absent. This unit re-worded three such sentences rather than
+  widen the regex. A successor who finds that annoying should add a fixture-escape convention to the
+  gate and assert it, not exempt a directory — leg 5 exists to refuse directory-shaped blindness.
+- The 25 `--add-label`/`--remove-label`/`labels=` occurrences are counted and printed, not judged.
+  Judging them needs a ground for labels-on-an-issue, which is a different question from this one;
+  a successor who wants it should start from the count line, not from a wider regex.
+- Outside the census, deliberately: a label named in prose, in a `gh --jq` filter or in a
+  `--template` file. And gh's merge-or-replace semantics when the flag is given twice, one name each
+  time, were never measured here, so the gate makes no claim about that form; whoever measures it should write
+  the measurement into the docstring, not into a regex.
+- Re-review is the supervisor's poke, not this unit's verb: `factory_request_review` addresses
+  `FACTORY_REVIEWER_TEAM` for an open pull request whose `users` and `teams` lists are both empty
+  (`gh pr edit --add-reviewer` exits 1 on this account's retired `projectCards` field and writes
+  nothing, `H-0010`).
+- Carried from the issue-383 head below, unchanged: re-review of its round-1 pointer fix is owed, on
+  its own schedule bounded by `FACTORY_REVIEW_POKES`.
+- Carried: issue-383's second half — the #246 row-2 shape where the tick pushed BEFORE the ceiling
+  took it — is named in the 137 sentence's consequence only; a journal cross-reference between the
+  failure line and the `TICK-UNDELIVERED` mirror would be a new ticket, not a leftover.
+- Carried: `FACTORY_TICK_KILL_AFTER` is honoured by the one shipped `timeout` line; a second ceiling
+  must print through the same `case` or it re-creates #383 exactly.
+- Carried from the issue-380 head below, unchanged: the `H-0289` allocator collision (the
+  journalled-id-no-union-can-retire class, two timestamps) — if `issue-381` wakes before that branch
+  merges, one of the two entries has to move.
+- Carried: issue-380's own unit never wrote a hand-off; #459's head below is the reconstruction and
+  is the reason the shape question stays open.
+- Carried: `python3 scripts/check-close-verb.py NEXT.md` answered rc 1 on two carried rows before
+  this head, and this head adds no third (its own rows name issues without keywords, per #1256);
+  `check-close-verb.py factory/DECISIONS.md` rc 1 is trunk-carried (`closes #211`), unchanged here.
+- Carried: the `install` half of #377 is still an operator act (`systemctl --user daemon-reload` and
+  a unit regeneration on each installed machine), not a unit's.
+
+## What this head pruned, and how to get it back
+
+- Nothing. The issue-383 head is demoted whole to a Record below — its heading, its state paragraph,
+  its pushed/spent/review-round/owed/pruned sections all kept in full below this block. To read the
+  pre-insert bytes: `git show ad3201e:NEXT.md`. The only content this block adds above it is this
+  unit's own five sections and fourteen `Carried` rows folded from the head it supersedes.
+- One mechanical cost, stated so the next unit does not re-derive it: this insertion moves every row
+  below line 1 down by the length of this block, and the 14 anchored `NEXT.md` pointers named in
+  `What this push spent` were re-aimed in the same commit. If you are reading a `NEXT.md:NNNN`
+  citation and the sentence is not there, run `python3 scripts/check-decisions.py --citations
+  NEXT.md` before believing your own eyes about the number.
+
+## Record — the issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; merging belongs to the supervisor)
 State read before this file wrote a byte, by this tick: branch `issue-383` rebased onto
 `b6b8a55` (`origin/main` at read time, which carries #459's merge with `H-0288` and `H-0289`),
 tree clean at entry to this pass, no `factory/HALT`. The id chain is disclosed rather than
@@ -2270,3 +2406,4 @@ failure wearing a number.
   records the measurement.
 - Read the review after the push, not before. `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus`
   after the push is what the body may claim, and `gh pr checks 431` at rc 8 means pending, not failed.
+
