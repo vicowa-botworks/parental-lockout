@@ -18507,8 +18507,8 @@ json.dump(docs, sys.stdout)
 '
 }
 
-mcp_cli_open=$(mcp_cli_dump '{}')
-mcp_cli_open_rc=$?
+mcp_cli_open=$(mcp_cli_dump '{}') || mcp_cli_open_rc=$?
+mcp_cli_open_rc=${mcp_cli_open_rc:-0}
 mcp_cli_open_doc=$(printf '%s' "$mcp_cli_open" | mcp_cli_documents 2>/dev/null) || mcp_cli_open_doc=''
 if [ "$mcp_cli_open_rc" != 0 ] || [ -z "$mcp_cli_open_doc" ]; then
 	printf '  SKIP  %-34s %s could not answer a private instance (rc=%s), so there is no CLI here\n' \
@@ -18529,7 +18529,7 @@ elif ! printf '%s' "$mcp_cli_open_doc" | grep -q 'fence-probe'; then
 		'an open private instance reads the fixture'"'"'s declared MCP server' \
 		mcp_cli_pre_leg
 else
-	mcp_cli_fenced=$(mcp_cli_dump "$FACTORY_MCP_FENCE")
+	mcp_cli_fenced=$(mcp_cli_dump "$FACTORY_MCP_FENCE") || mcp_cli_fenced_rc=$?
 	mcp_cli_fenced_doc=$(printf '%s' "$mcp_cli_fenced" | mcp_cli_documents 2>/dev/null) || mcp_cli_fenced_doc=''
 
 	mcp_cli_open_pure_leg() {
@@ -18546,7 +18546,7 @@ else
 
 	mcp_cli_fenced_leg() {
 		if [ -z "$mcp_cli_fenced_doc" ]; then
-			printf '            the fenced dump is not JSON this file can decode (rc of the dump aside),\n' >&2
+			printf '            the fenced dump is not JSON this file can decode (the dump rc=%s),\n' "${mcp_cli_fenced_rc:-0}" >&2
 			printf '            so nothing below can say the policy reached the instance:\n' >&2
 			printf '%s\n' "$mcp_cli_fenced" | head -6 | sed 's/^/              /' >&2
 			return 1
@@ -25596,6 +25596,136 @@ claim_leg 'trunk: dry-run promises' tci_dry
 claim_leg 'trunk: branch argument' tci_branch_arg
 claim_leg 'trunk: defaults to FACTORY_BASE' tci_branch_env
 
+# ---------------------------------------------------------------- the capture that must not end the pass
+#
+# `mcp_cli_dump` is called from two top-level statements, and this file runs `set -euo pipefail` at its
+# own top: a top-level `x=$(f)` whose status is non-zero ends the file where it stands, so the status
+# never reaches the arm written to read it. Measured on the #473 runner at `55c74aa`, 19 Nov: the last
+# `ok` the pass printed was the dispatch control, the very next statement was the open dump, and the job
+# ended `RUN INCOMPLETE -- died with exit 127 after 669 ok and 0 FAIL, before any verdict` at 21:19Z and
+# named no leg. The runner has no `opencode` on PATH, `FACTORY_OPENCODE` defaults to that bare word,
+# `timeout` reports 127 for a binary that is not there, and the SKIP arm written for exactly that box sat
+# one statement downstream of a fatal one -- so the runner could not arrive at the verdict it was owed,
+# and the check went red with nothing in it to read. `factory_preflight` refuses a *tick* over a missing
+# CLI, but `make verify` is not a tick: the pass owes its own verdict, and a status is only useful to a
+# shell that lives to read it.
+#
+# Reproduced on this box at the same commit by taking the CLI off PATH rather than pretending it was
+# missing -- `env -u FACTORY_OPENCODE PATH=<a PATH carrying no opencode> bash factory/selftest.sh` -- and
+# the reproduction is the runner's line byte for byte, `669 ok and 0 FAIL`, exit 127. Same PATH, this
+# repair: `896 passed, 0 failed`, and the SKIP arm prints `opencode could not answer a private instance
+# (rc=127)`. The legs below are pinned to a shape measured in both directions and not to the box they
+# happen to run on: their fixture is a binary that cannot exist on either, so they answer the same with
+# the CLI present and with it absent, and the leg that fixes the red `verify` is red on the head that
+# shipped the red `verify`.
+#
+# So both captures carry `|| <var>_rc=$?`, and the open one's status is defaulted on the line after it,
+# because the SKIP printf reads that name under `set -u`. Pinned by legs and not left as prose, for the
+# reason this file already gives elsewhere (`no scan can kill the step`): the shape has been warned about
+# in this file's own comments twice and came back anyway, and a warning that does not fail is not a
+# guard.
+#
+# The block sits here, and not beside the captures it tests, because of where this file's readers are.
+# `python3 scripts/check-decisions.py --citations factory/selftest.sh`, run this round before the edit,
+# counts 220 pointers into this file and 163 of them carry the quotation the gate compares -- so one line
+# inserted above any of their coordinates is 163 refusals. The highest coordinate any of them names is
+# 25590, read off every row because the listing is sorted by entry and not by number, and nothing in the
+# tracked tree is cited above it: `NEXT.md` reaches 21732, `scripts/check-decisions.py` 11568,
+# `docs/factory.md` 4120. A block added below 25590 therefore moves no promise anyone wrote. Added above
+# it, the anchored rows go red for the next unit to find and the 57 that carry no quotation move in
+# silence, because the gate compares only what it can open. Anyone who moves this block up owes that
+# command on both sides of the move.
+mcp_cap_work=$work/mcp-capture
+
+# mcp_cap_fn <name> [sed expr] -> a sourceable fixture: the two shipped capture statements, over
+# `mcp_cli_dump` itself copied out of this file rather than transcribed -- the way the refresh legs take
+# `factory.sh`'s function, because a transcription is a second source that drifts and the legs would
+# pin the copy instead of the code. The mutation is applied when an expression is given, and a mutation
+# that changes no bytes is a refusal rather than a passing control: a control that did not fire proves
+# nothing. Both scans are anchored and spell the subject's `=` as `=[$](`, so neither line matches its
+# own pattern -- a scan that finds itself can never report finding nothing, and the count is the thing
+# that tells a rename from a shipped shape.
+mcp_cap_fn() { # <name> [sed expr] -> the fixture's path, or a refusal
+	local fn=$mcp_cap_work/$1 expr=${2:-} n
+	mkdir -p -- "$mcp_cap_work" || return 1
+	n=$(grep -c '^[[:space:]]*mcp_cli_[a-z]*=[$](mcp_cli_dump ' "$HERE/selftest.sh") || n=0
+	[ "$n" = 2 ] || {
+		pos_say "the shipped captures are not the two these legs read: the scan found $n, want 2."
+		pos_say 'The scan is the subject: a rename of either statement, or a third call site,'
+		pos_say 'changes what is pinned here. Fix the scan and the legs together, never the tally.'
+		return 1
+	}
+	{ awk '/^mcp_cli_dump\(\)/,/^}/' "$HERE/selftest.sh"
+		grep '^[[:space:]]*mcp_cli_open=[$](mcp_cli_dump ' "$HERE/selftest.sh"
+		grep '^[[:space:]]*mcp_cli_fenced=[$](mcp_cli_dump ' "$HERE/selftest.sh"; } >"$fn" || return 1
+	grep -q '^mcp_cli_dump()' "$fn" || {
+		pos_say 'mcp_cli_dump is not in this file in the shape the fixture copies it in, so these'
+		pos_say 'legs would run a capture that is not the shipped one.'
+		return 1
+	}
+	if [ -n "$expr" ]; then
+		sed "$expr" "$fn" >"$fn.mut" || return 1
+		cmp -s "$fn.mut" "$fn" && return 1
+		mv -- "$fn.mut" "$fn" || return 1
+	fi
+	printf '%s' "$fn"
+}
+
+# mcp_cap_run <fixture> -> `alive|<rc>` when both shipped captures answered and the shell that ran them
+# is still standing, `died|<exit>` when one of them ended it. The subshell runs the pass's own contract
+# -- `set -euo pipefail`, then `.` -- which is the shipped statements executing at the top level of a
+# shell that cannot afford their status, and the inputs arrive as positional parameters so the fixture
+# holds no value the shipped statements did not already read. The status is read out of the global the
+# shipped guard sets in that same shell: taking it through `$(…)` would put the guard inside a
+# subshell and report the wrapper's exit about a fixture that was fine.
+mcp_cap_run() { # <fixture> -> the verdict
+	local out rc=0
+	out=$(bash -c 'set -euo pipefail
+			FACTORY_OPENCODE=$2 mcp_fence_work=$3 FACTORY_MCP_FENCE=$4
+			. "$1"
+			printf "%s" "${mcp_cli_open_rc:-<unset>}"' _ "$1" \
+			mcp-cap-no-such-cli "$mcp_cap_work" "$FACTORY_MCP_FENCE" 2>/dev/null) || rc=$?
+	if [ "$rc" = 0 ]; then printf 'alive|%s' "${out:-<empty>}"; else printf 'died|%s' "$rc"; fi
+}
+
+mcp_cap_leg() {
+	local fn v
+	fn=$(mcp_cap_fn shipped) || {
+		printf '            the shipped captures could not be extracted from this file, so this leg\n' >&2
+		printf '            read nothing about them\n' >&2
+		return 1
+	}
+	v=$(mcp_cap_run "$fn") || v='<refused>'
+	[ "$v" = 'alive|127' ] && return 0
+	printf '            the shipped captures, aimed at a CLI that cannot exist, answered %s. They owe\n' "$v" >&2
+	printf '            alive|127: 127 is what an absent binary reports, and staying alive is what the\n' >&2
+	printf '            SKIP arm downstream needs in order to say so. A capture that dies where it\n' >&2
+	printf '            stands takes the whole pass with it and prints neither a FAIL line nor a tally,\n' >&2
+	printf '            which is the shape that left this pull request BLOCKED with nothing to read.\n' >&2
+	return 1
+}
+proc_leg 'the capture cannot end the pass' \
+	'an absent CLI reports 127 to a caller that lives to print the SKIP' \
+	mcp_cap_leg
+
+mcp_cap_ctl_leg() {
+	local fn v
+	fn=$(mcp_cap_fn unguarded 's/ || mcp_cli_[a-z]*_rc=\$?//') || {
+		printf '            the guard could not be taken out of the extracted captures, so this\n' >&2
+		printf '            control no longer reproduces the shape it was written for\n' >&2
+		return 1
+	}
+	v=$(mcp_cap_run "$fn") || v='<refused>'
+	[ "$v" = 'died|127' ] && return 0
+	printf '            the guard-less captures answered %s, so the ok above is the fixture agreeing\n' "$v" >&2
+	printf '            by accident and not the guard doing it: the unguarded assignment is the shape\n' >&2
+	printf '            that killed the runner, and this control is the only thing that shows it still\n' >&2
+	printf '            would. Fix the mutation, not the leg.\n' >&2
+	return 1
+}
+proc_leg 'control: the capture ends the pass' \
+	'drop the ` || rc=$?` and the same fixture dies at 127 before any caller can answer' \
+	mcp_cap_ctl_leg
 # Integration: real `factory.sh` activations through the proc fixture, pinning the three things
 # the function-level legs cannot reach -- that the wiring runs, where in the pass it runs, that it
 # runs ONCE per activation rather than per unit, and that a red trunk halts nothing (report-only
