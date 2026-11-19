@@ -5210,7 +5210,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   nowhere in the file, an argument that advertised a dependency it did not have. The
   guard #355 proposed — refusing fixture windows that end at `23:59` — lost to nothing:
   this same branch later wrote it (`scripts/check-fixture-window.sh`, wired into
-  `Makefile:153` "fixture window guard"), as decision H-0202, which amends this
+  `Makefile:155` "fixture window guard"), as decision H-0202, which amends this
   bullet — the pinned gap-minute cells and the shape guard now police the class together.
 - Checkpoint: ac936ae
 - Effect: the commit carrying this entry — `unenforcedCandidates` takes `now`;
