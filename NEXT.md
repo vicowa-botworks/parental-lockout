@@ -41,8 +41,8 @@ marked=Dashboard` on `/`, `marked=Audit trail` on `/audit`, `marked=Lockout prof
 
 The two paths that refused to merge got looked at. The one that merged cleanly is where the defect
 was: `scripts/mutations/web.json`. Both parents appended three mutants to that set — trunk's at
-position 292-294 against the skip anchor, this branch's at 295-297 against the navigation words — and
-both allocators counted from their own parent's 292 rows and minted `W303`/`W304`/`W305`. Git saw two
+rows 293-295 against the skip anchor, this branch's at rows 296-298 against the navigation words — and
+both allocators counted the 292 rows their shared parent held and minted `W303`/`W304`/`W305`. Git saw two
 disjoint appends and wrote six rows with three labels, and `expected_mutants` stayed 295 against 298
 rows. `python3 scripts/check-mutations.py` refuses exactly that and refuses it in those words —
 `holds 298 mutants, expected 295: a mutant was added without raising the number` and

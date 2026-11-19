@@ -5497,9 +5497,9 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Question: `git merge origin/main@cfe1559` (the #467 merge, #387's skip link `D-0087` plus its
   base-sync pass `D-0089`) refused on `DECISIONS.md` and `docs/screenshots/360/manifest.json` and
   took `scripts/mutations/web.json` without a word. Both parents had appended three mutants to that
-  one set — trunk's at file position 292-294, labelled `W303`/`W304`/`W305` against the skip anchor,
-  this branch's at 295-297, labelled `W303`/`W304`/`W305` against the navigation words — because each
-  allocator counted from its own parent's 292 rows and neither could see the other. The merged file
+  one set — trunk's at rows 293-295 of the `mutants` array, labelled `W303`/`W304`/`W305` against the skip anchor,
+  this branch's at rows 296-298, labelled `W303`/`W304`/`W305` against the navigation words — because each
+  appended to the 292 rows their shared parent held and neither allocator could see the other's three. The merged file
   holds 298 rows, `expected_mutants: 295`, and three ids used twice. Which side's manifest digests
   ship, and which side's ids move?
 - Options: take trunk's `manifest.json` because it is the newer trunk and leave both id families as
