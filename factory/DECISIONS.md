@@ -16195,3 +16195,47 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   the citation run before this entry and the run after both print 1258 citations and the same debt of 583,
   and the entry count moves 385 -> 386 by this entry alone. One leg, `gate: an id citation with no entry`,
   appended below the leg H-0317 added so nothing above it moves.
+
+## H-0319 · Three decision records live on refs no pull request has ever had, and the one repair that fits `D-0053` is publishing someone else's dropped branch
+
+- Question: `D-0053` and the navigation `D-0015` live only on `wip/issue-204-dropped-6bfd528`, and
+  `D-0019` only on `wip/issue-211-dropped-1df729a`; neither ref has a pull request in any state. `D-0053`'s
+  own `Chose:` is "deliver the branch unchanged as an open pull request that records the drop", and there is
+  no such pull request. What does a unit do?
+- Options: (a) open both pull requests itself as drafts -- the act records the drop and merges nothing |
+  (b) re-open #204 so the queue sees the gap | (c) comment on the issue and take no write action |
+  (d) escalated to a maintainer
+- Chose: escalated to a maintainer
+- Why: `AGENTS.md:52` "naming what is owed, and stop" -- and the instruction above it names the class: the
+  four decisions not an agent's to make are a third-party dependency, security or tamper-resistance
+  semantics, publishing, and deleting data. Opening a pull request whose commits are another unit's dropped
+  work is publishing, and this repository's policy makes the consequence concrete rather than
+  hypothetical: the factory never merges without an approving review, so the only durable thing an agent
+  can create here is a standing request a named human must dispose of, under an agent's name, on a branch
+  its own author marked `do not merge` in the one case where that was written down (`#285`, the
+  `backup-tip` copy). (a) is exactly what `D-0053` chose for itself and never executed five weeks ago,
+  which argues the maintainer should execute it, not that an agent should do it unasked. (b) re-opens #204,
+  measured `CLOSED` at `2026-11-09T17:11:02Z`, and a re-open is a queue-visible state change on an issue
+  whose UI asks are being worked by #387 -- a unit inventing work for another unit is not a repair. (c) is
+  the fallback this entry in fact does, but not as the whole answer: a comment leaves nothing in the
+  repository that says these refs are load-bearing, which is the actual hazard.
+- What it lost: the reversibility record for a dropped design stays on two loose remote refs that
+  `AGENTS.md`'s Worktrees section tells every reader to remove, and #387 -- open, in the same UI area,
+  asking why two of #204's asks never reached `main` -- still has no way to find out. Nothing in the tree
+  marks either ref as holding the only copy of a decision, so the protection is this entry and a comment.
+- Confidence: high on the state, each row re-read for this entry: `git show
+  origin/wip/issue-204-dropped-6bfd528:DECISIONS.md` holds both headings and the `Chose:` line quoted
+  above, and `gh pr list --state all --head <ref>` answers `[]` for both refs -- a first read of the whole
+  queue was the default 30-row `gh pr list` page and said "no pull request" for `backup-tip` too, which is
+  false (#285 exists), so the per-ref server-side filter is the read that stands. Medium on the shape of
+  the repair itself: whether two draft pull requests are better than one prose disposition on trunk that
+  retires the records is a judgement about the log's future readers, and it is the maintainer's.
+- Revisit: when a maintainer answers -- either the two pull requests exist, or a prose disposition lands
+  and the records are no longer stranded, at which point the refs are ordinary stale refs and their removal
+  is its own escalation.
+- Awaiting: a maintainer decision on whether the drop records on `wip/issue-204-dropped-6bfd528` and
+  `wip/issue-211-dropped-1df729a` are opened as pull requests or disposed of in prose on trunk. No ref is
+  deleted, no pull request opened, and #204 stays closed until that answer.
+- Checkpoint: 3092cbaae
+- Effect: this entry and a `question`-labelled comment on #393 naming both refs, the headings each holds,
+  and the reads above. No branch, pull request, or ref changed.
