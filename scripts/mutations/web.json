@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 295,
+  "expected_mutants": 298,
   "mutants": [
     {
       "id": "W1",
@@ -1521,9 +1521,9 @@
     {
       "id": "W212",
       "file": "internal/web/settings.go",
-      "old": "\tb.WriteString(\" Enforcement is switched off, so nothing is being locked out and nothing will \" +\n\t\t\"be, whatever the schedule says, until it is switched back on. The status page says so too, \" +\n\t\t\"and the daemon stops re-asserting locks from its next tick.\")",
+      "old": "\tb.WriteString(\" Enforcement is switched off, so nothing is being locked out and nothing will \" +\n\t\t\"be, whatever the schedule says, until it is switched back on. The dashboard says so too, \" +\n\t\t\"and the daemon stops re-asserting locks from its next tick.\")",
       "new": "\tb.WriteString(\" Settings saved.\")",
-      "note": "the confirmation for the fail-open control becomes generic, which is the wording that lets a parent read 'saved' and believe the daemon is still locking. Scoped to the status paragraph by the killer, because the page's own banner says the off-state sentence whether or not the submit was accepted. TestTheConfirmationNamesWhatStopsHappening."
+      "note": "the confirmation for the fail-open control becomes generic, which is the wording that lets a parent read 'saved' and believe the daemon is still locking. Scoped to the off-state paragraph by the killer, because the page's own banner says the off-state sentence whether or not the submit was accepted. TestTheConfirmationNamesWhatStopsHappening. #388 re-pointed this row's `old` when the root page's reader-facing word became `dashboard`: same sentence, same three lines, one word moved with the page it names. (#388)"
     },
     {
       "id": "W213",
@@ -2232,6 +2232,28 @@
       "old": "<main id=\"main\">",
       "new": "<div id=\"main\"></div>\n<main id=\"main\">",
       "note": "a duplicate id stands ahead of the content region -- getElementById answers with the FIRST element bearing the id, so the skip link lands on the shadow, a box that still contains the masthead: #387's false pass wearing a second element. Every single-element fact stays true -- the link exists, the id exists, the count of <main> is one. Killed by the uniqueness arm of TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage (two elements carry the target id), and in the browser by require_skip_link's ttag != MAIN arm (the census reports the landing tag). Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387 round-2 review)"
+    }
+,
+    {
+      "id": "W306",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    <a {{if .IsCurrent \"/\"}}aria-current=\"page\" {{end}}href=\"/\">Dashboard</a>\n",
+      "new": "    <a {{if .IsCurrent \"/\"}}aria-current=\"page\" {{end}}href=\"/\">Status</a>\n",
+      "note": "the root page goes back to carrying two names: the navigation entry reads `Status` while the tab strip and the `<h1>` read `Dashboard` -- the state #388 was filed about. It is the state #219's guards cannot see: the heading and `<title>` are two renderings of the same `title` block, so they cannot disagree, and the entry is a literal written by hand in this file, so no existing comparison spans the two. Killed by `TestEachNavEntryNamesThePageItLinksTo` and by the label list in `TestTheMastheadLinksAreSeparatedInTheRenderedBytes`, which #388 re-aimed at the new five words with a sentence saying the relationship is pinned elsewhere: the list pins the words, this row pins the words to the pages, and a list of words passes just as happily on a shell whose row has drifted from four of the five names. Declared with the decision it protects (D-0088), which is also the entry that renamed the page. Measured on this branch by applying the swap by hand and reading every failing test name, then again with `mutate.py --only W306`: CAUGHT, by both. (#388)"
+    },
+    {
+      "id": "W307",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "{{define \"title\"}}Dashboard{{end}}",
+      "new": "{{define \"title\"}}Status{{end}}",
+      "note": "the other half of #388's pair, and the half W306 cannot reach: here the PAGE renames itself, so the tab strip and the `<h1>` read `Status` while the navigation entry, the harness's frame `dashboard.png`, the package `internal/dashboard` and the 17 mentions in `docs/` and `README.md` say `dashboard` -- the split #388 names, running the other way and invisibly to everything #219 left behind, because `TestEveryPageNamesItselfInTheHeading` compares two renderings of THIS block and so agrees with whatever this line says, and the masthead label list reads the anchors, which are untouched. Measured on this branch: the swap by hand fails exactly one test, `TestEachNavEntryNamesThePageItLinksTo`, the only place in the suite that reads an entry against the page it routes to. That measurement is why this is its own row rather than an inference from W306: W306 has two killers and this has one, so deleting the new guard retires this check and nothing else notices. `mutate.py --only W307`: CAUGHT, by that one. (#388)"
+    },
+    {
+      "id": "W308",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    <a {{if .IsCurrent \"/audit\"}}aria-current=\"page\" {{end}}href=\"/audit\">Audit trail</a>\n",
+      "new": "    <a {{if .IsCurrent \"/audit\"}}aria-current=\"page\" {{end}}href=\"/audit\">Audit</a>\n",
+      "note": "the pair #388 found beside the root page, and the shape that recurs: `/audit` is headed `Audit trail` and its entry goes back to `Audit`, so the row makes the reader decide whether those are one place. This row is why the guard is a comparison over all five sections rather than an assertion about the root's word -- the drift is one template edit on either side of either pair, and `/profiles` carries the same shape (`Lockout profiles` under an entry that read `Profiles` at the checkpoint). Killed by `TestEachNavEntryNamesThePageItLinksTo`, whose refusal names the path and quotes both spellings, and by #388's re-aimed label list in `TestTheMastheadLinksAreSeparatedInTheRenderedBytes`, which notices only that a word it expects is gone -- the two killers differ in what they can say about the defect, which is the reason both are recorded. Measured the same way as W306 and with `mutate.py --only W308`: CAUGHT, by both. (#388)"
     }
   ]
 }

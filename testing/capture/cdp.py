@@ -1218,7 +1218,7 @@ def _nav_rows(got, what):
 def nav_census_line(got):
     """What the #204 guards were shown, on the same line as the #202 census.
 
-    `nav=5 links marked=Status overflow=0` -- the marked entry named by its own text rather than by
+    `nav=5 links marked=Dashboard overflow=0` -- the marked entry named by its own text rather than by
     an index, because the text is the only thing a reader of the transcript can check against the
     photograph below it.
 
@@ -1288,9 +1288,13 @@ def require_nav_marked(got, what, nav):
     is a census that was never asked the question. The floor is the marked entry's own -- the one a
     reader is aiming at -- and `NAV_MIN_TARGET` says why 40.
 
-    What this does NOT ask is whether the marked entry's *name* is the page's name. The row's first
-    entry reads "Status", its `<title>` reads "Status", and no heading on the page says either word
-    (#219). That is a page-identity question and a census of computed style cannot settle it.
+    What this does NOT ask is whether the marked entry's *name* is the page's name. A census of
+    computed style cannot settle that: it reads colour, weight, decoration, border and box, and a
+    section's name is in none of them. When this note was first written the root's entry and its
+    `<title>` both read `Status` while no heading on the page said either word (#219); D-0016 put the
+    page's own name in the `<h1>`, #388 moved the entry and the name to `Dashboard` together, and the
+    question is now asked in Go by `TestEachNavEntryNamesThePageItLinksTo`, which reads an entry
+    against the `<h1>` of the page it routes to. What this file refuses stays a property of the row.
     """
     rows = _nav_rows(got, what)
     header = (got or {}).get("header")

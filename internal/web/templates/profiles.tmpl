@@ -112,7 +112,7 @@
       <tr>
         <th scope="row">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</th>
         {{- /* A rule with no days is a gap, not a complaint: the window is saved and enforces
-               nothing, which is the fact `state-gap` already states on the status page
+               nothing, which is the fact `state-gap` already states on the dashboard
                ("scheduled, not enforced"). It wore `.problem` until #239, which is how a data
                gap got the voice of a refusal. */ -}}
         <td data-label="Days">{{if .Days}}{{.Days}}{{else}}<span class="state-gap">no day</span>{{end}}</td>

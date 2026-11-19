@@ -82,11 +82,19 @@ cached as immutable for a year.
         answer is one rule about the URL. Every action in this block is dash-free on purpose: a
         trimming action deletes the whitespace it points at, and this file has already shipped
         "ProfilesSettings" that way. The guard is
-        TestTheMastheadLinksAreSeparatedInTheRenderedBytes. */}}
-    <a {{if .IsCurrent "/"}}aria-current="page" {{end}}href="/">Status</a>
+        TestTheMastheadLinksAreSeparatedInTheRenderedBytes.
+
+        Each entry's words ARE the name of the page it links to -- the same words that page's
+        "title" block puts in <title> and in the <h1> -- so a reader scanning the row and a reader
+        at the heading are reading one name per section (#388). Two of them are therefore longer
+        than one word, which costs the phone row one wrapped line and buys the row back its
+        meaning: an entry called "Audit" over a page headed "Audit trail" asks the reader to
+        decide whether those are two places. TestEachNavEntryNamesThePageItLinksTo compares every
+        entry with the <h1> it routes to, on all five pages. */}}
+    <a {{if .IsCurrent "/"}}aria-current="page" {{end}}href="/">Dashboard</a>
     <a {{if .IsCurrent "/users"}}aria-current="page" {{end}}href="/users">Accounts</a>
-    <a {{if .IsCurrent "/audit"}}aria-current="page" {{end}}href="/audit">Audit</a>
-    <a {{if .IsCurrent "/profiles"}}aria-current="page" {{end}}href="/profiles">Profiles</a>
+    <a {{if .IsCurrent "/audit"}}aria-current="page" {{end}}href="/audit">Audit trail</a>
+    <a {{if .IsCurrent "/profiles"}}aria-current="page" {{end}}href="/profiles">Lockout profiles</a>
     {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
         navigation itself changes nothing, and a GET that mutates is the thing this repo's
         POST-only rule exists to stop.

@@ -5289,6 +5289,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   above the table, the five attack rows, and `EXPECTED_ROWS` 73 to 78. `make verify` and the
   reads after the push are quoted with their exit statuses in the pull-request body, not here,
   because an `Effect:` written before a gate runs is a prophecy (#1180).
+
 ## D-0087 · #387: the shell gains a skip link — which anchor reaches the content, and which collapse idioms can hide a thing a keyboard still has to reach
 
 - Question: #204's one undelivered bullet: every page the shell renders paints a masthead of
@@ -5338,6 +5339,92 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   battery. Gate receipts and the re-capture are read back with their exit statuses in the
   pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy
   (#1180).
+
+## D-0088 · #388: the root page has been called two things since the commit that added it, because `D-0016` delegated the word to `#204` and `#204` closed with the bullet unworked - keep the reader's word and move the build's vocabulary to it, move the shell's word and the prose that names the page to *dashboard*, pin only the shell's own pair and let the two vocabularies coexist, or ask a person for the word
+
+- Question: what is the root page called? `git log --diff-filter=A` says `dashboard.tmpl` arrived as
+  `dashboard.tmpl` in `d9cd943` (15 Oct), "feat(web): the status and accounts pages", and the same commit
+  wrote `{{define "title"}}Status{{end}}` into it, so the file, its package `internal/dashboard`, its frame
+  `docs/screenshots/360/dashboard.png` and the 30 mentions in `docs/` and the package (`git grep -o -i
+  dashboard -- docs internal/dashboard`, where `docs/PLAN.md`'s route table maps `/` to `dashboard`) have
+  said *dashboard* while everything a reader sees has said *Status*: the navigation entry, the tab strip, the
+  `<h1>`, three back-links reading "Back to the status page", the test-lock page's "use *Lock now* on the
+  status page", and the settings banner's "The status page says so too". `#204` carried the rename in its own
+  body ("**Name the root page once.**") and `D-0016` assigned it there; `#219` quoted the split (`the link
+  reads Status, the page is the dashboard`, credited to `#204`) and sent it there too; `#204` is closed with
+  the bullet unworked and the word never moved. This is the choice `D-0016` deliberately did not make - it
+  settled the heading MECHANISM and left the word inside it - and `#388` names the split, not a direction:
+  "either answer settles the ticket; the split is the only wrong outcome".
+- Options: `Status`, moving the 93 tracked files that say *dashboard* up to it, a Go package name included |
+  `dashboard`, moving the shell's word, the reader-visible prose that names the page, the comments inside the
+  package that renders it, the `pagename` slug and the capture harness's transcription of the row | pin only
+  the shell's pair (nav entry == `title` block) and leave the code's vocabulary and the reader's vocabulary
+  separately named, which is the split with a test on its edges | a third word (`Overview`) | escalate the
+  word to a person as a naming decision
+- Chose: `dashboard`, moving the shell's word, the reader-visible prose that names the page, the comments
+  inside the package that renders it, the `pagename` slug and the capture harness's transcription of the row
+- Why: the ticket's own evidence leans this way and the measurement agrees with it - 93 tracked files outside
+  `DECISIONS.md` carry *dashboard* (`git grep -il dashboard -- ':!DECISIONS.md' | wc -l`) against the eight
+  places a reader meets *Status*, five of them prose - but the reason is not the count. *dashboard* is the
+  word the build-side vocabulary uses and cannot stop using without renaming a Go package, a frame name, a
+  manifest key and the operator docs that name it, which is the bigger change to the wrong surface: renaming
+  code moves a name nobody reads and leaves the reader's prose where it is until the same ticket is filed
+  again. *Status* carries a cost the count hides: it is already the word an operator types, `plock status` -
+  16 mentions in `docs/` and `README.md`, and `docs/cli.md` documents the command - so keeping it for the page
+  leaves one word meaning a screen and a verb in the same manual. Moving the reader's word settles both layers
+  in one direction, and the direction is the one the file, the package and the docs already claim.
+- Mechanism of the choice: `dashboard.tmpl`'s `title` block moves `<title>` and the `<h1>` together by
+  construction, so the pair #219 guards cannot drift; the navigation entry is a literal in `page.tmpl` and is
+  the piece the ticket called out as the forgettable one, so it moved beside it and is now pinned - see
+  `TestEachNavEntryNamesThePageItLinksTo` in `internal/web/page_heading_test.go`, which renders each of the
+  five shell pages and refuses a row whose entry's words are not that page's own `<h1>`, and the label list in
+  `TestTheMastheadLinksAreSeparatedInTheRenderedBytes` in `internal/web/pages_test.go`, which is the empty-nav
+  floor that guard needs. The slug moved too (`pagename`: `status` to `dashboard`), which measured as inert:
+  `git grep 'page-status'` answers nothing at this entry's checkpoint, `internal/web/static/app.css` carries
+  no `page-` rule at all, and `page.tmpl`'s own header comment says of `pagename` that "the slug is not the
+  name anybody reads". It moved for the same reason as the prose: the class the browser reports should not name
+  a fifth thing. The capture harness's transcription moved with the row it transcribes, re-measured rather than
+  re-worded (see Effect).
+- What lost: `Status` lost the reader's familiarity - someone who has followed "Back to the status page" for a
+  year reads `Dashboard` now, and the three back-links are the price of settling 93 files that nobody reads.
+  Pinning only the shell's pair lost as a method: it leaves a page whose heading and row agree with each other
+  and disagree with the manual that tells an operator where to look, which is the complaint #388 was written
+  from. A third word lost because it settles nothing the two existing words could not, and re-opens the
+  operator docs that name the frame plus #219's heading for no new information. Escalating lost: the ticket
+  calls this "reversible prose, `git revert`-able, not an escalation", and the four classes that belong to a
+  person do not include the spelling of a page's own heading. Longer entries also cost the phone row one
+  wrapped line, recorded rather than argued away: the row breaks between ENTRIES and never between words, so in
+  document order the measured boxes - `Dashboard` 96, `Accounts` 78, `Audit trail` 83, `Lockout profiles` 130,
+  `Settings` 70, the sign-out form 90, gaps 14 - put three on the first line (x=24, 135, 227, ending at 310
+  inside the 312 available), two on the second (x=24, 168, ending at 238), and the form alone on a third at
+  y=179, because joining the second line would need 238+14+90 = 342 px. The third line is therefore forced by
+  the order and the widths, not by a packer that missed a tighter fit; the header measures 312x192 with the nav
+  at y=93 h=123 where the pre-rename row measured 312x152 with the nav at h=83. Fitting it back into two lines
+  is a CSS call about the gap, the form and the words, with its own numbers, and it is not this ticket's call.
+- Checkpoint: 83f88c7
+- Effect: the commit carrying this entry - `dashboard.tmpl`'s `pagename` and `title`, the five entry labels in
+  `page.tmpl` with the comment that says an entry's words ARE its page's name, the five reader-visible strings
+  and the `internal/web` comments and reported strings, `TestEachNavEntryNamesThePageItLinksTo` and the
+  re-aimed label list, mutants `W306`/`W307`/`W308` in `scripts/mutations/web.json` — filed here as
+  `W303`/`W304`/`W305`, and renumbered by the merge that met `#387`, which had landed those three ids
+  on its own skip-link mutants in the same set (an id collision git could not see, because the two
+  families were appended at opposite ends of `mutants`: `check-mutations.py` refuses `id 'W303' is
+  used twice in this set`) — and `W212`'s re-pointed
+  `old`, and the capture harness's re-measured transcription in `testing/capture/pages.py` and
+  `testing/capture/cdp.py`. The transcribed box was wrong before this branch touched it, and by more than
+  wording: `8db322a` recorded `h: 131` with the nav at `y=72 h=82` on a tree whose masthead had no page-name
+  heading, `9ccbe46` (`D-0016`) added that heading the same day on another branch, and the merge kept the
+  boxes. Measured at this entry's own checkpoint - a scratch worktree at 83f88c7, the fixture's daemon, Chrome
+  at 360 px, `header.getBoundingClientRect()` - the header is `x=24 y=24 w=312 h=152` with the nav at `y=93
+  h=83`: 21 px taller than its own transcription, and that is D-0016's heading. On this branch's tree the same
+  probe answers `h=192` with the nav at `y=93 h=123`, which is what `NAV_HEADER` now says. The drift is filed
+  as #468, because a transcription here can be a generation behind the page and every guard stays green: these
+  numbers are only ever fed to fakes. `internal/web/static/app.css`'s flex comment carried the same stale
+  measurement (323 px of entries, nav 312x82, header 131) and now carries the measured one. The frames and
+  `manifest.json` land in the re-capture commit beside this one, because `sources_rev` is read from a commit
+  and a screenshot's source has to exist before the frame can be dated from it. `make verify` and the reads
+  after the push are quoted with their exit statuses in the pull-request body, not here, because an `Effect:`
+  written before a gate runs is a prophecy (#1180).
 
 ## D-0089 · #387: a base sync met this branch at one junction where both parents rewrote the same probe-table rows — which KIND the new rows ship in, when the gate prints the same verdict for both answers
 
@@ -5404,3 +5491,47 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   only a claim about the bytes that ship with it, so the order is hand-off final, then union,
   then this entry. Gate receipts are read back with their exit statuses in the pull-request body,
   not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0090 · #388: the same base sync met this branch in two files, and only one of them refused to merge — what does a path that auto-merged owe a re-check, when the thing it merged is a set of claims
+
+- Question: `git merge origin/main@cfe1559` (the #467 merge, #387's skip link `D-0087` plus its
+  base-sync pass `D-0089`) refused on `DECISIONS.md` and `docs/screenshots/360/manifest.json` and
+  took `scripts/mutations/web.json` without a word. Both parents had appended three mutants to that
+  one set — trunk's at rows 293-295 of the `mutants` array, labelled `W303`/`W304`/`W305` against the skip anchor,
+  this branch's at rows 296-298, labelled `W303`/`W304`/`W305` against the navigation words — because each
+  appended to the 292 rows their shared parent held and neither allocator could see the other's three. The merged file
+  holds 298 rows, `expected_mutants: 295`, and three ids used twice. Which side's manifest digests
+  ship, and which side's ids move?
+- Options: take trunk's `manifest.json` because it is the newer trunk and leave both id families as
+  merged | take ours for the manifest because its digests are the only field checkable against bytes
+  in the tree and renumber this branch's three ids because trunk's are already on `main` where a
+  citation can be followed | take ours for the manifest and renumber trunk's three ids because they
+  arrived second in the merged file | delete the duplicate rows because the checker's own sentence
+  offers "if they are the same bug, drop one" | leave the collision for the next gate to name
+- Chose: take ours for the manifest because its digests are the only field checkable against bytes in
+  the tree and renumber this branch's three ids because trunk's are already on `main` where a citation
+  can be followed
+- Why: the manifest's `png_sha256` is the field `manifest.py check` verifies against the file on disk,
+  and the nine PNGs the merge left are this branch's — the frames diverged on our side only, so
+  trunk's digests name frames this tree does not contain, which is the single thing the identity arm
+  refuses. The cost of that choice is named rather than hidden: it makes `head` and the nine
+  `sources_rev` a commit stale, and `a4f6393` pays it by running the published recipe against the
+  merged tree; that re-capture came back with all nine frames byte-for-byte the files `0dc0fde`
+  committed and a 29-in/29-out diff containing no digest at all, which is also the answer to whether
+  #387's anchor costs pixels (it is the `.skip` block in `internal/web/static/app.css`, whose
+  `clip-path: inset(50%)` and `overflow: hidden` take it out of the paint and whose `.skip:focus`
+  releases both). The ids move the other way because a
+  citation on `main` is a promise a reader can keep, and renumbering landed history breaks it.
+  "Delete the duplicate rows" was rejected on inspection: `python3 scripts/mutate.py`-level they are
+  six different bugs — the skip anchor's three collapse shapes and the navigation words' three rename
+  directions — and only share labels because two allocators ran blind to each other in one day. The
+  collision is not a reading of the diff: `python3 scripts/check-mutations.py` on the merged tree
+  exits 1 with `holds 298 mutants, expected 295` and three lines of `id 'W303' is used twice in this
+  set (also on mutant #292)` before any of this was concluded, and the same three lines were the
+  reason the first `make verify` on this branch's merged tree stopped; the renumber is what makes that
+  gate read green again. The `Checkpoint:` above names the tree this judgement was taken ON rather
+  than under: the merge was already committed at `a8adf95` when the collision was found, so no
+  checkpoint of the pre-decision tree exists any more, and what is recoverable is the revert -- one
+  commit whose effect is this set's id lines and this log's citation of them, and reverting it
+  returns the collision the gate refuses.
+- Checkpoint: 93f97be
