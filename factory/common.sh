@@ -5181,3 +5181,72 @@ factory_triage_stream() {
 	factory_paths
 	printf '%s/triage-stderr.%s\n' "$FACTORY_RUN" "$$"
 }
+
+# ------------------------------------------------------------------ #384: what a stopped tick left behind
+#
+# Ask the delivery question after a FAILED tick, not only after a clean one.
+#
+# #247 put the `gh pr list --head` read-back on the exit=0 arm because a clean stop can deliver
+# nothing, and the queue kept re-offering the issue invisibly. 14 Nov measured the mirror shape:
+# `conflict:382` pushed four commits, opened PR #382, gated the merged head, and died at the 2700s
+# ceiling during its own post-push verification at 16:32:07Z. The journal carried `TICK-FAILED
+# exit=124` and nothing else; the truth, re-read from the API afterwards, was PR #382 OPEN at head
+# 5e24bb0, checks green. A pass that reports delivered work in the same sentence-shape as
+# never-started work tells the next reader to redo four pushed commits, and the only evidence to the
+# contrary is a 245 KB tick log.
+#
+# The postures are the exit=0 arm's, ported, not reinvented:
+#   * the same class whitelist -- `checks_failing` may already sit on a red-checked pull request it
+#     was not asked to produce, exactly as over there;
+#   * `--head ""` is not a filter (measured, it answers an unrelated pull request), so an empty
+#     branch is reported, never read;
+#   * `cmd || rc=$?`, never `if ! cmd; then rc=$?` -- inside a negated test `$?` is the negated
+#     status, 0 whatever gh exited (measured at the exit=0 arm's `:1458-1461`);
+#   * U+001F as the field joiner, because a tab is IFS whitespace and collapses an empty field.
+# A read that fails is `TICK-UNCHECKED`, never a delivery verdict -- the same sentence the exit=0
+# arm says.
+#
+# What deliberately does NOT move: the caller keeps exit 4 and keeps `TICK-FAILED` as the verb.
+# `pr=<n>` is not success -- a pull request opened by a dying tick may be half-verified; the line
+# says the branch is not lost and sends the reader to the pull request before any redo.
+#
+# Cost: one `gh pr list` per failed tick whose class expects a pull request. Failed ticks are
+# minutes apart at worst; the question is the one the mirror of #247 says must always be answerable.
+#
+# usage: factory_delivery_after_failure <unit> <class> <branch> <status>   # always returns 0
+factory_delivery_after_failure() {
+	local unit=$1 class=$2 branch=$3 status=$4
+	local dl_row='' dl_read=0 dl_pr='' dl_oid='' dl_merge=''
+	case "$class" in
+	unclaimed | branch_without_pr | address_review | conflict) : ;;
+	*) return 0 ;;
+	esac
+	if [ -z "$branch" ]; then
+		# The same sentence the exit=0 arm says for the same shape: nothing to check against, said
+		# once, and no gh call.
+		log_event "TICK-UNCHECKED $unit no branch to check a pull request against"
+		return 0
+	fi
+	# `cmd || rc=$?`, never `if ! cmd; then rc=$?`: inside the `then` branch of a NEGATED test `$?`
+	# is the negated status, which is 0 whatever gh exited. Measured at this head, not inherited:
+	# `gh(){ return 8; }; rc=0; row=""; if ! row=$(gh); then rc=$?; fi` prints rc=0, and the same
+	# gh with `row=$(gh) || rc=$?` prints rc=8 -- under `set -e` the `||` arm still runs, so the
+	# refusal lands in `dl_read` and the TICK-UNCHECKED polarity below is reachable. The first
+	# version of this function used the negated form and answered a FAILED read with `pr=none` --
+	# the exact shape H-0300 refuses to ship -- and the standalone probe caught it as a `pr=none`
+	# line on a payload whose gh stub exited 8.
+	dl_row=$(gh pr list --head "$branch" --json number,headRefOid,mergeable \
+		--jq '[(.[0].number // "" | tostring), (.[0].headRefOid // "" | .[0:7]), (.[0].mergeable // "")] | join("\u001f")' 2>/dev/null) || dl_read=$?
+	if [ "$dl_read" -ne 0 ]; then
+		# A read that failed is not a delivery that failed: say which of the two happened.
+		log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$dl_read)"
+		return 0
+	fi
+	IFS=$'\x1f' read -r dl_pr dl_oid dl_merge <<<"$dl_row"
+	if [ -z "$dl_pr" ]; then
+		log_event "TICK-DELIVERY $unit exit=$status pr=none no open pull request on $branch"
+		return 0
+	fi
+	log_event "TICK-DELIVERY $unit exit=$status pr=$dl_pr head=${dl_oid:-unknown} mergeable=${dl_merge:-unknown} -- the branch has a pull request; read it before redoing the unit"
+	return 0
+}

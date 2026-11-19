@@ -3397,7 +3397,11 @@ printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","update
 # The tick's delivery read (`gh pr list --head <branch>`). It is not what any leg below asserts; it
 # is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
 # under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
-printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+# (#384) It now carries every field BOTH delivery reads ask for -- `headRefOid` and `mergeable` join
+# `number` -- because `--json` is a field list this shim obeys: a payload missing a named field
+# refuses the read (#279), and the failure-arm read added in #384 would otherwise end every stall
+# leg's journal with a `TICK-UNCHECKED (gh exit=1)` the legs never asked for.
+printf '[{"number":9001,"headRefOid":"0900112233445566778899aabbccddeeff001122","mergeable":"MERGEABLE"}]\n' >"$proc_fix/pr-head.json"
 # (#370) The trunk's newest push run, as every fixture activation reads it. GREEN and shaped the
 # way gh 2.46.0's `run list --json` actually answers (lowercase status/conclusion, measured): a
 # fixture pass must not print TRUNK-RED for a reason unrelated to its own legs, and the shape a

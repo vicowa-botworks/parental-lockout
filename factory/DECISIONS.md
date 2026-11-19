@@ -14990,3 +14990,40 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   closed because `refs/remotes/origin/issue-425` carries its heading, read with git grep over the refs. No merge, no
   label, no reviewer ask, no issue write beyond this branch and pull request.
 
+
+## H-0300 · a tick killed at the ceiling after it pushed journaled exactly like one that never started: does the failure arm ask the delivery question, and what may that read not be allowed to change?
+
+- Question: 14 Nov, `conflict:382` was dispatched 15:47:06Z and stopped 16:32:07Z at the 2700s
+  ceiling. The journal's whole account of it is `TICK-FAILED unclaimed:382 exit=124` plus a reason
+  extracted from the first error line; what was true at that instant, re-read from the API later, was
+  PR #382 OPEN at head `5e24bb0` with green checks -- four commits all pushed, `make verify rc=0`
+  twice in its own log, death arriving during the tick's post-push verification. #247 had put the
+  `gh pr list --head` read-back on the `exit=0` arm only, because a clean stop can deliver nothing;
+  the mirror shape was unmaintained. Does the failure arm ask the same question, and does a `pr=<n>`
+  on a failure line mean anything a reader may act on?
+- Options: leave the arm mute and tell readers to open the 245 KB tick log | ask the question but
+  promote the tick to success (`exit 0`, or a `TICK-DONE`-shaped verb) when a pull request is found |
+  ask it as a sibling `TICK-DELIVERY` line that changes nothing else, with the read's postures ported
+  from the exit=0 arm: the same class whitelist, the same `--head ""` refusal, the same
+  TICK-UNCHECKED polarity for a read that fails
+- Chose: ask it as a sibling `TICK-DELIVERY` line that changes nothing else, with the read's postures
+  ported from the exit=0 arm: the same class whitelist, the same `--head ""` refusal, the same
+  TICK-UNCHECKED polarity for a read that fails
+- Why: the question the queue actually asks after a dead tick is "is there work to redo?", and only
+  the API knows -- `pr=382 head=5e24bb0 mergeable=MERGEABLE` answers it in one line, while muteness
+  makes delivered work indistinguishable from never-started work, which #247 already measured as
+  re-ticking cost. What must NOT move: exit stays 4, `TICK-FAILED` stays the verb, and a pull request
+  opened by a dying tick may be half-verified, so the line sends the reader to the pull request
+  instead of declaring success. The port measures its capture form rather than inheriting it:
+  `factory/factory.sh:1458` "`cmd || rc=$?`, never `if ! cmd; then rc=$?`" -- the first port used the
+  negated form and answered a FAILED read with `pr=none`, re-measured here (`gh(){ return 8; }` under
+  `set -euo pipefail`: negated capture `rc=0`, `||` capture `rc=8`), and a standalone probe caught it
+  as a `pr=none` line on a payload whose gh stub exited 8.
+- What lost: the failure arm's one-line simplicity (a failed tick now prints two journal lines in the
+  gated classes), and one `gh pr list` per failed pull-request-classed tick -- minutes apart at
+  worst, bought against a 245 KB log per mis-read unit.
+- Checkpoint: 94efeda
+- Effect: `factory_delivery_after_failure` at `factory/common.sh:5217` and its one call line at
+  `factory/factory.sh:1561`; standalone polarities (open PR / empty / gh-exit-8 / checks_failing /
+  empty branch / 137) all correct under `set -euo pipefail`. The legs that run it as a process, and
+  the full-suite numbers, are recorded by the test commits on this branch.

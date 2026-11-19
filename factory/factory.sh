@@ -1548,6 +1548,17 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	(*) ceiling_note="not a ceiling death (124 is TERM at the ${FACTORY_TICK_TIMEOUT}s ceiling; 137 is SIGKILL after TERM was ignored)" ;;
 	esac
 	log_event "TICK-FAILED $unit exit=$status ($ceiling_note) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
+	# H-0300 (#384): ask the delivery question on the failure path too. #247 put `gh pr list --head`
+	# on the exit=0 arm because a clean stop can deliver nothing; 14 Nov measured the mirror shape and
+	# it was invisible for three days. `conflict:382` was dispatched 15:47:06Z and hit the ceiling at
+	# 16:32:07Z; the journal says `TICK-FAILED exit=124`, and what was true at that instant, re-read
+	# from the API after the fact, was PR #382 OPEN at head 5e24bb0 -- four commits, all pushed, all
+	# green, `make verify rc=0` twice in its own log -- the tick died during its OWN post-push
+	# verification. A failure arm that asks nothing reports delivered work exactly as loudly as
+	# never-started work, and the next reader's question -- "is there work to redo?" -- costs a 245 KB
+	# log. The read, its postures and its costs are documented on `factory_delivery_after_failure`.
+	# Exit stays 4 and `TICK-FAILED` stays the verb; this line only says what the branch left behind.
+	factory_delivery_after_failure "$unit" "$class" "$branch" "$status"
 	# The same mirror as the `exit=0` arm, and for the same reason: exit 124 is the ceiling firing
 	# mid-message, which is exactly when a branch holds commits nobody has pushed. Measured on the
 	# tick this repository came here for: `15:30:32Z TICK-FAILED unclaimed:235 exit=124`, and the
