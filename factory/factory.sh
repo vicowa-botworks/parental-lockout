@@ -1544,7 +1544,7 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	toks=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -aiE '(^|[^[:alnum:]])(error|fatal|panic|denied|failed|refused|cannot|no such file|not found|traceback)([^[:alnum:]]|$)' |
 		grep -v '^[[:space:]]*>[[:space:]]') || true
-	# H-0303 note: the filter runs INSIDE the token set and keeps two tiers, per the ticket's own
+	# H-0302 note: the filter runs INSIDE the token set and keeps two tiers, per the ticket's own
 	# wording -- "prefer the last line whose failure token is in predicate position (a Go/Python
 	# error form, `exit status N`, a traceback header) over any line that merely contains the word".
 	# The naive one-filter shape -- drop satisfied echoes, take the last survivor -- lost a real
