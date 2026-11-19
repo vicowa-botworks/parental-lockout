@@ -1525,9 +1525,62 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	# A grep for "Error:" alone would miss `Permission denied:` and a bare Python exception line, hence
 	# the alternation; a grep for anything at all is the banner again. If nothing matches, the journal
 	# says the tick wrote nothing rather than inventing a cause.
-	reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
+	# H-0302 (#384): a token is not a failure. Matching is word-boundary-clean but polarity-blind,
+	# and the last token match in a well-behaved tick's log is precisely where its own verification
+	# echoes live. Measured on `20261114T154706Z.conflict:382.log`: 175 lines match the token set,
+	# the selected one is line 3002 of 3004, and it reads `fatal close pattern, must be 0: 0` --
+	# the closing-verb guard's own passing echo ("fatal" is the unit's adjective for the guard
+	# that must never fire, and the trailing `0` is the PASSING count). The journal quoted a green
+	# check as the cause of death. The filter below drops a token line only when it states its own
+	# expectation AND its observed number satisfies it -- `must be N: N`, `expected N, N`,
+	# `want N = N` (separator from the measured shapes only: colon, equals, comma; a looser one
+	# would let "expected 0 -- see the 3 files named below" read as satisfied). A line whose two
+	# numbers DISAGREE is the loudest real failure there is, and it survives; a line stating only
+	# an expectation, with no observed number, survives too -- dropping it would trade a possible
+	# green echo for a guaranteed lost cause, the same asymmetry the banner rule above chose. When
+	# every token match is a satisfied echo the journal says so and quotes nothing; the
+	# last-non-banner fallback stays reserved for logs with no token line at all, which is the
+	# banner case this comment already carries.
+	toks=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -aiE '(^|[^[:alnum:]])(error|fatal|panic|denied|failed|refused|cannot|no such file|not found|traceback)([^[:alnum:]]|$)' |
-		grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
+		grep -v '^[[:space:]]*>[[:space:]]') || true
+	# H-0303 note: the filter runs INSIDE the token set and keeps two tiers, per the ticket's own
+	# wording -- "prefer the last line whose failure token is in predicate position (a Go/Python
+	# error form, `exit status N`, a traceback header) over any line that merely contains the word".
+	# The naive one-filter shape -- drop satisfied echoes, take the last survivor -- lost a real
+	# cause on the first probe against the real log: the shipped pipeline answered with
+	# `the sentence that should be there, "679 passed, 0 failed": 3`, another guard echo whose
+	# numbers are not an expectation pair at all, while `Error: Permission denied: shell` sat
+	# above it. Tier 1 is the predicate-position forms; tier 2 is bare token presence. The answer
+	# is the last tier-1 line, or the last tier-2 line when nothing reached tier 1 (the pre-H-0302
+	# shape, so a log whose only failure line is `something refused` still gets quoted), and the
+	# sentinel fires only when every token line was a satisfied expectation.
+	filtered=$(printf '%s\n' "$toks" | awk '
+		{
+			low = tolower($0)
+			drop = 0
+			probe = low
+			while (match(probe, /(must be|expected|want) [0-9]+[:=,] ?[0-9]+/)) {
+				seg = substr(probe, RSTART, RLENGTH)
+				gsub(/[^0-9]+/, " ", seg)
+				n = split(seg, a, " ")
+				if (n == 2 && a[1] == a[2]) { drop = 1; break }
+				probe = substr(probe, RSTART + RLENGTH)
+			}
+			if (drop) next
+			if (tolower($0) ~ /error:|exception|panic:|traceback \(most recent|exit status [0-9]|exit code [0-9]|\.py:[0-9]+|permission denied[: ]|command not found|no such file or directory:|failed to [a-z]/) { t1[NR] = $0; have1 = 1; next }
+			t2[NR] = $0
+			have2 = 1
+		}
+		END {
+			if (have1) { for (i in t1) if (i + 0 > last1) last1 = i; print t1[last1]; exit }
+			if (have2) { for (i in t2) if (i + 0 > last2) last2 = i; print t2[last2]; exit }
+		}
+	') || true
+	reason=$(printf '%s\n' "$filtered" | tail -n 1 | cut -c1-160) || true
+	if [ -z "$reason" ] && [ -n "$toks" ]; then
+		reason='no failure line found (every failure-token line was a satisfied expectation)'
+	fi
 	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	# H-0291 (#383): name the death the code produced, do not annotate one of the two codes and
