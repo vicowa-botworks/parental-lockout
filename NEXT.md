@@ -37,11 +37,28 @@ is the skip link, and nine frames over two fixtures, four drivers and two viewpo
 pixels. The same run's transcript is the rename, still true on the merged tree: `nav=5 links
 marked=Dashboard` on `/`, `marked=Audit trail` on `/audit`, `marked=Lockout profiles` on `/profiles`.
 
+## The merge's silent path: one set, three ids used twice
+
+The two paths that refused to merge got looked at. The one that merged cleanly is where the defect
+was: `scripts/mutations/web.json`. Both parents appended three mutants to that set — trunk's at
+position 292-294 against the skip anchor, this branch's at 295-297 against the navigation words — and
+both allocators counted from their own parent's 292 rows and minted `W303`/`W304`/`W305`. Git saw two
+disjoint appends and wrote six rows with three labels, and `expected_mutants` stayed 295 against 298
+rows. `python3 scripts/check-mutations.py` refuses exactly that and refuses it in those words —
+`holds 298 mutants, expected 295: a mutant was added without raising the number` and
+`W303: id 'W303' is used twice in this set (also on mutant #292)` — and it is why the first
+`make verify` against the merged tree stopped. `b1a7a79` (`D-0090`) moves this branch's three to
+`W306`/`W307`/`W308`, notes and self-references included, and raises the count in the same edit;
+trunk's labels stay put because a `W303` cited from `main` is a promise a reader can still open. A
+reader who wants the shape re-checked asks the gate, not this file: `check-mutations.py` answers
+`all 853 mutants apply and compile` and prints no verdict line.
+
 ## What this push spent
 
-Four fixture boots and four browser runs (the recipe, start to finish ≈90 s), one `make verify`
-leg against the merged tree, and no quota: nothing here is a partner-node call. The build product
-`plock` stayed untracked (`git ls-files | grep -x plock` is empty at this commit, per `#1264`).
+Four fixture boots and four browser runs (the recipe, start to finish ≈90 s), three `make verify`
+runs against the merged tree, two `check-mutations.py` passes over all twelve sets, and no quota:
+nothing here is a partner-node call. The build product `plock` stayed untracked
+(`git ls-files | grep -x plock` is empty at this commit, per `#1264`).
 
 ## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
 
