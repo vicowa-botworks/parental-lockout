@@ -15052,3 +15052,63 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   chose a wording, not a decision. What also lost: the refusal-by-refusal loop -- with same-id residue a `--plan-only`
   round costs minutes, so the enumeration over all three stages came first here; the truncation bug in its first draft
   (3-char id slices) was caught by re-reading the ids before any conclusion rested on them.
+
+## H-0304 · Six documented filing recipes name three labels this repository does not carry, and none
+  of the three has a live synonym: substitute the nearest live name and record the mapping, drop the
+  flag, or leave every recipe red?
+
+- Question: #386 measured that all six `gh issue create` commands in `docs/issues-from-d-0058.md` and
+  `docs/issues-from-d-0065.md` die at the label step: `gh` resolves every name against the
+  repository's live set, so a recipe naming an absent one prints one stderr line, exits 1 and creates
+  nothing -- and the ticket's own filing attempt paid for that twice, because a failed create carries
+  no id and a retry that does not search by title first can double-file. What the ticket does not say
+  is that no live name means any of the three: measured 19 Nov, `gh label list --limit 200 --json
+  name` answers 18 names, four of them `area:*` and one `kind:chore`, and none of them `guard`,
+  `testing` or `ux`. So every substitution is a claim about the taxonomy rather than a rename, and a
+  silent one in a docs commit is how a recipe drifts a second time.
+- Options: substitute the nearest live name per absent one and write the mapping in the commit and on
+  the page | drop `--label` from all six commands and tell a filing human which names to add
+  afterwards | leave the three names alone, as today, and let the gate this ticket also demands have
+  nothing to witness outside its fixtures
+- Chose: substitute the nearest live name per absent one and write the mapping in the commit and on
+  the page
+- Why: the third option goes first to tie-break 3 -- a recipe that cannot run is a promise the
+  repository cannot keep, and it is the exact input this ticket was written about. The second was the
+  tempting one and loses on its own success: with no `--label` left in `docs/`, the gate is a verdict
+  computed over an empty census, so its green says nothing and its live-name leg survives only as a
+  fixture. Tie-break 6 decided the mapping rather than taste: a label census over the tracker,
+  measured 19 Nov, counts `bug` 62, `area:ops` 48, `area:core` 11, `area:ui` 10 and `kind:chore` 6,
+  and the sites that settle each name are the issues about the same surface -- #294, #301 and #302 are
+  the `testing/capture/` screenshot-and-manifest issues and carry `area:ui`, while #389 and #242 are
+  harness-meta work and carry `kind:chore`. The mapping is therefore `guard` to `kind:chore` (a hole
+  in a guard is maintenance of a checking tool), `testing` to `area:ui`, and `ux` to `area:ui` (both
+  were words for the capture surface, and `ux` was never a claim about the product's user). `bug` was
+  weighed for every row and refused here on purpose: the ticket asks that the commands run, and
+  appending a class its author did not assert is an editorial claim about six issues that are not this
+  tick's to make -- so both pages say in prose that a filing human adds `bug` to a row read as a
+  defect, which leaves that call with the person who files.
+- Checkpoint: be1a40ff95a6d231018c39699abaef8b118c9617
+- Effect: `docs/labels.txt` (new) holds the 19 Nov live read, 18 names, C-sorted, and the set
+  difference in both directions against a second fresh read answers empty on each side -- so the file
+  is the set rather than somebody's recollection of it. `docs/issues-from-d-0058.md`: four commands
+  take `kind:chore,area:ui`, one takes `area:ui`, plus the paragraph naming the file and the mapping.
+  `docs/issues-from-d-0065.md`: one command takes `area:ui`, plus its paragraph. Re-derived after the
+  edits by parsing every `--label` token in both pages against that fresh live read: ten names, ten
+  `EXISTS`, `absent names remaining: 0`. No `gh issue create` was run to prove it, so the claim is
+  name resolution -- the half #386 measured as fatal -- and not a live filing: opening an issue on
+  this tracker to test a recipe is not a tick's move, and #1180 is the record of what a create that
+  announces success is worth. Neither page is named by a citation in either log -- `python3
+  scripts/check-decisions.py --citations` answers 0 for `docs/issues-from-d-0058.md` and 0 for
+  `docs/issues-from-d-0065.md` -- so the twelve lines these paragraphs add move no pointer, and
+  `Makefile` is untouched by this commit for the same reason: its anchored pointers are the gate
+  commit's problem, not the mapping's. Anti-scope held: no label created or renamed, nothing in
+  `.opencode/skills/factory/SKILL.md`, `factory/common.sh` or `factory/selftest.sh` touched, so #311's
+  escalation name and #340's literal interpolation stand where those tickets left them.
+- What lost: `testing` and `ux` collapse onto one name, so a reader can no longer separate "a check
+  that does not check" from "what the operator sees" -- the distinction the two absent words carried
+  and no live name carries; `guard`'s class survives only as the prose this entry and the two pages
+  print. A queue that filters on any of the three names still finds nothing, which is #437's subject
+  (a queue reading one label name absent from this repository) and is not repaired by relabelling six
+  recipes. The substitution is also a claim rather than a fact: a person who thinks `guard` deserves
+  its own label owes `docs/labels.txt` a refresh and owes these six lines an edit, because the gate
+  takes its ground from that file.
