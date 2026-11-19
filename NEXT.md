@@ -1,4 +1,74 @@
-# NEXT — issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; merging belongs to the supervisor)
+# NEXT — issue-384 unit (PR for `issue-384`: what the pass says when a tick stops after delivering — the failure arm asks the delivery question too and journals `TICK-DELIVERY … pr= head= mergeable=` beside its `TICK-FAILED` (`H-0300`), `PRESERVED` now says whether the remote already holds the tip (`pushed=true` / `pushed=false` / `pushed=unknown`, `H-0301`), and the cause extractor drops a line whose own expectation pair is satisfied and prefers predicate-position failure lines over bare-token ones (`H-0302`); seven legs with controls witness the three — four `proc_leg`s, two of them controls, and three `mirror_leg`s for the push-state tri-state; merging belongs to the supervisor)
+
+State read before this file wrote a byte, by this tick: the dispatch was the queue's
+`branch_without_pr` row for `issue-384` — 8 commits and 4 files ahead of `origin/main`, no open
+pull request, local only. Tree clean at entry, no `factory/HALT`, `git fetch --prune origin` rc 0,
+`gh auth status` live as `virtualcodewarrior`, `gh pr list --state open --head issue-384` answered
+`[]`, `gh issue view 384` answers OPEN with labels `bug,area:ops`, and
+`git ls-files | grep -x plock` prints nothing. No new decision id was taken by this dispatch: its
+single allocator read (journalled `DECISION-ID H-0303`, `REFRESH` 10 s union) is disclosed because
+a journalled read consumes nothing (#442), and this head ships only what `H-0300`..`H-0302`
+already record. The collision sweep this hand-off owes ran before the write: a grep for a
+`## H-0300` heading (and `H-0301`, `H-0302`) over every `refs/heads` and `refs/remotes` this clone
+names, `issue-384` and `HEAD` excepted, returned nothing on all three ids. `make verify`'s verdict
+is quoted in the pull-request body, taken after the gate ran, not before (#1180: an `Effect:`
+written before the gate runs is a prophecy).
+
+## What this dispatch pushed
+
+- The eight commits ahead of `origin/main` are three decision pairs and two support commits:
+  `pre-H-0300`/`3cc8e44` (`factory_delivery_after_failure` in `factory/common.sh`, called from the
+  failure arm beside the `TICK-FAILED` line), `pre-H-0301`/`f268a17` (the `pushed=` read inside
+  `factory_preserve_unpushed`, carried on the `PRESERVED`, `PRESERVE-FAILED` and
+  `PRESERVE-UNVERIFIED` sentences), `pre-H-0302`/`f8d830c` (the expectation-pair drop and the
+  two-tier predicate-position pick in the cause extractor), `595a62b` (160 citation pointers
+  re-aimed for rows the three insertions moved) and `c1667c4` (the seven legs). This dispatch
+  adopts that branch and opens its pull request, and holds every one of the ticket's three demands
+  and three leg-pairs against the diff before writing this file.
+- `762c6b2`, this dispatch's code commit: the cause-filter comment was labelled `H-0303`, an id no
+  decision log and no ref carries (the allocator still hands `H-0303` out as free) — a dangling
+  decision citation, the #393 class, standing in this branch's own bytes. It now cites `H-0302`,
+  whose `Chose:` is verbatim the two-tier design the note annotates. No line count moved, so that
+  entry's two anchored `Effect:` citations still open.
+- This hand-off. A line-multiset census of `git show origin/main:NEXT.md` against this file (run
+  by the splice script and reported in the commit message) finds no lost line except the demoted
+  level-1 heading itself — the same census shape #459's head ran.
+
+## What this push spent
+
+- Two commits (`762c6b2` and this one), one full `make verify` run whose verdict goes in the pull
+  request, one allocator read (disclosed above, nothing taken), and no GitHub write beyond the
+  branch push and the pull-request creation this unit owes. No reviewer ask: the poke is the
+  supervisor's, and this unit's branch had no prior review to spend.
+
+## What is still owed (this tick's rows first, then every carried hand-off row, none silent)
+
+- The failure-arm read-back covers the four classes that expect a pull request
+  (`unclaimed|branch_without_pr|address_review|conflict`) — the exit=0 arm's own whitelist,
+  ported. A new dispatch class that can leave a pull request behind must widen the `case` inside
+  `factory_delivery_after_failure` and the exit=0 arm together; widening one alone re-creates the
+  asymmetry #384 was filed for.
+- `TICK-DELIVERY` is its own journal line beside `TICK-FAILED`, not a field inside it: keeping
+  `TICK-FAILED` as the verb and exit 4 as the verdict is `H-0300`'s deliberate half. A reader who
+  greps only `TICK-FAILED` rows will not see `pr=` — grep `TICK-DELIVERY` for the delivery, and do
+  not soften `TICK-FAILED` into it.
+- `pushed=unknown` is a read that failed, not a `false` (#228's polarity: a failed read is not
+  evidence of the clean state — and here the clean-looking reading, "not pushed, all at risk!", is
+  exactly the #384 false alarm). Anything downstream that branches on the field must treat
+  `unknown` as neither copy-confirmed nor only-copy.
+- The head oid `TICK-DELIVERY` prints is seven chars (jq `.[0:7]` of `headRefOid`), matching the
+  ticket's example `head=5e24bb0`; a comparison against a 40-char head must fold first.
+- Carried: the issue-383 rows in its record below stand as written — its re-review is the queue's
+  path, bounded by `FACTORY_REVIEW_POKES`, and its second-half row (#246's row-2 shape) is a new
+  ticket, not a leftover of this one.
+- Carried: `python3 scripts/check-close-verb.py` answers rc 1 on `NEXT.md` (two hits, both carried
+  rows) and rc 1 on `factory/DECISIONS.md` (ten hits); both files were scanned at `origin/main`
+  and here and diffed, and the hit sets are identical — this head adds no keyword-number match to
+  either.
+- Carried: every numbered owed row and hard rule below this record is intact and owed where it
+  says so; rows 53, 55 and 59 remain the bare-pointer debt census, each at its own head.
+
+## Record — the issue-383 unit (PR for `issue-383`: `TICK-FAILED` writes one sentence per way a tick can die — 124 names the ceiling TERM arrived at, 137 names the ceiling, the grace, the SIGKILL and the trapped signal, `*)` says not-a-ceiling-death and explains both; the grace is `FACTORY_TICK_KILL_AFTER`, a knob the sentence prints; five selftest arms — three legs, a wording mutant of the shipped sentence, and a deletion control whose wedge holds the pass open for the outer bound because kill-after is what releases it; `H-0291`; its state read is its own clock's; merging belongs to the supervisor)
 
 State read before this file wrote a byte, by this tick: branch `issue-383` rebased onto
 `b6b8a55` (`origin/main` at read time, which carries #459's merge with `H-0288` and `H-0289`),
