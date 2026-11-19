@@ -433,10 +433,11 @@ func TestTheStylesheetMarksTheCurrentEntryLast(t *testing.T) {
 //   - the link's own text is not empty -- an invisible link with no words is announced
 //     as nothing and skips nothing for anybody.
 //
-// The login page stays out of the loop, on the same documented reading as
-// TestTheShellCarriesNavigationThatMarksThePageYouAreOn: render.go's doc comment says the
-// login page "does not use it (it has no navigation to skip)", and there is no <nav> block
-// in its bytes for any of this to attach to. What the capture side measures -- that Chrome
+// The login page stays out of the loop on the same reading as
+// TestTheShellCarriesNavigationThatMarksThePageYouAreOn: the login document is
+// loginPageTmpl in handlers.go, its own inline template with no {{template "page"}} render,
+// and there is no <nav> block in its bytes for any of this to attach to. What the capture
+// side measures -- that Chrome
 // focuses the link at all, which `display: none` would silently prevent -- stays the
 // driver's half, and this is the cheap half that runs on the rendered bytes, per page, on
 // every `go test`.

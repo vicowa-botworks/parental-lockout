@@ -4836,9 +4836,11 @@ def self_test():
 
         The headline row is the one no byte guard can see: the anchor sits in the markup,
         resolves to nothing, and greps perfectly. The siblings are the same bullet seen from
-        the other three properties a static render can settle -- one link not two, text a
-        reader can hear, and a position before the thing it skips. Each defect is alone in
-        its row so every refusal is attributable to exactly one guard arm.
+        the other three properties a static render can settle -- one link CLAIMING the
+        content region, not two; text a reader can hear; and a position before the thing it
+        skips. Each defect is alone in its row so every refusal is attributable to exactly
+        one guard arm, and the controls at the end are the other half of the contract: the
+        honest page passes, and an anchor aimed at some other fragment does not count.
         """
         for key, over, want in [
             ("the fragment resolves to no element", {"links": [_skip_link(ttag=None)]},
@@ -4858,6 +4860,20 @@ def self_test():
         _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
         if refusal is not None:
             problems.append(f"the resolving fragment was refused: {refusal!r}")
+        # One contract with the byte-level leg in nav_test.go: an in-page anchor that does
+        # not CLAIM the content region is not a second skip link. A page that later grows a
+        # `Back to top` at `#faq` must pass both gates or fail both -- the local review
+        # round on #387 caught the two gates disagreeing on exactly this document, the Go
+        # leg tolerating it and this one calling a legal anchor "a second opinion".
+        _log, refusal = _run_shoot(
+            dict(_nav_users(), skip={"links": [
+                _skip_link(),
+                _skip_link(href="#faq", targetId="faq", ttag="P", text="Back to top",
+                           before=False)]}),
+            ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a content anchor claiming its own fragment was refused as a "
+                            f"second skip link: {refusal!r}")
 
     def every_state_class_the_pages_render_is_in_the_census(problems):
         """The census list is the vocabulary the templates use, in both directions.

@@ -128,7 +128,7 @@ def capture(cap, name):
                              "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
                              "'backendRows':document.querySelectorAll('table.rows')[0]"
                              ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
-                             + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
+                             + "," + cdp.NAV_JS + "," + cdp.STATE_JS + "," + cdp.SKIP_JS)
     # The page has to be the probe result, not an error page wearing its URL. The banner
     # counts the backends, so an empty one means nothing was measured whatever scrollWidth
     # says; two tables is the page's own shape, backend table then sessions.
@@ -157,6 +157,11 @@ def capture(cap, name):
     cdp.require_nav_marked(g, "the probe result page", "/users")
     cdp.require_nav_in_palette(g, "the probe result page")
     cdp.require_nav_distinguishable(g, "the probe result page", "/users")
+    # #387, and the second of the two frames pages.py does not photograph: its pixels carry
+    # the shell's skip link, so the guard that resolves the fragment in the browser has to
+    # be asked here too, or the census is silent on exactly the frames that no other driver
+    # shoots.
+    cdp.require_skip_link(g, "the probe result page")
     # #199, on the page where the vocabulary is the answer. Both verdict columns here are two
     # spans, `state-held` for "yes" and `state-gap` for "no": one red and bold, the other the
     # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as

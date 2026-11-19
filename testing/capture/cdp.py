@@ -1782,10 +1782,15 @@ def require_skip_link(got, what):
     asked_for` pins that the real `shoot()` asks).
 
     Zero fragment links is #387's headline: a shell that paints five masthead links and
-    a sign-out form before its content with nothing skipping past them. More than one is
-    the same class of defect as two `aria-current` marks: the site now has two opinions
-    about where "skip to content" goes, and a reader with a keyboard has to tab through
-    both to find out.
+    a sign-out form before its content with nothing skipping past them. More than one
+    CLAIMING THE CONTENT REGION is the same class of defect as two `aria-current` marks:
+    the site now has two opinions about where "skip to content" goes, and a reader with a
+    keyboard has to tab through both to find out. The contract counts links by what they
+    claim, not by their leading hash -- the shell's byte-level leg in nav_test.go refuses
+    exactly the duplicate claim and deliberately tolerates other in-page fragments, and a
+    future `Back to top` pointing at its own `#faq` is a legal anchor, not a second skip
+    link. Two gates, one contract: whichever page grows that anchor, neither gate may
+    call it the defect the other one says it is not.
 
     `ttag: null` is the named false pass -- the fragment resolves to no element.
     `text` empty is a link a screen reader announces as nothing and a screenshot cannot
@@ -1811,18 +1816,22 @@ def require_skip_link(got, what):
             f"{what}: no skip-link census was taken, so the guard comparing fragments is "
             "reading a key nobody measured -- is cdp.SKIP_JS still spliced in pages.shoot? (#387)")
     links = skip.get("links") or []
-    if not links:
+    claiming = [l for l in links if l["targetId"] == SKIP_TARGET]
+    if not claiming:
+        others = ", ".join(f"{l['href']!r}" for l in links)
         raise SystemExit(
-            f"{what}: the shell renders {len(links)} fragment links, so nothing on the page "
-            "skips past the masthead's five entries and its sign-out form -- #204's skip-link "
-            "bullet is undelivered on this page (#387)")
-    if len(links) > 1:
-        joined = ", ".join(f"{l['href']!r} ({l['text'][:32]!r})" for l in links)
+            f"{what}: the shell renders {len(links)} fragment link(s)"
+            + (f" [{others}], none claiming the content region" if others else "")
+            + f", so nothing on the page skips past the masthead's five entries and its "
+            "sign-out form -- #204's skip-link bullet is undelivered on this page (#387)")
+    if len(claiming) > 1:
+        joined = ", ".join(f"{l['href']!r} ({l['text'][:32]!r})" for l in claiming)
         raise SystemExit(
-            f"{what}: the page carries {len(links)} fragment links [{joined}]; exactly one is "
-            "the skip link and a second is a second opinion about where the content is (#387)")
-    link = links[0]
-    if link["targetId"] != SKIP_TARGET or link["ttag"] is None:
+            f"{what}: the page carries {len(claiming)} fragment links claiming #{SKIP_TARGET} "
+            f"[{joined}]; exactly one is the skip link and a second is a second opinion about "
+            "where the content is (#387)")
+    link = claiming[0]
+    if link["ttag"] is None:
         raise SystemExit(
             f"{what}: the skip link {link['href']!r} resolves to "
             + (f"{link['ttag']}" if link["ttag"] else "no element on the page")
