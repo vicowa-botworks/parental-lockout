@@ -4821,6 +4821,10 @@ def self_test():
              "sequential focus navigation"),
             ("a visibility:hidden link", {"links": [_skip_link(vis="hidden")]},
              "sequential focus navigation"),
+            # The trap in its parent's clothes: the link's OWN computed values read
+            # honest, and the only browser fact left is the box that isn't there.
+            ("a 0x0 box inside a removed ancestor", {"links": [_skip_link(w=0, h=0)]},
+             "0x0"),
         ]:
             _log, refusal = _run_shoot(dict(_nav_users(), skip=over), ARTIFACT_WIDTH)
             if refusal is None or want not in refusal:
@@ -4845,6 +4849,11 @@ def self_test():
         for key, over, want in [
             ("the fragment resolves to no element", {"links": [_skip_link(ttag=None)]},
              "resolves to"),
+            # getElementById answers with the FIRST element bearing the id: a duplicate
+            # id ahead of the content region shadows it, and `ttag: "DIV"` is the one
+            # field that says the keyboard lands on a box still holding the masthead.
+            ("the #main claim lands on a div shadow", {"links": [_skip_link(ttag="DIV")]},
+             "not the <main>"),
             ("the link announces nothing", {"links": [_skip_link(text="")]}, "empty text"),
             ("the link sits behind the masthead it skips",
              {"links": [_skip_link(before=False)]}, "at or after the navigation"),

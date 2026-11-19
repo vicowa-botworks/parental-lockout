@@ -1775,7 +1775,7 @@ def require_skip_link(got, what):
     while claiming the shape was fine. Resolution is only answerable where the document
     exists, so it is asked here, of Chrome, next to the navigation census it belongs to.
 
-    Five refusals, and each names the shape it refuses:
+    Every refusal names the shape it refuses:
 
     No census at all is the splice deleted or the script broken -- this file's standing
     refusal for "the guard is asking a key nobody measured" (`the_navigation_census_is_
@@ -1798,11 +1798,24 @@ def require_skip_link(got, what):
     it exists to skip: a Tab order that reaches it behind the masthead is the bullet
     undelivered with the markup present.
 
-    And the trap the design entry records (D-0087): a rest state of `display: none` or
-    `visibility: hidden` takes the element out of the sequential focus navigation order,
-    so the "hidden" link is the link the one input it exists for can never reach. Both
-    are refused by computed value, which is the only place that fact is true -- the bytes
-    of such a link are identical to a correct one.
+    And the trap the design entry records (D-0087), in both of the clothes it wears: a
+    rest state of `display: none` or `visibility: hidden` on the link itself, and an
+    ANCESTOR removed from layout. Both take the element out of the sequential focus
+    navigation order, so the "hidden" link is the link the one input it exists for can
+    never reach. The link's own values catch the first by computed value -- the only
+    place that fact is true, since the bytes of such a link are identical to a correct
+    one's -- and the second is caught by the one browser fact that survives the ancestor:
+    a removed subtree has no box, so a link reporting its own values as fine yet
+    measuring 0x0 is a link nobody can Tab to. The honest rest state is the clip idiom's
+    1x1 at (8,8), measured off Chrome on every frame; no refusal lives between 1 and 0.
+
+    One pin, said rather than left to inference: this leg names the content region by
+    the literal `main` (SKIP_TARGET), independently of the byte leg. A rename on both
+    ends at once -- `<main id="MAIN">` with `href="#MAIN"` -- is a working skip link the
+    byte leg passes by its documented intent, and THIS leg will refuse it with a message
+    that does not use the word "rename". That is deliberate: a shared symbol between the
+    two gates is one edit away from silence, and a future renamer's job is to update
+    both legs knowingly, not to have the capture run discovered three days later.
 
     What this does NOT ask, said rather than left to inference: what the link LOOKS like
     once focused, and whether its reveal moves the page. A static census cannot press
@@ -1834,10 +1847,17 @@ def require_skip_link(got, what):
     if link["ttag"] is None:
         raise SystemExit(
             f"{what}: the skip link {link['href']!r} resolves to "
-            + (f"{link['ttag']}" if link["ttag"] else "no element on the page")
+            + "no element on the page"
             + f", and the contract is that it resolves to the content region `#{SKIP_TARGET}` "
             "-- a fragment into a hole is the false pass #387 names: the bytes are there and "
             "the keyboard lands nowhere")
+    if link["ttag"] != "MAIN":
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} resolves to a <{link['ttag'].lower()}>,"
+            " not the <main> content region -- getElementById answers with the FIRST element"
+            " bearing the id, so a duplicate id standing ahead of the content region shadows"
+            " it: Tab-and-Enter lands on a box that still contains the masthead, which is"
+            " the defect D-0087 rejected, with every byte of the link correct (#387)")
     if not link["text"]:
         raise SystemExit(
             f"{what}: the skip link {link['href']!r} has empty text -- collapsed at rest, a "
@@ -1854,6 +1874,14 @@ def require_skip_link(got, what):
             "-- either removes it from the sequential focus navigation order, so the link the "
             "keyboard exists for is the link the keyboard can never reach; collapse it out of "
             "the layout and paint instead, not out of the tree (D-0087)")
+    if link["w"] == 0 and link["h"] == 0:
+        raise SystemExit(
+            f"{what}: the skip link's own box measures 0x0 while its own computed values "
+            "read fine, so the thing removing it from the page is an ANCESTOR -- a removed "
+            "subtree has no box and no place in the sequential focus navigation order, and "
+            "every arm that reads only the link's own values calls this a correct link. The "
+            "honest rest state is the clip idiom's 1x1, measured off Chrome; nothing lies "
+            "between 1 and 0 (D-0087's trap in its parent's clothes, #387)")
 
 
 # The first words of the self-session note, as one string in one place. Both result pages render

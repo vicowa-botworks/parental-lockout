@@ -468,6 +468,16 @@ func TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage(t *testing.T) {
 				"reads fine to any grep that only asks whether the anchor exists (#387)", path)
 			continue
 		}
+		// The id must be UNIQUE, not merely present: getElementById answers with the
+		// FIRST element bearing it, so a duplicate `id` standing earlier in the document
+		// shadows the content region -- Tab-and-Enter lands on a box that still contains
+		// the masthead, and every property the arms above check is individually fine.
+		// The capture leg sees the same document from the browser as ttag != MAIN.
+		if n := strings.Count(body, `id="`+target+`"`); n != 1 {
+			t.Errorf("%s: %d elements carry id %q in the rendered bytes, so the fragment lands "+
+				"on the earliest one, not necessarily the content region -- a duplicate id is "+
+				"#387's false pass with a shadow standing in front (#387)", path, n, target)
+		}
 
 		// The anchors, scanned left to right with their real byte offsets — the way
 		// navEntries reads the nav (opening tags and href attributes, no regex), plus
@@ -533,9 +543,28 @@ func TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage(t *testing.T) {
 
 // anchor is one opening <a> tag in a rendered page, with the byte offset the ordering
 // assertions are made of.
+// nextAnchorStart finds the next opening anchor tag at or after i: the two bytes `<a`
+// followed by ASCII whitespace or `>`. The old literal "<a " required the space and the
+// browser does not: `<a\nhref="#main">` is a legal anchor, a real tab stop, and exactly
+// the element this file's guards are about -- a scanner that misses it lets the cheapest
+// byte in HTML hide a focusable element from a byte-level tab-order assertion. `<abbr`
+// is a different word and `</a` is the same word backwards; neither may match.
+func nextAnchorStart(body string, i int) int {
+	for ; i >= 0 && i < len(body); i++ {
+		if body[i] != '<' || i+2 >= len(body) || body[i+1] != 'a' {
+			continue
+		}
+		switch body[i+2] {
+		case ' ', '\t', '\n', '\r', '>':
+			return i
+		}
+	}
+	return -1
+}
+
 type anchor struct {
 	at    int    // byte offset of the "<a" itself
-	open  string // the tag between "<a " and its closing ">", quote-aware
+	open  string // the tag between "<a" and its closing ">", quote-aware
 	inner string // the bytes after the opening tag: the anchor's text, among other things
 }
 
@@ -544,18 +573,17 @@ type anchor struct {
 // A quote-aware scanner, not a Cut: an attribute value may hold a literal ">" (Go's escaper
 // writes "&gt;", but a value may also hold a bare one inside quotes and parsers must
 // tolerate it), and the tag ends at the first ">" OUTSIDE quotes. The inner text runs to
-// the first "</a" after the tag, or to the next "<a " -- whichever comes first -- because
-// this shell emits no nested anchors and an unclosed one is a defect the caller's counts
-// will surface, not something the scanner should silently swallow.
+// the first "</a" after the tag, or to the next opening anchor -- whichever comes first --
+// because this shell emits no nested anchors and an unclosed one is a defect the caller's
+// counts will surface, not something the scanner should silently swallow.
 func anchors(body string) []anchor {
 	var out []anchor
-	for i := 0; i+3 <= len(body); {
-		j := strings.Index(body[i:], "<a ")
-		if j < 0 {
+	for i := 0; ; {
+		start := nextAnchorStart(body, i)
+		if start < 0 {
 			break
 		}
-		start := i + j
-		tag := body[start+3:]
+		tag := body[start+2:]
 		var quote byte
 		end := -1
 		for k := 0; k < len(tag); k++ {
@@ -582,11 +610,11 @@ func anchors(body string) []anchor {
 		if cut := strings.Index(inner, "</a"); cut >= 0 && cut <= len(inner) {
 			inner = inner[:cut]
 		}
-		if next := strings.Index(inner, "<a "); next >= 0 && next < len(inner) {
+		if next := nextAnchorStart(inner, 0); next >= 0 {
 			inner = inner[:next]
 		}
 		out = append(out, anchor{at: start, open: tag[:end], inner: inner})
-		i = start + 3 + end + 1
+		i = start + 2 + end + 1
 	}
 	return out
 }
@@ -597,7 +625,10 @@ func anchors(body string) []anchor {
 // elements are anchors, buttons, and the form controls below.
 func firstFocusable(body string) (int, string) {
 	best, what := len(body), "nothing"
-	for _, tok := range []string{"<a ", "<button", "<select", "<textarea"} {
+	if i := nextAnchorStart(body, 0); i >= 0 && i < best {
+		best, what = i, "<a"
+	}
+	for _, tok := range []string{"<button", "<select", "<textarea"} {
 		if i := strings.Index(body, tok); i >= 0 && i < best {
 			best, what = i, tok
 		}
@@ -617,4 +648,44 @@ func firstFocusable(body string) (int, string) {
 		i = at + len("<input")
 	}
 	return best, what
+}
+
+// TestTheAnchorScannerReadsEveryLegalSpelling pins the tokenizer itself, not the page:
+// the template happens to write `<a ` today, which is exactly why a "<a "-only scanner
+// can pass every page test while being blind to what the browser would focus. The
+// browser treats `<a` followed by space, `\n`, `\t`, `\r` or `>` as one tag opener; the
+// scanner must too, and it must keep saying no to `<abbr` and to `</a`.
+func TestTheAnchorScannerReadsEveryLegalSpelling(t *testing.T) {
+	body := `<p abbr="x">text</p>` + "\n<a\nhref=\"#a\">one</a>" +
+		"<a\thref=\"#b\">two</a><a>c</a>" + "</a><abbr>not</abbr>"
+	wantText := []string{"one", "two", "c"}
+	got := anchors(body)
+	if len(got) != len(wantText) {
+		t.Fatalf("the scanner read %d anchors from a page carrying %d: at=%v",
+			len(got), len(wantText), func() []int {
+				var at []int
+				for _, a := range got {
+					at = append(at, a.at)
+				}
+				return at
+			}())
+	}
+	for i, a := range got {
+		text, _, _ := strings.Cut(a.inner, "</a>")
+		if strings.TrimSpace(text) != wantText[i] {
+			t.Errorf("anchor %d carries text %q, want %q -- the scanner mis-sliced the document",
+				i, strings.TrimSpace(text), wantText[i])
+		}
+	}
+	if i := nextAnchorStart("</a><abbr>", 0); i >= 0 {
+		t.Errorf("byte %d of %q is not an anchor opening; </a> and <abbr must never match", i, "</a><abbr>")
+	}
+	if i := nextAnchorStart(body, 0); i != strings.Index(body, "<a\n") {
+		t.Errorf("the first anchor was reported at %d, want the newline-spelled one at %d",
+			i, strings.Index(body, "<a\n"))
+	}
+	if at, what := firstFocusable(body); at != strings.Index(body, "<a\n") || what != "<a" {
+		t.Errorf("firstFocusable answered (%d,%q), want the newline-spelled anchor at %d",
+			at, what, strings.Index(body, "<a\n"))
+	}
 }
