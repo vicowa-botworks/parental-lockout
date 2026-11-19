@@ -7082,7 +7082,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `factory/selftest.sh`'s `branch_control_name_only` plants that arm and demands `br-reopened` turn up
   `delivered` so the harm stays reproducible. The third option buys a class whose only new behaviour is
   that nothing works with it -- `delivered` is already the class whose whole job is to start nothing
-  (`H-0122`), and `factory_class_is_workable` keys on the class alone, so a branch row needs no new arm
+  (`H-0053`), and `factory_class_is_workable` keys on the class alone, so a branch row needs no new arm
   and a second name for the same verdict is one more surface to keep true. The fourth is what the harness
   does today and is the defect: the tally is a count with no key, printed to stderr, and its existing
   sentence has already drifted into printing its own format string (#329) with nobody able to point at
@@ -16036,3 +16036,56 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
 - Checkpoint: 9f04a92
 - Effect: `factory/selftest.sh` only -- the captures at `factory/selftest.sh:18510` "mcp_cli_open=$(mcp_cli_dump '{}') || mcp_cli_open_rc=$?" and the fenced one beside it, plus the `fenced dump is not JSON` refusal, which now prints the status it used to discard, and the 130 added lines at the tail: 4 changed, 130 added, the hunk headers as quoted above. Measured at this commit: CI-shape PATH at `55c74aa` `died with exit 127 after 669 ok and 0 FAIL` rc 127; CI-shape PATH here `896 passed, 0 failed` rc 0 with exactly one `SKIP` printed and both new legs ok; this box's PATH, where the CLI answers and those two dump legs run rather than skipping, `898 passed, 0 failed` rc 0, the same number `make verify` counted at this tree before the commit. `make check-shell` 33 scripts 0 findings, `scripts/check-scripts.py` 0 problems, `check-decisions.py` rc 0 with the ratchet unchanged at 583, this entry's citations each carrying a flush fragment on its own physical line. No shipped script outside `factory/` touched, and no GitHub state changed by this entry.
 - Follow-up: two, named and none opened silently. One: the runner still never exercises the two dump legs, so the claim that the fence reaches the CLI's configuration layer is pinned only on boxes that have `opencode`; giving the job a CLI is a workflow-file change, which is publishing and not this unit's to make. Two: `~/prj/at-risk` holds four quarantine patches for this branch today (`16:48Z`, `17:11Z`, `19:17Z`, `22:01Z`); the last is this defect, and the other three belong to earlier heads on this branch and were not examined this round.
+
+## H-0316 · The one trunk row citing a stranded id named an entry no lineage of `main` holds, and the claim it was made for belongs to the row that created the class
+
+- Question: what is owed to a reader who follows an id out of `H-0151`'s `Why:` and lands in a hole?
+  `factory/DECISIONS.md:7085` "keys on the class alone, so a branch row needs no new arm" closes a
+  sentence resting on one claim -- that `delivered` is already the class whose whole job is to start
+  nothing -- and attributes it to an entry no history of `main` contains. Measured 19 Nov at `25d2904`,
+  taking the census #393 asked for with a regex wider than the gate's own: 383 heading-shaped lines in
+  the two logs against 382 entries the gate parses, and 174 id tokens in the log text naming none of
+  them, across 23 distinct ids. Four records are stranded on branches with no open pull request; this
+  is the only one a row on trunk cites. The id is in no tree in this repository's refs except one
+  never-pushed local ref, `backup-tip` (tip `8baeea9e9`, whose own checkpoint object is on no
+  remote-tracking ref: `git branch -r --contains` answers empty for it), and whose pull request #285
+  closed with the branch unmerged.
+- Options: (a) restore the stranded entry verbatim so the id resolves | (b) re-aim the citation at the
+  entry that created the class and states the claim in its `Chose:` | (c) keep the id and qualify it
+  with the ref that holds it | (d) drop the clause and claim nothing about the class | (e) escalated to
+  a maintainer
+- Chose: (b) re-aim the citation at the entry that created the class and states the claim in its
+  `Chose:`
+- Why: (a) buys an id and not the claim. The stranded record is about a refusal list that reads
+  `backup/*` while the ref is `backup-tip`; measured in its own bytes it says "delivered" twice as
+  prose and never as the class this sentence is about, and it carries no `Effect:` field naming the
+  class or its arm. It is also not free: appended to the harness log with its id renumbered -- which
+  the duplicate-id rule forces -- it took the anchor debt from 583 to 584 and the gate refused the run,
+  because the pointer inside it to `factory/factory.sh` carries no anchor. The ratchet was right to
+  refuse: a restored record is new debt, spent to make a grep hit. (b) is free and true. `H-0053` is
+  the entry that cut the class, and its chosen option is the sentence the citation is making:
+  `factory/DECISIONS.md:1095` "the verdict built out of five facts GitHub already holds". One id token
+  changes and the row points at a decision that says what the row says it says. (c) is a pointer to
+  bytes nobody else has: the ref is local, so the coordinate cannot be opened from a clone. (d) deletes
+  the reason the third option was refused, which is the content of the `Why:` it sits in. (e) was
+  considered and not taken: nothing here adds a dependency, changes tamper-resistance semantics,
+  publishes a ref, or deletes data -- it edits one token and appends this record. The half that DOES
+  need an authority is left where it belongs: the other three stranded ids are on someone else's
+  branches, and putting them on trunk means publishing another branch's record, so #393 keeps that
+  judgement and this entry does not preempt it.
+- What it lost: the id itself. A reader who greps the logs for it now finds only this row, which names
+  it once as the thing that was removed. That is worth writing down because the same gate #393 asks for
+  -- refuse a citation whose id has no heading -- will judge this row too unless it judges new
+  citations rather than every token: 174 tokens already fail that test, so a gate that reads all of
+  them cannot be turned on at rc 0, and this row is the smallest case of the difference.
+- Confidence: high on the defect and on the re-aim; medium on the census being the whole stranded set,
+  because the wider regex is one reader's reading of what a heading looks like, and the gate's own
+  parser disagrees with it in exactly one place, which is the row H-0317 turns into a refusal.
+- Revisit: if `backup-tip` is ever pushed or its pull request reopened, re-read whether the record
+  should exist on trunk for its own sake; the citation this row re-aims does not need it either way.
+- Checkpoint: 7ad14c4
+- Effect: one id token on the row cited above, and this record. The census this entry reports is
+  re-runnable from the two logs and `git for-each-ref`; the append sits at the end of the file, so no
+  line above it moved and no pointer into it changed -- `--citations` on this file returns the same
+  rows it did at the checkpoint, which is the check that made appending here the legal place for a
+  new entry.
