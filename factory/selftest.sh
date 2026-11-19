@@ -73,6 +73,28 @@ HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck disable=SC1091
 . "$HERE/common.sh"
 
+# The suite certifies the code, never the caller (#425). A supervisor tick exports the allocator's
+# attribution variables -- `FACTORY_LOG`, `FACTORY_TICK_UNIT`, `FACTORY_TICK_BRANCH` -- and every
+# bare allocator run in this file inherits them, so from a tick environment the journalling guard
+# at `factory/next-decision-id.sh:546` ("[ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]")
+# fires for fixtures whose whole question is the bare run. Two costs, both measured: the legs
+# `a bare run journals nothing` and `control: one note can suppress the other` read red on any
+# branch -- green in CI, red for the tick that has to ship it -- and the guard writes while it is
+# fooled: 28 rows for id `D-0086` sit in the operator's retained `factory/log/supervisor.log` from
+# the ticks of 16-18 Nov, beside the lines the end-of-tick UNEARNED comparison reads, while trunk's
+# real ceiling is `D-0085` and no `## D-0086` entry was ever committed -- rows for answers no unit
+# ever filed, journalled by unit-attributed runs that ran under the exported environment. A guard
+# at the door beats one `-u` per call site, because the call sites grow and the leak is silent.
+# AFTER sourcing `common.sh`, not before: both `common.sh` (`FACTORY_LOG=${FACTORY_LOG:-…}`) and
+# this file's own fixture-box re-point at line 362 re-default it after any earlier unset (measured:
+# the first cut of this guard sat above the source and the suite's own probe went red on the
+# re-defaulted value; the second cut's probe asked for emptiness and went red on the fixture-box
+# re-point, which is harmless -- the hazard is the live path and the attribution, and the probe now
+# says exactly that). Legs that need an attribution variable pass it explicitly
+# (the journalling fixture pins its own values in both arms of `dpn_alloc_run`); nothing may rely
+# on the ambient one.
+unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG
+
 pass=0
 fail=0
 reached_verdict=0
@@ -1507,6 +1529,51 @@ wired_into_verify() {
 }
 wired_into_verify
 halt_call_sites_shaped
+
+# The door-scrub is a step in the shipped text, so it gets the `wired_into_verify` bargain (#425):
+# the check is a grep of this file, and its control deletes the line and must go blind. The runtime
+# probe beside it is deliberately the weak half -- a clean caller passes it even with the unset
+# deleted -- which is exactly why the text half exists.
+scrub_at_the_door() {
+	local label="the tick attribution is scrubbed at the door" self="$HERE/selftest.sh" stripped
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$' "$self"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" 'the preamble clears LOG and both TICK variables before any fixture runs'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the preamble no longer unsets the tick'"'"'s attribution variables, so\n' "$label"
+		printf '          a run from a dispatch inherits them: fixture answers journal into the real\n'
+		printf '          supervisor log and the bare-run legs read red for the tick that ships.\n'
+	fi
+	mkdir -p -- "$work/scrub"
+	stripped=$work/scrub/selftest.sh
+	sed '/^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$/d' "$self" >"$stripped"
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$' "$stripped"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the scan still finds the unset after its line is deleted, so the\n' "control: $label"
+		printf '          ok above matches something else and means nothing.\n'
+	else
+		printf '        control: the same scan says the unset is gone once its line is deleted, so\n'
+		printf '        the ok above is the check working and not the check being blind.\n'
+	fi
+	# The predicate is the hazard, not absence: line 362 legitimately re-points `FACTORY_LOG` at the
+	# fixture box AFTER this leg runs, and a probe that demanded emptiness went red on that harmless
+	# re-point while a leftover `FACTORY_TICK_UNIT` -- the other half of the guard's conjunction --
+	# would have passed unnoticed in a clean caller. What must not survive the door is the live path
+	# and the attribution.
+	if [ "${FACTORY_LOG:-}" != "$FACTORY_ROOT/factory/log" ] && [ -z "${FACTORY_TICK_UNIT:-}" ] \
+		&& [ -z "${FACTORY_TICK_BRANCH:-}" ]; then
+		printf '        probe: this run carries no live journal path and no tick attribution,\n'
+		printf '        as every fixture below sees them.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the running suite still carries %s, so a bare fixture run\n' "probe: $label" \
+			"$([ "${FACTORY_LOG:-}" = "$FACTORY_ROOT/factory/log" ] && printf 'the live journal path' || printf 'a live journal path or a tick variable')"
+		printf '          would journal into the operator'"'"'s record rather than the fixture box.\n'
+	fi
+	return 0
+}
+scrub_at_the_door
 
 # --------------------------------------- the marker each verb leaves in the operator's hand (#237)
 #
@@ -16971,15 +17038,21 @@ dpn_mut() {
 # dpn_alloc_run <repo> <logdir> <unit or -> [script] -> the allocator's stdout, stderr captured.
 # `-` is the bare run: no unit named, the shape of a person checking from a terminal. The branch is
 # pinned through `FACTORY_TICK_BRANCH` rather than inherited from HEAD so the journal line's
-# attribution is what the leg says it is, not what the fixture happens to be standing on.
+# attribution is what the leg says it is, not what the fixture happens to be standing on. Both arms
+# CLEAR the caller's `FACTORY_TICK_UNIT`/`FACTORY_TICK_BRANCH` before pinning their own truth: a
+# supervisor tick exports them, and the bare arm that only adds a log inherits a unit -- measured
+# #425, where `make verify` inside a dispatch reddened `a bare run journals nothing` because the
+# guard at `factory/next-decision-id.sh:546` read the dispatch's attribution as the fixture's.
 # shellcheck disable=SC2317  # reached through the command substitutions in the predicates
 dpn_alloc_run() {
 	local repo=$1 logdir=$2 unit=$3 script=${4:-$dpn_alloc}
 	mkdir -p -- "$logdir" || return 1
 	if [ "$unit" = '-' ]; then
-		( cd -- "$repo" && env FACTORY_LOG="$logdir" bash "$script" DECISIONS.md ) 2>"$dpn_err"
+		( cd -- "$repo" && env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH \
+			FACTORY_LOG="$logdir" bash "$script" DECISIONS.md ) 2>"$dpn_err"
 	else
-		( cd -- "$repo" && env FACTORY_LOG="$logdir" FACTORY_TICK_UNIT="$unit" \
+		( cd -- "$repo" && env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH \
+			FACTORY_LOG="$logdir" FACTORY_TICK_UNIT="$unit" \
 			FACTORY_TICK_BRANCH=issue-j bash "$script" DECISIONS.md ) 2>"$dpn_err"
 	fi
 }
@@ -17011,6 +17084,65 @@ dpn_j1() {
 }
 dpn_leg 'a unit answer journals itself' 'one DECISION-ID line naming the id, the unit, the branch and the log' \
 	dpn_j1
+
+# The COUNT, not the grep: `a unit answer journals itself` asks whether a line exists, so a write
+# that fires twice passes on its first line -- and #425's repair lesson is that a leg satisfied by
+# shape rather than number certifies the environment, not the code. A unit answered owes exactly
+# one provenance line: a second one doubles the UNEARNED comparison's input for the same id.
+dpn_j1x() {
+	local got n
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_work/j1x-log" unclaimed:j1x) || {
+		printf '            the allocator refused; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	[ "$got" = D-0002 ] || {
+		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
+		return 1
+	}
+	n=$(grep -cF -- 'DECISION-ID' "$dpn_work/j1x-log/supervisor.log" 2>/dev/null || true)
+	[ "$n" = 1 ] || {
+		printf '            the journal carries %s DECISION-ID line(s) for the one answer:\n' "${n:-0}" >&2
+		sed 's/^/              /' "$dpn_work/j1x-log/supervisor.log" >&2
+		return 1
+	}
+	return 0
+}
+dpn_leg 'a unit answer journals exactly one line' 'the count, so a write that fires twice cannot pass on its first line' \
+	dpn_j1x
+
+# And the count leg can bite: a mutant that duplicates the write must move the count to 2. Without
+# this control the leg could be passing because its fixture journal can hold at most one line.
+dpn_j1x2=0
+dpn_mut "$dpn_alloc" 'next-decision-id: journalled' \
+	'		printf '"'"'next-decision-id: journalled DECISION-ID %s (%s)\n'"'"' "$next" "$jrn_read" >&2 && printf '"'"'%s DECISION-ID %s duplicated\n'"'"' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$next" >>"$FACTORY_LOG/supervisor.log"' \
+	"$dpn_work/alloc-twice" || dpn_j1x2=1
+dpn_j1x2_leg() {
+	local got n
+	if [ "${dpn_j1x2:-1}" != 0 ]; then
+		printf '            the write could not be duplicated, so this control ran shipped code and\n' >&2
+		printf '            its finding is the shipped script'"'"'s, not the mutant'"'"'s.\n' >&2
+		return 1
+	fi
+	got=$(dpn_alloc_run "$dpn_j1_repo" "$dpn_work/j1x2-log" unclaimed:j1x2 "$dpn_work/alloc-twice") || {
+		printf '            the duplicated allocator refused:\n' >&2
+		sed 's/^/              /' "$dpn_err" >&2
+		return 1
+	}
+	[ "$got" = D-0002 ] || {
+		printf '            it answered %s: duplicating the journalling changed the ANSWER.\n' "$got" >&2
+		return 1
+	}
+	n=$(grep -cF -- 'DECISION-ID' "$dpn_work/j1x2-log/supervisor.log" 2>/dev/null || true)
+	[ "$n" = 2 ] && return 0
+	printf '            the duplicated write journalled %s line(s), not 2 -- the count leg above\n' "${n:-0}" >&2
+	printf '            could not have noticed a second write even if one shipped.\n' >&2
+	{ sed 's/^/              /' "$dpn_work/j1x2-log/supervisor.log" 2>/dev/null ||
+		printf '              (no journal at all)\n'; } >&2
+	return 1
+}
+dpn_leg 'the count leg can bite' 'a duplicated write moves the count to 2, so one is a verdict not an accident' \
+	dpn_j1x2_leg
 
 # The control nulls the write and nothing else: the answer must stay CORRECT (the id is computed
 # before the journal is mentioned, and a control that changed it would test the arithmetic instead),
