@@ -2270,4 +2270,3 @@ failure wearing a number.
   records the measurement.
 - Read the review after the push, not before. `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus`
   after the push is what the body may claim, and `gh pr checks 431` at rc 8 means pending, not failed.
-
