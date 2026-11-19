@@ -5336,4 +5336,10 @@ factory_delivery_after_failure() {
 # mcp list` answers `No MCP servers configured` for a fixture that declares three -- a false null
 # from a broken instrument, which is why the legs below read `debug config` instead and skip a box
 # that cannot start a private instance.
+# shellcheck disable=SC2034  # the value is read by factory.sh, which sources this file and hands it to
+# the session's environment, and asserted byte-for-byte by factory/selftest.sh -- neither is this file,
+# so shellcheck's per-file walk is the only thing that calls it unused. A directive placed after the
+# assignment is refused by shellcheck itself (`SC1126`), so this one goes above and the constant's line
+# number moves by six; neither decision log cites the constant by line, so the move costs nothing, and
+# the review that found the finding was written against the old head in any case.
 FACTORY_MCP_FENCE='{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}'

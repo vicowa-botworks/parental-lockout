@@ -1,4 +1,209 @@
-# NEXT — issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
+# NEXT — issue-390 unit, base-sync round (branch `issue-390`, PR #473: the sync the 20:41Z review measured as mechanical is in, its recipe followed on the merged bytes and its numbers reproduced — it predicted `380 / 1240 / 583 / 0 refused`, this tree reads `381 / 1254 / 583 / 0 refused` with this round's entry in it; the third seam it did not name, fourteen `NEXT.md` pointers, is re-aimed here; the fossil sentence and the whole gate that review asked for are both landed; the pass is `H-0313`; the pull refs #390 and the issue stays open on its own terms, never on this file; merging belongs to the supervisor)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: at
+`2026-11-19T20:50:51Z` `gh pr view 473 --json reviewDecision,mergeable,mergeStateStatus,headRefOid`
+answers `CHANGES_REQUESTED`, `CONFLICTING`, `DIRTY`, head `e29118df63552269e60c223d1e6519386b1c7553`
+— so the 20:41Z review postdates the head it reviewed and the ticket's own words (CONFLICTING/DIRTY,
+checks pass) were still true, not stale. Both type reads were taken in the same breath before any
+write and both name the pull: `gh issue view 473 --json url` answers `…/pull/473` and `gh pr view 473
+--json headRefName` answers `issue-390`, `baseRefName` `main`. Over the trunk of that moment
+(`de01cf0`, which `git reflog show origin/main` names as the value the next fetch fast-forwarded) the
+branch was two commits, `3102bf5` and `e29118d`; after the refresh below the same command answers six,
+because trunk took #472 in between and this branch's own earlier sync merge `e487429` is not on it.
+`git merge-base --is-ancestor origin/main HEAD` was false at 1, and `git rev-list --count HEAD..origin/main`
+answers 5. The incoming trunk is `b9aef1d`, the #472 merge.
+The checkpoint is `121122b`, taken after the allocator answered `H-0313` on a `REFRESH 0s union` read
+— the first read said `REFRESH-BLIND 311s`, so `git fetch --prune origin` ran and the number was
+re-taken, not inherited. The Record below is the incoming trunk's own head (`issue-391`, PR #472),
+carried whole with its rows unrenumbered.
+
+## What this round shipped
+
+- `origin/main` merged into `issue-390`, with `factory/DECISIONS.md` the only conflicted path and both
+  seams adjudicated on the merged bytes. Seam 1 is the shared `H-0268` sync row: trunk's
+  `scripts/check-decisions.py:1078` is kept, because `git diff --numstat de01cf0 origin/main` over that
+  file is `179 42` and the sentence the row quotes sits at 965 on this branch and 1078 on trunk — a
+  `+113` move — while `git diff --numstat de01cf0 e29118d -- factory/factory.sh` is `8 0` and trunk's
+  numstat names that file not at all. So each parent's coordinates are true of the one file it moved,
+  and the fusion takes trunk's gate coordinate with this branch's `+8`'d shell coordinates
+  (`:1933-1934` and `:1793`, whose quoted anchors open here and do not open at trunk's numbers).
+  Seam 2 is the tail junction: `H-0310`/`H-0311` from trunk, then `H-0312`, ascending id, ids disjoint.
+- One correction from that review's non-blocking list: the sentence at the head of the new `selftest`
+  block that claimed `NEXT.md` names the cgroup read now names `docs/factory.md`, the file that actually
+  spells it out — over the incoming hand-off, a case-insensitive count of cgroup, mcp and wine answers
+  `0`. The second non-blocking item, that the previous head never ran the whole gate, is answered by the
+  `GATE:` line rather than by prose: `check-shell` came back red on two findings in the fence's own code
+  (`SC2034` on the constant in `factory/common.sh`, which the per-file walk cannot see is read by the
+  file that sources it, and `SC1003` on the control leg's plant line, where a trailing backslash inside
+  single quotes is the intent, not a mistyped quote escape). Both are fixed with the file's own
+  convention and without changing a planted byte — the plant line re-quoted in double quotes is
+  byte-identical, `od`-proved before the edit, and the directive is the same `# shellcheck disable`
+  comment the four constants above it already carry.
+- The pull-request body was rewritten with `gh issue edit`, and its closing verb is gone: it said
+  `Closes #390` while its own text stated the live cgroup read and the sandbox half were outstanding.
+  #390's "What closes it" list is four criteria and this branch meets one and a half, so the body says
+  `Refs #390` and names what is missing. A closer on a partial delivery takes the row out of the queue
+  and nothing re-files it (#1256).
+- The gate on the bytes this commit ships is quoted in the pull-request body beside the `GATE:` line,
+  whole — `make verify`, `check-decisions.py --self-test`, `check-next-md.sh`, `check-close-verb.py`
+  over the body file, and the whole `factory/selftest.sh` — measured on the tree this commit ships
+  from, not inherited from the head it replaces.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review. A push into a reviewed pull request spends the standing verdict (#269), and this round
+   pushed. The re-ask is the supervisor's poke (`factory_request_review`), not a unit's: the verb a unit
+   would reach for, `gh pr edit --add-reviewer`, exits 1 on this account's retired `projectCards` field
+   and writes nothing (`H-0010`).
+2. #390's criteria 2 and 3, which no offline run can meet. Criterion 2 wants the chain proved in both
+   polarities from inside an activation — the unit's own cgroup read and its `cgroup.procs`, spelled
+   out in `docs/factory.md`, plus `journalctl --user -u parental-lockout-factory.service` showing no
+   `State 'stop-sigterm' timed out` line for that activation; criterion 3 wants an activation that ends
+   on rc 4 for "queue still has work" without that timeout, and `factory_reap_line` read alongside it.
+   The first merged tick owes both legs; the fence's own legs prove only that the deny reaches the
+   configuration.
+3. #390's Option B — confining what may stand in the cgroup at all — is an escalation class
+   (tamper-resistance semantics), `H-0312` refused it, and the issue keeps it until a maintainer answers.
+4. Everything the carried head below still owes. Its item 1 (re-review of #472) was taken by #472's
+   merge; its items 2, 3, 4 and 5 are unpaid and are its successor's — the two unanchored pointers with
+   their measured targets, the single-question guards that are still single, the synthetic-recipe mutant
+   table, and the ratchet's live comparison. They are carried in the Record, unrenumbered, and they are
+   true on these bytes: #472's gate file arrived unmodified, so nothing this round did touched them.
+5. Two `Effect:` phrases inside the shared `H-0268` row that this merge cannot make true again — "nine
+   of the seventeen" and "the same eight coordinates" — each already in-row-disclosed by its own
+   Erratum, and this round's fusion moved them again (`+15` to `+26`, rows `14252`/`14262`). They are
+   inherited and disclosed, and they are not owed by anyone; they are owed the truth, which is the row.
+6. Two `path:line` pointers that read as promises and are not, both written identically on both parents
+   and inside the 583 the ratchet guards but does not compare, so the gate answers rc 0 and 0 refused
+   over both. `factory/DECISIONS.md` row 3342 (`D-0061`) cites `scripts/check-decisions.py:646`, which is
+   a blank line on these bytes; the sentence it means is
+   `scripts/check-decisions.py:759` "nobody can prove still fires -- the failure mode this script keeps
+   being written about." — trunk's `179 42` moved it. And row 8469 (`H-0169`) cites
+   `factory/factory.sh:1517` in a census whose own sentence claims "the coordinates here are the merged
+   tree's": `:1517` is main's number and true only on main, because this branch's `8 0` put that comment
+   at `factory/factory.sh:1525` here. This round re-aimed the first seam's coordinates and left this one
+   exactly as both parents wrote it, on purpose: the same row is reproduced verbatim inside a
+   `docs/factory.md` code fence, so a lone digit change would split the log from its own quotation, and
+   `python3 scripts/check-decisions.py --citations factory/factory.sh` does not list it because no anchor
+   is quoted beside it. The repair therefore owes one commit that moves the log row, the fence copy and
+   the anchor quote together, which is also what takes it out of the 583 instead of moving the debt to a
+   new number.
+
+## Constraints a stranger would break here
+
+- Seam 1 is fused per side, and that is the whole resolution. `--ours` and `--theirs` each refuse three
+  anchored citations on these bytes — main's line names `factory.sh:1925-1926`/`:1785`, which this
+  branch moved, and this branch's line names `check-decisions.py:965`, which trunk moved. Re-derive it
+  from the merged files, never from a parent.
+- The fourteen `NEXT.md` pointers aimed INTO this file are the merge's third seam, and the base proves
+  it: base and this branch both carry them at `:2322` and `:2426`, which open on the quoted rows in the
+  base's `NEXT.md`, and trunk carries `:2411` and `:2515`, which open on the same rows under trunk's
+  longer head. Neither parent is wrong; the merged tree is a third file, where those rows are at
+  `NEXT.md:2527` and `NEXT.md:2631` — the two numbers this round's head writes, so the union re-aimed
+  fourteen coordinates and a second time after the head grew again, and each landing is proved by the
+  gate's own anchor test, never by arithmetic: one pass of the repair trusted the `+N` and wrote one
+  number into all fourteen, and the gate refused seven of them at rc 1 naming the line each should have
+  been. That is why the census is re-run after every head edit and never inherited. Anyone who edits a
+  head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again.
+- The fence is one env-layer deny at the unit's dispatch. `--config-layer` cannot be made to write an
+  `allow` — the parser refuses a trailing allow for that key, so a widened fence that "adds" a key
+  reddens rather than silently opening; and a bare `--config` replaces the agent definition, so it is
+  not a narrower version of the same thing.
+- Carried from the head below and still true here: `INVOCATION` matching the self-test invocation is
+  the contract and ordering is the fix; the three refusal sentences are constants because the mutants
+  assert them by name; a mutant built with `str.replace` over a recipe constant silently equals its
+  base the day the recipe's shape changes, so widen the fixture, never the guard.
+
+## Record — the issue-391 unit, round 2 (branch `issue-391`, PR #472: the gate question each `verify` clause is asked is now answerable, and a chunk counted as a step must also be able to fail the recipe — review round 2 answered; #472 merged as `b9aef1d` six minutes after that head was written, so its owed item 1 is taken; `H-0310` and `H-0311`; the re-review it asks for is the supervisor's poke; merging belongs to the supervisor)
+
+State read by this round before it wrote a byte, off the API and not off the dispatch: at
+2026-11-19T18:09:28Z `gh issue view 391 --json number,state,url` answers `391 OPEN
+https://github.com/vicowa-botworks/parental-lockout/issues/391`, and `gh pr view 472 --json
+headRefName,state,reviewDecision` answers `issue-391 OPEN CHANGES_REQUESTED` — the pull request
+exists, this branch is its head, and `hermesvicowa`'s review is the live verdict. The tree's own
+state: `git log --oneline -1` is `62b23c3 chore(checkpoint): pre-H-0311 the tree the
+status-reaches-shell arm is written against`, taken before the judgement call; the shipped head
+`8f7cd14` is the single commit carrying `Decision: H-0310`, stacked on its checkpoint `0859372`,
+whose parent `de01cf0` is the merge of #471. The Record below is `8f7cd14`'s own head, carried whole
+with its rows unrenumbered. Both blocking findings in the quoted review were re-derived on the
+checkpoint's bytes with control probes before anything was built, not accepted from the review's
+prose: the B1 pipe-hole — `invocation_problems()` read from `62b23c3` and handed the live `verify`
+recipe whose gate clause ends `| cat` returns NO problem, while a throwaway Makefile's
+`false | cat; \` under `set -e` reaches its closing echo at rc 0; the B2 false-prefix — the
+deny-list's self-test chunk at `Makefile:130` IS the gate-invocation prefix the old sentence denied,
+and each sibling's own classifier routes that chunk to its own sentence regardless.
+
+## What this round shipped
+
+The second round on this branch ships what the review's two blocking findings asked for and nothing
+else, in `scripts/check-decisions.py` (+82 −13 on the checkpoint):
+
+- The `_status_reaches_shell` arm, ported in shape from `scripts/check-denies.py`: a matched chunk
+  counts as a step only when its exit status can fail the recipe.
+- The third refusal, `STATUS_SENTENCE`, as a constant — every `&&`/`||`-list and pipeline shape the
+  arm names is refused by a sentence the mutants can assert by name.
+- The seventh mutant `recipe-gate-piped`: the command stays, both patterns still match, the chunk is
+  piped into `cat` — and it owes the `status` refusal beside the gate's, so an arm removed at the
+  call site turns `--self-test` red by name.
+- The loop variable #472's review called shadowed is renamed `says`.
+- The prose correction, in all three places that carried it: `H-0310`'s Follow-up row, owed item 3
+  below, and the pull-request body's Not-in-scope paragraph.
+
+Plain gate on these bytes: rc 0, 1240 `path:line` citations, 583 owing an anchor, 0 refused
+outright, 7 `Effect:` diff tallies; `--self-test` answers 83 cases that must fail and 54 that
+must pass. Three coordinates this entry first wrote landed in the unanchored bucket and all three
+are paid on these bytes — one lesson worth carrying: a citation written as `` `Makefile:122`
+"== decision log" `` anchors at 15 characters, because the citation span itself eats the leading
+`==`; quote from inside the shell string, not around it.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review. A push into a reviewed pull request spends the standing verdict (#269). The ask the
+   previous head of this file recorded landed — #472's review came back — and this round's push
+   spends that verdict, so the re-ask is the supervisor's poke (`factory_request_review` in
+   `factory/factory.sh`), not this unit's: the verb a unit would use, `gh pr edit --add-reviewer`,
+   exits 1 on this account's retired `projectCards` field and writes nothing (`H-0010`).
+2. The two unanchored pointers, with their targets now measured instead of guessed:
+   `factory/DECISIONS.md` row 4395's two coordinates name the one-option and bad-sha refusals, and
+   those assertions are at 1799 and 1802 on these bytes; `DECISIONS.md` row 3342's file-less
+   coordinate names the renumber advice, and that assertion is at 2510 (`sed -n '1799p;1802p;2510p'
+   scripts/check-decisions.py` shows all three). Whoever pays this also owes `factory/DECISIONS.md`
+   row 14202 the truth: its sentence says the first of the pair "names row 566". They sit in the
+   bucket `POINTER_DEBT` does not count, so this is debt in the reader's hand, not in the ratchet.
+3. The single-question guards that are still single. `make verify` reads the same recipe four times:
+   this script, `scripts/check-denies.py`, `scripts/check-doc-labels.py` and `scripts/check-next-md.sh`.
+   Neither of the two named in `H-0310`'s Follow-up has #391's hole today — but NOT, as that row used
+   to claim, because neither script's gate invocation is a prefix of its own self-test invocation:
+   the deny-list's self-test chunk at `Makefile:130` IS that prefix on these bytes. What refuses it
+   in both scripts is each script's classifier routing that chunk to its own sentence, plus the
+   `_status_reaches_shell` arm each already ships -- and which this script did NOT ship until this
+   round's port. The hazard still
+   arrives the day anyone gives one of them an argument the other does not lack, and one shared guard
+   is still the fix that outlives that day; it is its own ticket. The measured correction is
+   recorded in `H-0311`.
+4. The mutant table probes a synthetic recipe, not the live file. The `verify` fixture inside
+   `scripts/check-decisions.py` writes `echo "== decision log"` where `Makefile` writes
+   `echo "==> decision log"`, so the seven Makefiles test the classifier and only `verify_invocation()`
+   looks at the bytes `make` actually runs. The precondition guard turns drift into a refusal rather
+   than a silent pass, which is the minimum; a table generated from the live recipe is the
+   improvement, and it is not small.
+5. The ratchet is judging again. Both lists the gate exempts it for are empty on these bytes — 0
+   refused outright, 0 anchors cut by a newline — so 583 against `POINTER_DEBT` is a real comparison
+   again, and the next rise will be refused rather than narrated.
+
+## Constraints a stranger would break here
+
+- `INVOCATION` matches the self-test invocation on purpose. Ordering is the contract: the caller must
+  ask `SELFTEST_INVOCATION` first. A word boundary bars a longer FILENAME, not a longer argument, so
+  "fix the regex" is not available; the three named arm mutants are what pin it, and the seventh one
+  now pins the arm that reads the chunk's tail.
+- The three refusal sentences are constants because the mutants assert them by name. Inlining them
+  back into `invocation_problems` makes every new mutant assert "some problem was printed", which is
+  the exact weakness that let #391 stand.
+- A mutant built with `str.replace` over a recipe constant silently equals its base the day the
+  recipe's shape changes. The loop refuses that; do not widen the guard, change the fixture.
+
+## Record — the issue-389 unit, round 3 (PR #471: the two figures the 16:00:07Z review called blocking are scoped to the commits they were read at, and the row that reports that census adds nothing to what it counts -- `H-0309`; the ticket is taken by the merge's own body keyword, never by this file; merging belongs to the supervisor)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: `gh pr view
 471 --json reviewDecision,mergeable,mergeStateStatus,headRefOid` at 16:20Z answers `CHANGES_REQUESTED`,

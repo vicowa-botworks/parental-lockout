@@ -18332,7 +18332,7 @@ proc_leg 'the ticket'"'"'s unit is caught' \
 # What these legs do NOT claim, in so many words: that a denied server is never started. The CLI says
 # a denied server is removed however it was configured, and `debug config` proves the deny reaches
 # the instance -- but the instrument for "no grandchild" is the unit's cgroup, and only a real
-# activation stands in one. NEXT.md names that read for the first tick after the merge.
+# activation stands in one. docs/factory.md names that read for the first tick after the merge.
 #
 # The instrument's own nulls, measured while writing this and recorded because each one is a way to
 # read a green leg about nothing: `opencode mcp list` without `--standalone` asks the shared
@@ -18450,7 +18450,7 @@ proc_leg 'the dispatch hands it over' \
 # carry a policy, or a value inherited from whoever started the pass, reads identical from the inside.
 proc_new mcp-w1c
 proc_mutate_factory 'OPENCODE_CONFIG_CONTENT="$FACTORY_MCP_FENCE"' \
-	'		FACTORY_MCP_FENCE_DROPPED=1 \' || proc_mcp_w1c_planted=0
+	"		FACTORY_MCP_FENCE_DROPPED=1 \\" || proc_mcp_w1c_planted=0
 proc_tick_alloc=$mcp_fence_session
 proc_plant
 proc_run mcp-w1c-1
