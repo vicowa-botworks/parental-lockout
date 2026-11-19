@@ -5405,7 +5405,11 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Effect: the commit carrying this entry - `dashboard.tmpl`'s `pagename` and `title`, the five entry labels in
   `page.tmpl` with the comment that says an entry's words ARE its page's name, the five reader-visible strings
   and the `internal/web` comments and reported strings, `TestEachNavEntryNamesThePageItLinksTo` and the
-  re-aimed label list, mutants `W303`/`W304`/`W305` in `scripts/mutations/web.json` and `W212`'s re-pointed
+  re-aimed label list, mutants `W306`/`W307`/`W308` in `scripts/mutations/web.json` — filed here as
+  `W303`/`W304`/`W305`, and renumbered by the merge that met `#387`, which had landed those three ids
+  on its own skip-link mutants in the same set (an id collision git could not see, because the two
+  families were appended at opposite ends of `mutants`: `check-mutations.py` refuses `id 'W303' is
+  used twice in this set`) — and `W212`'s re-pointed
   `old`, and the capture harness's re-measured transcription in `testing/capture/pages.py` and
   `testing/capture/cdp.py`. The transcribed box was wrong before this branch touched it, and by more than
   wording: `8db322a` recorded `h: 131` with the nav at `y=72 h=82` on a tree whose masthead had no page-name
@@ -5487,3 +5491,47 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   only a claim about the bytes that ship with it, so the order is hand-off final, then union,
   then this entry. Gate receipts are read back with their exit statuses in the pull-request body,
   not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0090 · #388: the same base sync met this branch in two files, and only one of them refused to merge — what does a path that auto-merged owe a re-check, when the thing it merged is a set of claims
+
+- Question: `git merge origin/main@cfe1559` (the #467 merge, #387's skip link `D-0087` plus its
+  base-sync pass `D-0089`) refused on `DECISIONS.md` and `docs/screenshots/360/manifest.json` and
+  took `scripts/mutations/web.json` without a word. Both parents had appended three mutants to that
+  one set — trunk's at file position 292-294, labelled `W303`/`W304`/`W305` against the skip anchor,
+  this branch's at 295-297, labelled `W303`/`W304`/`W305` against the navigation words — because each
+  allocator counted from its own parent's 292 rows and neither could see the other. The merged file
+  holds 298 rows, `expected_mutants: 295`, and three ids used twice. Which side's manifest digests
+  ship, and which side's ids move?
+- Options: take trunk's `manifest.json` because it is the newer trunk and leave both id families as
+  merged | take ours for the manifest because its digests are the only field checkable against bytes
+  in the tree and renumber this branch's three ids because trunk's are already on `main` where a
+  citation can be followed | take ours for the manifest and renumber trunk's three ids because they
+  arrived second in the merged file | delete the duplicate rows because the checker's own sentence
+  offers "if they are the same bug, drop one" | leave the collision for the next gate to name
+- Chose: take ours for the manifest because its digests are the only field checkable against bytes in
+  the tree and renumber this branch's three ids because trunk's are already on `main` where a citation
+  can be followed
+- Why: the manifest's `png_sha256` is the field `manifest.py check` verifies against the file on disk,
+  and the nine PNGs the merge left are this branch's — the frames diverged on our side only, so
+  trunk's digests name frames this tree does not contain, which is the single thing the identity arm
+  refuses. The cost of that choice is named rather than hidden: it makes `head` and the nine
+  `sources_rev` a commit stale, and `a4f6393` pays it by running the published recipe against the
+  merged tree; that re-capture came back with all nine frames byte-for-byte the files `0dc0fde`
+  committed and a 29-in/29-out diff containing no digest at all, which is also the answer to whether
+  #387's anchor costs pixels (it is the `.skip` block in `internal/web/static/app.css`, whose
+  `clip-path: inset(50%)` and `overflow: hidden` take it out of the paint and whose `.skip:focus`
+  releases both). The ids move the other way because a
+  citation on `main` is a promise a reader can keep, and renumbering landed history breaks it.
+  "Delete the duplicate rows" was rejected on inspection: `python3 scripts/mutate.py`-level they are
+  six different bugs — the skip anchor's three collapse shapes and the navigation words' three rename
+  directions — and only share labels because two allocators ran blind to each other in one day. The
+  collision is not a reading of the diff: `python3 scripts/check-mutations.py` on the merged tree
+  exits 1 with `holds 298 mutants, expected 295` and three lines of `id 'W303' is used twice in this
+  set (also on mutant #292)` before any of this was concluded, and the same three lines were the
+  reason the first `make verify` on this branch's merged tree stopped; the renumber is what makes that
+  gate read green again. The `Checkpoint:` above names the tree this judgement was taken ON rather
+  than under: the merge was already committed at `a8adf95` when the collision was found, so no
+  checkpoint of the pre-decision tree exists any more, and what is recoverable is the revert -- one
+  commit whose effect is this set's id lines and this log's citation of them, and reverting it
+  returns the collision the gate refuses.
+- Checkpoint: 93f97be
