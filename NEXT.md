@@ -2115,6 +2115,19 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    emit these rows with the author-blob read beside the merged row so a person re-points them by
    reading code, the only method that works where there is no anchor. `make verify` reads none of
    them; row 53 and row 55 are the same debt at other heads, this row is this head's census.
+
+60. **#378 left the reporting split measured, not pinned — and its derivation lives in prose.**
+   `RULE_PROBES` now reads 81 report / 0 raise-only / 0 silent, measured by the instrumented
+   classification `print` whose recipe is in the issue; `_rule_probes_are_live` still refuses only
+   a pass in which NOTHING reports, on purpose (`D-0086`: a raise remains a legitimate witness for
+   a rule whose contract IS an escaping refusal). So a future row may join the table witnessed by
+   a raise alone and the suite stays green — the defence against that is this row and the
+   paragraph above the table, both prose. If that becomes unacceptable, the repair is not a zero
+   floor but a per-row label (`witness: raise`) that the pass counts and the table prints, so the
+   split becomes visible state instead of a number in two comments. The per-rule derivation
+   harness (one subprocess per rule, clean-tree baseline, word-shared candidate sweep,
+   shipped-order re-score) was rebuilt for #378 from the issue's recipe and is not in the tree;
+   the same instrument is what that labelling job would start from.
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab

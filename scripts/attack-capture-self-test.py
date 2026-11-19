@@ -469,8 +469,11 @@ ROWS = [
      "                missing = []  # the count is kept from admitting it"),
 
     # ---- #322: the probe pass, on itself. Nine CAUGHT rows for the machinery, nine HOLE rows for
-    #      the arms. The CAUGHT rows break the pass by breaking what it does -- ignore the table, aim
-    #      every rule at the same harmless break, hollow `_apply_probe`, make an undo not undo, stop
+    #      the arms, and five CAUGHT rows #378 added for the `returns` kind -- the tenth through
+    #      fourteenth machinery rows, each pinning a way the new arm could put the raise-only
+    #      world back while every per-rule count stayed perfect. The CAUGHT rows break the pass
+    #      by breaking what it does -- ignore the table, aim every rule at the same harmless
+    #      break, hollow `_apply_probe`, make an undo not undo, stop
     #      `rule()` registering, drop a verdict shape -- and each turns the run red. The HOLE rows
     #      break the checks that watch the pass, which is the floor: see the class text. They are
     #      listed rather than deleted because a floor nobody re-measures is indistinguishable from a
@@ -490,6 +493,31 @@ ROWS = [
     (CAUGHT, "pages.py", "a probe's undo does not put the guard back",
      '        return (lambda: setattr(owner, name, original)), f"{kind} {spec[1]}"',
      '        return (lambda: None), f"{kind} {spec[1]}"'),
+    # ---- #378: the `returns` kind, on its own failure modes. The kind exists so a rule is
+    #      witnessed by its own comparison instead of by a raise escaping; each row below makes
+    #      the arm behave like the old world again -- raise instead of answer, answer a constant
+    #      whatever the table named, undo that restores nothing -- and each must turn this suite
+    #      red, because the per-rule pass counts a raise as a reaction and cannot see any of
+    #      them. Arm 3's witness is what catches R1-R3; the last two rows are refused-specs the
+    #      witness's reject loop already names, made live.
+    (CAUGHT, "pages.py", "the `returns` arm raises instead of answering, sliding every "
+     "reporting rule back to a raise while every per-rule count stays perfect",
+     '        def broken(*_a, **_k):\n            return spec[2]',
+     '        def broken(*_a, **_k):\n            raise AssertionError("probe arm always raises")'),
+    (CAUGHT, "pages.py", "the `returns` arm answers one fixed value whatever the table named",
+     '            return spec[2]',
+     '            return "probe-sentinel"'),
+    (CAUGHT, "pages.py", "the `returns` arm's undo restores nothing",
+     '        return (lambda: setattr(owner, name, original)), note',
+     '        return (lambda: None), note'),
+    (CAUGHT, "pages.py", "a `returns` spec with no answer value is accepted instead of refused",
+     "        if len(spec) < 3:",
+     "        if len(spec) < -1:"),
+    (CAUGHT, "pages.py", "a `returns` spec naming a number is accepted instead of refused",
+     '        if not callable(original):\n'
+     '            raise _ProbeUnapplicable(f"{spec[1]} is a {type(original).__name__}, so making it "\n'
+     '                                     "answer a value changes nothing a rule can notice")',
+     '        pass'),
     (CAUGHT, "pages.py", "`rule()` stops registering its rules, so the table names 81 strangers",
      "            registry.append((why, body))", "            pass"),
     # Measured 14 Nov: this one went red on its own, which is why the raise-only degradation is a
@@ -552,7 +580,7 @@ ROWS = [
 # was already here and stays one row -- only its expectation moves, from `HOLE` on `origin/main` to
 # `CAUGHT` here. A merge of two branches that each added rows and left this number at one side's
 # value is a merge that dropped rows, which is the failure this pin exists to catch.
-EXPECTED_ROWS = 73
+EXPECTED_ROWS = 78
 
 
 def shape_problems():
