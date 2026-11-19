@@ -2262,7 +2262,20 @@ wasted 45-minute budget.
 the trunk, so this pass stopped before dispatching and the next activation runs the merged code (#342).
 
 `3` and `7` are the two that matter to monitoring: `3` means the token or the network is gone, and
-`7` means two timers are pointing at the same repository. `8` and `9` are the two the unit files must
+`7` means two timers are pointing at the same repository. Since #380 the refusal also says so in the
+journal at the moment it decides: `LOCK-SKIPPED holder=<pid>:<comm>[ +N] lock=<path>`, where `holder=` is
+the oldest opener of the lock file as `fuser` names it, `+N` counting any descendants sharing the
+descriptor, or `unknown` where fuser cannot answer -- and `unknown` still journals the line, because
+an arm whose probe dies would recreate the silence the line ends. Before it, the six refusals
+journald had shown since 1 Nov left ZERO rows in the retained `supervisor.log`: the one refusal its
+retention still covers (14 Nov 14:39:41Z, first row 10 Nov) has no line beside it in the eleven
+minutes around it, while the sentence naming the condition lived only in journald's stderr capture
+-- all six occurrences findable there and none in the file -- and it named no holder: the diagnostic above could not be acted on from the file anyone actually reads (#380, H-0288). The holder
+comes from `fuser`, not `/proc/locks`: measured 18 Nov, a live holder at pid `4104085` was row-named
+`4104087`, which named no process, because `flock -n 9` makes the syscall in a child that execs and
+dies; and a refused shell holds the file open itself, so both the arm and the probe close the
+descriptor before asking, or the pass reports itself as the holder. `8` and `9` are the two the unit
+files must
 agree with: both are listed in the generated service's `SuccessExitStatus=`, **separated by spaces**,
 because both are decisions the pass made on purpose. The separator is part of the mechanism, not
 formatting: `systemd.service(5)` parses that value as a space-separated list, and on a comma systemd
@@ -2272,7 +2285,12 @@ ignoring: 8,9` and lists neither code, at exit 0; `SuccessExitStatus=8 9` prints
 deliberate stop that journals as
 `Failed with result 'exit-code'` points every reader away from the line that explains it (#246,
 measured on code `4` hiding `Agent not found` for 152 activations; #305 added `8` to the line; #342
-added `9` in the same commit that made the code reachable).
+added `9` in the same commit that made the code reachable). `7` deliberately stays OUTSIDE the list,
+and was weighed against adding it on #380: `8` and `9` stop a pass that had decided something, while
+`7` did nothing at all, and a two-timer collision is the one condition on this page that a unit which
+reports failure is the correct instrument for -- a green collision is a second timer nobody deletes.
+The silence that made `7` feel like an unlisted failure is repaired where it lived, in the journal
+(#380, H-0288), not by making the collision read as success.
 
 ## What it is not allowed to do
 

@@ -439,6 +439,62 @@ log_event() {
 	log "$*"
 }
 
+# Name whoever holds the supervisor's lock, for the `LOCK-SKIPPED` line a refused activation
+# journals (#380). Best-effort by construction: every part of it that cannot be read degrades
+# toward `unknown`, never toward a refusal, because a helper that fails in the refusal arm
+# recreates the silence this line exists to end. Requires `$FACTORY_RUN`, so call it after
+# `factory_paths`.
+#
+# `fuser` answers with the pids that have the lock FILE open -- and the shell whose `flock`
+# just failed is such a holder until it closes the descriptor it opened, which the calling arm
+# does before asking; this helper closes any inherited copy again on its own, because a
+# descriptor handed down reaches every fork of the probe. Candidates are ordered by pid and
+# the oldest answers, because the extra openers a holder carries are its own descendants, who
+# inherited the descriptor and forked after it; the surplus is counted as ` +N` rather than
+# the first name pretending to be the whole truth.
+#
+# NOT `/proc/locks`: that table names whoever called flock(2), and `flock -n 9` makes that call
+# in a child of the shell, which execs and dies. Measured 18 Nov against a live holder: fuser
+# named pid 4104085 (comm `sleep`, alive) while the table's FLOCK row named 4104087, a pid that
+# no longer named a process. `fuser -u` was rejected too -- it adds a user column that is a
+# constant here, the supervisor running as this uid.
+#
+# No fuser (stripped psmisc, or none on PATH) is not an error: the line reads `holder=unknown`,
+# which still says a refusal happened, and the fixture pins both shapes -- the name where fuser
+# answers and a mutant that makes the probe fail. A pid that vanished between the listing and
+# the read is skipped: /proc/<pid>/comm is unreadable once the process is gone (measured: it
+# read empty for a probe's own transient pid), and the line must never assert a process that is
+# not there. Whitespace in a comm is folded to `_` so the holder stays one field.
+factory_lock_holder() { # -> "<pid>:<comm>" plus " +N" for surplus openers, or "unknown"
+	local primary='' extra=0 pid comm
+	exec 9>&- 2>/dev/null || true
+	# `{ ...; printf '\n'; }` because fuser's list may end without a newline, and `read` returns
+	# non-zero on a final unterminated line -- the last holder would be dropped without it.
+	while IFS= read -r pid; do
+		[ -n "$pid" ] || continue
+		comm=$(cat -- "/proc/$pid/comm" 2>/dev/null) || continue
+		comm=${comm//[[:cntrl:][:space:]]/_}
+		[ -n "$comm" ] || continue
+		if [ -z "$primary" ]; then
+			primary=$pid:$comm
+		else
+			extra=$((extra + 1))
+		fi
+	done < <({
+		fuser "$FACTORY_RUN/lock" 2>/dev/null
+		printf '\n'
+	} | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' | sort -n -u)
+	if [ -z "$primary" ]; then
+		printf 'unknown'
+		return 0
+	fi
+	if [ "$extra" -gt 0 ]; then
+		printf '%s +%d' "$primary" "$extra"
+	else
+		printf '%s' "$primary"
+	fi
+}
+
 die() {
 	printf 'factory: %s\n' "$*" >&2
 	exit 1
