@@ -768,7 +768,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 583  # citations that owe an anchor; may only fall (H-0284's third base sync onto `b433f01` re-measured 583 on the merged pair with this entry out of the log and 583 again with it in -- 1141 citations before, 1147 after, the entry's six all anchored on their own physical line -- so the number trunk composed for trunk's corpus is verified true of the merged corpus, which is the claim the auto-merge of this file made without being asked; H-0282's second base sync onto `feb3b16` re-measured 583 on the merged corpus and the fall from 584 is row-composed, not inferred: the --citations histograms of the HEAD pair and the merged pair differ by exactly one open row -- `factory/DECISIONS.md:8469` (H-0169) `docs/factory.md:205` UNANCHORED here, re-aimed by trunk to `docs/factory.md:204` anchored there -- so the merged corpus counts that row exempt, and 584 - 1 = 583 with no other row moving across the boundary; the revision-qualified bucket grew 85 -> 89 by the union's four new revision-naming rows, none of which was ever open; H-0279's sync re-measured 584 on the merged pair and the fall from 586 is composed, not inferred: 582 open rows carried in, +2 from the rows H-0139 and H-0146 became when the #374 class refused their trunk-re-quoted present tense and they were past-tensed with the date -- the first refusals the shipped gate filed against this repository's own oldest entry; the 27 anchored drifts that merge re-aimed by the gate's named line moved no debt because they were anchored throughout; H-0268's union merge re-measured 586 on the merged pair, and the fall from this branch's 588 is composed, not inferred: this branch's logs run through the merged scanner answer 586 unanchored + 2 wrapped, and the 2 are the newline-cut anchors #369's bucket separates from the ratchet -- both live rows trunk fixed, so the merged corpus answers wrapped=0 and the 2 stop being debt without any promise being unmade; the open-row multiset diff of the same two corpora, re-measured at 12ddbc4 by H-0270 with this head's own scanner over both pairs of logs, holds 32 pure citing-line renames (14 at +2, 18 at +123) and 1 addition -- open rows 175 -> 176, the added row is main's own H-0256 Follow-up citing a bare :12339, 0 open rows lost -- and the unanchored-debt diff of the same pair is 74 rows each side over 586 on each: 5 pure renames all +2 (H-0200's :3187 row 10695->10697 and its two factory.sh rows 10697->10699, H-0210's selftest.sh:263/265 rows 11325->11327) plus 69 rows whose coordinates this merge re-aimed, entry-balanced, 0 lost 0 gained; two of the four pairs this comment formerly named, 10643->10645 and 10656->10658, name no open row in either corpus -- they are two of those re-aims, H-0200's rows at factory/common.sh 1435->1468 and 1554->1587; H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
+POINTER_DEBT = 587  # citations that owe an anchor; may only fall (H-0307 (issue-389) re-measured 587 on this tree with its entry appended and read 583 on the same tree one moment before the append, so the 4 are the entry's own coordinates -- `factory/DECISIONS.md:2907` and `:2908` anchored on the tally figure each quotes, `factory/selftest.sh:16162` anchored on `gate_reads_no_refs`, and `factory/DECISIONS.md:15255` anchored on the `POINTER_DEBT = 583` quote it re-qualifies to `eacdaa9:` -- and the rise is legal only beside the entry that records it, which is what this clause is; the histogram `--citations` prints for that pair is `factory/selftest.sh` 50 and `factory/DECISIONS.md` 21, and 0 rows arrived in the unanchored or wrapped shape; H-0284's third base sync onto `b433f01` re-measured 583 on the merged pair with this entry out of the log and 583 again with it in -- 1141 citations before, 1147 after, the entry's six all anchored on their own physical line -- so the number trunk composed for trunk's corpus is verified true of the merged corpus, which is the claim the auto-merge of this file made without being asked; H-0282's second base sync onto `feb3b16` re-measured 583 on the merged corpus and the fall from 584 is row-composed, not inferred: the --citations histograms of the HEAD pair and the merged pair differ by exactly one open row -- `factory/DECISIONS.md:8469` (H-0169) `docs/factory.md:205` UNANCHORED here, re-aimed by trunk to `docs/factory.md:204` anchored there -- so the merged corpus counts that row exempt, and 584 - 1 = 583 with no other row moving across the boundary; the revision-qualified bucket grew 85 -> 89 by the union's four new revision-naming rows, none of which was ever open; H-0279's sync re-measured 584 on the merged pair and the fall from 586 is composed, not inferred: 582 open rows carried in, +2 from the rows H-0139 and H-0146 became when the #374 class refused their trunk-re-quoted present tense and they were past-tensed with the date -- the first refusals the shipped gate filed against this repository's own oldest entry; the 27 anchored drifts that merge re-aimed by the gate's named line moved no debt because they were anchored throughout; H-0268's union merge re-measured 586 on the merged pair, and the fall from this branch's 588 is composed, not inferred: this branch's logs run through the merged scanner answer 586 unanchored + 2 wrapped, and the 2 are the newline-cut anchors #369's bucket separates from the ratchet -- both live rows trunk fixed, so the merged corpus answers wrapped=0 and the 2 stop being debt without any promise being unmade; the open-row multiset diff of the same two corpora, re-measured at 12ddbc4 by H-0270 with this head's own scanner over both pairs of logs, holds 32 pure citing-line renames (14 at +2, 18 at +123) and 1 addition -- open rows 175 -> 176, the added row is main's own H-0256 Follow-up citing a bare :12339, 0 open rows lost -- and the unanchored-debt diff of the same pair is 74 rows each side over 586 on each: 5 pure renames all +2 (H-0200's :3187 row 10695->10697 and its two factory.sh rows 10697->10699, H-0210's selftest.sh:263/265 rows 11325->11327) plus 69 rows whose coordinates this merge re-aimed, entry-balanced, 0 lost 0 gained; two of the four pairs this comment formerly named, 10643->10645 and 10656->10658, name no open row in either corpus -- they are two of those re-aims, H-0200's rows at factory/common.sh 1435->1468 and 1554->1587; H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -900,6 +900,27 @@ NOW_REV = re.compile(r"(?:" + _NOW_AT + r"|" + _NOW_SAY + r"|" + _NOW_MV + r")[\
 # ("`AGENTS.md:38`\n now reads \"- Checkpoint...\""), so the forward read may cross ONE newline.
 # Refusals name at most this many offenders; the count is in the headline either way.
 MAX_LISTED = 12
+
+# A diff tally: an `Effect:` that records a merge's read-back as `adds 429 (nine headings)`, the shape
+# `H-0093` shipped and #389 found stale. Two rows carry it, both in that one entry, and both went false
+# inside the merge they describe -- re-run from that merge's own parents on 19 Nov at `ab9ad8d` the pair
+# answers 112 lines / 2 headings and 504 lines / 10 headings, one heading and one entry's prose apiece
+# more than the 54 and 429 written. The figures are not repaired: `H-0101`'s reason still holds, that an
+# edit inside the entry asserting "deletes 0 content lines" turns that 0 into a 1 and refutes the row it
+# lands in. What #389 asks for instead is that a stale tally is NAMED by a later entry, so this file
+# counts the claims and `--self-test` pins the comparison, and neither one refuses. Refusing is not a
+# stricter option, it is a different and worse one: re-measuring a historical diff is a history read, and
+# `gate_reads_no_refs` (`factory/selftest.sh`) denies this file any git verb but `cat-file` precisely
+# because a verdict that moves between two identical checkouts gets re-run until it agrees (#253); and a
+# gate that blocked on drift would make every merge that grows the log a blocked merge, which is #318's
+# moved-pointer lesson read from the number side.
+DIFF_TALLY = re.compile(r"\badds (\d+) \(([a-z0-9,]+) headings?\)")
+# The heading count as these logs write it: `H-0093` spells both figures out, and a row of a decision
+# log is prose. A word outside this table leaves the claim's second figure None, which `tally_verdict`
+# counts and never compares -- guessing a number the prose did not write is the invention this whole
+# file refuses.
+_TALLY_NUM = {"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+              "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
 
 
 def norm(text):
@@ -1413,6 +1434,93 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "citation hides in the slack." % (measured, debt, measured))
     return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, nowstate,
                            True, None)
+
+
+TallyVerdict = collections.namedtuple(
+    "TallyVerdict", "reports mismatched re_measured unverifiable")
+
+
+def tally_line(count):
+    """The clean-run sentence about diff tallies, or None when the logs hold none.
+
+    A function so `--self-test` can assert what a reader of a green run actually reads. Three things in
+    it are load-bearing and one mutant each: the count, the words `none re-measured`, and the two issue
+    numbers -- #253 for why the gate cannot know, #389 for the convention that stands in place of
+    knowing. A later edit that dropped `none re-measured` would leave a sentence that reads like a
+    verdict about diffs this file has never looked at, which is the invention `H-0237` and `#1180` exist
+    to refuse.
+    """
+    if not count:
+        return None
+    return ("check-decisions: %d `Effect:` diff tallies counted in the two logs, none re-measured -- "
+            "this gate reads no history (#253), so a tally a later merge outgrew is named by that "
+            "entry and never edited (#389)" % count)
+
+
+def tally_claims(text, entries):
+    """Every `Effect:` diff tally in one log, as (line, entry, lines added, headings, as written).
+
+    Scanned over the whole text rather than the `Effect:` field alone: the claim a reader follows is the
+    figure and its paren, and the dated annotation `H-0096` and `H-0101` set quotes that same figure --
+    an annotation quoting `adds 429 (nine headings)` is a second claim on the same diff and belongs in
+    the same count, or the count of receipts silently falls every time one is named.
+    """
+    claims = []
+    for m in DIFF_TALLY.finditer(text):
+        word = m.group(2)
+        line = text[:m.start()].count("\n") + 1
+        claims.append({"line": line,
+                       "entry": entry_of(entries, line),
+                       "adds": int(m.group(1)),
+                       "headings": int(word) if word.isdigit() else _TALLY_NUM.get(word),
+                       "written": m.group(0)})
+    return claims
+
+
+def measure_no_history(claim):
+    """What the shipped gate can answer about any historical diff: nothing, and say so.
+
+    `measure` is injected for the same reason `citation_problems` injects `read(path)` and
+    `checkpoint_problems` injects `resolve` -- the arm that decides "stale" is asserted against a
+    fixture diff in `--self-test`, while the shipped call hands back None for every claim. Re-running
+    `git diff <parent> <merge>` is a refs-and-history read that #253's `gate_reads_no_refs` leg denies
+    this file, and a count is the honest shipped verdict: a number that changed between two identical
+    checkouts with no commit between them is the flakiness that leg was written to refuse.
+    """
+    return None
+
+
+def tally_verdict(claims, measure):
+    """Report -- never refuse -- each tally whose diff answers a different figure today.
+
+    `measure(claim)` answers `(lines_added, headings)` for the diff the claim quotes, or None when it
+    cannot be re-measured. `--self-test` injects a fixture whose diff answers 112 lines against a claim
+    of `adds 54 (one heading)` -- #389's own pair, measured at `ab9ad8d` -- and the shipped gate passes
+    `measure_no_history`, so its `reports` is empty by construction and only the count reaches the
+    headline. Nothing here returns problems, and that is the rule, not an omission: a tally a later
+    merge outgrew is annotated by that later entry (#1180's dated correction beside the record, which is
+    what `H-0096` and `H-0101` did to their own stale tallies) and blocking a merge over it is the
+    #318 failure re-imported as a number.
+    """
+    reports, re_measured, mismatched, unverifiable = [], 0, 0, 0
+    for c in claims:
+        if c["headings"] is None:
+            unverifiable += 1
+            continue
+        got = measure(c)
+        if got is None:
+            unverifiable += 1
+            continue
+        re_measured += 1
+        if got[0] != c["adds"] or got[1] != c["headings"]:
+            mismatched += 1
+            reports.append("%s:%d (%s) quotes `%s` and that diff answers %d lines and %d headings -- "
+                           "the merge it describes grew the log past its own receipt. The written "
+                           "figures stay as measured, because editing them is the deletion that refutes "
+                           "the row; #389's convention is that a later entry names the drift."
+                           % (c.get("label", "?"), c["line"], c["entry"], c["written"], got[0],
+                              got[1]))
+    return TallyVerdict(reports, mismatched, re_measured, unverifiable)
 
 
 # The files that TEACH this rule are the one place a false pointer is invisible by construction: the rule
@@ -2366,6 +2474,109 @@ def self_test():
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)
 
+    # Issue #389: an `Effect:` that quotes a diff tally -- `adds 429 (nine headings)` -- records what the
+    # diff answered the day the entry was written, and the merge it describes then grows the log past its
+    # own receipt. `H-0093`'s two did exactly that inside their own merge: 54 went to 112 and 429 to 504,
+    # one heading and one entry's prose apiece, and no later entry named it -- the unevenness the ticket
+    # was filed on, since `H-0096` and `H-0101` each annotate the stale tallies they left alone. The
+    # shipped gate only COUNTS (`measure_no_history`: re-running a historical diff is the refs-and-history
+    # read `gate_reads_no_refs` denies this file), so the arm that decides "stale" is asserted here against
+    # an injected fixture diff, and the report is asserted NOT to be a refusal -- a gate that blocked on
+    # drift would make every merge that grows the log a blocked merge, #318's lesson read from the number
+    # side. Must-trip cases here are cases the REPORT must fire, counted with the refusals.
+    def tally_fixture(text, name):
+        parsed = parse(text, name)
+        claims = tally_claims(text, parsed)
+        for c in claims:
+            c["label"] = name
+        return claims
+
+    STALE_TALLY = ("## H-0404 · A merge keeps both sides and reads the diff back\n\n"
+                   "- Question: does the resolution keep the other side's lines?\n"
+                   "- Options: read the diff back | declare it kept\n"
+                   "- Chose: read the diff back\n"
+                   "- Why: a receipt is a read, not a declaration.\n"
+                   "- Checkpoint: 2f4c1ab9\n"
+                   "- Effect: the diff deletes 0 content lines and adds 54 (one heading), and each side\n"
+                   "  loses none of the other's text.\n")
+
+    counts[1] += 1
+    stale_claims = tally_fixture(STALE_TALLY, "factory/DECISIONS.md")
+    if len(stale_claims) != 1 or stale_claims[0]["adds"] != 54 or stale_claims[0]["headings"] != 1 \
+            or stale_claims[0]["entry"] != "H-0404":
+        fails.append("tally-claim-read: the receipt above read %r -- `adds N (M headings)` is the shape "
+                     "H-0093 shipped and #389 measured, and a claim not found here is a report that can "
+                     "never fire" % (stale_claims,))
+
+    counts[0] += 1
+    drifted = tally_verdict(stale_claims, lambda c: (112, 2))
+    if drifted.mismatched != 1 or not drifted.reports:
+        fails.append("tally-stale-reported: a claim of `adds 54 (one heading)` measured against the diff "
+                     "that answers 112 lines / 2 headings -- #389's own pair -- reported %r"
+                     % (drifted.reports,))
+    elif not any("54" in r and "112" in r and "2 headings" in r and "H-0404" in r
+                 for r in drifted.reports):
+        fails.append("tally-report-names-both: the report does not hold the written figure and the "
+                     "measured one beside the entry that wrote it -- %s" % drifted.reports)
+
+    counts[1] += 1
+    exact = tally_verdict(stale_claims, lambda c: (54, 1))
+    if exact.reports or exact.mismatched or exact.re_measured != 1:
+        fails.append("tally-exact-not-reported: the same claim measured against the diff it quotes was "
+                     "reported stale -- a report that fires on a true receipt is a report a reader "
+                     "learns to ignore: %s" % exact.reports)
+
+    # Both figures are in the receipt, so either one drifting is drift: `H-0093`'s rows moved on lines
+    # AND headings at once, and a comparison that read only the numstat would have called that clean.
+    counts[0] += 1
+    half = tally_verdict(stale_claims, lambda c: (54, 2))
+    if half.mismatched != 1:
+        fails.append("tally-headings-compared: a claim of (one heading) against a diff answering 2 "
+                     "headings was not reported, and the heading count is the half the prose claims")
+
+    # The shipped arm, which is the only arm `make verify` ever runs: nothing re-measured, nothing
+    # reported, everything counted. This is the assertion that keeps the count a count -- a later edit
+    # that reached for a real diff would fail HERE before it ever blocked a merge.
+    counts[1] += 1
+    shipped = tally_verdict(stale_claims, measure_no_history)
+    if shipped.reports or shipped.re_measured or shipped.unverifiable != 1:
+        fails.append("tally-shipped-counts-only: the shipped measure re-measured or reported, which is "
+                     "the history read #253 denies this gate -- %r" % (shipped,))
+
+    # A heading word outside `_TALLY_NUM` is counted and never compared: guessing the number the prose
+    # did not write would let the report invent its own second figure.
+    counts[1] += 1
+    wordless = tally_fixture(STALE_TALLY.replace("adds 54 (one heading)", "adds 54 (seventeen headings)"),
+                             "factory/DECISIONS.md")
+    if len(wordless) != 1 or wordless[0]["headings"] is not None:
+        fails.append("tally-unknown-word: `seventeen` is outside the word table and the claim was still "
+                     "read as a number -- %r" % (wordless,))
+    if tally_verdict(wordless, lambda c: (54, 17)).reports:
+        fails.append("tally-unknown-word-compared: a claim whose heading word could not be read was "
+                     "compared against a number the entry never wrote")
+
+    # And the report is not a decision-log problem: the entry above is well-formed, and neither refusal
+    # path sees its number. This is the assertion that keeps #389 a convention and not a gate.
+    counts[1] += 1
+    shape = check(parse(STALE_TALLY, "factory/DECISIONS.md"))
+    if shape:
+        fails.append("tally-not-a-problem: an entry carrying a re-measurably stale tally was refused as "
+                     "a malformed decision -- %s" % shape)
+
+    # The sentence a green run prints, since the count is the shipped behaviour and a reader cannot tell
+    # a count from a verdict by its shape.
+    counts[1] += 1
+    if tally_line(0) is not None:
+        fails.append("tally-line-empty: logs holding no diff tally still printed a tally line -- %r"
+                     % tally_line(0))
+    counts[1] += 1
+    said = tally_line(2)
+    if not (said and said.startswith("check-decisions: 2 ") and "none re-measured" in said
+            and "#253" in said and "#389" in said):
+        fails.append("tally-line-text: the clean-run sentence stopped carrying the count, or the words "
+                     "`none re-measured`, or the two issue numbers that make it a count and not a "
+                     "verdict about diffs this file never looked at -- %r" % (said,))
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
@@ -2380,7 +2591,10 @@ def self_test():
           "pointer cannot be opened, and the refusal that names which anchor floor it applied), the "
           "one-file-per-entry layout (filename and heading agreeing or disagreeing, two decisions in one "
           "file, a file named by nothing, the monolith answering none of it, the cross-layout duplicate "
-          "naming both places, and a tree with no entry directory at all), each asserted both ways"
+          "naming both places, and a tree with no entry directory at all), and the `Effect:` diff-tally "
+          "count (a receipt recognised, drift reported with both figures beside each other, agreement "
+          "not reported, a heading word outside the table counted rather than guessed, the shipped arm "
+          "counting without measuring, and the sentence a green run prints), each asserted both ways"
           % (counts[0], counts[1]))
     return 0
 
@@ -2432,6 +2646,7 @@ def main(argv):
         problems.append("entry directories: %s" % dirs_problem)
     total = 0
     found = []
+    tally = []
     where_seen = {}
     for p in paths:
         text, problem = read(p)
@@ -2464,6 +2679,10 @@ def main(argv):
         for c in cites:
             c["label"] = label
         found += cites
+        claims = tally_claims(text, entries)
+        for c in claims:
+            c["label"] = label
+        tally += claims
 
     if walk_problem:
         # Fail closed, in the shape of every other unreadable input here: an unevaluated rule is not a
@@ -2534,6 +2753,14 @@ def main(argv):
         print("check-decisions: %d `path:line` citations checked for anchors; the debt number was not "
               "judged, because --log narrows the corpus it is a count of"
               % len([c for c in found if c["kind"] != "not-a-path"]))
+    if path == LOG:
+        # #389's count, and a count is all it is: the gate reads no history, so it can say how many
+        # merge receipts the logs hold and not one word about whether any of them still lands. Printed
+        # beside the debt line because both are numbers a reader follows into a historical claim, and
+        # both are annotated forward rather than repaired in place.
+        line = tally_line(len(tally))
+        if line:
+            print(line)
     return 0
 
 
