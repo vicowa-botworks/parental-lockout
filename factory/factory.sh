@@ -30,7 +30,8 @@
 #   0  the pass is over and nothing failed
 #   3  the queue could not be read, so nothing was attempted
 #   4  a tick failed -- a model run that did not finish inside its ceiling
-#   7  another supervisor holds the lock, so this one did nothing
+#   7  another supervisor holds the lock, so this one did nothing; the refusal journalled
+#      `LOCK-SKIPPED holder=… lock=…` before the exit (#380)
 #   8  the halt file exists
 #   9  the tree the installed unit execs was fast-forwarded to the trunk, so this pass stopped
 #      before dispatching anything -- the merge replaced the bytes of the script bash is reading,
@@ -1992,6 +1993,17 @@ factory_body() {
 # the quietest possible failure, and this file has seen that shape twice already.
 exec 9>"$FACTORY_RUN/lock"
 if ! flock -n 9; then
+	# #380: the rule every other arm keeps -- a pass that does no work says so at the moment it
+	# decides not to (#228) -- was broken only here. Over the six refusals journald has shown
+	# since 1 Nov (measured 18 Nov: six `status=7` rows, six sentences of stderr), the retained
+	# `supervisor.log` held zero rows: the refusal lived only in journald, and the holder it
+	# names nowhere. The exit code is unchanged, and H-0288 records why it stays that way.
+	#
+	# Close the descriptor this shell just opened before naming the holder: while it holds it,
+	# `fuser` counts it too, and a probe that reports the refused pass as its own holder is
+	# worse than no probe at all.
+	exec 9>&-
+	log_event "LOCK-SKIPPED holder=$(factory_lock_holder) lock=$FACTORY_RUN/lock"
 	printf 'factory: another supervisor holds %s, so nothing was done here.\n' "$FACTORY_RUN/lock" >&2
 	exit 7
 fi

@@ -24282,6 +24282,365 @@ claim_leg 'trunk pass: once per activation' proc_tcv_per_activation
 claim_leg 'trunk pass: red does not halt' proc_tcv_red_continues
 claim_leg 'trunk pass: refusal is said' proc_tcv_gone_arms
 
+# ------------------------------------------------- the activation the lock refused (#380)
+#
+# The expectation: every activation that does no work says so in the one file anyone reads --
+# the rule #228 wrote after a halt spent hours printing nothing, and #370 restated for the
+# verdict lines. The observation: the lock arm was the only exit that journalled nothing about
+# its own decision. Live measurement 18 Nov: journald shows six refused activations since 1 Nov
+# (six `status=7` rows, and six sentences of `another supervisor holds`; both counts 6), and the
+# retained `supervisor.log` -- which starts at 2026-11-10T13:48:22Z, so it covers the last of
+# the six, 2026-11-14T14:39:41Z -- holds ZERO rows for any of them: `grep -cE 'another
+# supervisor|LOCK-SKIPPED'` answers 0. (The issue's table dated the six at 18 Nov on a 15-minute
+# cadence; re-measured against the live journal they are all in 4-14 Nov. What did not move is
+# the zero, and the zero is what the legs below pin.) On trunk the self-report preamble runs
+# ahead of the flock (H-0191), so a refused activation writes that preamble and nothing about
+# the refusal itself; before the hoist it wrote nothing at all, which is what the 14 Nov event
+# shows -- that morning's installed tree was 72 commits behind (`SUPERVISOR-STALE`,
+# 13:41:45Z). Either way: without journald, a lock-refused activation is indistinguishable from
+# one that died mid-preamble.
+#
+# Naming the holder was measured before it was written, and both facts live in
+# `factory_lock_holder`: /proc/locks names the transient flock(2) caller rather than the holder
+# (a live holder at pid 4104085 was row-named 4104087, which named no process), and a refused
+# shell has the lock file open itself, so a probe that did not close the descriptor first names
+# the pass that is refusing. The no-close control below re-measures that second fact, inverted.
+#
+# Polarities: one foreign opener is named exactly (`<pid>:sleep`, the fixture holder execs a
+# `sleep` in place of bash) and carries no ` +` -- that absence is where the refused-shell-never-
+# counts-itself claim lives, because the mutant that drops both closes reads `+1` on a
+# one-opener plant. A probe made unable to succeed journals `holder=unknown` rather than no
+# line. A holder whose descendant inherited the descriptor counts it (` +1`) and names the
+# oldest. Where fuser is not installed -- the psmisc-free world the helper was written for --
+# the named legs assert the `unknown` polarity instead of lying.
+
+locksk_dir=$proc_work/locksk
+mkdir -p -- "$locksk_dir"
+locksk_holder_pid=''
+# locksk_hold [descendant] -> this box's lock file, held; $locksk_holder_pid is the live
+# holder afterwards. The holder execs `sleep` in place of bash so its comm is stable across
+# the listing; the 0.3 s is a scheduling margin, not a wait on a nameable event: the flock
+# helper must have made its call before a refusing pass asks, and the exec must have happened
+# before the probe reads comm.
+locksk_hold() { # [descendant]
+	local with_child=${1:-}
+	bash -c 'exec 9>"$1"; flock -n 9 || exit 9; { [ -n "$2" ] && exec sleep 45; } & exec sleep 45' \
+		_ "$proc_rundir/lock" "$with_child" &
+	locksk_holder_pid=$!
+	sleep 0.3
+}
+# The descendant inherited the descriptor and holds the lock too -- releasing means killing
+# both, or the first kill releases nothing and the next leg is refused by a ghost.
+locksk_release() {
+	[ -n "$locksk_holder_pid" ] || return 0
+	# pgrep, not pkill: pkill demands a pattern alongside -P. A psmisc-free machine has
+	# neither, and `sleep 45` is the backstop there -- the leak this guard misses is bounded.
+	pgrep -P "$locksk_holder_pid" 2>/dev/null | xargs -r kill -- 2>/dev/null || true
+	kill -- "$locksk_holder_pid" 2>/dev/null || true
+	wait -- "$locksk_holder_pid" 2>/dev/null || true
+	locksk_holder_pid=''
+}
+locksk_line() { # <journal> -> the LOCK-SKIPPED line, empty when there is none
+	grep -E '^[^ ]+Z LOCK-SKIPPED ' -- "$1" 2>/dev/null | head -n 1
+}
+# The common.sh twin of `proc_mutate_last`, which is factory.sh-only. Same rules: the LAST
+# line carrying the needle is replaced, PROC_MUT_LINE travels in ENVIRON because awk -v eats
+# backslashes (H-0196), and every refusal is loud, because a dead mutant is not a guilty one.
+locksk_mutate_common_last() { # <needle>
+	local needle=$1 hits
+	hits=$(grep -cF -- "$needle" "$HERE/common.sh" || true)
+	[ "$hits" -ge 1 ] || {
+		printf '            nothing in factory/common.sh carries %s, so this control ran shipped\n' "$needle" >&2
+		printf '            code while reporting a mutation.\n' >&2
+		return 1
+	}
+	if ! PROC_MUT_NEEDLE=$needle awk -v n="$hits" '
+		{
+			if (index($0, ENVIRON["PROC_MUT_NEEDLE"]) && ++seen == n) {
+				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
+				next
+			}
+			print
+		}' "$HERE/common.sh" >"$proc_dir/common.sh"; then
+		printf '            the mutant could not be written at all\n' >&2
+		return 1
+	fi
+	[ -s "$proc_dir/common.sh" ] || {
+		printf '            the mutant is empty: a dead mutant, not a guilty one.\n' >&2
+		return 1
+	}
+	if [ -n "${PROC_MUT_LINE:-}" ]; then
+		grep -qF -- "$PROC_MUT_LINE" "$proc_dir/common.sh" || {
+			printf '            the mutant line is not in the copy, so the control ran shipped code:\n' >&2
+			printf '              %s\n' "$PROC_MUT_LINE" >&2
+			return 1
+		}
+	fi
+	bash -n "$proc_dir/common.sh" || {
+		printf '            the mutant does not parse: the pass would die before it journalled,\n' >&2
+		printf '            and the control would read as the effect it claims to test.\n' >&2
+		return 1
+	}
+	cmp -s "$HERE/common.sh" "$proc_dir/common.sh" && {
+		printf '            the mutant is byte-identical to the shipped file, so this control\n' >&2
+		printf '            measured nothing.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+# The shipped arm, against a held lock: a single foreign opener.
+proc_new locksk-held
+locksk_hold
+proc_run locksk-held
+# The pid is read BEFORE the release: locksk_release empties locksk_holder_pid, and a leg
+# that compares against an empty string names nobody -- the first run of this family failed
+# its own named-holder leg exactly that way, its message printing `(pid )`.
+locksk_pid=$locksk_holder_pid
+locksk_release
+locksk_j=$proc_journal
+locksk_rc=$proc_rc
+locksk_out=$proc_out
+cp -- "$proc_rec" "$locksk_dir/rec-held"
+cp -- "$proc_ticks" "$locksk_dir/ticks-held"
+
+locksk_leg_said() {
+	[ "$locksk_rc" = 7 ] || {
+		printf '            a pass refused the lock exited %s, not 7\n' "$locksk_rc" >&2
+		return 1
+	}
+	grep -qF -- 'another supervisor holds' "$locksk_out" || {
+		printf '            the arm no longer tells the operator in words what it refused:\n' >&2
+		tail -n 4 "$locksk_out" | sed 's/^/              /' >&2
+		return 1
+	}
+	[ -n "$(locksk_line "$locksk_j")" ] || {
+		printf '            the refused pass journalled nothing about the refusal: that is #380\n' >&2
+		printf '            open again. The journal it left was:\n' >&2
+		sed 's/^/              /' "$locksk_j" | cut -c1-140 >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'refusal journalled at refusal' 'exit 7, the stderr sentence, and a LOCK-SKIPPED line' locksk_leg_said
+
+locksk_leg_named() {
+	local line
+	line=$(locksk_line "$locksk_j")
+	if command -v fuser >/dev/null 2>&1; then
+		case " $line " in
+		*" holder=$locksk_pid:sleep "*) return 0 ;;
+		esac
+		printf '            fuser is installed and the planted holder (pid %s) is alive, yet the\n' "$locksk_pid" >&2
+		printf '            line names somebody else:\n              %s\n' "$line" >&2
+		return 1
+	fi
+	case " $line " in
+	*' holder=unknown '*) return 0 ;;
+	esac
+	printf '            this machine has no fuser, so the arm must degrade to unknown; it named:\n' >&2
+	printf '              %s\n' "$line" >&2
+	return 1
+}
+proc_leg 'the holder is named when nameable' 'pid:comm of the live holder where fuser answers; unknown where it is absent' locksk_leg_named
+
+locksk_leg_no_self() {
+	local line
+	line=$(locksk_line "$locksk_j")
+	case "$line" in
+	*' +'*)
+		printf '            the fixture planted exactly ONE opener outside the refused pass, yet the\n' >&2
+		printf '            line counts a surplus -- the shape of a pass that reports its own\n' >&2
+		printf '            still-open descriptor as a holder:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg 'the refused shell does not count itself' 'one foreign opener and no +N: both the arm and the probe close the descriptor first' locksk_leg_no_self
+
+locksk_leg_quiet() {
+	if grep -qE ' (PASS|END|TICK-START|QUEUED) ' -- "$locksk_j"; then
+		printf '            a pass that never got the lock ran part of the pass anyway:\n' >&2
+		grep -E ' (PASS|END|TICK-START|QUEUED) ' -- "$locksk_j" | sed 's/^/              /' | cut -c1-140 >&2
+		return 1
+	fi
+	# The preflight sits AHEAD of the flock on trunk -- `factory_preflight` at
+	# factory.sh:196, the lock at 1995 -- so one recorded `auth status` is legitimate on a
+	# refused pass, and the first run of this family failed its own leg asserting zero calls.
+	# The claim worth pinning is narrower and stronger: behind the refusal is NOTHING -- no
+	# queue read, no write, and not one gh call beyond the preflight.
+	local beyond
+	beyond=$(grep -cvE '^auth status' "$locksk_dir/rec-held" 2>/dev/null || true)
+	[ "${beyond:-0}" = 0 ] || {
+		printf '            a refused pass made %s gh call(s) beyond the preflight:\n' "$beyond" >&2
+		grep -vE '^auth status' "$locksk_dir/rec-held" | sed 's/^/              /' >&2
+		return 1
+	}
+	[ ! -s "$locksk_dir/ticks-held" ] || {
+		printf '            a refused pass opened a tick session; holding out for the lock means\n' >&2
+		printf '            doing nothing, and the journal must not be the only thing that says so.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the refusal did the nothing it promised' 'no PASS, no END, no tick, and no gh call beyond the preflight' locksk_leg_quiet
+
+# Control one: the journalled line removed, everything else shipped. If the exit and the
+# stderr sentence alone could pass every leg above, the leg is not the repair.
+locksk_ctl_nolog_planted=0
+proc_new locksk-ctl-nolog
+PROC_MUT_LINE='' proc_mutate_last 'log_event "LOCK-SKIPPED holder=' && locksk_ctl_nolog_planted=1
+locksk_hold
+proc_run locksk-ctl-nolog
+locksk_release
+locksk_ctl_j=$proc_journal
+locksk_ctl_rc=$proc_rc
+locksk_ctl_out=$proc_out
+
+locksk_leg_ctl_nolog() {
+	[ "$locksk_ctl_nolog_planted" = 1 ] || {
+		printf '            the mutant that deletes the journalled line refused to plant, so this\n' >&2
+		printf '            control measured shipped code.\n' >&2
+		return 1
+	}
+	[ "$locksk_ctl_rc" = 7 ] || {
+		printf '            the control exited %s, not 7: it no longer isolates the journal line\n' "$locksk_ctl_rc" >&2
+		return 1
+	}
+	[ -z "$(locksk_line "$locksk_ctl_j")" ] || {
+		printf '            the control journalled a refusal although its arm cannot: the line did\n' >&2
+		printf '            not come from the mutated arm:\n              %s\n' "$(locksk_line "$locksk_ctl_j")" >&2
+		return 1
+	}
+	grep -qF -- 'LOG-AT' "$locksk_ctl_j" || {
+		printf '            the control box journalled NOTHING at all, so an empty journal here\n' >&2
+		printf '            only proves the plumbing is broken in this fixture:\n' >&2
+		sed 's/^/              /' "$locksk_ctl_j" | cut -c1-140 >&2
+		return 1
+	}
+	grep -qF -- 'another supervisor holds' "$locksk_ctl_out" || {
+		printf '            the control lost even the stderr sentence, so it is not the shipped\n' >&2
+		printf '            arm minus one line any more.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: exit 7 is not a record' 'delete the line: no refusal in the journal, the exit and the sentence identical' locksk_leg_ctl_nolog
+
+# Control two: the probe made unable to succeed (a stripped-psmisc world, plantable even
+# where fuser is installed). The line must still arrive, saying it cannot see the holder.
+locksk_ctl_nofuser_planted=0
+proc_new locksk-ctl-nofuser
+PROC_MUT_LINE='	locksk_no_such_fuser "$FACTORY_RUN/lock" 2>/dev/null' \
+	locksk_mutate_common_last '		fuser "$FACTORY_RUN/lock" 2>/dev/null' && locksk_ctl_nofuser_planted=1
+locksk_hold
+proc_run locksk-ctl-nofuser
+locksk_release
+locksk_nf_j=$proc_journal
+locksk_nf_rc=$proc_rc
+
+locksk_leg_ctl_nofuser() {
+	[ "$locksk_ctl_nofuser_planted" = 1 ] || {
+		printf '            the mutant that removes the probe refused to plant, so this control\n' >&2
+		printf '            measured shipped code.\n' >&2
+		return 1
+	}
+	[ "$locksk_nf_rc" = 7 ] || {
+		printf '            the no-probe pass exited %s, not 7: a helper that cannot see the holder\n' "$locksk_nf_rc" >&2
+		printf '            broke the refusal arm instead of degrading inside its line\n' >&2
+		return 1
+	}
+	local line
+	line=$(locksk_line "$locksk_nf_j")
+	case " $line " in
+	*' holder=unknown '*) return 0 ;;
+	esac
+	printf '            with the probe removed the arm must still journal the refusal, saying it\n' >&2
+	printf '            cannot see the holder; the line was:\n              %s\n' "${line:-<none>}" >&2
+	return 1
+}
+proc_leg 'control: an unreadable probe says unknown' 'remove fuser from the helper: the refusal is still journalled, holder=unknown' locksk_leg_ctl_nofuser
+
+# Two openers, one holder: the descendant inherited the descriptor, so `fuser` lists both and
+# the line names the oldest and counts the surplus. (No fuser on this machine means no naming
+# at all here either -- the same degraded world, asserted not assumed.)
+locksk_two_planted=0
+proc_new locksk-two
+locksk_hold descendant
+locksk_two_planted=1
+proc_run locksk-two
+locksk_two_pid=$locksk_holder_pid
+locksk_release
+locksk_two_j=$proc_journal
+
+locksk_leg_two_openers() {
+	[ "$locksk_two_planted" = 1 ] || return 1
+	local line
+	line=$(locksk_line "$locksk_two_j")
+	if command -v fuser >/dev/null 2>&1; then
+		case " $line " in
+		*" holder=$locksk_two_pid:sleep +1 "*) return 0 ;;
+		esac
+		printf '            the holder had one descendant sharing its descriptor; the line should\n' >&2
+		printf '            name the oldest opener and count the surplus:\n              %s\n' "$line" >&2
+		return 1
+	fi
+	case " $line " in
+	*' holder=unknown '*) return 0 ;;
+	esac
+	printf '            no fuser on this machine, and the line still named someone:\n' >&2
+	printf '              %s\n' "$line" >&2
+	return 1
+}
+proc_leg 'a descendant opener is counted' 'oldest answers as pid:comm, the surplus rides as +1' locksk_leg_two_openers
+
+# Control three: BOTH closes removed, arm and helper. On the one-opener plant this must count
+# the refused pass itself as a surplus opener -- the failure the closes exist to prevent, made
+# visible rather than asserted.
+locksk_nc_planted=0
+proc_new locksk-noclose
+PROC_MUT_LINE='	: # control: the probe keeps inherited descriptors' \
+	locksk_mutate_common_last '	exec 9>&- 2>/dev/null || true' \
+	&& PROC_MUT_LINE='	: # control: the arm keeps the descriptor it opened' \
+		proc_mutate_last '	exec 9>&-' \
+	&& locksk_nc_planted=1
+locksk_hold
+proc_run locksk-noclose
+locksk_nc_pid=$locksk_holder_pid
+locksk_release
+locksk_nc_j=$proc_journal
+
+locksk_leg_ctl_noclose() {
+	[ "$locksk_nc_planted" = 1 ] || {
+		printf '            the mutants that drop the two closes refused to plant, so this control\n' >&2
+		printf '            measured shipped code.\n' >&2
+		return 1
+	}
+	local line
+	line=$(locksk_line "$locksk_nc_j")
+	# `+<n>`, not `+1`: with the closes gone the refused shell keeps the descriptor open for
+	# the whole probe -- and the probe's own `tr`/`grep`/`sort` inherit it too, so a fast fuser
+	# scan may catch some of them mid-pipeline. Every one of those is the refused pass
+	# reporting itself, which is what this control exists to make visible.
+	# The suffix is taken with parameter expansion and matched in a nested case because a `+`
+	# written directly before a quote inside a pattern -- `+"[0-9]"` -- makes bash 5.3's
+	# case-pattern scanner hunt extglob operands and swallow the quote: measured 19 Nov, both
+	# `shopt -s extglob` states, a three-line case dying `unexpected EOF while looking for
+	# matching '"'` at the file's end, the leg that hid it parsing fine alone because a later
+	# line's quote closed the stolen one. The nested `+[0-9]*` has no quote after the `+`.
+	case " $line " in
+	*" holder=$locksk_nc_pid:sleep "*)
+		case "${line#*"holder=$locksk_nc_pid:sleep "}" in
+		+[0-9]*) return 0 ;;
+		esac ;;
+	esac
+	printf '            with both closes gone, the refused shell still holds the descriptor and\n' >&2
+	printf '            fuser must count it: the line should read `+N` on a one-opener plant, and\n' >&2
+	printf '            it read:\n              %s\n' "$line" >&2
+	return 1
+}
+proc_leg 'control: the closes keep the probe honest' 'drop both and the refused pass reports itself as a surplus opener' locksk_leg_ctl_noclose
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
