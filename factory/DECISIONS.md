@@ -15492,7 +15492,7 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   answers `112 0`, `git diff --numstat c149fe9 6442e8f -- factory/DECISIONS.md` answers `504 0`, and
   `git diff -U0 <base> 6442e8f -- factory/DECISIONS.md | grep '^+## '` counts 2 and 10 added headings.
   #389 files this row as the one in its batch that no later entry annotates, and `nine headings` did survive
-  on one line in either log at `ab9ad8d` (five at this head, this entry's rows among them). What is the repair?
+  on one line in either log at `ab9ad8d` (five at `83a428e`, six at `dcbb0f4`, seven at `172d62d`, this row among them at each). What is the repair?
 - Options: edit the two figures inside `H-0093` | this entry annotates and the row keeps its bytes |
   `scripts/check-decisions.py` re-runs every tally it recognises against the two revisions the row names
   and refuses a mismatch | it reports a mismatch and keeps walking | it counts the receipts the logs
@@ -15699,8 +15699,60 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   while the 429 is still on two -- #389's own defect, found by re-running the grep. An attempt to
   disambiguate that count by quoting the words being counted made the counting row a sixth occurrence, and
   it is gone: a census row that re-quotes its target moves the number it states. `nine headings` survived
-  on one line of this log at `ab9ad8d` and on no line of `DECISIONS.md`, and on five at `83a428e` -- three
+  on one line of this log at `ab9ad8d` and on no line of `DECISIONS.md`, and on five of `factory/DECISIONS.md` at `83a428e` -- three
   of them the tally quotation the review counted, two rows of `H-0307` discussing the phrase -- so that
   sentence names its tree and its form rather than a head-local total, this entry having quoted the phrase
   twice itself. Nothing here re-measures a receipt and `H-0093` keeps every byte: the closing line still
   counts 7 tallies, and the shipped arm still counts and never opens a diff.
+
+## H-0309 · Two rows of this log state a census of the log's own rows as a head-local total, which is the one shape `H-0308` already explains cannot hold: is the repair to re-take the figure on every head, to pin each figure to the commit it was read at, to drop the figures, or to give the logs a gate that re-runs the census?
+
+- Question: `factory/DECISIONS.md:15495` "on one line in either log at" carried, until this commit,
+  the parenthetical `(five at this head, this entry's rows among them)`, and the review of #471 filed
+  at `2026-11-19T16:00:07Z` counted the census phrase on seven rows at `172d62d` and seven again on
+  the head that shipped the sentence, `833cfcd` -- so no commit holding that sentence ever held the
+  figure it states. Five is what `83a428e` and its checkpoint `c240a35` answer, six what `dcbb0f4`
+  answers, seven what `172d62d`, `833cfcd` and this commit answer: the figure was already false on
+  the commit that wrote it, which answers six. The sibling figure in `H-0308`'s `Effect:` was pinned
+  to `83a428e` by `833cfcd`, but its replacement set "on five at `83a428e`" immediately after
+  "on no line of `DECISIONS.md`", where the phrase is on no line at any ref, so the number stood with
+  no log named -- the referent that same review asked to be spelled out. What is the repair?
+- Options: re-take both figures on every head, as the repair commits have done | pin each figure to
+  the immutable commit it was read at and write no head-local total | drop both parenthetical figures
+  and keep only the `ab9ad8d` reading the ticket turns on | give the logs a verify-time gate that
+  re-runs this census so no sentence has to hold a number
+- Chose: pin each figure to the immutable commit it was read at and write no head-local total
+- Why: re-taking is the defect and not its repair, and the review caught both halves of it: `dcbb0f4`
+  wrote five on a tree that answers six, and `172d62d`, whose own subject is four counts read again,
+  made the seven by adding a row that re-quotes the phrase while it re-read the others. A figure
+  pinned to a sha cannot move: `git show <sha>:<path>` answers the same in every checkout and no
+  later row can edit a commit. That is `H-0303`'s pointer cure turned from a coordinate onto a
+  number, and it is what `H-0308`'s `Effect:` already argues for -- "a census row that re-quotes its
+  target moves the number it states" -- while leaving the two rows themselves head-local. Dropping
+  the figures loses what the review asked to keep, that this entry's own rows are among the counted
+  ones, and the prescription was a scope, not a deletion. A verify-time census gate is `H-0307`'s
+  refused option three aimed at a different number: the shipped arm reads no history and prints that
+  on its own closing line (#253), so it would be a new arm re-run by every unit to hold one phrase,
+  and it fails on the first count the gate cannot spell. Tie-break order agrees: no dependency and no
+  code, the ambiguity resolves toward the stricter reading (a figure either names its tree or goes),
+  two rows in one file, reversible by `git revert` alone, and the shape this log already uses
+  elsewhere.
+- Checkpoint: b50bba4
+- Effect: each figure re-written on its own physical line, one line in and one line out, so no row
+  below either one moves and no coordinate aimed into this log needs re-aiming -- rows 15489, 15490,
+  15531 and 15614 still carry the four flush fragments `H-0308` pinned them at, re-read after the
+  edit. The census phrase stands on seven rows of this log before and after this commit, 2908, 15490,
+  15494, 15518, 15599, 15680 and 15701, because this entry does not quote it: the row that reports a
+  census adds nothing to what it counts, which is the only reason seven is still the honest answer on
+  a tree holding this row. Plain gate on these bytes: rc 0, 377 entries, 1222 `path:line` citations,
+  583 owing an anchor, 0 refused outright, and 7 `Effect:` diff tallies; `--self-test` unchanged at 80
+  must fail and 54 must pass. The debt did not move because both coordinates this entry adds are
+  anchored on the text they quote, one of them `scripts/check-decisions.py:771` "POINTER_DEBT = 583".
+  The pull-request body carried the same defect in the other direction and is corrected there beside
+  its sha rather than restated here: its census sentence counted four added diff lines carrying the
+  phrase, all inside `H-0307`, where the same diff through `grep -n` on the phrase answers six at
+  `833cfcd` and six on these bytes -- four rows inside `H-0307`, two inside `H-0308`, and no `-` line
+  either side.
+- Follow-up: nothing in the tree re-measures a census figure written in prose, and #433 makes the
+  same complaint about a row's PR number; a gate that could read either is a ticket of its own, not a
+  scope, and this one deliberately left it there.
