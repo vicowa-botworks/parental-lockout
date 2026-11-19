@@ -15647,13 +15647,13 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   by exactly those four rows -- `factory/selftest.sh` 50 to 49 and `factory/DECISIONS.md` 22 to 19, which
   is 587 to 583 with no other row crossing the boundary. That last composition is what tells a repair
   from a coincidence: the 583 is not assumed, it is the four named rows leaving. The direction the entry
-  promises was then tested both ways on a fixture root whose own baseline is 15 problems before any edit
-  (git names a different top level there, so 95 rows read as unopenable), so only its difference is
-  quoted, and the reviewer's rc-0-and-silent reading of the same drift on the shipped bytes stands as
-  the absolute statement: with the flush anchor, changing the tally at 2907 to 55 answers rc 1 and
+  promises was then tested both ways on two copies of these bytes with their `.git` linked, so every
+  `Checkpoint:` resolves and the untouched copy answers rc 0 at 583 owing an anchor -- not on a scratch
+  tree, where an unlinked copy of this commit answers 372 problems before anything is edited, every one
+  a Checkpoint git cannot see. With the flush anchor, changing the tally at 2907 to 55 answers rc 1 and
   names `factory/DECISIONS.md:15489` "deletes 0 content lines and adds 54" as anchored on text that is
-  not there; with that one anchor taken back out to the gap shape, the identical tally change answers the
-  same 15 and no anchored-mismatch refusal at all. The anchor does the work, not the sentence describing
+  not there; with that fragment back in the gap shape, words kept so this entry's own anchor on 15489
+  still lands, the same change names neither row. The anchor does the work, not the sentence describing
   it, which is also the argument against the second option: the promise was cheap to honour, not merely
   cheap to delete. The third option was measured rather than declined on taste, by importing this gate
   and changing one regex over the real corpus: a gap of 8 characters answers 16 problems, a gap of 16
@@ -15665,20 +15665,31 @@ the duplicate-id rule at merge decides, as it did for `H-0240` itself.
   bill has grown from three pointers to 27 refusals.
 - Checkpoint: c240a35
 - Effect: `factory/DECISIONS.md` rows 15489, 15490, 15531 and 15614 carry flush fragments on their own
-  physical lines -- 15489 "deletes 0 content lines and adds 54", 15490 "deletes 0 content lines and adds
-  429" and 15614 "the gate caught it" -- and the fourth row, 15531, is the one aimed at
-  `factory/selftest.sh:16162` "0 when that gate asks git for nothing but object lookups". The log keeps
-  its 15621 physical lines above this entry, so nothing aimed at a line number moved, and that is read
-  rather than assumed: every anchored row in both logs is re-opened against the line it names and the
-  answer is 0 refused outright after the append, and the 14 rows aiming at `NEXT.md` 2257 and 2361 are
-  each still anchored. `scripts/check-decisions.py` changes in one place, the ratchet comment at
+  physical lines -- 15489 "deletes 0 content lines and adds 54" plus its heading parenthetical, 15490 the
+  429 and nine headings, 15614 "POINTER_DEBT = 583" -- and the fourth row, 15531, is the one aimed at
+  `factory/selftest.sh:16162` "0 when that gate asks git for nothing but object lookups", whose own flush
+  fragment is the first half of that same line, "gate_reads_no_refs() { # [path]". The heading figure is
+  named there and not quoted, because an `Effect:` field that writes the tally shape out makes it a claim
+  of this entry: with the parenthetical in this field the closing line counts 8 tallies where it counts 7
+  without it, so a quotation of somebody else's receipt is read as this entry's own measurement -- #389's
+  defect arriving from the side nobody filed it for. The log keeps its 15622
+  physical lines above this entry, so nothing aimed at a line number moved, and that is read rather than
+  assumed: every anchored row in both logs is re-opened against the line it names, the answer is 0 refused
+  outright after the append, and the 9 rows aiming at `NEXT.md` 2257 and 2361 are each still anchored.
   `scripts/check-decisions.py:771` "citations that owe an anchor; may only fall": 587 to 583, and that
   comment's own two errors corrected in the same breath -- it claimed 21 rows for the
   `factory/DECISIONS.md` pair where the tree printed 22, and it claimed no row had arrived in the
   unanchored shape where four had. Two further sentences in `H-0307` were measured before they were
-  repaired, both by this gate's own tally census: the 54 receipt appears on rows 15489, 15543 and 15599
-  and the 429 receipt on 15490 and 15599, so "each of the two receipts is quoted three times over" became
-  three and two; and `nine headings` survived on one line of `factory/DECISIONS.md` at `ab9ad8d` and on
+  repaired, both by this gate's own tally census taken on the tree the review read: at `83a428e` the 54
+  receipt is on three rows of this log -- 15489, 15543, 15599 -- and the 429 on two, 15490 and 15599, so
+  "each of the two receipts is quoted three times over" became three and two there. That census then moved
+  under its own entry: the two rows this entry adds below 15599 quote the 54 receipt again, so on the
+  bytes that ship this sentence it is quoted on five rows besides 2907 itself and the 429 on two, and the
+  count is a reading of `83a428e` for that reason -- #389's own defect, found by re-running the grep. The
+  attempt to disambiguate that count by quoting the words it counts is the sixth occurrence, and it is
+  gone: a census row that re-quotes its own target moves the number it states, which is this whole
+  contract in miniature.
+  And `nine headings` survived on one line of `factory/DECISIONS.md` at `ab9ad8d` and on
   no line of `DECISIONS.md`, where at this head it is on six with this entry's own quotation among them,
   so that sentence now names the tree it was read on. Nothing here re-measures a receipt: the 7 tallies counted at this head are the same 7, and the
   shipped arm still counts and never opens a diff.
