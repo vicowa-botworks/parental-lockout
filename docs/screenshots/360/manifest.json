@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-19T11:35:31Z",
-  "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+  "captured_at": "2026-11-19T13:13:24Z",
+  "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
   "pages": [
     {
       "capture": {
@@ -20,9 +20,9 @@
       },
       "page": "/audit",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "d8bef5fce5dfe7e5d0edec1b8d935fe54b7e1a1b18d272a7bd8e9586764c19e7"
       },
       "png": "audit.png",
@@ -33,7 +33,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -69,9 +69,9 @@
       },
       "page": "/",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "e68a54ee7bb2bc4604811bbec4474d3d5db309af6262053aacd3adc169117265"
       },
       "png": "dashboard.png",
@@ -82,7 +82,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -94,9 +94,9 @@
       },
       "page": "/lock",
       "photographed": {
-        "at": "2026-11-19T11:35:26Z",
+        "at": "2026-11-19T13:13:19Z",
         "fixture": "lock",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "2030b2132ee657c607313cf04906230674601a0fc19511130a54f10e8be180d8"
       },
       "png": "lock.png",
@@ -107,7 +107,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -121,9 +121,9 @@
       },
       "page": "/profiles",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "7d916312f7bf2a76180f3677d9645765cbbf6d73f2c5c6cea763128f2ce4aefe"
       },
       "png": "profiles-refused.png",
@@ -134,7 +134,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -148,9 +148,9 @@
       },
       "page": "/profiles",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "b2383c11bb7745f059288cd9ab3a48904a9035ca09a00f6a9f2657233ab02b96"
       },
       "png": "profiles.png",
@@ -161,7 +161,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -175,9 +175,9 @@
       },
       "page": "/settings",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "d4783403655c2799f272f8bfea7ab270b5859877634b71429e9c5149d8b36f70"
       },
       "png": "settings.png",
@@ -188,7 +188,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -200,9 +200,9 @@
       },
       "page": "/testlock",
       "photographed": {
-        "at": "2026-11-19T11:35:29Z",
+        "at": "2026-11-19T13:13:23Z",
         "fixture": "testlock",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "3ab4db01efff2af3a102ed28afdf34871bd9cf88600ee99d6c3a56e834c08874"
       },
       "png": "testlock.png",
@@ -213,7 +213,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -224,9 +224,9 @@
       },
       "page": "/users",
       "photographed": {
-        "at": "2026-11-19T11:35:23Z",
+        "at": "2026-11-19T13:13:16Z",
         "fixture": "pages-noprof",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "a9e560307dc96154c44ae614cde02b96110b79b2905199fc271760221bb4e3a1"
       },
       "png": "users-no-profiles.png",
@@ -237,7 +237,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     },
     {
       "capture": {
@@ -251,9 +251,9 @@
       },
       "page": "/users",
       "photographed": {
-        "at": "2026-11-19T11:35:19Z",
+        "at": "2026-11-19T13:13:13Z",
         "fixture": "pages",
-        "head": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9",
+        "head": "a8adf95973ca20677cc0211f885cd44b0a6898d1",
         "sha256": "676033537aca7ab77f78fb6a732bc0eb77cb8903f312868a9e2410712f377402"
       },
       "png": "users.png",
@@ -264,7 +264,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "769c2bfdff89c8fbbb6f8ab537bb72f1fd7a29e9"
+      "sources_rev": "a8adf95973ca20677cc0211f885cd44b0a6898d1"
     }
   ],
   "schema": "capture-manifest/2",
