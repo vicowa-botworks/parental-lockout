@@ -3638,6 +3638,31 @@ if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TI
 	printf 'fixture tick: %s fails, which is what the dispatcher is being asked about\n' "$PROC_TICK_FAILS"
 	exit 1
 fi
+# #383 needs a session that IGNORES SIGTERM and outlives its ceiling. `timeout` without
+# `--kill-after` waits forever for such a child, so the shipped harness escapes it only through
+# the escalation this file has never exercised: `trap '' TERM` is what a wedged CLI with a signal
+# handler is from the supervisor's side. Measured on this box before these arms were written, with
+# `timeout --signal=TERM --kill-after=2 5` nested exactly as `factory_tick` nests it: the trapped
+# stub died at 7s with 137 (128+SIGKILL, the escalation); the same stub without the trap died at
+# 5s with 124. The sleep is 45s: long enough to outlive the 5s ceiling the legs set and the 20s
+# pass bound of the no-kill-after control, short enough that the orphan a control leaves behind
+# (the sleep, reparented when the outer TERM takes the pass but cannot cross into timeout's child
+# group) expires by itself inside one suite run rather than sitting on the box for minutes.
+if [ -n "${PROC_TICK_STALLS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_STALLS"; then
+	printf 'fixture tick: %s traps TERM and outlives its ceiling\n' "$PROC_TICK_STALLS"
+	trap '' TERM
+	sleep 45
+	exit 0
+fi
+# The 124 arm of the same ceiling: no trap, so TERM at the deadline lands and the tick dies of it.
+# Both arms exist because TICK-FAILED now tells 124 and 137 apart in words, and a fixture that can
+# only produce one of the two lets the sentence about the other one rot untested -- which is the
+# exact condition #383 was filed against.
+if [ -n "${PROC_TICK_HANGS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_HANGS"; then
+	printf 'fixture tick: %s sleeps under default TERM handling\n' "$PROC_TICK_HANGS"
+	sleep 45
+	exit 0
+fi
 # #341 needs the `#302` shape: a session that exits 0 with finished, verified, UNCOMMITTED work in
 # its tree -- that is the trigger the quarantine streak arms on. Only when PROC_DIRTY names the
 # unit, so every other fixture sees exactly the stub it always saw.
@@ -3767,19 +3792,28 @@ proc_run() {
 	# the call rather than set to nothing.
 	local pass_kill=()
 	[ -z "$proc_kill" ] || pass_kill=(BASH_ENV="$proc_kill")
+	# #383's two knobs, and the pass bound, added only when a leg asks: every other proc_run in this
+	# file then keeps the shipped defaults it has always used -- including `FACTORY_TICK_KILL_AFTER`,
+	# whose value belongs to common.sh alone and must not be re-spelled here as a literal. Later env
+	# assignments win in `env`, so a leg's FACTORY_TICK_TIMEOUT overrides the 30 below.
+	local pass_knobs=()
+	[ -z "${proc_tick_timeout:-}" ] || pass_knobs+=(FACTORY_TICK_TIMEOUT="$proc_tick_timeout")
+	[ -z "${proc_tick_kill_after:-}" ] || pass_knobs+=(FACTORY_TICK_KILL_AFTER="$proc_tick_kill_after")
 	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
 		PROC_DIRTY="${proc_dirty:-}" \
 		PROC_TICK_ALLOC="${proc_tick_alloc:-}" \
+		PROC_TICK_STALLS="${proc_tick_stalls:-}" \
+		PROC_TICK_HANGS="${proc_tick_hangs:-}" \
 		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
 		FACTORY_OPENCODE=opencode FACTORY_AGENT=factory \
 		FACTORY_LOG="$proc_log" FACTORY_LEDGER="$proc_stash" FACTORY_RUN="$proc_rundir" \
 		FACTORY_TREES="$proc_trees" FACTORY_AT_RISK="$proc_risk" FACTORY_HALT="$proc_halt" \
 		FACTORY_BASE=main FACTORY_MAX_TICKS=4 FACTORY_BUDGET=120 \
-		FACTORY_TICK_TIMEOUT=30 FACTORY_FETCH_TIMEOUT=10 \
-		timeout --signal=TERM --kill-after=10 180 bash "$proc_dir/factory.sh" \
+		FACTORY_TICK_TIMEOUT=30 FACTORY_FETCH_TIMEOUT=10 "${pass_knobs[@]}" \
+		timeout --signal=TERM --kill-after=10 "${proc_pass_timeout:-180}" bash "$proc_dir/factory.sh" \
 		>"$proc_work/$tag.out" 2>&1 || proc_rc=$?
 	proc_journal=$proc_work/$tag.journal
 	cp -- "$proc_log/supervisor.log" "$proc_journal" 2>/dev/null || : >"$proc_journal"
@@ -6640,6 +6674,288 @@ printf '        note: the third control is the one #263 described. Its journal e
 printf '        while the shipped dispatcher reaches B with the same failing session. So the property\n'
 printf '        "the pass continued past the quarantine" is held by TWO lines -- tree_stop returning 0\n'
 printf '        on a rescue, and the `|| rc_tick=$?` that keeps a spent tick from ending the pass.\n'
+
+# ------------------------------------------------------------------ the ceiling that ignores TERM (#383)
+#
+# #383: `timeout --signal=TERM --kill-after=…` has two deaths and the harness had exercised one. A
+# tick that dies OF TERM exits 124 at the deadline; a tick that traps TERM exits nothing -- it sits
+# there until --kill-after escalates to SIGKILL and `timeout` reports 137 -- and a `timeout` with no
+# --kill-after sits there forever, holding the lock, the queue and the pass budget behind one dead
+# unit. Neither the first behaviour nor the second had a session in this file that produced it:
+# `trap '' TERM` occurred zero times, and the one journal sentence an operator reads for a killed
+# tick explained 124 and fell silent about the escalated death it would print beside `exit=137`.
+# So this section grows the runtime stub two arms (stall: trap TERM; hang: sleep under default
+# TERM, the 124 case), runs each through the shipped supervisor with a 5 s ceiling and a 2 s grace,
+# and pins all three parentheticals TICK-FAILED now prints -- 124, 137, and the neither -- with a
+# control per sentence: the wording rewritten back to the old annotation, and the `--kill-after`
+# argument deleted. The 20 s bound on the deleted-knob run is the control's own evidence: shipped,
+# the box is done in ~10 s; mutant, nothing ends the tick until the outer `timeout` ends the pass.
+#
+# The pair of numbers the legs read as needles (`5s`, `2s`) come from the env the run sets, not
+# from common.sh's defaults -- the same bargain as `budget_default`'s reading above: a needle that
+# re-spells a shipped default keeps passing the day somebody moves it.
+
+# -- The 137 leg: a tick that traps TERM, run under the shipped escalation.
+proc_new stall-shipped
+proc_plant
+proc_ps=$proc_planted
+proc_tick_stalls=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=30
+proc_run stall-1
+proc_jk=$proc_journal
+proc_tk=$proc_ticks
+proc_tick_stalls=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_stall_escaped() {
+	[ "${proc_ps:-0}" = 2 ] || {
+		printf '            the stalled fixture tree has %s dirty path(s), not the two the fail\n' "${proc_ps:-nothing}" >&2
+		printf '            family above plants, so the preserved-work mirror is not in its state.\n' >&2
+		return 1
+	}
+	# Premise, from the second proof: a session for 900 was really opened, so the death below is a
+	# tick that ran and would not stop -- not a tick that never started for an unrelated reason.
+	grep -qF -- 'factory unclaimed:900' "$proc_tk" || {
+		printf '            no session was ever opened for unit A, so nothing here outlived a\n' >&2
+		printf '            ceiling; the stub arm never ran.\n' >&2
+		sed 's/^/              /' "$proc_jk" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jk" 'TICK-START unclaimed:900')" ] || {
+		printf '            unit A never got its TICK-START, so the journal below describes a pass\n' >&2
+		printf '            that did not attempt the tick this leg is about.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jk" 'TICK-FAILED unclaimed:900 exit=137')" ] || {
+		printf '            a tick that trapped TERM did not arrive as 137 -- measured on this box\n' >&2
+		printf '            (trap TERM under --kill-after=2 with a 5s ceiling dies at 7s with 137),\n' >&2
+		printf '            so either the escalation is gone or the stub stopped ignoring TERM:\n' >&2
+		sed 's/^/              /' "$proc_jk" | cut -c1-150 >&2
+		return 1
+	}
+	# The sentence itself, values and all: ceiling, grace, SIGKILL, and the reason an operator
+	# needs -- the tick would not stop. This is the sentence #383 says did not exist.
+	[ -n "$(proc_journal_line "$proc_jk" 'exit=137 (the 5s ceiling, then 2s ignoring TERM, then SIGKILL')" ] || {
+		printf '            exit=137 arrived without naming the escalation it reports: the parenthetical\n' >&2
+		printf '            must carry the ceiling and the grace from the run env (5s, 2s), and SIGKILL.\n' >&2
+		proc_journal_line "$proc_jk" 'TICK-FAILED unclaimed:900' | cut -c1-200 >&2
+		return 1
+	}
+	# And the other sentence is NOT there: 137 is not a TERM death, and a line that explains both
+	# codes on every death explains nothing.
+	if [ -n "$(proc_journal_line "$proc_jk" 'exit=137 (the 5s ceiling: TERM landed')" ]; then
+		printf '            the 124 sentence was printed for an escalated death; the two codes are\n' >&2
+		printf '            two events and #383 was filed exactly because they read as one.\n' >&2
+		return 1
+	fi
+	# The blast radius #383 claims is gone: the dead unit spends its own turn and the pass. B is
+	# reached, the pass reaches END, and nothing deferred on the budget.
+	[ -n "$(proc_journal_line "$proc_jk" 'TICK-START unclaimed:901')" ] || {
+		printf '            the escalated tick ate the pass: unit B never started, which is the\n' >&2
+		printf '            outage shape -- a wedged unit behind which the queue stops.\n' >&2
+		sed 's/^/              /' "$proc_jk" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jk" 'END rc=4 ticks_started=2')" ] || {
+		printf '            the pass did not end as one dead unit plus one clean tick (END rc=4\n' >&2
+		printf '            ticks_started=2); what it ended as is in the tail:\n' >&2
+		tail -n 6 "$proc_jk" | cut -c1-160 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jk" 'pass budget')" ]; then
+		printf '            a 7s escalation inside a 120s budget deferred something on the budget.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'a tick that ignores SIGTERM is killed at ceiling+grace' 'exit=137, the sentence names TERM ignored and SIGKILL, B is still ticked, END rc=4 ticks_started=2' proc_stall_escaped
+
+# -- The 124 leg: same ceiling, default TERM handling. The boring death, now in words too, because
+# the sentence that replaces the old annotation has to be seen printing the RIGHT thing for the
+# code the old annotation named.
+proc_new hang-shipped
+proc_plant
+proc_ph=$proc_planted
+proc_tick_hangs=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=30
+proc_run hang-1
+proc_jh=$proc_journal
+proc_tick_hangs=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_hang_terminated() {
+	[ "${proc_ph:-0}" = 2 ] || {
+		printf '            the hanging fixture tree has %s dirty path(s), not two.\n' "${proc_ph:-nothing}" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jh" 'TICK-FAILED unclaimed:900 exit=124 (the 5s ceiling: TERM landed')" ] || {
+		printf '            the TERM death did not arrive as 124 with the ceiling named from the run\n' >&2
+		printf '            env (5s) -- measured on this box: default TERM under the same timeout\n' >&2
+		printf '            dies at 5s with 124. What the journal actually says:\n' >&2
+		proc_journal_line "$proc_jh" 'TICK-FAILED unclaimed:900' | cut -c1-200 >&2
+		sed 's/^/              /' "$proc_jh" | cut -c1-150 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jh" 'ignoring TERM')" ]; then
+		printf '            an escalation sentence on a death that never escalated: TERM landed and\n' >&2
+		printf '            the tick died of it at the ceiling.\n' >&2
+		return 1
+	fi
+	[ -n "$(proc_journal_line "$proc_jh" 'END rc=4 ticks_started=2')" ] || {
+		printf '            the boring ceiling death still has to spend one unit, not the pass.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the TERM death says TERM landed at the ceiling' 'exit=124 with the 5s ceiling named, no escalation claim, END rc=4 ticks_started=2' proc_hang_terminated
+
+# -- The third parenthetical, witnessed by the fail family's own run: its journal was written by
+# the shipped file above, so `exit=1` already travelled through the new `case` and must have come
+# out naming BOTH codes as not-this-death. Zero extra runtime, and it refuses a `case` that
+# annotates only the two ceiling codes and leaves an ordinary failure with a bare number.
+proc_ceiling_arm_speaks_of_other_deaths() {
+	[ -n "$(proc_journal_line "$proc_jf" 'TICK-FAILED unclaimed:900 exit=1 (not a ceiling death')" ] || {
+		printf '            the failed-tick fixture above ran under the shipped file and its exit=1\n' >&2
+		printf '            line does not say "not a ceiling death": the `*)` arm is unreachable or\n' >&2
+		printf '            the fail journal is not the shipped run this section believes it is.\n' >&2
+		proc_journal_line "$proc_jf" 'TICK-FAILED unclaimed:900' | cut -c1-200 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jf" '124 is TERM at the 30s ceiling; 137 is SIGKILL after TERM was ignored')" ] || {
+		printf '            the neither-death sentence must name both ceiling codes and what each\n' >&2
+		printf '            means, at the ceiling that run actually used (30s).\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a non-ceiling death is named as one' "the fail family's exit=1 line says not-a-ceiling-death and explains 124 and 137" proc_ceiling_arm_speaks_of_other_deaths
+
+# -- Control one: the wording. The shipped sentence deleted back to the shape #383 was filed
+# against -- a 124 annotation, whatever code arrives beside it. Same stall stub, same env; only the
+# sentence differs. If the legs above can pass on this mutant, they were never pinning the sentence.
+proc_new stall-wording
+proc_mutate_factory \
+	'log_event "TICK-FAILED $unit exit=$status ($ceiling_note) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"' \
+	'	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling, MUTANT-383W) see $(basename -- "$log")"' ||
+	proc_wording_planted=0
+proc_plant
+proc_tick_stalls=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=30
+proc_run stall-2
+proc_jw=$proc_journal
+proc_tick_stalls=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_wording_control_bites() {
+	if [ "${proc_wording_planted:-1}" = 0 ]; then
+		printf '            the wording mutant did not plant, so its journal is shipped code and its\n' >&2
+		printf '            silence about the escalation sentence proves nothing.\n' >&2
+		return 1
+	fi
+	[ -n "$(proc_journal_line "$proc_jw" 'MUTANT-383W')" ] || {
+		printf '            the mutant run did not print its own sentence -- unit A did not die under\n' >&2
+		printf '            this box, so it is not the same fixture as the leg it controls:\n' >&2
+		sed 's/^/              /' "$proc_jw" | cut -c1-150 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jw" 'ignoring TERM')" ]; then
+		printf '            the old-style sentence still printed "ignoring TERM" somehow, so the 137\n' >&2
+		printf '            leg is not pinning the shipped case:\n' >&2
+		proc_journal_line "$proc_jw" 'TICK-FAILED unclaimed:900' | cut -c1-200 >&2
+		return 1
+	fi
+	# The mutant dies too -- exit=137 is still there, unexplained, exactly as #383 described it.
+	[ -n "$(proc_journal_line "$proc_jw" 'exit=137 (124 means the 5s ceiling')" ] || {
+		printf '            the mutant did not reproduce the filed shape (a 124 annotation beside\n' >&2
+		printf '            exit=137): what it printed is above, and the leg it controls is a lie\n' >&2
+		printf '            about the difference between the two sentences.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: the old sentence cannot pass the 137 leg' 'same stall, wording mutant: 137 arrives and NOTHING names TERM-ignored-or-SIGKILL' proc_wording_control_bites
+
+# -- Control two: the knob. Delete `--kill-after=…` from the shipped timeout and the escalated tick
+# is never reaped: the inner timeout waits its forever, the pass never reaches TICK-FAILED, and
+# unit B never starts. The pass bound (20 s) is the clock this control reads -- shipped, the same
+# fixture exits in ~10 s; mutant, only the outer timeout ends the pass, which is the #383 outage
+# in miniature: one wedged unit, budget and queue held behind it.
+proc_new stall-nokill
+proc_mutate_factory \
+	'timeout --signal=TERM --kill-after="$FACTORY_TICK_KILL_AFTER" "$FACTORY_TICK_TIMEOUT"' \
+	'timeout --signal=TERM "$FACTORY_TICK_TIMEOUT"' ||
+	proc_knob_planted=0
+proc_plant
+proc_tick_stalls=unclaimed:900
+proc_tick_timeout=5
+proc_tick_kill_after=2
+proc_pass_timeout=20
+proc_run stall-3
+proc_jn=$proc_journal
+proc_tkn=$proc_ticks
+proc_tick_stalls=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_pass_timeout=''
+
+proc_knob_control_bites() {
+	if [ "${proc_knob_planted:-1}" = 0 ]; then
+		printf '            the knob mutant did not plant, so the run below is shipped code.\n' >&2
+		return 1
+	fi
+	grep -qF -- 'factory unclaimed:900' "$proc_tkn" || {
+		printf '            no session for unit A: the mutant box hung before the tick, so its\n' >&2
+		printf '            silence about TICK-FAILED is not the mutant waiting its forever.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jn" 'TICK-START unclaimed:900')" ] || {
+		printf '            the mutant box never started unit A.\n' >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jn" 'TICK-FAILED unclaimed:900')" ]; then
+		printf '            the kill-after-less pass FAILED unit A anyway -- it cannot, nothing is\n' >&2
+		printf '            killing it -- which means something else ended the tick and the control\n' >&2
+		printf '            is measuring that something, not the knob:\n' >&2
+		proc_journal_line "$proc_jn" 'TICK-FAILED unclaimed:900' | cut -c1-200 >&2
+		return 1
+	fi
+	if [ -n "$(proc_journal_line "$proc_jn" 'TICK-START unclaimed:901')" ]; then
+		printf '            B started behind a never-reaped tick: then the budget, not the knob,\n' >&2
+		printf '            is what frees the queue, and the legs above are credited wrongly.\n' >&2
+		return 1
+	fi
+	case "$proc_rc" in
+	(124 | 137) : ;;
+	*)
+		printf '            the kill-after-less pass exited %s, not an outer-timeout code: shipped\n' "$proc_rc" >&2
+		printf '            it must exit 0-ish inside ~10 s, and only the outer bound ends the\n' >&2
+		printf '            mutant. Check the timing assumption before believing either run.\n' >&2
+		sed 's/^/              /' "$proc_jn" | cut -c1-150 >&2
+		return 1
+		;;
+	esac
+	return 0
+}
+proc_leg 'control: without kill-after the wedged tick holds the pass' 'same stall, knob deleted: no TICK-FAILED, no B, the pass ends only by the 20s outer bound' proc_knob_control_bites
+
+# One-line arithmetic for whoever reads this at 3 a.m.: the shipped stall box above ran
+# ceiling(5)+grace(2)+B(≈1s) and ENDed itself; the mutant box needed the outer 20 s. Those two
+# durations are the whole difference between a wedged unit and a wedged queue.
+printf '        note: the stall fixture dies at ceiling+grace shipped (~7s of the 30s bound) and\n'
+printf '        survives its 20s bound with the knob deleted -- the leg and its control differ by\n'
+printf '        one argument on one line, the way this section was scoped for.\n'
 
 # ------------------------------------- one home for the conflict stream (#364)
 
