@@ -921,7 +921,13 @@ subtraction and the word beside it is not what most people reach for:
   writes nothing, so the start is the pass's own last stdout line, read by a second call *without*
   `-t systemd`: that filter excludes the unit's output entirely (0 of the 325 lines in a 400-line
   window carry it), which is why one call cannot answer both halves and why a read filtered to
-  systemd's identifier reports the 00:56 hold as 0 s.
+  systemd's identifier reports the 00:56 hold as 0 s. A KILLED activation writes the line too, and
+  there the stamp is the kill, not the moment work stopped: on the 16 Nov 04:43 activation systemd
+  wrote `Main process exited, code=killed` 194 microseconds before the terminal `Failed to start`,
+  so measuring from it times the hold by its own ending -- 88 frozen minutes on a hung `git fetch`
+  printed as `HELD 0s to the stop deadline` (#418). For `deadline` and `client` the start is
+  therefore always the pass's own last line, and a last line that does not beat the kill by a
+  whole rounded second leaves the hold unread, in arm 2 (H-0329).
 - The manager's own lines are dropped by the field the author occupies -- `<comm>[<pid>]:`, third in
   the rendering -- not by matching that text anywhere in the line. The harness's own sentences quote
   journal lines, and a line the unit wrote that quotes `systemd[4485]:` is still the unit's line.
@@ -946,7 +952,9 @@ subtraction and the word beside it is not what most people reach for:
 - When either end of the subtraction is missing the line says so and prints no number, in one of two
   sentences: nothing has finished inside the window, or something finished and the journal cannot say
   when its work stopped. The second one used to print `reaped in 0s`, the healthy case's own words
-  (H-0124).
+  (H-0124). A killed activation belongs to that second sentence whenever its newest pass line does
+  not beat the terminal stamp by a rounded second (#418): the journal holds the kill and nothing
+  holds the moment work stopped, which is exactly what the sentence says.
 
 **The same read is in the supervisor's journal on every activation, and not only in `--status`** (H-0129).
 `--status` is a question to a timer and nobody asks a timer a question -- the argument that put

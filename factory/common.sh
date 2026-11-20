@@ -836,8 +836,12 @@ factory_reap_usec() { # <stamp> -> epoch microseconds
 #             age    seconds since that teardown
 #             open   1 when a newer activation has started and not yet finished
 #   exit 1  no terminal line in the tail: nothing finished inside the window, or there is no journal.
-#   exit 2  a finished activation with nothing to measure the hold FROM -- no `Main process exited`
-#           from systemd and no process line at or before the terminal one.
+#   exit 2  a finished activation with nothing to measure the hold FROM -- no process line at or
+#           before the terminal one, or a killed one whose newest such line is less than a whole
+#           rounded second before the terminal stamp. On a kill, systemd's own `Main process
+#           exited` is the kill's stamp, written 194 microseconds before that activation's
+#           terminal line (#418), and a hold measured from it is the forbidden sentence again:
+#           the teardown timed by its own ending instead of by the moment work stopped.
 #           Both are Unknown, and Unknown is its own answer (#228's polarity -- a read that failed is
 #           not the clean state). Two codes, because the two arms tell the reader different things:
 #           one says the unit has not finished a pass recently, the other says it finished one and the
@@ -892,26 +896,57 @@ factory_reap_read() {
 		# 11 Nov, 4 of the last 15 activations logged `Main process exited, code=exited,
 		# status=4/NOPERMISSION` and the other 11 logged nothing of the kind, because `-t systemd`
 		# excludes the unit's own stdout altogether. So the clean case is settled below by
-		# `factory_reap_lastword`, from the unit's own lines. Whichever way it arrives, the reading is
-		# conservative: a process line predates the exit by whatever the pass did without logging on
-		# its way out, which overestimates the hold -- the right direction for an alarm. A `Starting`
+		# `factory_reap_lastword`, from the unit's own lines. A KILLED activation writes the line too,
+		# and there it names the kill, not the stopping of work: systemd put `Main process exited,
+		# code=killed` 194 microseconds before that activation's terminal line (16 Nov 06:14, #418),
+		# so the clause below refuses it as a start point and measures from the unit's own lines the
+		# same way. Whichever way it arrives, the reading is conservative: a process line predates
+		# the exit by whatever the pass did without logging on its way out, which overestimates the
+		# hold -- the right direction for an alarm. A `Starting`
 		# from the activation running right now is met before any terminal line, so it is not counted.
 	done
 	[ -n "$term" ] || return 1
 	t=$(factory_reap_usec "$term") || return 1
-	if [ -z "$work" ]; then
-		# No `Main process exited` in the stream means systemd had nothing to say about the exit, and
-		# then the hold has exactly one source: the pass's own last line. If that is not there either,
-		# there is no start point and the honest answer is that this read does not know -- arm 2 of the
-		# contract above. Falling back to `work=$term` measured the hold against itself: `hold=0`,
-		# `how=clean`, `reaped in 0s`, the one sentence this read exists to withhold.
+	case $sig in
+	(deadline | client)
+		# The kill arm (#418). The stream may well carry a `Main process exited` line, but on a
+		# killed activation that line IS the kill -- 194 microseconds ahead of the terminal one on
+		# this box's live journal -- so it cannot be where the hold starts: the subtraction would
+		# measure the hold against the moment it ends and journal `HELD 0s to the stop deadline`
+		# for a pass frozen 88 minutes on a hung `git fetch` (16 Nov: last word 04:45:58, kill
+		# 06:14:09). A killed pass starts where it was last heard from -- the same source H-0124
+		# chose for the other arm -- and when the journal cannot show that moment either, this is
+		# arm 2 again, not a zero.
 		work=$(factory_reap_lastword "$term") || return 2
-	fi
+		;;
+	(*)
+		if [ -z "$work" ]; then
+			# No `Main process exited` in the stream means systemd had nothing to say about the exit,
+			# and then the hold has exactly one source: the pass's own last line. If that is not there
+			# either, there is no start point and the honest answer is that this read does not know
+			# -- arm 2 of the contract above. Falling back to `work=$term` measured the hold against
+			# itself: `hold=0`, `how=clean`, `reaped in 0s`, the one sentence this read exists to
+			# withhold.
+			work=$(factory_reap_lastword "$term") || return 2
+		fi
+		;;
+	esac
 	w=$(factory_reap_usec "$work") || return 2
 	hold=$((t > w ? (t - w + 500000) / 1000000 : 0))
 	now=$(date -u +%s)
 	case $sig in
-	(deadline | client) how=$sig ;;
+	(deadline | client)
+		# The same prohibition's second gate (#418): a killed pass whose last visible line falls
+		# inside the terminal's own rounded second has no start point above this number's
+		# resolution -- printing it would rebuild `HELD 0s` / `0 deadline` from a stream that did
+		# have a pass line in it. The rounded second is the only resolution the field has, so a
+		# hold that rounds to zero is unread, and unknown is the honest arm. A line a whole second
+		# older is a real margin and the read keeps it: the live 16 Nov kill's last word sits
+		# 5291 s before the terminal stamp, and that number is the only surviving account of the
+		# freeze.
+		[ "$hold" -gt 0 ] || return 2
+		how=$sig
+		;;
 	(*)
 		if [ "$hold" -gt "$FACTORY_REAP_NOTICE_SECS" ]; then
 			how=unexplained

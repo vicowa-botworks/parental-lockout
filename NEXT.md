@@ -1,44 +1,44 @@
-# NEXT — issue-417: the conflict fetch defers with git's cause in the journal, behind the fetch bound (branch `issue-417`; the 20 Nov adoption pass ships it — merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
+# NEXT — issue-418: the reap read no longer times a killed pass by its own kill (branch `issue-418`; merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
 
-State this pass read off the live tree before writing a byte (2026-11-20): trunk still `0f343db`
-(#481 merged 06:27Z), `gh pr list --head issue-417` answered `[]`, and every gate re-ran green on
-the shipped bytes — `919 passed, 0 failed` on `env -u OPENCODE_CONFIG_CONTENT
-bash factory/selftest.sh`, plus check-shell, check-denies, check-next-md and check-decisions.
+State this pass read off the live tree before writing a byte (2026-11-20): trunk `49f7fa1`
+(#483 merged), `gh pr list --head issue-418` answered `[]`, the live journal still carried the
+bug's own line — `REAP-HELD hold=0s how=deadline ended=660s open=1` at 06:25:09Z on 17 Nov —
+and the two code paths were replayed over the real 16 Nov window first: trunk answers hold 0
+with verdict `deadline`, the fixed read answers hold 5291 with the same verdict.
 
 ## What this branch ships
 
-- The conflict arm's fetch of `origin/$base` in `factory_resolve_conflict` no longer returns 2
-  behind a silent `FAILED (128)`: it captures stderr to the swept `factory_fetch_stream()`
-  (factory/common.sh), quotes git's FIRST stderr line into its own `CONFLICT-BLOCKED` sentence
-  under the harness's `git said:` marker — the last line of a transport burst is the access-rights
-  decoy — and it runs behind `FACTORY_FETCH_TIMEOUT` like the refresh arm's activation fetch, so
-  a parked connection now answers `killed at the …s fetch bound` instead of costing 135 s a unit.
-  `run_action` is off this call on purpose: it normalizes every failure to 1, and this arm must
-  tell 124 from 128.
-- `H-0327` in factory/DECISIONS.md carries the four options, the three losses and the measured
-  receipts (the 16 Nov SSH burst; the empty-stderr 124 measured over a parking stub, where git
-  retries ssh once, so one burst costs 2x the park); checkpoint a92a8bc.
-- The selftest grew the transport family at its tail (a fast ssh failure, a parked ssh killed at
-  the bound, and blinded controls for the clause, the bound and the sweep term), plus two harness
-  knobs: `proc_extra_env` reaches the pass BEFORE the shipped env — a leg moving a name the
-  shipped list re-spells must use a `proc_*` knob (`proc_fetch_timeout` is the new one), never
-  the array — and journal needles that are substrings of `REFRESH-FAILED` rows must keep their
-  leading space.
-- The 219 `path:line` pointers this round's inserts slid were re-aimed by the checker's own
-  census; `python3 scripts/check-decisions.py` reads rc 0 with the debt unmoved at 583.
-- #417's third proposal is NOT here: port 443 of `ssh.github.com` is a machine `~/.ssh/config`
-  edit, named in H-0327's `Revisit:` for whoever owns that file.
+- `factory_reap_read` (factory/common.sh): for the killed verdicts `deadline` and `client` the
+  hold now starts at the pass's own last line (`factory_reap_lastword`), never at the kill's
+  `Main process exited`, which lands ~200 microseconds ahead of the terminal row and made an
+  88-minute freeze measure `0s`; a killed pass whose last word does not beat the terminal stamp
+  by a rounded second answers rc 2 — the contract's arm 2 — instead of printing the zero.
+  The `clean` and `unexplained` arms keep H-0124's shape verbatim.
+- `H-0329` in factory/DECISIONS.md: options, losses, and the before/after receipts; checkpoint
+  37f09b2, taken before the edits.
+- Three selftest fixtures transcribed from the live window (silent kill, 400-microsecond
+  margin, measurable 1-second margin), two legs, and the live leg's pairing widened to both
+  killed verdicts; the old leg premise ("this box's journal cannot produce a zero deadline")
+  is retired because the journal produced exactly that zero on 17 Nov. Each fixture was also
+  run through the trunk read beside the fixed one, so the kill legs are the bug's witness and
+  not a tautology of the fix. The silent-kill fixture is the one that answers `0 deadline` rc 0
+  on trunk and rc 2 here.
+- The pointer census for the ~40 lines this commit inserts: 164 re-aimed rows in
+  factory/DECISIONS.md (the four H-0325/H-0327 rows into docs/factory.md were already drifted
+  by #481's merge and are repaired here), debt unmoved at 583, gate rc 0.
 
 ## What is still owed
 
 - The supervisor merges; this pass merged nothing, and no artifact but the pull body carries a
   closing verb. The reviewer ask is the supervisor's poke, per AGENTS.md.
+- The journal's own history is not repairable: `REAP-HELD hold=0s` rows written before this
+  ships stay in the journal, so a `--status` over a window that includes 17 Nov still replays
+  the old zero from the old code — re-measure on post-merge windows, not against that day.
 - `make verify` inside a live tick fails one fence leg (`and nothing else does`, filed as #482):
   the tick's own OPENCODE_CONFIG_CONTENT leaks through `proc_run` into the control; until that
   lands, re-measure with `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh` (H-0327).
 - After this merges, a later branch re-derives the pointer census with
-  `python3 scripts/check-decisions.py --citations` (#389); if the SSH burst recurs, `git said:`
-  quotes git's answer and `killed at the …s fetch bound` names the parked connection.
+  `python3 scripts/check-decisions.py --citations` (#389).
 
 ## Carried forward — verbatim, because the decision log is anchored into these two lines
 
