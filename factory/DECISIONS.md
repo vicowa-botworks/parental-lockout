@@ -17065,9 +17065,12 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   is trunk's for that path (`git diff origin/main -- factory/factory.sh` reads empty). `NEXT.md`
   ships 3971 lines: this round's head, the demoted `issue-417` Record carrying trunk's bytes whole,
   the demoted round-3 Record, the restored `issue-416` Record, the carried stack beneath. The
-  zero-deletion census ran on BOTH parent blobs (digits folded, multiset): ours 1 row absent,
-  theirs 1 row absent, and those two rows are the level-1 heads the Record demotions spend — the
-  restore proof is that the merged `issue-416` Record body is byte-identical to
+  zero-deletion census ran on BOTH parent blobs (digits folded, multiset): the hand-off loses one
+  row to each parent and both rows are the level-1 head the Record demotion spends; the log
+  loses no row to trunk and four rows to this branch's parent — two are rows trunk's own `H-0327`
+  re-aim rewrote, arriving by clean auto-merge, two are rows this round re-aimed (`H-0313`'s seam
+  row, `H-0326`'s carry row) — and with those four coordinates canonicalised the residual is zero
+  both sides. The restore proof is that the merged `issue-416` Record body is byte-identical to
   `f4f9d6d:NEXT.md:64-99`, the thirty-six lines the alignment had retired. Gate numbers as this
   commit ships them: 400 entries across the two logs, 1301 `path:line` citations, 583 owing an
   anchor, 0 refused outright — the ratchet's number held, a re-aim onto the same anchor moves no
