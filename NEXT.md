@@ -1,4 +1,60 @@
-# NEXT — issue-399 conflict tick, round 4 (branch `issue-399`, PR #479: the fourth base sync is in — `origin/main` moved `0f343db` → `49f7fa1` (the #483 merge, carrying `H-0327`) and the same two append tails conflicted a fourth time: fourteen hunks in `factory/DECISIONS.md`, thirteen of them one carried sentence holding each parent's digits into its own copy of this file, the fourteenth the tail junction that seats trunk's `H-0327` between this branch's `H-0326` and `H-0328` by ascending id. The overwrite shape returned and this time git's alignment destroyed a body silently: trunk's round shipped `NEXT.md` again as a compressed overwrite (49 lines → 53), and its `Carried forward` block is byte-identical to the one inside our demoted `issue-416` Record, so git aligned on that block and the AUTO-MERGED region wrote trunk's new body over the Record's body — `git show f4f9d6d:NEXT.md` lines 64-99, thirty-six lines, absent from every conflict hunk and from the working file at rc 0, no marker. This resolution restores that Record byte-for-byte from this branch's parent, carries trunk's head and body as the demoted `issue-417` Record above it, and re-aims every live pointer at the carried pair inside the `issue-417` Record — the newest Record copy, the section that names itself as the anchor for the next rewriter; each destination opened before its digit was written. This file is re-headed by convention: this round on top, both parents' heads demoted to `## Record —` in place, every body byte-kept; the zero-deletion census here is a multiset containment run on BOTH parents (a per-side diff cannot see a body stolen from the unmarked middle), and it is `H-0330`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+# NEXT — issue-420 unit (branch `issue-420`: one guarded HALT now speaks one asking clause through every reader, and the fifth base sync on this stack is in — `origin/main` moved `5d0e6e2` → `2ec2f91` (the #485 merge, carrying `H-0332`, `H-0333`, `H-0335`): ninety conflict hunks in `factory/DECISIONS.md`, eighty-nine of them one coordinate row holding each parent's digits into its own copy of the same sentence, the ninetieth the tail junction that seats `H-0336` after trunk's `H-0335` by ascending id; the 202 pointers both parents' insertions moved were re-derived on the merged tree by the anchored-citation gate, multi-home rows seated at cited-plus-regional-delta ∩ printed homes — the adjudication is `H-0337`, checkpoint `afa65ff`, carried by the merge commit itself. `NEXT.md` did NOT conflict in this merge — both parents carry it byte-identical at 3971 lines and the digits-folded multiset census proves the merged file contains each parent with zero missing, so no unmarked-swallow repair was owed this round. This file is re-headed by convention: this round on top, the `issue-399` round-4 head demoted to `## Record —` in place, every body byte-kept; merging belongs to the supervisor)
+
+## What this round shipped
+
+- `factory_verdict`'s HALTED arm now runs the same zero-write `factory_halt_target` test the
+  `halt:` line runs and hands the composer that verdict, so a guarded marker no longer prints
+  "and not re-probed since" beside the supervisor's "re-probed on every activation" in one
+  `--status` run; a hand-written marker keeps #237's default clause on both readers. `H-0336`
+  carries the three seats, and the effect commit `e6cc64c` also re-aimed the 190 log pointers
+  its own insertions moved.
+- Three selftest legs spawn the shipped `factory.sh --status` as a process over both marker
+  shapes and require the pair's asking clauses to agree; the control plants the pre-#420
+  zero-argument call in a copy OUTSIDE the repository and refuses the legs unless that copy
+  disagrees while an unmutated copy agrees.
+- The base sync: `e499bef`, `Decision: H-0337`, with the 202-row re-aim named above.
+- The green gate on these bytes (quoted in full in the pull-request body): `make verify` under
+  `env -u OPENCODE_CONFIG_CONTENT` reads `factory/selftest.sh: 931 passed, 0 failed` and
+  `verify: OK` — the replacement for the 916/6 red this branch showed on the stale base.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges and the poke owns the reviewer ask; this unit merged nothing and asked
+   nobody.
+2. The fence leg (#482, open): `proc_run` APPENDS its env, so a fenced tick's
+   `OPENCODE_CONFIG_CONTENT` reaches the fixture's session stub and the control "and nothing
+   else does" reads a fence with the dispatch line removed — measured again this round, inside
+   a live tick, with the mutant's residue byte-identical to the tick's own export. The repair
+   is an `env -u OPENCODE_CONFIG_CONTENT` in `proc_run`'s shipped list beside the #96 four;
+   until it lands, run the suite as CI runs it and say so wherever the verdict is quoted.
+3. Carried from the `issue-399` round-4 head below, unrenumbered: all of its owed items — the
+   merge-census tool owed to a harness unit (#428's class), the hazard rows standing three
+   copies deep with the two-word repair still owed (#428, #440), the `H-0328` Record's items
+   2–5, trunk's `issue-417` Record's owed items, the `issue-416` carry, and the
+   stamped-vs-live digit rule.
+4. A verify run whose sandbox journal shows `SUPERVISOR-FF` or `SUPERVISOR-RERUN` reddened
+   supervisor legs for MACHINE state — the installed tree behind the shared `origin/main` my
+   own fetch had advanced — not for the diff under test; read those journal lines before
+   blaming the branch (measured this round, recorded in `H-0337` and the pull-request body).
+
+## Constraints a stranger would break here
+
+- After ANY merge whose trunk side rewrote this file, run the both-parents multiset census
+  (every line of `git show <parent>:NEXT.md`, digits folded, contained in the merged file)
+  before trusting the auto-merged middle — round 4 lost 36 lines at zero markers; this round's
+  merge needed it and passed it.
+- Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md`
+  again: the in-log pointers aim at the two hazard rows and every head edit moves them. This
+  round's prepend moved the newest copy (inside the demoted round-4 head) and all 26 log
+  pointers were re-aimed in this round's commit by the gate's own refusals; re-aim lands on
+  the newest Record copy, never on whichever row a search finds first (#440).
+- Run the suite as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH
+  make verify`, and inside a live tick also `env -u OPENCODE_CONFIG_CONTENT` (owed item 2) —
+  say so wherever the verdict is quoted.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge
+  or an approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-399 conflict tick, round 4 (branch `issue-399`, PR #479: the fourth base sync is in — `origin/main` moved `0f343db` → `49f7fa1` (the #483 merge, carrying `H-0327`) and the same two append tails conflicted a fourth time: fourteen hunks in `factory/DECISIONS.md`, thirteen of them one carried sentence holding each parent's digits into its own copy of this file, the fourteenth the tail junction that seats trunk's `H-0327` between this branch's `H-0326` and `H-0328` by ascending id. The overwrite shape returned and this time git's alignment destroyed a body silently: trunk's round shipped `NEXT.md` again as a compressed overwrite (49 lines → 53), and its `Carried forward` block is byte-identical to the one inside our demoted `issue-416` Record, so git aligned on that block and the AUTO-MERGED region wrote trunk's new body over the Record's body — `git show f4f9d6d:NEXT.md` lines 64-99, thirty-six lines, absent from every conflict hunk and from the working file at rc 0, no marker. This resolution restores that Record byte-for-byte from this branch's parent, carries trunk's head and body as the demoted `issue-417` Record above it, and re-aims every live pointer at the carried pair inside the `issue-417` Record — the newest Record copy, the section that names itself as the anchor for the next rewriter; each destination opened before its digit was written. This file is re-headed by convention: this round on top, both parents' heads demoted to `## Record —` in place, every body byte-kept; the zero-deletion census here is a multiset containment run on BOTH parents (a per-side diff cannot see a body stolen from the unmarked middle), and it is `H-0330`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
 
 ## What this round shipped
 
