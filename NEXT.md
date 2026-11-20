@@ -18,25 +18,39 @@
   the supervisor's poke, not this unit's, and `gh pr edit --add-reviewer` writes nothing here
   (`H-0010`).
 - Gate state at push, as measured, not as expected: `bash -n` clean on `factory/common.sh`,
-  `factory/factory.sh`, `factory/selftest.sh`; `python3 scripts/check-decisions.py` exits 1 with 210
-  refused citations, and that is PRE-EXISTING on trunk — re-run
-  `git show 401dbdc:factory/selftest.sh | sed -n '20607p;20608p'` and the anchor
-  `the names git does not hold at 100755` is on 20608 at the base commit while `H-0168` cites 20607.
-  This branch adds no new pointer. `make verify` did NOT complete before the tick ceiling; the
-  selftest was still running at push time and its verdict is quoted on the pull request, never here.
+  `factory/factory.sh`, `factory/selftest.sh`; `make verify` did NOT complete before the tick
+  ceiling. The other two claims in this bullet were inverted and the review measured it:
+  `python3 scripts/check-decisions.py` exits 1 at that head with 250 refused citations (this file
+  said 210), and it is THIS branch, not trunk — base `401dbdc` answers rc 0 with 0 refused, re-run
+  `git show 401dbdc:factory/selftest.sh | sed -n '20607p'` and the anchor
+  `the names git does not hold at 100755` is on 20607 at the base commit, exactly where `H-0168`
+  cites it; the branch moved it to 20608. The drift was this branch's own stray blank line at
+  `factory/selftest.sh:18409` (+1 below it), plus +5 in `factory/factory.sh`, the new functions in
+  `factory/common.sh`, and the +53 this file's re-head moved the Record stack.
+- Round 2 (20 Nov review repair) drove the gate green for the right reasons: the selftest insertion
+  reshaped (stray blank line removed, the stranded tally comment re-seated under the new legs, the
+  diff against trunk is one tail hunk, so every drifted selftest row landed again without a digit
+  moved), the remaining drifted rows in `factory/factory.sh`, `factory/common.sh` and the `NEXT.md`
+  pointers this file's re-head moved re-aimed by the shipped gate's own refusals, `H-0347`'s
+  `Options:`/`Chose:` re-shaped into the pipe form the checker splits (the numbered prose drew its
+  own two refusals), and both shellcheck findings cleared — SC2015 to an `if`, and SC2100's real
+  anchor was the bare `baseline=tick-start` assignment, whose dash shellcheck reads as subtraction:
+  the `if` wrapper does NOT dodge it (0.10.0, re-measured), the quoted value does. The snapshot
+  guard is `[ -s "$snap" ]` now, not `-r`: an empty inventory is a failed read and belongs to the
+  verdict-less `none`, never to `tick-start`. Verdicts are quoted on the pull request, never here
+  (#1180).
 
 ## What is still owed (unmeasured, outstanding)
 
-- Run `make verify` with the tick environment sanitised (`env -u FACTORY_SERVICE_UNIT
-  -u OPENCODE_CONFIG_CONTENT`): #489 measured that an inherited `FACTORY_SERVICE_UNIT` makes the
-  selftest's stale-repair arm fast-forward the REAL installed tree, and #482 that an inherited
-  `OPENCODE_CONFIG_CONTENT` reddens the fence control. Quote the `verify: OK` line on #427 when it is
-  green, and re-check the three new legs by name: `inherited is not unearned`,
-  `each word dedupes alone`.
-- The 210 refused citations are trunk debt with a uniform +1 drift into `factory/selftest.sh`; whoever
-  re-aims them is re-aiming rows from `H-0168` onward and should run
-  `python3 scripts/check-decisions.py --citations factory/selftest.sh` first. Do not fold that into
-  this branch.
+- `make verify` completed green 20 Nov in a sanitized tick env (`env -u FACTORY_SERVICE_UNIT
+  -u OPENCODE_CONFIG_CONTENT`; both vars are live in a real tick env, measured here — #489's FF of
+  the REAL tree and #482's red fence control are why): `958 passed, 0 failed`, `verify: OK` rc 0,
+  `inherited is not unearned` and `each word dedupes alone` both ok. Keep the `-u` pair for every
+  verify run from a tick tree; the verdict quote rides the round-2 push and its record lands here.
+- The citation re-aim DID fold into this branch: the review's control, re-measured by this unit,
+  found base `401dbdc` at rc 0 with 0 refused, so the "trunk debt / do not fold" advice this bullet
+  used to carry was aimed at debt that does not exist. Whoever reads this next: treat a fresh
+  refusal as your own insertion drift — measure the base before calling anything pre-existing.
 - #427 stays OPEN after this merge: the re-issued-id half of its title is unshipped (above), so the
   body deliberately says `Refs #427` and carries no closing verb.
 

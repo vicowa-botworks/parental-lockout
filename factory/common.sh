@@ -3725,7 +3725,7 @@ factory_decision_headings() {
 	for rel in 'DECISIONS.md' 'factory/DECISIONS.md'; do
 		{
 			git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
-			[ -f "$tree/$rel" ] && cat -- "$tree/$rel" 2>/dev/null || true
+			if [ -f "$tree/$rel" ]; then cat -- "$tree/$rel" 2>/dev/null || true; fi
 		} | sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$rel \\1|p"
 	done | sort -u
 	return 0
@@ -3838,7 +3838,11 @@ factory_decision_provenance() {
 		log_event "DECISION-ID-UNCHECKED $unit the TICK-START baseline $snap is not readable; an unreadable baseline is not an empty one and no id is claimed either way"
 		return 0
 	fi
-	[ -r "$snap" ] && baseline=tick-start
+	# `-s`, not `-r`: an empty snapshot is a failed inventory, not an empty branch -- every git read
+	# in `factory_decision_headings` is `|| true`, so a snapshot written while git was unreadable is
+	# zero bytes. Labelling that `tick-start` would exempt nothing and wave everything under the
+	# word this pass exists to reserve for a judged state; `none` names the verdict-less read.
+	if [ -s "$snap" ]; then baseline="tick-start"; fi
 
 	# Every id the journalled answers for this branch carry, folded to one space-separated set.
 	# The field match is exact on `$2` so a `DECISION-ID-UNEARNED` line can never certify itself.

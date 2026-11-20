@@ -18406,7 +18406,6 @@ dpn_p2c_leg() {
 }
 dpn_leg 'the UNCHECKED line is that arm' 'blinding it lets the failed read pass in silence' dpn_p2c_leg
 
-
 # ----------------------------------------------------------------------- the wiring: dispatch to journal
 #
 # The two contracts above meet across a process boundary: `factory_tick` exports the unit context,
@@ -28774,9 +28773,6 @@ ui_leg 'a run directory that never existed reads idle, named as asked' 0 'no run
 claim_leg 'the guard read the missing run directory without creating it' \
 	test ! -e "$ui_work/nodir"
 
-# The tally names the world it was counted in, because it is not one number everywhere. H-0045
-
-
 # --------------------------------------------------------------------- the baseline: #427's two states
 #
 # The leg that would have caught #427 before it shipped. Every leg above asks about an id the tick
@@ -28885,6 +28881,7 @@ dpn_p4b_leg() {
 dpn_leg 'each word dedupes alone' \
 	'two baselined passes cost one UNEARNED and one UNJOURNALABLE line, not a wave' dpn_p4b_leg
 
+# The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
 # by the repository: measured at f60c367 on one machine with only `TMPDIR` moved, 191 passed 0 failed
