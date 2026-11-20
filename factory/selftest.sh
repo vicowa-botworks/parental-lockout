@@ -3939,6 +3939,9 @@ proc_run() {
 	[ -z "${proc_tick_timeout:-}" ] || pass_knobs+=(FACTORY_TICK_TIMEOUT="$proc_tick_timeout")
 	[ -z "${proc_tick_kill_after:-}" ] || pass_knobs+=(FACTORY_TICK_KILL_AFTER="$proc_tick_kill_after")
 	[ -z "${proc_fetch_timeout:-}" ] || pass_knobs+=(FACTORY_FETCH_TIMEOUT="$proc_fetch_timeout")
+	# H-0332 (#419): the push bound travels the same road as the fetch bound's knob above, for the
+	# same measured reason -- an assignment earlier in `env` loses to the shipped list below it.
+	[ -z "${proc_push_timeout:-}" ] || pass_knobs+=(FACTORY_PUSH_TIMEOUT="$proc_push_timeout")
 	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" "${pass_env[@]}" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
@@ -5648,8 +5651,9 @@ mm_leg 'retire both, it reports a lie' 'rc 0, names the decoy, its own copy buri
 proc_markers() {
 	# #417 widens this past the worktree verdicts: the fetch stream is the same species of thing --
 	# a file in the swept directory whose only cleaners are its own path and the sweep -- and every
-	# `proc_no_markers` leg becomes a non-leak assertion for it for free.
-	find "$proc_rundir" -maxdepth 1 \( -name 'worktree-*' -o -name 'fetch-stderr.*' \) -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+	# `proc_no_markers` leg becomes a non-leak assertion for it for free. H-0332 (#419) adds the
+	# push stream by the same argument: same directory, same two cleaners, same free leg.
+	find "$proc_rundir" -maxdepth 1 \( -name 'worktree-*' -o -name 'fetch-stderr.*' -o -name 'push-stderr.*' \) -printf '%f\n' 2>/dev/null | LC_ALL=C sort
 }
 
 # One per line, indented, for a failure message. Through sed rather than an unquoted printf
@@ -27083,6 +27087,723 @@ proc_transport_ctl_nobound() { # <journal> -> the blinded pass parks to the end 
 proc_leg 'the bound is the kill: without it the same park just runs long' \
 	'mutant journal has no bound sentence, quotes the late ssh line instead, and still defers' \
 	proc_transport_ctl_nobound "$proc_journal"
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+# ---------------------------------- the push a parked pass was making parks too (#419 repair 1)
+#
+# #483 bounded the scan's FETCHes and its census claimed "every harness-owned git call"; it missed
+# the one network WRITE: `factory_resolve_conflict`'s mirror push. It parks in the shape #419
+# measured for the reads -- ssh accepts the connection and stops answering, git holds the push open
+# for as long as ssh likes, and the pass holds the queue lock the whole time -- and the incident
+# pass had this arm's read AND this arm's write inside the one budget window.
+#
+# The box is the transport family with the transport's roles split: the scripted ssh ANSWERS reads
+# from a private local bare (it execs `git upload-pack`) so the pass reaches its merge, and PARKS
+# writes (`git-receive-pack`) for `FAKE_SSH_HOLD_PUSH` seconds before failing. The pass therefore
+# does everything the shipped arm does correctly up to the one step under test, and the step under
+# test is the only step that can park. The argv record pins the box really saw both roles: the
+# write is proven asked only by a `git-receive-pack` line in it.
+#
+# The shipped legs pin `timeout`'s 124 against the push, that CONFLICT-UNPUSHED names the bound it
+# hit and not a git quote (a push killed mid-park wrote nothing), that the arm still only defers
+# and spends no tick, and that the pass still reaches its END; the control removes the wrapper from
+# the exec line and nothing else -- the same park then runs to the stub's late ssh sentence and
+# quotes it, the bound sentence never appears, and the deferral still stands. The same split
+# `transport-ctl-nobound` measured for the read side.
+
+cat >"$proc_bin/fake-ssh-push" <<'FAKESSHP'
+#!/usr/bin/env bash
+# The scripted transport with split roles (#419). Reads are answered locally against the bare in
+# $FAKE_SSH_REAL, so the pass reaches its merge; writes park for $FAKE_SSH_HOLD_PUSH seconds and
+# then fail with ssh's own line -- the shape #419 measured, moved to the write. Anything else is
+# the box being wrong, and it says so loudly rather than by succeeding.
+printf '%s\n' "$*" >> "${SSH_REC:-/dev/null}"
+case "$*" in
+*git-receive-pack*)
+	sleep "${FAKE_SSH_HOLD_PUSH:-0}"
+	printf 'ssh: connect to host github.invalid port 22: Connection timed out\n' >&2
+	exit 255 ;;
+*git-upload-pack*)
+	exec git upload-pack "$FAKE_SSH_REAL" ;;
+esac
+printf 'the scripted transport was asked to do neither job: %s\n' "$*" >&2
+exit 255
+FAKESSHP
+chmod +x "$proc_bin/fake-ssh-push"
+
+# The private bare is the `proc_union_box` shape: this family's mutant can push if the stub ever
+# fails open, and a pushed `issue-900` in the shared `$proc_up` would be a side effect every later
+# box inherited. The scripted transport remains the only way origin is reached -- the bare is what
+# it answers FROM, not what git talks to.
+proc_push_box() { # <name> -> a conflict whose fetch is answered and whose push parks
+	local name=$1
+	local up=$proc_work/pushup-$name.git
+	proc_new "push-$name" || return 1
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" branch -q issue-900 origin/main &&
+		# One commit on the branch: a push of a ref origin already carries could answer
+		# "Everything up-to-date" without ever asking for `git-receive-pack`, and a box that
+		# never reached the transport's write side would leave every shipped assertion vacuously
+		# green. The commit is empty so the merged tree stays origin/main's exactly.
+		git -C "$proc_repo" update-ref refs/heads/issue-900 \
+			"$(git -C "$proc_repo" commit-tree "$(git -C "$proc_repo" rev-parse 'issue-900^{tree}')" \
+				-p issue-900 -m 'fixture: the commit that has to be pushed')" &&
+		git -C "$proc_repo" remote set-url origin "ssh://git@github.invalid/x/y.git" &&
+		printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+			>"$proc_fix/pr-view-900.json" &&
+		proc_conflict_row
+}
+
+proc_push_killed_at_bound() { # <journal> <ssh-argv-record> <tick-record>
+	local j=$1 rec=$2 ticks=$3 line
+	# The fixture's precondition first, the roles in order: the read the pass took was proven by
+	# the ssh record existing, and the write it ASKED for by the receive-pack line. A pass that
+	# died before the push leaves every assertion below vacuously satisfied -- 124 is also what
+	# the FETCH bound answers, the same numeric shape saying something entirely different.
+	[ -s "$rec" ] || {
+		printf '            the scripted transport was never run, so the box never even read.\n' >&2
+		return 1
+	}
+	grep -q 'git-receive-pack' "$rec" || {
+		printf '            the scripted transport was never asked for `git-receive-pack`: the\n' >&2
+		printf '            pass never reached the push, so nothing was parked and the bound had\n' >&2
+		printf '            nothing to bite. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	proc_journal_line "$j" ' FAILED (124)' | grep -q 'push origin HEAD:refs/heads/issue-900' || {
+		printf '            no FAILED (124) for the push: the parked write was not killed at the\n' >&2
+		printf '            bound. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'CONFLICT-UNPUSHED pr:900')
+	[ -n "$line" ] || {
+		printf '            no CONFLICT-UNPUSHED line for the killed push.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	printf '%s\n' "$line" | grep -qF -- 'killed at the 2s push bound with nothing written' || {
+		printf '            the failed push does not name the bound it hit: %s\n' "$line" >&2
+		return 1
+	}
+	printf '%s\n' "$line" | grep -qF -- 'git said:' && {
+		printf '            the killed push quotes git, which wrote nothing: %s\n' "$line" >&2
+		return 1
+	}
+	# The promise the deferral line makes, pinned literally as on the fetch side: `the reason is
+	# the line above`, and the line above IS the sentence that names it.
+	awk '
+		index($0, "CONFLICT-UNPUSHED pr:900") && ul == 0 { ul = NR }
+		index($0, "CONFLICT-DEFERRED pr:900") && dl == 0 { dl = NR }
+		END { exit !(ul > 0 && dl == ul + 1) }
+	' "$j" || {
+		printf '            CONFLICT-DEFERRED pr:900 does not sit one line below the sentence that\n' >&2
+		printf '            names the cause, so the line its text promises is not the line it gives.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	# Deferred, not ticked, and not resolved: a failed push stays a wait, never a model run.
+	if [ -n "$(proc_journal_line "$j" 'TICK-START conflict:900')" ] ||
+			[ -n "$(proc_journal_line "$j" 'CONFLICT-RESOLVED pr:900')" ] ||
+			grep -q 'conflict:900' "$ticks" 2>/dev/null; then
+		printf '            a conflict tick was dispatched, or the conflict read as resolved, on\n' >&2
+		printf '            a push that failed -- naming the cause must not change the verdict.\n' >&2
+		return 1
+	fi
+	# The death did not eat the pass: the shipped default bound (120 s, not a leg knob here) would
+	# have held this push open for two minutes inside a 120 s budget; killed at the leg's bound,
+	# the box reaches its END AND still spends its remaining slots on the units behind the parked
+	# write -- the two unclaimed issues the fixture ships with. `END rc=0` with two ticks is the
+	# budget half of #419: a parked write neither eats the pass nor starves the queue behind it.
+	[ -n "$(proc_journal_line "$j" 'END rc=0 ticks_started=2')" ] || {
+		printf '            the pass with the killed push never reached `END rc=0 ticks_started=2\n' >&2
+		printf '            ` -- the units behind a deferred conflict must still get their turns.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_kill=''
+proc_push_timeout=2
+proc_extra_env=("SSH_REC=$proc_work/push-ssh-shipped.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_HOLD_PUSH=8" "FAKE_SSH_REAL=$proc_work/pushup-shipped.git")
+proc_push_box shipped
+proc_run push-shipped-1
+proc_leg 'a parked conflict push is killed at the bound and says which silence' \
+	'FAILED (124) on the push, the bound sentence on CONFLICT-UNPUSHED with no git quote, DEFERRED one line below, no conflict tick, END rc=0 ticks_started=2' \
+	proc_push_killed_at_bound "$proc_journal" "$proc_work/push-ssh-shipped.txt" "$proc_ticks"
+proc_leg 'and the deferral cleans its stream' 'no stream file survives a pass that read it into its journal line' \
+	proc_no_markers 'a conflict pass whose push was killed'
+proc_extra_env=()
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+proc_ctl_push_nb_planted=1
+proc_push_box ctl-nobound
+PROC_MUT_LINE='		git -C "$tree" push origin "HEAD:refs/heads/$branch" 2>"$push_err" || push_rc=$?' \
+	proc_mutate_last 'timeout --signal=TERM --kill-after=5 "$FACTORY_PUSH_TIMEOUT" git -C "$tree" push origin' || proc_ctl_push_nb_planted=0
+# The park is the same 8 s: with the wrapper gone the mutant has no bound at all, so this box
+# measures what the SAME parked connection costs the pass -- it waits for the stub's own exit and
+# then quotes the ssh sentence that arrives, where the shipped box stopped at 2 s and named the
+# bound instead. 8 s is under the shipped 120 s default, so a box that mutated nothing would also
+# park to the end rather than kill -- the planted guard below is what tells those apart.
+proc_extra_env=("SSH_REC=$proc_work/push-ssh-ctl-nobound.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_HOLD_PUSH=8" "FAKE_SSH_REAL=$proc_work/pushup-ctl-nobound.git")
+proc_run push-ctl-nobound-1
+proc_extra_env=()
+
+proc_push_ctl_nobound() { # <journal> <ssh-argv-record> -> the blinded pass parks to the end and never names a bound
+	local j=$1 rec=$2 line
+	[ "${proc_ctl_push_nb_planted:-0}" = 1 ] || {
+		printf '            the mutant could not be planted, so this control ran the bound code.\n' >&2
+		return 1
+	}
+	if ! { [ -s "$rec" ] && grep -q 'git-receive-pack' "$rec"; }; then
+		printf '            the blinded pass never asked for the write, so this box measured a\n' >&2
+		printf '            pass that died before the push, not a bound that was removed.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	[ -z "$(proc_journal_line "$j" 'killed at the')" ] || {
+		printf '            the blinded pass still names a bound it no longer sets.\n' >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'CONFLICT-UNPUSHED pr:900')
+	printf '%s\n' "$line" | grep -qF -- '; git said: ssh: connect to host github.invalid port 22: Connection timed out' || {
+		printf '            the unbounded pass did not end up quoting the late ssh sentence: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900')" ] || {
+		printf '            the blinded pass stopped deferring -- removing a bound must not turn a\n' >&2
+		printf '            wait into a tick or a resolution.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_leg 'the push bound is the kill: without it the same park just runs long' \
+	'mutant journal has no bound sentence, quotes the late ssh line instead, and still defers' \
+	proc_push_ctl_nobound "$proc_journal" "$proc_work/push-ssh-ctl-nobound.txt"
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+# ------------------------- the death of an activation writes its own END (#419 repair 2, H-0333)
+#
+# The ticket's headline is 1h39m with ZERO journal lines and no `END rc=` -- a pass killed by
+# systemd's start deadline left no verdict, because the parked git call outran every line the
+# pass might still have written. #419 repair 1 (H-0332) bounds the parked call so a dying pass
+# is usually one bash can still run; this half makes that pass SAY SO: a death line carrying
+# the same `END rc=` token plus `died=<cause>`, so a death can never read as a verdict, plus
+# `inside=<unit>` and the elapsed time. Two silences no trap outruns -- SIGKILL, and a stop
+# inside a child that ignores TERM until the cgroup escalation -- are stated in the function;
+# the control pins what the traps themselves are worth by removing the EXIT and TERM
+# registrations and nothing else (measured here, bash 5.3.9: a lone EXIT trap still fires on a
+# default-TERM death and forges `END rc=0` -- the wrong rc in the wrong direction): the same
+# TERM then leaves the journal ending mid-work, the incident's shape at fixture scale, with no
+# END at all.
+#
+# The kill is the #364 family's with the signal changed, and the pattern is anchored to the
+# START of `BASH_COMMAND` (`timeout *push origin*`), not a substring: the `log_event` line
+# describing the push carries `push origin` in its expanded text too, and a substring needle
+# would land the TERM one command earlier, before the ACTION line was even journalled -- the
+# leg's own precondition would plant the kill in the wrong place. The box needs no parked
+# transport -- the TERM lands BEFORE the push command starts -- so the scripted ssh stub sits
+# at its `FAKE_SSH_HOLD_PUSH` default of 0: it exists so a mutant that somehow misses the kill
+# fails loudly rather than pushing into a shared bare.
+
+proc_kill_enable_term() { # SIGTERM the pass at the supervisor's own bounded-push command
+	local f=$proc_work/kill-trap-term.sh
+	cat >"$f" <<'KILLTRAP'
+set -o functrace
+# `if`, not `&&`: a DEBUG trap that returns non-zero SKIPS the command it interrupted.
+trap 'if [[ $0 == *factory.sh && $BASH_COMMAND == timeout*push*origin* ]]; then kill -TERM -- "$$"; fi' DEBUG
+KILLTRAP
+	proc_kill=$f
+}
+
+proc_death_box() { # <name> -> the conflict box from the push family's shape, transport unheld
+	local name=$1
+	local up=$proc_work/deathup-$name.git
+	proc_new "death-$name" || return 1
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" branch -q issue-900 origin/main &&
+		git -C "$proc_repo" update-ref refs/heads/issue-900 \
+			"$(git -C "$proc_repo" commit-tree "$(git -C "$proc_repo" rev-parse 'issue-900^{tree}')" \
+				-p issue-900 -m 'fixture: the commit the TERM must interrupt')" &&
+		git -C "$proc_repo" remote set-url origin "ssh://git@github.invalid/x/y.git" &&
+		printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+			>"$proc_fix/pr-view-900.json" &&
+		proc_conflict_row
+}
+
+proc_death_leg_verdict() { # <journal> <rc> -> the death line is the pass's last word, and one line
+	local j=$1 rc=$2 line
+	# The fixture's precondition: the kill had its instruction. Without the ACTION line for the
+	# bounded push, the box died somewhere else and every assertion below is vacuous -- the same
+	# "prove the fixture before trusting the leg" order the push family keeps.
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the pass never journalled the push it was to be TERMed at, so this\n' >&2
+		printf '            box measured a death somewhere else. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" ' died=TERM')
+	printf '%s\n' "$line" | grep -q 'END rc=143 ticks_started=0 died=TERM inside=conflict:900 after=' || {
+		printf '            no death line reading `END rc=143 ... died=TERM inside=conflict:900\n' >&2
+		printf '            after=<n>s` -- the 128+n rc, the unit, the cause, and the elapsed\n' >&2
+		printf '            time are the four things a reader needs and all four are the point.\n' >&2
+		printf '            Line: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j")" = 1 ] || {
+		printf '            the journal carries %s END lines -- a death must be the pass last\n' "$(grep -c 'END rc=' "$j")" >&2
+		printf '            word, once. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$j")" = "$line" ] || {
+		printf '            the death line is not the last line the pass wrote:\n' >&2
+		printf '              %s\n            vs\n              %s\n' "$(tail -n 1 "$j")" "$line" >&2
+		return 1
+	}
+	# died= is what tells the two apart: no `END rc=` may exist WITHOUT it (the whole contract --
+	# a death never reads as a verdict), and the arm must not have reached its verdict tokens.
+	grep 'END rc=' "$j" | grep -qv ' died=' && {
+		printf '            an END without died= exists beside the death line.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'CONFLICT-UNPUSHED pr:900')" ] || {
+		printf '            the arm judged its own push after the pass was killed making it.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'TICK-START')" ] || {
+		printf '            a tick started in a pass killed before its dispatch loop.\n' >&2
+		return 1
+	}
+	[ "$rc" = 143 ] || {
+		printf '            the killed pass exited %s, not 143 -- the journal and `systemctl`\n' "$rc" >&2
+		printf '            must show the same 128+n number for one death.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-shipped.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-shipped.git")
+proc_death_box shipped && proc_death_shipped_planted=1 || proc_death_shipped_planted=0
+proc_kill_enable_term
+proc_run death-shipped-1
+proc_kill=''
+proc_death_rc=$proc_rc
+[ "$proc_death_shipped_planted" = 1 ] || proc_death_rc=-1
+proc_leg 'a pass TERMed at its own push writes its own death sentence' \
+	'END rc=143 died=TERM inside=conflict:900 is the last and only END, no verdict tokens, rc 143' \
+	proc_death_leg_verdict "$proc_journal" "$proc_death_rc"
+
+proc_death_ctl_noreg() { # <journal> <rc> -> without the registrations the same TERM leaves no END
+	local j=$1 rc=$2
+	[ "${proc_ctl_death_noreg_planted:-0}" = 2 ] || {
+		printf '            only %s of the two registrations could be removed, so this control\n' "${proc_ctl_death_noreg_planted:-0}" >&2
+		printf '            ran a shipped trap.\n' >&2
+		return 1
+	}
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the mutant box never reached the push either -- same precondition, or\n' >&2
+		printf '            the control is not measuring the same death.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 143 ] || {
+		printf '            the untrapped pass exited %s, not 143 -- the control died a different\n' "$rc" >&2
+		printf '            death than the shipped box.\n' >&2
+		return 1
+	}
+	grep -q 'END rc=' "$j" && {
+		printf '            the journal has an END although nothing was registered to write one --\n' >&2
+		printf '            the shipped box'"'"'s death line is then not what the trap produced.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'died=' "$j" && {
+		printf '            the untrapped pass names a death it had no trap to name.\n' >&2
+		return 1
+	}
+	# The incident's shape at fixture scale: the journal's last word is the work it was doing.
+	local last
+	last=$(proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900')
+	if ! { printf '%s\n' "$last" | grep -q 'ACTION timeout --signal=TERM' &&
+			[ "$(tail -n 1 "$j")" = "$last" ]; }; then
+		printf '            the untrapped journal did not end mid-work on its ACTION line -- the\n' >&2
+		printf '            incident this trap retires ends at exactly that shape.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-ctl-noreg.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-ctl-noreg.git")
+proc_death_box ctl-noreg || true
+# Both registrations go: the TERM one is the line-maker, and the EXIT one is the line-FAKER.
+# Measured on this bash (5.3.9): with only a plain EXIT trap registered, a default-TERM death
+# still runs it -- `EXIT-RAN rc=0` printed, process died 143 -- so an un-trapped pass forges
+# `END rc=0 died=EXIT`, an END whose number is wrong in the worst direction: a killed pass
+# claiming the clean rc. That measurement is half of why the control exists.
+proc_ctl_death_noreg_planted=0
+proc_mutate_factory \
+	"	trap 'factory_death TERM 143' TERM" \
+	'	:' && proc_ctl_death_noreg_planted=1
+sed -i 's/^\ttrap .factory_death EXIT.*/	:/' "$proc_dir/factory.sh" &&
+	[ "$(grep -c "trap 'factory_death" "$proc_dir/factory.sh")" = 2 ] &&
+	proc_ctl_death_noreg_planted=2
+proc_kill_enable_term
+proc_run death-ctl-1
+proc_kill=''
+proc_death_ctl_rc=$proc_rc
+proc_leg 'the death line is the traps: without them the same TERM leaves no END' \
+	'rc 143, no END at all, no died=, journal ends mid-work on the ACTION line' \
+	proc_death_ctl_noreg "$proc_journal" "$proc_death_ctl_rc"
+
+# Both shipped legs above die by TERM, so neither ever reaches the PLANNED END -- which left the
+# disarm pair that precedes it (`factory_disarmed=1` and `trap - EXIT TERM INT HUP`) pinned by
+# nothing. Measured 20 Nov in review of #485, and re-measured by the control below: removing BOTH
+# guards -- the shape of someone deleting the two-line disarm as redundant -- kept every leg above
+# and the full suite green, while the journal of every CLEAN activation gained a second END reading
+# `died=EXIT`: a killed-pass-shaped death line stamped over the pass's own verdict. A clean pass
+# that forges its death is the lie this contract exists to forbid -- the token says a death never
+# reads as a verdict, and here a verdict wears the death -- and the shipped control cannot see it,
+# because removing the REGISTRATIONS and asserting NO END measures the easy direction. So this leg
+# reads the clean journal, and its control runs the forgery. The two guards are individually
+# redundant against this mutant (either one alone keeps the clean box clean) and individually
+# load-bearing in different windows: the flag answers the EXIT walk, `trap -` also silences a
+# TERM that lands between the disarm and the exit. Both lines, always; pinned by the pair-control.
+
+proc_death_leg_clean() { # <journal> <rc> <planted> -> one verdict-shaped END, no death, last word
+	local j=$1 rc=$2 planted=$3 n last
+	[ "$planted" = 1 ] || {
+		printf '            the clean box was never planted, so this leg ran against some other\n' >&2
+		printf '            box'"'"'s journal.\n' >&2
+		return 1
+	}
+	# The fixture's preconditions, before any assertion: the box must have journalled the bounded
+	# push AND the arm's deferral AND dispatched the units behind it. A box that ended early
+	# measures an early exit, not the disarm.
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the pass never journalled the bounded push, so this box did not\n' >&2
+		printf '            run the conflict arm at all. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900')" ] || {
+		printf '            the conflict arm never reached its deferral, so the pass did not\n' >&2
+		printf '            reach the planned END from a finished arm. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'TICK-START' "$j" || {
+		printf '            no tick started, so the pass never reached its dispatch loop --\n' >&2
+		printf '            this is not a pass that ran to its own END. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 0 ] || {
+		printf '            the clean pass exited %s, not 0.\n' "$rc" >&2
+		return 1
+	}
+	n=$(grep -c 'END rc=' "$j" || true)
+	[ "$n" = 1 ] || {
+		printf '            the journal carries %s END lines -- a forged `died=EXIT` after the\n' "$n" >&2
+		printf '            planned END is exactly the shape both disarm guards prevent, and\n' >&2
+		printf '            nothing else may write a second one. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	last=$(tail -n 1 "$j")
+	printf '%s\n' "$last" | grep -q 'END rc=0 ticks_started=2$' || {
+		printf '            the single END does not read `END rc=0 ticks_started=2` -- the units\n' >&2
+		printf '            behind the deferred conflict still get their turns, and the planned\n' >&2
+		printf '            line is what a verdict looks like: %s\n' "$last" >&2
+		return 1
+	}
+	printf '%s\n' "$last" | grep -q ' died=' && {
+		printf '            the END wears died= -- a verdict that reads as a death.\n' >&2
+		return 1
+	}
+	n=$(grep -c ' died=' "$j" || true)
+	[ "$n" = 0 ] || {
+		printf '            a died= line exists somewhere in a pass that was never killed (%s of them).\n' "$n" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	return 0
+}
+
+# The control IS the forgery the review planted: both guards out of the shipped script and nothing
+# else. It asserts the plant landed (one `factory_disarmed=1` left standing -- the SUPERVISOR-RERUN
+# stop's -- and no `trap - EXIT TERM INT HUP` at all), so a mutant whose pattern slid off the code
+# cannot read as a pass, and then journals the forged line the shipped guards are the only thing
+# preventing.
+proc_mutate_disarm_pair() { # -> the planned END's both guards out of $proc_dir/factory.sh
+	local keep=0
+	awk '
+		{
+			if (prev_flag && $0 == "\ttrap - EXIT TERM INT HUP") { prev = ""; prev_flag = 0; next }
+			if (prev != "") print prev
+			prev = $0
+			prev_flag = ($0 == "\tfactory_disarmed=1")
+		}
+		END { if (prev != "") print prev }' "$proc_dir/factory.sh" \
+		>"$proc_work/disarm-mut" || return 1
+	grep -q 'trap - EXIT TERM INT HUP' "$proc_work/disarm-mut" && {
+		printf '            the plant removed no `trap -`: the shipped pair slid off the pattern.\n' >&2
+		return 1
+	}
+	keep=$(grep -c '^[[:space:]]*factory_disarmed=1$' "$proc_work/disarm-mut" || true)
+	[ "$keep" = 1 ] || {
+		printf '            the plant left %s disarm flags; one (the RERUN stop) must stand,\n' "$keep" >&2
+		printf '            so this is not the both-guards mutant as described.\n' >&2
+		return 1
+	}
+	mv "$proc_work/disarm-mut" "$proc_dir/factory.sh"
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-clean.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-clean.git")
+proc_kill=''
+proc_death_box clean && proc_death_clean_planted=1 || proc_death_clean_planted=0
+proc_run death-clean-1
+proc_leg 'a clean pass writes one verdict-shaped END and no death' \
+	'one END rc=0 ticks_started=2, no died= anywhere, END is the journal last word, rc 0' \
+	proc_death_leg_clean "$proc_journal" "$proc_rc" "$proc_death_clean_planted"
+
+proc_death_box forged && proc_death_forged_planted=1 || proc_death_forged_planted=0
+proc_mutate_disarm_pair && proc_death_forged_mutated=1 || proc_death_forged_mutated=0
+proc_run death-forged-1
+proc_death_leg_forged() { # <journal> <rc> <planted> <mutated> -> both guards gone: a clean pass journals TWO ENDs
+	local j=$1 rc=$2 planted=$3 mutated=$4 line
+	{ [ "$planted" = 1 ] && [ "$mutated" = 1 ]; } || {
+		printf '            the forged box did not plant (%s) or the disarm-pair mutant did not\n' "$planted" >&2
+		printf '            land (%s), so this journal is not the forgery of the disarm pair.\n' "$mutated" >&2
+		return 1
+	}
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the mutant box never reached the push either -- not the same death\n' >&2
+		printf '            this family measures.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 2 ] || {
+		printf '            the both-guards mutant journaled %s END line(s), not the two the\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            forgery is made of -- one verdict, one death stamped over it. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	# The shipped guards, if any were left standing, must not be what keeps this box clean:
+	# the second END is the mutant's own line, `died=EXIT`, last in the journal, rc unchanged.
+	line=$(tail -n 1 "$j")
+	printf '%s\n' "$line" | grep -q 'END rc=0 ticks_started=0 died=EXIT inside=unclaimed:' || {
+		printf '            the forged last line is not `END rc=0 ticks_started=0 died=EXIT\n' >&2
+		printf '            inside=unclaimed:<n>` -- started is out of scope at the script exit,\n' >&2
+		printf '            and the last unit row is what `inside=` still names: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 0 ] || {
+		printf '            the forging pass exited %s, not 0 -- the forgery exits CLEAN, which\n' "$rc" >&2
+		printf '            is what makes it invisible to a reader of the exit code alone.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the disarm pair is the guard: both gone, a clean pass forges died=EXIT' \
+	'two ENDs, the last `died=EXIT inside=unclaimed:<n>`, exit still 0 -- the review mutant, journalled' \
+	proc_death_leg_forged "$proc_journal" "$proc_rc" "$proc_death_forged_planted" "$proc_death_forged_mutated"
+
+# ---------------- the deliberate stops stand the trap down first (#419, H-0333/H-0335)
+#
+# `SUPERVISOR-RERUN` is the other deliberate stop, and until #485's review no leg of this file had
+# ever run that exit path -- armed or disarmed -- while its comment claimed exit 8 and a shape
+# "its legs pin". Both were false: the stop exits `FACTORY_EXIT_RERUN`, which is 9
+# (`factory/common.sh:428`), and nothing pinned it. The box below drives the real arm: a private
+# bare as origin, the trunk advanced by one descendant commit so the installed tree is exactly
+# one fast-forward behind, and a unit file naming the clone as the tree the timer execs -- the
+# position `factory_supervisor_repair` fast-forwards and must stop at.
+
+proc_rerun_box() { # <name> -> the installed tree planted exactly one fast-forward behind trunk
+	local name=$1 adv
+	proc_new "rerun-$name" || return 1
+	local up=$proc_work/rerunup-$name.git
+	mkdir -p "$proc_work/units-$name"
+	# The bare-token ExecStart is the only shape `factory_installed_tree` answers 0 for, and the
+	# unit NAME travels by env because a fixture must not guess what the generator would name it.
+	# The unit must name THIS clone: a unit execing another checkout is `UNIT-DIVERGED` (#260)
+	# and the repair arm returns before its verdict -- the forged box therefore hides its mutant
+	# from `git status` instead of pointing the unit elsewhere.
+	printf '[Unit]\nDescription=fixture supervisor\n\n[Service]\nExecStart=%s/factory/factory.sh\n' \
+		"$proc_repo" >"$proc_work/units-$name/proc-rerun-factory.service" || return 1
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" remote set-url origin "$up" || return 1
+	# The trunk moves ahead by a plain descendant commit -- never a rewrite: the arm refuses any
+	# tree that is not a pure descendant, and this box is testing the arm that says YES.
+	adv=$proc_work/rerunadv-$name
+	git clone -q "$proc_repo" "$adv" &&
+		git -C "$adv" config user.email fixture@invalid &&
+		git -C "$adv" config user.name fixture &&
+		printf 'the commit the installed tree is behind\n' >"$adv/behind.txt" &&
+		git -C "$adv" add -A &&
+		git -C "$adv" commit -qm 'fixture: the trunk commit the installed tree has not seen' &&
+		git -C "$adv" push -q "$up" main || return 1
+	# The advancing commit touches `behind.txt` and NOTHING else on purpose: `factory.sh` holds
+	# the same blob before and after it, so the fast-forward the arm performs never rewrites that
+	# file out from under the forged box's hidden mutant (see `proc_mutate_rerun_flag`).
+	# The arm stops before any dispatch, but an empty queue is also the honest stand-in for
+	# "nothing had been read yet" -- the line promises `no triage, no id, no tick`.
+	printf '[]\n' >"$proc_fix/pr-open.json"
+}
+
+proc_rerun_leg_stops() { # <journal> <rc> <planted> -> the RERUN stop is the last word, writes no END
+	local j=$1 rc=$2 planted=$3 line
+	[ "$planted" = 1 ] || {
+		printf '            the rerun box was never planted, so this leg ran against some other\n' >&2
+		printf '            box'"'"'s journal.\n' >&2
+		return 1
+	}
+	# Fixture first: the fast-forward must have RUN -- behind=1 answered, the tree moved, the
+	# sentence names the exit code the stop takes. Without this line the box refused somewhere
+	# upstream and every assertion below measures a refusal, not the stop.
+	line=$(proc_journal_line "$j" 'SUPERVISOR-FF ') || true
+	printf '%s\n' "$line" | grep -q 'stops here with exit 9' || {
+		printf '            no SUPERVISOR-FF naming exit 9 -- the repair never fast-forwarded\n' >&2
+		printf '            this tree, so the box did not reach the stop. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'SUPERVISOR-RERUN the pass stops here with exit 9')" ] || {
+		printf '            the stop line is absent, or names a different exit than the 9 the\n' >&2
+		printf '            repair promised above it. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$j")" != "$(proc_journal_line "$j" 'SUPERVISOR-RERUN')" ] && {
+		printf '            the SUPERVISOR-RERUN line is not the journal last word -- whatever\n' >&2
+		printf '            wrote after it wrote after a DELIBERATE stop.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 0 ] || {
+		printf '            the stopped pass wrote an END at all (%s): a deliberate stop is not\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            a death, and the disarm before the stop line is what keeps it that\n' >&2
+		printf '            way. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q ' died=' "$j" && {
+		printf '            a died= line follows a stop that was armed to stand down first.\n' >&2
+		return 1
+	}
+	[ "$rc" = 9 ] || {
+		printf '            the rerun stop exited %s, not 9 (FACTORY_EXIT_RERUN) -- the unit file\n' "$rc" >&2
+		printf '            SuccessExitStatus= list and this exit must agree.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'TICK-START')" ] || {
+		printf '            a tick started after the pass said it moved the tree; the window\n' >&2
+		printf '            that makes the move safe closes at the first dispatch.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_mutate_rerun_flag() { # -> the RERUN stop's disarm flag out of $proc_dir/factory.sh
+	local keep=0
+	# The RERUN stop sits inside its `if`, two tabs deep; the planned END pair sits at the
+	# function tab. The mutant names the deeper one so the planned guard cannot be what it removes.
+	awk '
+		{
+			if (prev_flag && index($0, "SUPERVISOR-RERUN") > 0) {
+				prev = ""; prev_flag = 0; print; next
+			}
+			if (prev != "") print prev
+			prev = $0
+			prev_flag = ($0 == "\t\tfactory_disarmed=1")
+		}
+		END { if (prev != "") print prev }' "$proc_dir/factory.sh" \
+		>"$proc_work/rerun-mut" || return 1
+	grep -qF 'log_event "SUPERVISOR-RERUN' "$proc_work/rerun-mut" || {
+		printf '            the plant removed the stop line with the flag; the mutant may only\n' >&2
+		printf '            stand the guard down, never the sentence it guards.\n' >&2
+		return 1
+	}
+	keep=$(grep -c '^[[:space:]]*factory_disarmed=1$' "$proc_work/rerun-mut" || true)
+	[ "$keep" = 1 ] || {
+		printf '            the plant left %s disarm flags; exactly the planned-END one must\n' "$keep" >&2
+		printf '            stand, so this is not the RERUN-guard mutant as described.\n' >&2
+		return 1
+	}
+	# The installed tree IS the running tree (#260), so the mutant must hide from the repair
+	# arm's dirty check: assume-unchanged is the only way to stand this guard down in the very
+	# tree the arm inspects, and the behind commit never touches this file, so the fast-forward
+	# the arm performs cannot rewrite it out from under the running bash.
+	git -C "$proc_repo" update-index --assume-unchanged factory/factory.sh || return 1
+	mv "$proc_work/rerun-mut" "$proc_dir/factory.sh"
+}
+
+proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-stop" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_kill=''
+proc_rerun_box stop && proc_rerun_stop_planted=1 || proc_rerun_stop_planted=0
+proc_run death-rerun-stop-1
+proc_leg 'SUPERVISOR-RERUN stops with no END: the stop line is the last word' \
+	'FF line naming exit 9, RERUN line last, no END rc= at all, no died=, rc 9, no tick' \
+	proc_rerun_leg_stops "$proc_journal" "$proc_rc" "$proc_rerun_stop_planted"
+
+proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-forged" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_rerun_box forged && proc_rerun_forged_planted=1 || proc_rerun_forged_planted=0
+proc_mutate_rerun_flag && proc_rerun_forged_mutated=1 || proc_rerun_forged_mutated=0
+proc_run death-rerun-forged-1
+proc_rerun_leg_forged() { # <journal> <rc> <planted> <mutated> -> without the flag the stop forges died=EXIT rc=9
+	local j=$1 rc=$2 planted=$3 mutated=$4 line
+	{ [ "$planted" = 1 ] && [ "$mutated" = 1 ]; } || {
+		printf '            the forged rerun box did not plant (%s) or the guard mutant did not\n' "$planted" >&2
+		printf '            land (%s), so this journal is not the forgery of the RERUN guard.\n' "$mutated" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'SUPERVISOR-FF ') || true
+	printf '%s\n' "$line" | grep -q 'stops here with exit 9' || {
+		printf '            the mutant box never fast-forwarded either -- not the same stop.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 1 ] || {
+		printf '            the flagless stop journaled %s END line(s), not the one death line\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            the forgery is made of. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(tail -n 1 "$j")
+	printf '%s\n' "$line" | grep -q 'END rc=9 ticks_started=0 died=EXIT inside=the refs read' || {
+		printf '            the forged last line is not `END rc=9 ... died=EXIT inside=the refs\n' >&2
+		printf '            read` -- the unit loop never ran, so this is the refs-read identity\n' >&2
+		printf '            wearing a death sentence: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 9 ] || {
+		printf '            the forging stop exited %s, not 9 -- same lie as the clean forgery:\n' "$rc" >&2
+		printf '            the exit code stays right while the journal gains a death.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the RERUN flag is the guard: without it the stop forges died=EXIT' \
+	'one END, `rc=9 died=EXIT inside=the refs read`, last line, exit still 9' \
+	proc_rerun_leg_forged "$proc_journal" "$proc_rc" "$proc_rerun_forged_planted" "$proc_rerun_forged_mutated"
+
+proc_extra_env=()
 printf '[]\n' >"$proc_fix/pr-open.json"
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
