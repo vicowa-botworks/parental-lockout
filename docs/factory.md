@@ -2606,6 +2606,75 @@ python3 scripts/check-decisions.py --citations          # what the debt is made 
 python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed at one file: ask BEFORE editing it
 ```
 
+## The tree claim: who holds this tree RIGHT NOW
+
+`factory_worktree_busy` answers a question about the past -- "did a dispatch claim
+this tree and never release it" -- and it can only answer it from the journal's
+`TICK-START`. #421 measured what that cannot see: on 16 Nov a second unit was
+dispatched into `wt/issue-341` 2m16s before a session started a merge in the same
+resolution, 8m05s of two writers on one index, while the guard was asked at
+15:31:50 about a dispatch whose `TICK-START` was being written at 15:31:50, by
+that same dispatch. A journal cannot witness an activation's intentions before
+its own first line, and a session merging outside the harness never writes one at
+all. The instant question needs a different artifact: the **tree claim**.
+
+A claim is a file under `$FACTORY_RUN/claim/` (`factory_claim_dir`) minted after
+the content verdict and **before the first write** -- before `TICK-START` on the
+tick path, before `git merge` on the inline conflict path -- carrying five fields
+(`unit=`, `tree=`, `dispatched=`, `pid=`, `deadline=`). The deadline is the
+minting activation's own bound on its own life, `FACTORY_TICK_TIMEOUT +
+FACTORY_CLAIM_SLACK` from the mint -- the tick's own `timeout(1)` kill window,
+inside the `TimeoutStartSec` belt (`H-0341`); past that moment nobody can still be working under the file, and
+that proof is what licences a later reader to sweep it. `factory_claim_held TREE`
+answers the probe in four polarities -- `0` held (stdout names the unit, its pid
+and its deadline), `1` free, `2` unknown, `3` expired-and-swept -- and identity is
+judged before matching: a member whose fields cannot be parsed, a directory where
+a `.claim` file was, or a claim directory replaced by a file all answer `unknown`,
+because it could BE this tree's claim and a guard whose read failed must not
+answer free (the same polarity #232 earned for the busy guard, and for the same
+root-walks-past-chmod reason).
+
+`factory_tree_claim_check UNIT TREE` is the verb every arrival asks -- both
+supervisor dispatch paths, and a person's or interactive session's own hands:
+the Worktrees rule in `AGENTS.md` tells any writer heading into a harness tree
+to check the claim, mint a `human:<name>` claim of its own before the first
+write, and release it when done, so the 16 Nov writer and a harness tick refuse
+each other through the same file. (A factory unit session mints nothing: its
+tick minted the tree's claim before dispatching it, and there is deliberately
+no self-exclusion -- the guard refuses whoever asks while a live claim stands.)
+A refusal is journalled in words naming the holder
+(`TREE-HELD <unit> <tree> held-by=<unit> <pid> <deadline> ...`) and costs nothing:
+`NOT-STARTED` on the tick path (budget unchanged, the claim itself makes a later
+pass the retry) and `CONFLICT-DEFERRED` on the conflict path (no model run is
+queued for a merge that never happened). A release names its owner: the right
+unit and a live pid remove the file; a release naming another writer leaves it in
+place and says `TREE-CLAIM-FOREIGN` naming both, because that file is someone
+else's working claim and deleting it re-opens the collision the file exists to
+prevent. The release is the activation's last touch of the tree -- after the
+teardown quarantine, after inventory -- inside the death traps as well as the
+clean path.
+
+The claim refuses only writers that ask. That is its whole reach and it is stated
+here so nobody oversells it: a raw `git` in an unclaimed cwd is stopped by nothing
+new, and a pass SIGKILLed between mint and release leaves a file that holds its
+tree until the deadline passes -- at most `FACTORY_TICK_TIMEOUT +
+FACTORY_CLAIM_SLACK`, never forever, which is the trade the deadline exists to
+make (`H-0340`). The journal still carries the after-the-fact half: `factory_worktree_busy`
+removes nothing while a tick's record is open; the claim removes the *race* the
+record cannot see early enough.
+
+Each shipped choice has a leg that mutates it, in `factory/selftest.sh`'s claim
+family: standing the tick's refusal down reproduces the 16 Nov collision on demand
+(`TREE-HELD` journalled and the dispatch runs anyway); muting the release leaves
+the file outliving the pass; deleting the deadline test makes a dead claim read
+held; answering `free` for the unknown lets the same garbage through; and the
+conflict box only conflicts under the mutant, which is what proves the shipped leg
+stopped a writer rather than a box that merges nothing either way. The mutant
+conflict box shows the claim does not stop at one site: the `conflict:900` tick
+the mutant queues meets the SAME claim at its own activation and is journalled
+`TREE-HELD` and `NOT-STARTED` with no session run — a mutation of the inline site
+still cannot reach a model run, because the dispatch guard holds the same tree
+independently.
 ## The journal's retention contract, written down before anything bounds it
 
 `factory/log/supervisor.log` is the harness's audit trail: which decision id was handed to which unit

@@ -23125,6 +23125,604 @@ busy_guard_refuses_a_live_tree() {
 	return 0
 }
 busy_guard_refuses_a_live_tree
+
+# #421 -- the instant guard: who holds this tree RIGHT NOW.
+#
+# The family above (#361) reads the journal, which answers "did a dispatch claim this tree and
+# never release it" forever after the fact. #421 is the other half: measured 16 Nov, a second
+# unit was dispatched into `wt/issue-341` 2m16s before a session started a merge in the same
+# resolution -- 8m05s of two writers on one index -- because the guard was asked at 15:31:50 about
+# a dispatch whose `TICK-START` was written at 15:31:50, BY that same dispatch, and the second
+# writer (a session) was never going to ask a journal at all. A journal cannot witness an
+# activation's intentions before its own first line. The shipped answer is a claim file under
+# `$FACTORY_RUN/claim/`, minted after the content verdict and before the first write, and read by
+# every later arrival. The unit family below drives the helpers the way the busy family above
+# drives `factory_worktree_busy`; the boxes after it drive the shipped supervisor the way the
+# dup-arm family drives refusals -- a real activation, its own journal -- and each control mutates
+# exactly one shipped choice and must turn exactly the leg that choice carries.
+
+cl_run=$work/claim-run
+cl_x=$work/claim-trees/issue-421
+cl_y=$work/claim-trees/issue-422
+
+cl_plant_claim() { # unit tree deadline [name] -> a hand-minted claim file, the session's own verb
+	local f=$cl_run/claim/${4:-planted}.claim
+	mkdir -p -- "$cl_run/claim"
+	printf 'unit=%s\ntree=%s\ndispatched=2026-11-20T00:00:00Z\npid=424242\ndeadline=%s\n' \
+		"$1" "$(realpath -m -- "$2")" "$3" >"$f"
+	printf '%s\n' "$f"
+}
+
+cl_mutant_rc() { # sed-script tree -> exit status of factory_claim_held with common.sh mutated
+	local seds=$1 tree=$2 d=$work/claimctl rc=0
+	rm -rf -- "$d"
+	mkdir -p -- "$d"
+	if ! sed "$seds" "$HERE/common.sh" >"$d/common.sh"; then printf '9\n'; return; fi
+	(
+		# shellcheck disable=SC1091  # the mutated copy is what the control is measuring
+		. "$d/common.sh" >/dev/null 2>&1 || exit 9
+		factory_claim_held "$tree" >/dev/null 2>&1
+	)
+	rc=$?
+	printf '%s\n' "$rc"
+}
+
+claim_guard_holds_a_live_tree() {
+	local label="the dispatch guard asks the claim" bad="" rc=0 out='' f='' dl='' now=''
+	local FACTORY_RUN=$cl_run
+	local FACTORY_LOG=$work/claim-log
+	mkdir -p -- "$FACTORY_LOG"
+	: >"$FACTORY_LOG/supervisor.log"
+	rm -rf -- "$cl_run"
+	mkdir -p -- "$cl_y"
+
+	# The family's precondition: no claim directory at all is `free` -- nobody has ever claimed
+	# anything here, the same reading an empty journal gets above -- and it is the reading the
+	# FIRST dispatch of a machine must get, or the guard refuses its own first writer.
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a machine that never claimed anything read $rc, want free (1)"
+	rc=0
+	factory_tree_claim_check unclaimed:issue-421 "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }the claim check refused the first dispatch (rc $rc)"
+
+	# The mint: a live claim answers held, naming the unit, and the file itself carries the five
+	# fields in the shape every reader parses them in.
+	if ! f=$(factory_claim_write unclaimed:issue-421 "$cl_x"); then
+		bad="${bad:+$bad; }the mint failed"
+	fi
+	rc=0
+	out=$(factory_claim_held "$cl_x") || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }the tree this leg just minted read $rc, want held (0)"
+	printf '%s' "$out" | grep -q '^unclaimed:issue-421 ' ||
+		bad="${bad:+$bad; }held did not name the minting unit: $out"
+	grep -q '^unit=unclaimed:issue-421$' "$f" && grep -q '^tree=' "$f" &&
+		grep -q '^dispatched=' "$f" && grep -q '^pid=' "$f" && grep -q '^deadline=[0-9][0-9]*$' "$f" ||
+		bad="${bad:+$bad; }the claim file does not carry the five fields the probe parses"
+	# The deadline is the writer's own bound on its own life -- ceiling plus grace -- and it is
+	# what makes the expiry below a SAFE deletion rather than a lockbreak: pin the arithmetic, not
+	# just the shape, because "held forever by a dead tick" and "swept while still live" are both
+	# one changed constant away.
+	dl=$(awk -F= '/^deadline=/{print $2}' "$f")
+	now=$(date +%s)
+	if [ "$dl" -lt $((now + FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK - 5)) ] ||
+		[ "$dl" -gt $((now + FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK + 5)) ]; then
+		bad="${bad:+$bad; }deadline is $dl, want ceiling+grace ($FACTORY_TICK_TIMEOUT+$FACTORY_CLAIM_SLACK) from now"
+	fi
+
+	# A claim holds the tree it names and ONLY that tree -- the key is the realpath, so the
+	# sibling stays free and a trailing slash still matches (control B below is what proves a
+	# matcher that misses silently reads free everywhere).
+	rc=0
+	factory_claim_held "$cl_y" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a live claim on one tree held a second tree (read $rc)"
+	rc=0
+	factory_claim_held "$cl_x/" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }the same tree spelled with a trailing slash read free"
+
+	# No self-exclusion: the unit that holds the claim is refused by it too. A pass SIGKILLed by
+	# its ceiling never leaves it a release, and the party that could prove that session is
+	# dead is the cgroup, which this shell cannot ask -- so the collision loses a retry past the
+	# deadline, never 8m05s of two writers on one index.
+	rc=0
+	factory_tree_claim_check unclaimed:issue-421 "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }the claiming unit walked past its own live claim (rc $rc)"
+	grep -q 'TREE-HELD unclaimed:issue-421 .* held-by=unclaimed:issue-421 ' "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the refusal was not journalled in words, naming the holder"
+
+	# The release is a claim of its own about WHO releases: the right unit and the live pid take
+	# the file away; a release naming another unit leaves it -- that file is someone else's
+	# working claim, and a release that deletes it re-opens the very collision #421 filed. The
+	# foreign release must SAY so: `TREE-CLAIM-FOREIGN` naming both writers is the double-dispatch
+	# evidence, in words, that the ticket asked to see.
+	factory_claim_release "$f" unclaimed:issue-999 >/dev/null
+	[ -f "$f" ] || bad="${bad:+$bad; }a release naming another unit deleted its working claim"
+	grep -q 'TREE-CLAIM-FOREIGN unclaimed:issue-999 ' "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the foreign release said nothing in words"
+	factory_claim_release "$f" unclaimed:issue-421 >/dev/null
+	[ ! -f "$f" ] || bad="${bad:+$bad; }the owning unit's release left its claim behind"
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }the tree still read held after its owner released (rc $rc)"
+
+	# A session merging outside the harness -- the 16 Nov writer -- is a claim the supervisor
+	# never minted. Any file in the directory whose CONTENT names this tree is honoured whatever
+	# its name, because the guard reads the claim, not the filename.
+	f=$(cl_plant_claim human:merge "$cl_x" "$(( $(date +%s) + 600 ))" session-own)
+	rc=0
+	factory_tree_claim_check unclaimed:issue-421 "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }a hand-minted claim at an arbitrary filename did not hold the tree"
+	grep -q 'TREE-HELD unclaimed:issue-421 .* held-by=human:merge ' "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the hand-minted hold was journalled without naming the session's unit"
+	rm -f -- "$f"
+
+	# The expiry: a claim whose deadline passed cannot name a live writer -- the deadline is the
+	# minting activation's own bound -- so it is swept and the reader proceeds, with the sweep
+	# journalled. This is what makes the file evidence with an expiry rather than a lock that any
+	# crash makes permanent. The CHECK is read first, before any bare probe: the sweep happens
+	# on the first read, so a leg that probed with `factory_claim_held` first would be checking
+	# a journal line the second read could no longer write.
+	f=$(cl_plant_claim dead:1 "$cl_x" "$(( $(date +%s) - 10 ))" expired)
+	rc=0
+	factory_tree_claim_check unclaimed:issue-421 "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }a tree whose only claim was expired refused the dispatch (rc $rc)"
+	[ ! -f "$f" ] || bad="${bad:+$bad; }the sweep left the expired claim in place for the next writer to fear"
+	grep -q 'TREE-CLAIM-EXPIRED unclaimed:issue-421 .* stale-unit=dead:1' "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the sweep was not journalled with the stale unit named"
+	# The bare read sweeps too, and reports 3 where the guard reports 0: the polarity pair is
+	# pinned from both sides, on a freshly planted file the first arm already consumed.
+	f=$(cl_plant_claim dead:1 "$cl_x" "$(( $(date +%s) - 10 ))" expired)
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 3 ] || bad="${bad:+$bad; }an expired claim read $rc, want expired (3)"
+	[ ! -f "$f" ] || bad="${bad:+$bad; }the sweep on the bare read left the file in place"
+
+	# The fail-closed arms. A member whose fields cannot be parsed could BE this tree's claim --
+	# identity is judged before matching, so it reads `unknown`, and `unknown` is a refusal, never
+	# the `free` that puts two writers on one index. The same polarity covers a
+	# directory-in-place-of-a-file and the claim directory itself replaced by a file: shape
+	# judgements hold for root as much as for uid 1000, which is where the busy family's
+	# unreadable-journal leg landed too.
+	printf 'garbage\n' >"$cl_run/claim/x.claim"
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 2 ] || bad="${bad:+$bad; }an unparsable claim member read $rc, want unknown (2)"
+	rc=0
+	factory_tree_claim_check unclaimed:issue-421 "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 1 ] || bad="${bad:+$bad; }the unknown read proceeded anyway (rc $rc)"
+	grep -q 'cause=claim-unreadable' "$FACTORY_LOG/supervisor.log" ||
+		bad="${bad:+$bad; }the unknown refused without saying why in words"
+	rm -f -- "$cl_run/claim/x.claim"
+	mkdir -- "$cl_run/claim/d.claim"
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 2 ] || bad="${bad:+$bad; }a directory where a claim file was read $rc, want unknown (2)"
+	rmdir -- "$cl_run/claim/d.claim"
+	rm -rf -- "$cl_run/claim"
+	printf 'not a directory\n' >"$cl_run/claim"
+	rc=0
+	factory_claim_held "$cl_x" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 2 ] || bad="${bad:+$bad; }the claim directory replaced by a file read $rc, want unknown (2)"
+	rm -f -- "$cl_run/claim"
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s a live claim refuses, a foreign release says so, an unknown is not free\n' "$label"
+
+	# The controls. A: take the held branch out -- the live claim must read free, proving the
+	# refusals above come from that branch and not from every file being held by default.
+	# B: answer `free` for the unknown -- the same garbage fixture must pass. C: take the deadline
+	# test out -- a dead claim must read HELD, proving the sweep above is the deadline working and
+	# not a tree match that happened to miss.
+	local mrc
+	if f=$(factory_claim_write unclaimed:issue-421 "$cl_x"); then :; fi
+	mrc=$(cl_mutant_rc 's/if \[ -n "\$hit_held" \]; then/if false; then/' "$cl_x")
+	factory_claim_release "$f" unclaimed:issue-421 >/dev/null
+	if [ "$mrc" = 1 ]; then
+		printf '        control: with the held branch taken out, the live claim reads free -- the\n'
+		printf '        refusals above are that branch, not a default.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the held-branch mutant read %s, want free (1): the legs above\n' "control: $label" "$mrc"
+		printf '          are not pinned to the branch they name.\n'
+	fi
+	printf 'garbage\n' >"$cl_run/claim/x.claim"
+	mrc=$(cl_mutant_rc 's/\[ "\$bad" = 1 \] && return 2/[ "$bad" = 1 ] \&\& return 1/' "$cl_x")
+	rm -f -- "$cl_run/claim/x.claim"
+	if [ "$mrc" = 1 ]; then
+		printf '        control: with the unknown arm answered free, the same garbage passes --\n'
+		printf '        the fail-closed above is the arm, not the parser happening to skip.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the unknown-arm mutant read %s, want free (1)\n' "control: $label" "$mrc"
+	fi
+	f=$(cl_plant_claim dead:2 "$cl_x" "$(( $(date +%s) - 10 ))" expired-ctl)
+	mrc=$(cl_mutant_rc 's/if \[ "\$now" -ge "\$d" \]; then/if false; then/' "$cl_x")
+	rm -f -- "$f"
+	if [ "$mrc" = 0 ]; then
+		printf '        control: with the deadline test out, a dead claim reads held -- the\n'
+		printf '        sweep above is the deadline, not a tree match that happened to miss.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the expiry mutant read %s, want held (0)\n' "control: $label" "$mrc"
+	fi
+	return 0
+}
+claim_guard_holds_a_live_tree
+
+# ---- #421, the shipped supervisor as a process: the two dispatch paths, their holds, their releases.
+
+# A branch one ahead of trunk with no pull request: an `unclaimed` row, in the clone the way the
+# dup-arm family plants them (no push; triage reads this checkout's refs).
+cl_branch() { # name
+	git -C "$proc_repo" checkout -qb "$1" origin/main &&
+		printf 'the work on %s\n' "$1" >"$proc_repo/work-$1.txt" &&
+		git -C "$proc_repo" add -A &&
+		git -C "$proc_repo" commit -qm "fixture: the branch $1" &&
+		git -C "$proc_repo" checkout -q main
+}
+
+# Plant a session's hand-minted claim into the CURRENT box's run directory, naming the tree the
+# supervisor would cut for `branch` under $FACTORY_TREES.
+cl_plant_box_claim() { # unit branch deadline -> the planted path
+	local f
+	mkdir -p -- "$proc_rundir/claim"
+	f=$(cl_plant_claim "$1" "$proc_trees/$2" "$3" session)
+	mv -f -- "$f" "$proc_rundir/claim/session.claim"
+	printf '%s\n' "$proc_rundir/claim/session.claim"
+}
+
+# Tick path, held: a live hand-minted claim -- the 16 Nov session's shape -- on the tree the tick
+# would have created. The refusal must be the dispatch's own verdict (`NOT-STARTED`: nothing ran,
+# the budget is unchanged, and the claim makes a later pass the retry), with no `TICK-START` and no
+# session for the held unit, while the queue's other unit is still ticked -- a refusal that
+# starves the pass behind it is the same bug pointing at the queue -- and the other writer's claim
+# file must survive the pass untouched.
+proc_claim_tick_held_leg() { # <journal> <ticks> <rc> <claimfile> <unit> <branch> <other-branch>
+	local j=$1 t=$2 rc=$3 f=$4 unit=$5 br=$6 other=$7
+	[ "$rc" = 0 ] || {
+		printf '            the pass exited %s; a refused claim is a wait, not a failed pass.\n' "$rc" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q "TREE-HELD $unit .* held-by=human:merge" "$j" || {
+		printf '            no TREE-HELD naming the session claim for %s; the journal:\n' "$unit" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q "NOT-STARTED $unit" "$j" || {
+		printf '            the held unit was not NOT-STARTED: the budget must be unchanged, because\n' >&2
+		printf '            nothing ran, and the claim is what makes a later pass the retry.\n' >&2
+		return 1
+	}
+	grep -q "TICK-START $unit" "$j" && {
+		printf '            a tick started on a tree a live claim held.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q -- "$br" "$t" && {
+		printf '            a session ran for the held unit; the tick log:\n' >&2
+		sed 's/^/              /' "$t" >&2
+		return 1
+	}
+	grep -q "TICK-START .*issue-$other" "$j" || {
+		printf '            the pass refused the claimed tree and starved the unit behind it;\n' >&2
+		printf '            the refusal is per-tree, and a pass-wide refusal here is the bug.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -f "$f" ] || {
+		printf '            the pass deleted the other writer'"'"'s claim file. It is evidence with\n' >&2
+		printf '            a deadline, not this pass'"'"'s debris.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_extra_env=()
+proc_kill=''
+proc_tick_timeout=''
+proc_tick_kill_after=''
+proc_fetch_timeout=''
+proc_push_timeout=''
+printf '[]\n' >"$proc_fix/pr-open.json"
+printf '[]\n' >"$proc_fix/pr-merged.json"
+proc_new claim-tick-held
+cl_branch issue-901
+cl_branch issue-902
+cl_held_claim=$(cl_plant_box_claim human:merge issue-901 "$(( $(date +%s) + 600 ))")
+proc_run claim-tick-held-1
+proc_leg 'a live claim refuses the tick before TICK-START, and the queue behind it still runs' \
+	'NOT-STARTED for the held unit, no session, the sibling still ticked, the foreign claim file untouched, rc 0' \
+	proc_claim_tick_held_leg "$proc_journal" "$proc_ticks" "$proc_rc" "$cl_held_claim" \
+	"unclaimed:901" issue-901 902
+
+# Control: stand the tick's refusal down (`|| return 5` becomes `|| true`) and the SAME fixture
+# must show the journal reading TREE-HELD and the tick starting anyway -- the 16 Nov collision
+# reproduced on demand. That the read still fires under the mutant proves the shipped leg refuses
+# on the `return 5` and not on a dispatch that was never reached.
+proc_new claim-tick-held-mut
+cl_branch issue-901
+cl_branch issue-902
+proc_claim_mut=0
+proc_mutate_factory 'factory_tree_claim_check "$unit" "$tree" || return 5' \
+	'	factory_tree_claim_check "$unit" "$tree" || true' && proc_claim_mut=1
+cl_mut_claim=$(cl_plant_box_claim human:merge issue-901 "$(( $(date +%s) + 600 ))")
+# the planted file IS the control's precondition: if it is gone, a merged pass
+# proves the mutant worked for the wrong reason
+[ -f "$cl_mut_claim" ] || { printf 'claim-tick-held-mut: the planted claim file is gone\n' >&2; proc_rc=99; }
+proc_run claim-tick-held-mut-1
+proc_claim_control_return5() { # <mutated>
+	[ "$1" = 1 ] || {
+		printf '            the factory.sh mutant did not land, so this journal is shipped code.\n' >&2
+		return 1
+	}
+	grep -q 'TREE-HELD unclaimed:901' "$proc_journal" || {
+		printf '            the mutant never even read the claim; the shipped leg cannot be about\n' >&2
+		printf '            the refusal, if the read is not what shipped code added.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	grep -q 'TICK-START unclaimed:901' "$proc_journal" || {
+		printf '            with the refusal stood down the tick did NOT start -- so the shipped\n' >&2
+		printf '            `return 5` never stood between the claim and the dispatch, and the\n' >&2
+		printf '            leg above was pinned by something else.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: without the return 5 the pass reads TREE-HELD and dispatches anyway' \
+	'the 16 Nov collision, on demand, in the mutant box'"'"'s journal' \
+	proc_claim_control_return5 "$proc_claim_mut"
+
+# Tick path, mint and release: the clean queue. The tick's first act after the content verdict is
+# the claim (journalled, carrying its deadline and its file), and its last touch of the tree is
+# the release: by the time the pass ends the claim directory holds nothing. The control mutes the
+# release line; the mint must still fire (so the empty directory above is the release, not a mint
+# that never happened) and the file must outlive the pass.
+proc_claim_tick_mint_leg() { # <journal> <claimdir> <unit>
+	local j=$1 d=$2 unit=$3 line
+	line=$(proc_journal_line "$j" "TREE-CLAIM $unit")
+	printf '%s' "$line" | grep -q 'deadline=[0-9][0-9]*' || {
+		printf '            no TREE-CLAIM with a deadline for the ticked unit; the journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	printf '%s' "$line" | grep -q 'file=' || {
+		printf '            the mint did not name its file: an operator cannot open what the\n' >&2
+		printf '            journal will not point at.\n' >&2
+		return 1
+	}
+	if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
+		printf '            the pass finished and left claim files behind:\n' >&2
+		ls -la "$d" >&2
+		return 1
+	fi
+	return 0
+}
+proc_new claim-tick-mint
+cl_branch issue-902
+proc_run claim-tick-mint-1
+proc_leg 'the tick mints its claim and releases it when the tree is done' \
+	'TREE-CLAIM with deadline= and file=, and an empty claim directory when the pass ends' \
+	proc_claim_tick_mint_leg "$proc_journal" "$proc_rundir/claim" "branch_without_pr:issue-902"
+
+proc_new claim-tick-mint-mut
+cl_branch issue-902
+proc_claim_mut=0
+proc_mutate_factory 'factory_claim_release_active #' '	FACTORY_CLAIM_MUTED=1 #' && proc_claim_mut=1
+proc_run claim-tick-mint-mut-1
+proc_claim_control_release() { # <mutated>
+	[ "$1" = 1 ] || {
+		printf '            the release mutant did not land; this journal is shipped code.\n' >&2
+		return 1
+	}
+	grep -q 'TREE-CLAIM branch_without_pr:issue-902' "$proc_journal" || {
+		printf '            the mutant did not mint either -- the empty directory above would be\n' >&2
+		printf '            a mint that never ran, not a release that did.\n' >&2
+		return 1
+	}
+	if [ -z "$(ls -A "$proc_rundir/claim" 2>/dev/null)" ]; then
+		printf '            with the release muted the claim file still vanished: something other\n' >&2
+		printf '            than the release emptied the directory, and the leg above is not\n' >&2
+		printf '            pinned to the release line it names.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'control: with the release muted the mint still fires and the file outlives the pass' \
+	'the release line, not luck, is what empties the claim directory' \
+	proc_claim_control_release "$proc_claim_mut"
+
+# Tick path, expiry: the sweep at the moment it matters. A claim whose deadline passed -- a pass
+# SIGKILLed at its ceiling never reached its release line -- must not hold the queue forever:
+# the guard says the word, retires the file, and the tick runs. (The deadline TEST itself is
+# pinned by control C of the unit family above; this leg pins that the shipped pass does the
+# human-recognisable thing with a stale file rather than parking the unit behind it.)
+proc_new claim-tick-expired
+cl_branch issue-903
+cl_stale=$(cl_plant_box_claim dead:1 issue-903 "$(( $(date +%s) - 10 ))")
+# the stale file must exist for the sweep to have anything to sweep: if minting
+# returned nothing, TREE-CLAIM-EXPIRED could only be the fixture talking to itself
+[ -f "$cl_stale" ] || { printf 'claim-tick-expired: the planted claim file is gone\n' >&2; proc_rc=99; }
+proc_run claim-tick-expired-1
+proc_claim_expiry_leg() { # <journal> <claimfile>
+	local j=$1 f=$2
+	grep -q 'TREE-CLAIM-EXPIRED branch_without_pr:issue-903 .* stale-unit=dead:1' "$j" || {
+		printf '            the deadline passing was never said in words; the journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'TICK-START branch_without_pr:issue-903' "$j" || {
+		printf '            the expired claim still refused the dispatch: the queue would be held\n' >&2
+		printf '            forever by a file nobody can still be working under.\n' >&2
+		return 1
+	}
+	[ ! -f "$f" ] || {
+		printf '            the sweep promised to retire the file and left it for the next pass.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a claim past its deadline is swept at the check and the tick runs' \
+	'TREE-CLAIM-EXPIRED, then a TICK-START, then no file' \
+	proc_claim_expiry_leg "$proc_journal" "$proc_rundir/claim/session.claim"
+
+# Conflict path, held: the inline `git merge` is a writer with no tick and no `TICK-START` at all
+# -- until this claim it had no instant guard either. The refusal must land BEFORE the merge:
+# nothing touched git, so nothing is in conflict, so no conflict tick is queued -- the pass defers
+# the unit (rc 2, `CONFLICT-DEFERRED`, reason pointing at the TREE-HELD line) rather than paying a
+# model run for a hold. The control stands the refusal down and the same box must then MERGE:
+# `CONFLICT-UNRESOLVED` and a queued `conflict:` tick -- proof the shipped leg stopped a writer
+# that this fixture genuinely is, not a box that conflicts nothing either way.
+#
+# The trunk half is pushed to a PRIVATE bare: the divergence has to reach `origin/main` for the
+# merge to have anything to conflict with, and pushing to the shared `$proc_up` would hand every
+# later box a conflicted trunk (the union family's reason for the same private up).
+proc_claim_conflict_box() { # <name>
+	proc_new "$1" || return 1
+	local up=$proc_work/claimup-$1.git
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" remote set-url origin "$up" || return 1
+	# The arbiter rides the TRUNK, not just the branch tip: the arm runs the TREE's
+	# `scripts/merge-decisions.py`, and that script runs the gate beside it. Without both files
+	# the arm declines `UNION-REFUSED reason=no-script` before ever consulting git -- the shipped
+	# leg would pass on the refusal alone and the control could never conflict. Same reason the
+	# union box seeds its logs already holding one full-field entry: the gate rightly refuses an
+	# existing log with nothing in it, and a checkpoint must name a commit every merge-reachable
+	# tree has.
+	mkdir -p "$proc_repo/scripts" || return 1
+	cp "$HERE/../scripts/check-decisions.py" "$HERE/../scripts/merge-decisions.py" "$proc_repo/scripts/" ||
+		return 1
+	local c0
+	c0=$(git -C "$proc_repo" rev-parse HEAD) || return 1
+	printf '# Factory decisions\n\n## H-0001 · the factory log'"'"'s one base entry\n\n- Question: what does the fixture factory log decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because the fixture says so, in one clause\n- Checkpoint: %s\n' "$c0" \
+		>"$proc_repo/factory/DECISIONS.md" || return 1
+	printf '# Decisions\n\n## D-0001 · the base entry\n\n- Question: what does the fixture trunk decide?\n- Options: this | that | neither\n- Chose: this\n- Why: because the fixture says so, in one clause\n- Checkpoint: %s\n' "$c0" \
+		>"$proc_repo/DECISIONS.md" || return 1
+	git -C "$proc_repo" add -A &&
+		git -C "$proc_repo" commit -qm 'fixture trunk: the arbiter, its gate, and seeded logs' || return 1
+	git -C "$proc_repo" push -q origin main || return 1
+	git -C "$proc_repo" checkout -qb issue-900 origin/main &&
+		printf 'the branch side of the conflict\n' >"$proc_repo/tracked.txt" &&
+		git -C "$proc_repo" add -A &&
+		git -C "$proc_repo" commit -qm 'fixture: the branch half' &&
+		git -C "$proc_repo" push -q origin issue-900 &&
+		git -C "$proc_repo" checkout -q main &&
+		printf 'the trunk side of the conflict\n' >"$proc_repo/tracked.txt" &&
+		git -C "$proc_repo" add -A &&
+		git -C "$proc_repo" commit -qm 'fixture: the trunk half' &&
+		git -C "$proc_repo" push -q origin main || return 1
+	# The base read the conflict arm makes before it merges (#381). Without this payload the stub
+	# exits 8 and the arm routes to `CONFLICT-BLOCKED`, which would pass the shipped leg for the
+	# wrong reason and redden the control for a reason unrelated to the claim.
+	printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+		>"$proc_fix/pr-view-900.json" || return 1
+	proc_conflict_row
+}
+
+proc_claim_conflict_leg() { # <journal> <tree>
+	local j=$1 tree=$2
+	grep -q 'TREE-HELD pr:900 .* held-by=human:merge' "$j" || {
+		printf '            the inline merge never met the claim; the journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'CONFLICT-DEFERRED pr:900' "$j" || {
+		printf '            the held conflict unit was not deferred; the journal must carry the\n' >&2
+		printf '            wait the way every other wait does, pointing at its reason line.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	if grep -q 'CONFLICT-UNRESOLVED pr:900' "$j"; then
+		printf '            a conflict was DECLARED on a tree the guard had just refused to touch.\n' >&2
+		return 1
+	fi
+	if grep -q 'conflict:900' "$proc_ticks"; then
+		printf '            a conflict tick was queued for a merge that never ran: the model run\n' >&2
+		printf '            this ordering saves is exactly that queueing.\n' >&2
+		return 1
+	fi
+	[ -z "$(git -C "$tree" rev-parse -q --verify MERGE_HEAD 2>/dev/null)" ] || {
+		printf '            MERGE_HEAD in a tree nobody was allowed to merge in.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_claim_conflict_box claim-conflict-held || proc_rc=98
+cl_conf_claim=$(cl_plant_box_claim human:merge issue-900 "$(( $(date +%s) + 600 ))")
+# the planted file IS the leg's precondition: without it the refusal below would
+# be the shipped code refusing nothing
+[ -f "$cl_conf_claim" ] || { printf 'claim-conflict-held: the planted claim file is gone\n' >&2; proc_rc=99; }
+proc_run claim-conflict-held-1
+proc_leg 'a live claim stops the inline conflict merge before git, not after' \
+	'TREE-HELD pr:900 and CONFLICT-DEFERRED, with no CONFLICT-UNRESOLVED, no queued tick, no MERGE_HEAD' \
+	proc_claim_conflict_leg "$proc_journal" "$proc_trees/issue-900"
+
+proc_claim_conflict_box claim-conflict-held-mut || proc_rc=98
+proc_claim_mut=0
+proc_mutate_factory 'factory_tree_claim_check "pr:$pr" "$tree" || return 2' \
+	'	factory_tree_claim_check "pr:$pr" "$tree" || true' && proc_claim_mut=1
+cl_conf_claim=$(cl_plant_box_claim human:merge issue-900 "$(( $(date +%s) + 600 ))")
+[ -f "$cl_conf_claim" ] || { printf 'claim-conflict-held-mut: the planted claim file is gone\n' >&2; proc_rc=99; }
+proc_run claim-conflict-held-mut-1
+proc_claim_control_merge() { # <mutated>
+	[ "$1" = 1 ] || {
+		printf '            the conflict-path mutant did not land; this journal is shipped code.\n' >&2
+		return 1
+	}
+	grep -q 'TREE-HELD pr:900' "$proc_journal" || {
+		printf '            the mutant box never read the claim -- the shipped refusal cannot be\n' >&2
+		printf '            what the leg above acted on.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	grep -q 'CONFLICT-UNRESOLVED pr:900' "$proc_journal" || {
+		printf '            with the refusal stood down the merge still did not run: the fixture\n' >&2
+		printf '            never conflicted, and the leg above proved nothing about a writer.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	grep -q 'conflict:900' "$proc_ticks" && {
+		printf '            a conflict session ran in a tree the planted claim still holds;\n' >&2
+		printf '            the tick-path refusal below is what should have stopped it.\n' >&2
+		return 1
+	}
+	# The queued tick meets the SAME claim at its own activation: the inline refusal defers the
+	# merge, and the dispatch guard refuses the session too -- refusal at one site must not be
+	# the only thing standing between a held tree and a model run. `return 5` stood the tick
+	# refusal down above, so this box shows all three layers the shipped pass keeps.
+	grep -q 'TREE-HELD conflict:900' "$proc_journal" || {
+		printf '            the queued conflict tick never met the claim at its activation;\n' >&2
+		printf '            the inline refusal was the only guard, which is one site from the\n' >&2
+		printf '            same bug. Journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	grep -q 'NOT-STARTED conflict:900' "$proc_journal" || {
+		printf '            the conflict tick was dispatched into the held tree anyway.\n' >&2
+		sed 's/^/              /' "$proc_journal" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: without the return 2 the box merges, declares the conflict, queues the tick — and the claim refuses the tick too' \
+	'CONFLICT-UNRESOLVED, then TREE-HELD and NOT-STARTED for conflict:900, and no session, in the mutant box'"'"'s journal' \
+	proc_claim_control_merge "$proc_claim_mut"
+
+# The shared queue payload the conflict boxes rewrote: put it back the way the kill family does,
+# so no box behind this section inherits a CONFLICTING pull request that does not exist for it.
+# The private bare died with its clone; the shared `$proc_up` never saw the divergence.
+printf '[]\n' >"$proc_fix/pr-open.json"
+
 # #334 -- the footprint line. Nothing bounds `factory/log/` (20 MB across 100 files at filing, 35 MB
 # across 171 three days later, oldest file still the harness's first day), and `--status` printed the
 # journal's path and nothing about its size. The retention decision is escalated (`H-0188`) -- deleting
@@ -27937,6 +28535,112 @@ proc_leg 'the RERUN flag is the guard: without it the stop forges died=EXIT' \
 
 proc_extra_env=()
 printf '[]\n' >"$proc_fix/pr-open.json"
+
+# H-0341 -- the two ceilings the claim sweep actually stands on, pinned as arithmetic.
+# `H-0340`'s Effect said the installer's `RuntimeMaxSec` arithmetic "now reads the slack".
+# There is no `RuntimeMaxSec` anywhere in the installer or the live unit -- `git log -S`
+# names only prose -- and the comment's premise was a prose name for the kill a tick
+# takes, which is `timeout(1)`: FACTORY_TICK_TIMEOUT to TERM, FACTORY_TICK_KILL_AFTER to
+# SIGKILL. Above that sits the real cgroup belt, TimeoutStartSec = FACTORY_BUDGET + 60,
+# measured on the live unit at 5460 s while the session ceiling is 2760 s + 60 s grace.
+# A reader sweeps an expired claim on the promise that nobody can still be writing;
+# promise (a): the deadline T+L must not expire before the kill window T+KA closes
+# (L >= KA), or the sweep declares the tree free over a tick systemd is still trying to
+# stop. Promise (b): the belt must not fire before the session's own worst death
+# (start >= T + KA), or the cgroup lands inside the claim's held window with a teardown
+# the deadline has already licensed away. Both read shipped defaults, never a literal:
+# each control plants one knob and must turn exactly its leg.
+
+knob_default() { # <common.sh path> <NAME> -> the default written inside `${NAME:-NNN}`
+	sed -n "s/^$2=[^0-9]*\([0-9][0-9]*\)}.*/\1/p" "$1" | head -n 1
+}
+
+claim_slack_covers_kill_grace() { # <common.sh path> -> the sweep cannot precede the SIGKILL
+	local c=$1 slack grace
+	slack=$(knob_default "$c" FACTORY_CLAIM_SLACK)
+	grace=$(knob_default "$c" FACTORY_TICK_KILL_AFTER)
+	if ! { is_a_number "$slack" && is_a_number "$grace"; }; then
+		printf '            FACTORY_CLAIM_SLACK=%s or FACTORY_TICK_KILL_AFTER=%s is not a number\n' \
+			"${slack:-<absent>}" "${grace:-<absent>}" >&2
+		printf '            read out of %s, so the expiry arithmetic has no subject. A leg\n' "$c" >&2
+		printf '            whose knob cannot be read has stopped looking.\n' >&2
+		return 2
+	fi
+	if [ "$slack" -ge "$grace" ]; then
+		return 0
+	fi
+	printf '            slack %s s is shorter than the kill grace %s s: a claim would expire\n' \
+		"$slack" "$grace" >&2
+	printf '            while a TERM-immune tick is still between TERM and SIGKILL, and the\n' >&2
+	printf '            sweep would declare the tree free over a live writer -- #421 from\n' >&2
+	printf '            the other side. The sweep is licensed by the deadline only when the\n' >&2
+	printf '            deadline outlasts every way the writer can still be alive.\n' >&2
+	return 1
+}
+
+claim_belt_clears_tick_ceiling() { # <common.sh path> <rendered service unit> -> the belt is behind the session's worst death
+	local c=$1 svc=$2 start tick grace
+	start=$(deadline_value "$svc" TimeoutStartSec)
+	tick=$(knob_default "$c" FACTORY_TICK_TIMEOUT)
+	grace=$(knob_default "$c" FACTORY_TICK_KILL_AFTER)
+	if ! { is_a_number "$start" && is_a_number "$tick" && is_a_number "$grace"; }; then
+		printf '            TimeoutStartSec=%s, FACTORY_TICK_TIMEOUT=%s or FACTORY_TICK_KILL_AFTER=%s\n' \
+			"${start:-<absent>}" "${tick:-<absent>}" "${grace:-<absent>}" >&2
+		printf '            is not a number, so there is no arithmetic to compare.\n' >&2
+		return 2
+	fi
+	if [ "$start" -ge $((tick + grace)) ]; then
+		return 0
+	fi
+	printf '            the cgroup belt TimeoutStartSec=%s fires before the tick can die\n' "$start" >&2
+	printf '            its own way (timeout %s s + grace %s s = %s s): systemd would SIGKILL\n' \
+		"$tick" "$grace" "$((tick + grace))" >&2
+	printf '            the whole pass while its minted claims still read held, holding\n' >&2
+	printf '            trees nobody is working -- the inverse failure, but the queue still\n' >&2
+	printf '            loses a pass behind files the next reader must wait out.\n' >&2
+	return 1
+}
+
+# A control passes by refusing, so the wrapper inverts the predicate exactly the way the
+# generator family's `gen_control` does, and pins the refusal to rc 1: rc 2 is "no subject",
+# which would pass this control on a broken plant.
+claim_control_refused() { # <predicate> <args...>
+	local rc=0
+	"$@" >/dev/null 2>&1 || rc=$?
+	if [ "$rc" = 1 ]; then
+		return 0
+	fi
+	printf '            the control %s the planted state instead of refusing it (rc %s).\n' \
+		"$([ "$rc" = 0 ] && printf 'accepted' || printf 'declined to judge')" "$rc" >&2
+	return 1
+}
+
+claim_mut_common=$work/claim-knob-mut
+mkdir -p -- "$claim_mut_common"
+cp -- "$HERE/common.sh" "$claim_mut_common/common.sh"
+sed 's/^FACTORY_CLAIM_SLACK=[$]{FACTORY_CLAIM_SLACK:-60}/FACTORY_CLAIM_SLACK=${FACTORY_CLAIM_SLACK:-30}/' \
+	"$HERE/common.sh" >"$claim_mut_common/common.sh.planted" &&
+	mv -- "$claim_mut_common/common.sh.planted" "$claim_mut_common/common.sh"
+
+claim_leg 'the claim slack outlasts the tick kill grace' \
+	claim_slack_covers_kill_grace "$HERE/common.sh"
+claim_leg 'control: slack 30 under grace 60 sweeps over a live tick' \
+	claim_control_refused claim_slack_covers_kill_grace "$claim_mut_common/common.sh"
+
+# The belt legs need a rendered unit, so the generator fixture is re-armed here rather than
+# borrowing the earlier section's `$gen_svc`: which render a leg read must be readable in the
+# leg, not reconstructed from run order (H-0069's quiet-SKIP lesson).
+gen_setup "$gen_root" 1 || true
+gen_tree=$gen_root
+gen_dry_run "$HERE/install-timer.sh" || true
+gen_split
+claim_leg 'the cgroup belt fires only after the tick can die' \
+	claim_belt_clears_tick_ceiling "$HERE/common.sh" "$gen_svc"
+claim_belt_mut=$(gen_planted "$work/claim-belt-mut" 's/^STOP=.*$/STOP=$((FACTORY_BUDGET - 3600))/')
+gen_dry_run "$claim_belt_mut" || true
+gen_split
+claim_leg 'control: a belt rendered 3600s below the budget is refused' \
+	claim_control_refused claim_belt_clears_tick_ceiling "$HERE/common.sh" "$gen_svc"
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
