@@ -27292,6 +27292,340 @@ proc_leg 'the death line is the traps: without them the same TERM leaves no END'
 	'rc 143, no END at all, no died=, journal ends mid-work on the ACTION line' \
 	proc_death_ctl_noreg "$proc_journal" "$proc_death_ctl_rc"
 
+# Both shipped legs above die by TERM, so neither ever reaches the PLANNED END -- which left the
+# disarm pair that precedes it (`factory_disarmed=1` and `trap - EXIT TERM INT HUP`) pinned by
+# nothing. Measured 20 Nov in review of #485, and re-measured by the control below: removing BOTH
+# guards -- the shape of someone deleting the two-line disarm as redundant -- kept every leg above
+# and the full suite green, while the journal of every CLEAN activation gained a second END reading
+# `died=EXIT`: a killed-pass-shaped death line stamped over the pass's own verdict. A clean pass
+# that forges its death is the lie this contract exists to forbid -- the token says a death never
+# reads as a verdict, and here a verdict wears the death -- and the shipped control cannot see it,
+# because removing the REGISTRATIONS and asserting NO END measures the easy direction. So this leg
+# reads the clean journal, and its control runs the forgery. The two guards are individually
+# redundant against this mutant (either one alone keeps the clean box clean) and individually
+# load-bearing in different windows: the flag answers the EXIT walk, `trap -` also silences a
+# TERM that lands between the disarm and the exit. Both lines, always; pinned by the pair-control.
+
+proc_death_leg_clean() { # <journal> <rc> <planted> -> one verdict-shaped END, no death, last word
+	local j=$1 rc=$2 planted=$3 n last
+	[ "$planted" = 1 ] || {
+		printf '            the clean box was never planted, so this leg ran against some other\n' >&2
+		printf '            box'"'"'s journal.\n' >&2
+		return 1
+	}
+	# The fixture's preconditions, before any assertion: the box must have journalled the bounded
+	# push AND the arm's deferral AND dispatched the units behind it. A box that ended early
+	# measures an early exit, not the disarm.
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the pass never journalled the bounded push, so this box did not\n' >&2
+		printf '            run the conflict arm at all. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900')" ] || {
+		printf '            the conflict arm never reached its deferral, so the pass did not\n' >&2
+		printf '            reach the planned END from a finished arm. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'TICK-START' "$j" || {
+		printf '            no tick started, so the pass never reached its dispatch loop --\n' >&2
+		printf '            this is not a pass that ran to its own END. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 0 ] || {
+		printf '            the clean pass exited %s, not 0.\n' "$rc" >&2
+		return 1
+	}
+	n=$(grep -c 'END rc=' "$j" || true)
+	[ "$n" = 1 ] || {
+		printf '            the journal carries %s END lines -- a forged `died=EXIT` after the\n' "$n" >&2
+		printf '            planned END is exactly the shape both disarm guards prevent, and\n' >&2
+		printf '            nothing else may write a second one. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	last=$(tail -n 1 "$j")
+	printf '%s\n' "$last" | grep -q 'END rc=0 ticks_started=2$' || {
+		printf '            the single END does not read `END rc=0 ticks_started=2` -- the units\n' >&2
+		printf '            behind the deferred conflict still get their turns, and the planned\n' >&2
+		printf '            line is what a verdict looks like: %s\n' "$last" >&2
+		return 1
+	}
+	printf '%s\n' "$last" | grep -q ' died=' && {
+		printf '            the END wears died= -- a verdict that reads as a death.\n' >&2
+		return 1
+	}
+	n=$(grep -c ' died=' "$j" || true)
+	[ "$n" = 0 ] || {
+		printf '            a died= line exists somewhere in a pass that was never killed (%s of them).\n' "$n" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	return 0
+}
+
+# The control IS the forgery the review planted: both guards out of the shipped script and nothing
+# else. It asserts the plant landed (one `factory_disarmed=1` left standing -- the SUPERVISOR-RERUN
+# stop's -- and no `trap - EXIT TERM INT HUP` at all), so a mutant whose pattern slid off the code
+# cannot read as a pass, and then journals the forged line the shipped guards are the only thing
+# preventing.
+proc_mutate_disarm_pair() { # -> the planned END's both guards out of $proc_dir/factory.sh
+	local keep=0
+	awk '
+		{
+			if (prev_flag && $0 == "\ttrap - EXIT TERM INT HUP") { prev = ""; prev_flag = 0; next }
+			if (prev != "") print prev
+			prev = $0
+			prev_flag = ($0 == "\tfactory_disarmed=1")
+		}
+		END { if (prev != "") print prev }' "$proc_dir/factory.sh" \
+		>"$proc_work/disarm-mut" || return 1
+	grep -q 'trap - EXIT TERM INT HUP' "$proc_work/disarm-mut" && {
+		printf '            the plant removed no `trap -`: the shipped pair slid off the pattern.\n' >&2
+		return 1
+	}
+	keep=$(grep -c '^[[:space:]]*factory_disarmed=1$' "$proc_work/disarm-mut" || true)
+	[ "$keep" = 1 ] || {
+		printf '            the plant left %s disarm flags; one (the RERUN stop) must stand,\n' "$keep" >&2
+		printf '            so this is not the both-guards mutant as described.\n' >&2
+		return 1
+	}
+	mv "$proc_work/disarm-mut" "$proc_dir/factory.sh"
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-clean.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-clean.git")
+proc_kill=''
+proc_death_box clean && proc_death_clean_planted=1 || proc_death_clean_planted=0
+proc_run death-clean-1
+proc_leg 'a clean pass writes one verdict-shaped END and no death' \
+	'one END rc=0 ticks_started=2, no died= anywhere, END is the journal last word, rc 0' \
+	proc_death_leg_clean "$proc_journal" "$proc_rc" "$proc_death_clean_planted"
+
+proc_death_box forged && proc_death_forged_planted=1 || proc_death_forged_planted=0
+proc_mutate_disarm_pair && proc_death_forged_mutated=1 || proc_death_forged_mutated=0
+proc_run death-forged-1
+proc_death_leg_forged() { # <journal> <rc> <planted> <mutated> -> both guards gone: a clean pass journals TWO ENDs
+	local j=$1 rc=$2 planted=$3 mutated=$4 line
+	{ [ "$planted" = 1 ] && [ "$mutated" = 1 ]; } || {
+		printf '            the forged box did not plant (%s) or the disarm-pair mutant did not\n' "$planted" >&2
+		printf '            land (%s), so this journal is not the forgery of the disarm pair.\n' "$mutated" >&2
+		return 1
+	}
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the mutant box never reached the push either -- not the same death\n' >&2
+		printf '            this family measures.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 2 ] || {
+		printf '            the both-guards mutant journaled %s END line(s), not the two the\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            forgery is made of -- one verdict, one death stamped over it. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	# The shipped guards, if any were left standing, must not be what keeps this box clean:
+	# the second END is the mutant's own line, `died=EXIT`, last in the journal, rc unchanged.
+	line=$(tail -n 1 "$j")
+	printf '%s\n' "$line" | grep -q 'END rc=0 ticks_started=0 died=EXIT inside=unclaimed:' || {
+		printf '            the forged last line is not `END rc=0 ticks_started=0 died=EXIT\n' >&2
+		printf '            inside=unclaimed:<n>` -- started is out of scope at the script exit,\n' >&2
+		printf '            and the last unit row is what `inside=` still names: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 0 ] || {
+		printf '            the forging pass exited %s, not 0 -- the forgery exits CLEAN, which\n' "$rc" >&2
+		printf '            is what makes it invisible to a reader of the exit code alone.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the disarm pair is the guard: both gone, a clean pass forges died=EXIT' \
+	'two ENDs, the last `died=EXIT inside=unclaimed:<n>`, exit still 0 -- the review mutant, journalled' \
+	proc_death_leg_forged "$proc_journal" "$proc_rc" "$proc_death_forged_planted" "$proc_death_forged_mutated"
+
+# ---------------- the deliberate stops stand the trap down first (#419, H-0333/H-0335)
+#
+# `SUPERVISOR-RERUN` is the other deliberate stop, and until #485's review no leg of this file had
+# ever run that exit path -- armed or disarmed -- while its comment claimed exit 8 and a shape
+# "its legs pin". Both were false: the stop exits `FACTORY_EXIT_RERUN`, which is 9
+# (`factory/common.sh:428`), and nothing pinned it. The box below drives the real arm: a private
+# bare as origin, the trunk advanced by one descendant commit so the installed tree is exactly
+# one fast-forward behind, and a unit file naming the clone as the tree the timer execs -- the
+# position `factory_supervisor_repair` fast-forwards and must stop at.
+
+proc_rerun_box() { # <name> -> the installed tree planted exactly one fast-forward behind trunk
+	local name=$1 adv
+	proc_new "rerun-$name" || return 1
+	local up=$proc_work/rerunup-$name.git
+	mkdir -p "$proc_work/units-$name"
+	# The bare-token ExecStart is the only shape `factory_installed_tree` answers 0 for, and the
+	# unit NAME travels by env because a fixture must not guess what the generator would name it.
+	# The unit must name THIS clone: a unit execing another checkout is `UNIT-DIVERGED` (#260)
+	# and the repair arm returns before its verdict -- the forged box therefore hides its mutant
+	# from `git status` instead of pointing the unit elsewhere.
+	printf '[Unit]\nDescription=fixture supervisor\n\n[Service]\nExecStart=%s/factory/factory.sh\n' \
+		"$proc_repo" >"$proc_work/units-$name/proc-rerun-factory.service" || return 1
+	git init -q --bare "$up" &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" remote set-url origin "$up" || return 1
+	# The trunk moves ahead by a plain descendant commit -- never a rewrite: the arm refuses any
+	# tree that is not a pure descendant, and this box is testing the arm that says YES.
+	adv=$proc_work/rerunadv-$name
+	git clone -q "$proc_repo" "$adv" &&
+		git -C "$adv" config user.email fixture@invalid &&
+		git -C "$adv" config user.name fixture &&
+		printf 'the commit the installed tree is behind\n' >"$adv/behind.txt" &&
+		git -C "$adv" add -A &&
+		git -C "$adv" commit -qm 'fixture: the trunk commit the installed tree has not seen' &&
+		git -C "$adv" push -q "$up" main || return 1
+	# The advancing commit touches `behind.txt` and NOTHING else on purpose: `factory.sh` holds
+	# the same blob before and after it, so the fast-forward the arm performs never rewrites that
+	# file out from under the forged box's hidden mutant (see `proc_mutate_rerun_flag`).
+	# The arm stops before any dispatch, but an empty queue is also the honest stand-in for
+	# "nothing had been read yet" -- the line promises `no triage, no id, no tick`.
+	printf '[]\n' >"$proc_fix/pr-open.json"
+}
+
+proc_rerun_leg_stops() { # <journal> <rc> <planted> -> the RERUN stop is the last word, writes no END
+	local j=$1 rc=$2 planted=$3 line
+	[ "$planted" = 1 ] || {
+		printf '            the rerun box was never planted, so this leg ran against some other\n' >&2
+		printf '            box'"'"'s journal.\n' >&2
+		return 1
+	}
+	# Fixture first: the fast-forward must have RUN -- behind=1 answered, the tree moved, the
+	# sentence names the exit code the stop takes. Without this line the box refused somewhere
+	# upstream and every assertion below measures a refusal, not the stop.
+	line=$(proc_journal_line "$j" 'SUPERVISOR-FF ') || true
+	printf '%s\n' "$line" | grep -q 'stops here with exit 9' || {
+		printf '            no SUPERVISOR-FF naming exit 9 -- the repair never fast-forwarded\n' >&2
+		printf '            this tree, so the box did not reach the stop. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'SUPERVISOR-RERUN the pass stops here with exit 9')" ] || {
+		printf '            the stop line is absent, or names a different exit than the 9 the\n' >&2
+		printf '            repair promised above it. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$j")" != "$(proc_journal_line "$j" 'SUPERVISOR-RERUN')" ] && {
+		printf '            the SUPERVISOR-RERUN line is not the journal last word -- whatever\n' >&2
+		printf '            wrote after it wrote after a DELIBERATE stop.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 0 ] || {
+		printf '            the stopped pass wrote an END at all (%s): a deliberate stop is not\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            a death, and the disarm before the stop line is what keeps it that\n' >&2
+		printf '            way. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q ' died=' "$j" && {
+		printf '            a died= line follows a stop that was armed to stand down first.\n' >&2
+		return 1
+	}
+	[ "$rc" = 9 ] || {
+		printf '            the rerun stop exited %s, not 9 (FACTORY_EXIT_RERUN) -- the unit file\n' "$rc" >&2
+		printf '            SuccessExitStatus= list and this exit must agree.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'TICK-START')" ] || {
+		printf '            a tick started after the pass said it moved the tree; the window\n' >&2
+		printf '            that makes the move safe closes at the first dispatch.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_mutate_rerun_flag() { # -> the RERUN stop's disarm flag out of $proc_dir/factory.sh
+	local keep=0
+	# The RERUN stop sits inside its `if`, two tabs deep; the planned END pair sits at the
+	# function tab. The mutant names the deeper one so the planned guard cannot be what it removes.
+	awk '
+		{
+			if (prev_flag && index($0, "SUPERVISOR-RERUN") > 0) {
+				prev = ""; prev_flag = 0; print; next
+			}
+			if (prev != "") print prev
+			prev = $0
+			prev_flag = ($0 == "\t\tfactory_disarmed=1")
+		}
+		END { if (prev != "") print prev }' "$proc_dir/factory.sh" \
+		>"$proc_work/rerun-mut" || return 1
+	grep -qF 'log_event "SUPERVISOR-RERUN' "$proc_work/rerun-mut" || {
+		printf '            the plant removed the stop line with the flag; the mutant may only\n' >&2
+		printf '            stand the guard down, never the sentence it guards.\n' >&2
+		return 1
+	}
+	keep=$(grep -c '^[[:space:]]*factory_disarmed=1$' "$proc_work/rerun-mut" || true)
+	[ "$keep" = 1 ] || {
+		printf '            the plant left %s disarm flags; exactly the planned-END one must\n' "$keep" >&2
+		printf '            stand, so this is not the RERUN-guard mutant as described.\n' >&2
+		return 1
+	}
+	# The installed tree IS the running tree (#260), so the mutant must hide from the repair
+	# arm's dirty check: assume-unchanged is the only way to stand this guard down in the very
+	# tree the arm inspects, and the behind commit never touches this file, so the fast-forward
+	# the arm performs cannot rewrite it out from under the running bash.
+	git -C "$proc_repo" update-index --assume-unchanged factory/factory.sh || return 1
+	mv "$proc_work/rerun-mut" "$proc_dir/factory.sh"
+}
+
+proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-stop" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_kill=''
+proc_rerun_box stop && proc_rerun_stop_planted=1 || proc_rerun_stop_planted=0
+proc_run death-rerun-stop-1
+proc_leg 'SUPERVISOR-RERUN stops with no END: the stop line is the last word' \
+	'FF line naming exit 9, RERUN line last, no END rc= at all, no died=, rc 9, no tick' \
+	proc_rerun_leg_stops "$proc_journal" "$proc_rc" "$proc_rerun_stop_planted"
+
+proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-forged" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_rerun_box forged && proc_rerun_forged_planted=1 || proc_rerun_forged_planted=0
+proc_mutate_rerun_flag && proc_rerun_forged_mutated=1 || proc_rerun_forged_mutated=0
+proc_run death-rerun-forged-1
+proc_rerun_leg_forged() { # <journal> <rc> <planted> <mutated> -> without the flag the stop forges died=EXIT rc=9
+	local j=$1 rc=$2 planted=$3 mutated=$4 line
+	{ [ "$planted" = 1 ] && [ "$mutated" = 1 ]; } || {
+		printf '            the forged rerun box did not plant (%s) or the guard mutant did not\n' "$planted" >&2
+		printf '            land (%s), so this journal is not the forgery of the RERUN guard.\n' "$mutated" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'SUPERVISOR-FF ') || true
+	printf '%s\n' "$line" | grep -q 'stops here with exit 9' || {
+		printf '            the mutant box never fast-forwarded either -- not the same stop.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j" || true)" = 1 ] || {
+		printf '            the flagless stop journaled %s END line(s), not the one death line\n' "$(grep -c 'END rc=' "$j" || true)" >&2
+		printf '            the forgery is made of. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(tail -n 1 "$j")
+	printf '%s\n' "$line" | grep -q 'END rc=9 ticks_started=0 died=EXIT inside=the refs read' || {
+		printf '            the forged last line is not `END rc=9 ... died=EXIT inside=the refs\n' >&2
+		printf '            read` -- the unit loop never ran, so this is the refs-read identity\n' >&2
+		printf '            wearing a death sentence: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 9 ] || {
+		printf '            the forging stop exited %s, not 9 -- same lie as the clean forgery:\n' "$rc" >&2
+		printf '            the exit code stays right while the journal gains a death.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the RERUN flag is the guard: without it the stop forges died=EXIT' \
+	'one END, `rc=9 died=EXIT inside=the refs read`, last line, exit still 9' \
+	proc_rerun_leg_forged "$proc_journal" "$proc_rc" "$proc_rerun_forged_planted" "$proc_rerun_forged_mutated"
+
 proc_extra_env=()
 printf '[]\n' >"$proc_fix/pr-open.json"
 

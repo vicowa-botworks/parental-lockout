@@ -2021,7 +2021,7 @@ factory_body() {
 	[ -n "$sup_repair" ] && log_event "$sup_repair"
 	if [ "$sup_repair_rc" -ne 0 ]; then
 		# A deliberate stop, journalled by the line below -- stand the death trap down BEFORE it,
-		# so exit 8 keeps the shape its legs pin (H-0333).
+		# so exit ${FACTORY_EXIT_RERUN} (9) keeps the shape its legs pin (H-0333, H-0335).
 		factory_disarmed=1
 		log_event "SUPERVISOR-RERUN the pass stops here with exit ${sup_repair_rc}: no triage, no id, no tick; the line above says what moved and the next activation runs it"
 		exit "$sup_repair_rc"

@@ -17173,8 +17173,14 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   read as a death. Both measured bash semantics are load-bearing and pinned by legs, not prose:
   the TERM arm exits by hand because execution would otherwise continue after the handler
   (`factory/selftest.sh:27228` "a pass TERMed at its own push writes its own death sentence"),
-  and the disarm precedes the planned END because the mutant that keeps only EXIT forges
-  `END rc=0 died=EXIT` (`factory/selftest.sh:27291` "the death line is the traps"). Two silences no trap outruns are stated in the function instead
+  and the disarm precedes the planned END because removing both guards forges a `died=EXIT` line
+  over a clean pass -- pinned since `H-0335` by two legs:
+  `factory/selftest.sh:27402` "a clean pass writes one verdict-shaped END and no death" fails
+  when that forgery appears, and
+  `factory/selftest.sh:27445` "the disarm pair is the guard" journalled the forgery itself.
+  The ctl-noreg control `factory/selftest.sh:27291` "the death line is the traps" measures the
+  half-armed registration, not this ordering. Two silences no trap outruns are stated in the
+  function instead
   of hidden: SIGKILL, and a stop inside a child that ignores TERM until the cgroup escalates —
   which is why the bounds of `H-0330` and `H-0332` are the precondition that makes the handler
   reachable at all.
@@ -17182,3 +17188,65 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   the queue ever shows a death with no `died=` row, that is the cgroup escalation outrunning the
   traps, and the next shape to reach for is (c)'s sentinel beside this one, not instead of it.
 - Checkpoint: ca9444d3609f0cac28c72e6cc1df59118db6ebf1
+
+## H-0335 · The review planted a mutant in the guards H-0333 called load-bearing and the suite stayed green while a killed-pass `died=EXIT` END was stamped over a clean activation: restate H-0333's "pinned by the control" honestly, or grow legs that die under the mutant?
+
+- Question: H-0333 and the pull-request body both say the disarm-before-the-planned-END ordering
+  is "load-bearing and pinned by the control, not by prose". It is load-bearing; the control did
+  not pin it. Measured at `2ed83b29` by the review and re-measured here: a mutant that removes
+  both guards at the planned END (`factory_disarmed=1` and `trap - EXIT TERM INT HUP`) passes all
+  five shipped legs and the whole suite, while a clean conflict pass journals a second
+  `END rc=0 … died=EXIT inside=unclaimed:901 after=0s` under its verdict;
+  `grep -rn SUPERVISOR-RERUN factory/selftest.sh` was empty, so that stop path had never run in a
+  leg, armed or not; and three places of prose printed exit 8 while the stop exits
+  `FACTORY_EXIT_RERUN`, which is `factory/common.sh:428` "FACTORY_EXIT_RERUN=9". The shipped
+  control removes both registrations and asserts the ABSENCE of any END -- the easy direction,
+  never the forgery. What makes the claim true?
+- Options: (a) restate the prose -- amend H-0333 and the body to say what is actually measured --
+  cheap and honest, but the invariant keeps no machine answer, and the next editor who deletes
+  one guard learns it only from a forged line on a future clean activation, the incident class
+  H-0333 exists to narrate | (b) pin the invariant with four legs: a clean conflict pass
+  asserting exactly one `END rc=` and no `died=` anywhere (it dies on the review's both-guards
+  mutant), the same forgery journalled to prove the mutant lives so the invariant leg cannot pass
+  vacuously, a `SUPERVISOR-RERUN` box asserting the stop line is the journal's last word -- exit
+  9, no `END rc=`, no `died=`, no tick -- and a RERUN-flag forgery pinning that flag as the guard
+  | (c) a general mutation harness in the suite, so every prose claim gets a planted mutant --
+  the repo has no mutant runner, and one claim is not the branch that invents one.
+- Chose: (b) pin the invariant with four legs: a clean conflict pass asserting exactly one
+  `END rc=` and no `died=` anywhere (it dies on the review's both-guards mutant), the same
+  forgery journalled to prove the mutant lives so the invariant leg cannot pass vacuously, a
+  `SUPERVISOR-RERUN` box asserting the stop line is the journal's last word -- exit 9, no
+  `END rc=`, no `died=`, no tick -- and a RERUN-flag forgery pinning that flag as the guard
+- Why: the review's rejection was a claim without a leg; restating the prose (a) keeps the merge
+  honest and the invariant still unowned, and (a) is also the direction a tired unit takes --
+  which is exactly why prose needed replacing here, not polishing. The four mutants that survive
+  (remove the flag alone, remove `trap -` alone, move the flag below the END line, remove the
+  RERUN stop's flag while its trap stays armed) are inside the invariant's boundary, not holes in
+  it: the two guards are individually redundant, and the legs pin the PAIR and the observable --
+  one END, no `died=`, the stop line last -- never a single line. The code says so now, in the
+  leg's failure text. (c) lost on scope: one plant for one claim, not a framework. The exit-code
+  correction rides with the legs because the review named it in the same sentence: the
+  `factory/factory.sh` RERUN-stop comment now prints the constant, not 8, and the leg H-0333
+  claimed existed finally exists: `factory/selftest.sh:27583` "SUPERVISOR-RERUN stops with no END"
+  pins rc 9, and `factory/selftest.sh:27625` "the RERUN flag is the guard" kills the mutant that
+  stands that stop's guard down.
+- Effect: `factory/selftest.sh` gains one leg family after the ctl-noreg leg -- two boxes, two
+  mutant plants, four `proc_leg` legs on the same proc driver the shipped legs use: the invariant
+  `factory/selftest.sh:27402` "a clean pass writes one verdict-shaped END and no death" and its
+  `factory/selftest.sh:27445` "the disarm pair is the guard" journalling the forgery, and the
+  stop-path pair named in `Why` above; `factory/factory.sh` changes only inside the RERUN-stop
+  comment; this log gains this entry and
+  H-0333's self-citation for the disarm ordering is re-aimed at the new pair in the same commit.
+  Two fixture constraints came out of measurement and stand in the helpers' comments: the unit
+  must exec the SAME checkout the pass runs from -- a unit execing another tree answers
+  `UNIT-DIVERGED` before the repair verdict (#260) -- and the RERUN mutant must hide from
+  `SUPERVISOR-AT dirty=` behind `git update-index --assume-unchanged`, because a dirty installed
+  tree is `SUPERVISOR-FF-REFUSED`, not a fast-forward; the behind-commit therefore touches only
+  `behind.txt`, so the fast-forward cannot rewrite the file bash is running. The suite tally and
+  `make verify`'s exit are quoted in the pull-request body from the run that ships these exact
+  bytes (#1180). Rollback: `git revert` this commit -- the four legs go and no production line
+  moves, the factory.sh change being a comment.
+- Follow-up: the 124-vs-137 branch of `push_why` still has no leg (the fixture's ssh answers
+  TERM -- the review's non-blocking note, a forensics gap only), and `died=EXIT` remains the
+  shared token for internal aborts (`set -u`, a failed redirection), as H-0333 discloses.
+- Checkpoint: bc9dab8906a8df7a9558d6ce31c58500554913a1
