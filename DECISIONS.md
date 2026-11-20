@@ -5581,3 +5581,71 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   What that slip cost is the design note: a control's anchor must not be counted in the file that
   carries the control.
 - Checkpoint: 7a789ec
+
+## D-0092 · #399: the last hand-rolled serve site ran its daemon outside every seam, and the guard on its startup line could not miss — route it through `startServe` with the helper returning the opened config path, retire the variadic that never accepted an argument, judge the announcement line by line, and reject an inline start in a source-scanning leg
+
+- Question: `TestServeAnnouncesItsStart` started its daemon with a hand-rolled
+  `go func() { code <- runServeContext(...) }()`, the last serve site in the file that
+  did. #399 measured three facts at its filing and this unit re-measured all three on
+  the checkpoint tree: the seam read while that daemon was live is `(production)` and
+  `liveServeDaemons` reads 0 live and 0 after stop, so the site is invisible to the
+  `TestMain` exit read that nets every other serve overrun, and its timeout arm names
+  neither the seam nor the left-behind daemon. This unit added the measurement the
+  ticket did not have: the same inline body run under a `PATH` whose `loginctl` is a
+  logging shim recorded four real `loginctl` executions (`--no-ask-password
+  list-sessions --json=short` and `show-session`, twice each — the startup probe and
+  one tick) from a single test run, and the same config started through `startServe`
+  under that same `PATH` recorded zero with the stub answering instead. That also
+  falsifies the ticket's own frame that the path is "the session enumeration path
+  rather than a lock, which bounds it": `lockBackends: ["logind"]` is exactly a lock
+  backend, and `list-sessions` is its first call. A second, independent defect showed
+  up while repairing: the site's whole-buffer assertion on the config path can never
+  fail for the reason it claims, because the engine prints its own
+  `enforce: running, every %v, config %s` line at the same path a beat after the
+  announcement — measured with a product mutant that deleted the path from the
+  announcement itself while the test held its original shape: green. So: which way
+  does the site start its daemon, and what guards the class?
+- Options: keep the site inline and hand-copy the helper's three things — the runner seam, the count, and the arm that names the seam | route the site through `startServe` and change nothing else | route the site through `startServe`, have the helper return the config path it passed, leave the unused `extra ...string` parameter exactly where it is, and keep the whole-buffer path assertion | route the site through `startServe` with the helper returning the opened config path, retire the variadic that never accepted an argument, judge the startup announcement as the one line it is rather than as the growing buffer, and add a leg that rejects a `runServeContext` call outside `startServe` whose exit code is not consumed on its own line
+- Chose: route the site through `startServe` with the helper returning the opened
+  config path, retire the variadic that never accepted an argument, judge the startup
+  announcement as the one line it is rather than as the growing buffer, and add a leg
+  that rejects a `runServeContext` call outside `startServe` whose exit code is not
+  consumed on its own line
+- Why: the first pass of this unit shipped the third option and the mutant battery
+  caught it — a whole-buffer `Contains(cfgPath)` stayed green on the strength of the
+  engine's enforce line, so the second option (and everything short of judging the
+  line) ships an arm that still cannot miss the mistake it names. Four product
+  mutants against the shipped line-wise guard, each verified to have edited the
+  product before the test was run and restored byte-identically after: drop the path
+  from the announcement, red on the path arm; print a literal wrong path, red naming
+  both the expected path and the line; rename the program to `plockd serve`, red on
+  the identity arm; print no `starting, config` phrase at all, red from the wait. The
+  second option alone also cannot carry the path assertion: the test must compare the
+  announcement against the very path the helper passed as `--config`, and a config the
+  test wrote a second time is a second document, not the one under guard. The repair
+  sketch's other road — making the variadic live — is rejected on evidence: the
+  parameter was born dead (`git log --all` finds no commit ever appending it to the
+  args, and the commit that introduced the helper names it once, in the signature),
+  and the file's own convention is that the helper writes the fixture the seam guards
+  stand on — the comment in `TestServeStartsWhenOneBackendIsUsable` says "nothing
+  needs to be passed in" — so a live argument road would contradict that contract
+  while nothing on this branch needs it. The leg is the guard rather than the
+  ticket-suggested assertion that `writeServeConfig` ships `"users": []`: that
+  assertion pins fixture content, and the very commit that adds the hazard edits the
+  fixture anyway; the leg rejects the bypass shape itself, measured both ways — a
+  planted inline site is refused naming its file and line, and the shipped tree
+  passes. Two false positives the leg's first draft earned are on the record because
+  they shaped it: it refused `refuseWithin` and the two usage- and config-refusal
+  probes, which consume the exit code on their own line and cannot leave a daemon (a
+  refusal returns before a daemon exists, and a synchronous non-refusal blocks the
+  test loudly instead of silently outliving it); and it refused its own source line,
+  because a written literal of the call token is a call site to its own scanner — the
+  needle is built by concatenation now. What lost: the variadic's intended-but-never-
+  taken argument road loses, and a future site needing custom arguments must add a
+  parameter that works and measure it rather than inherit one that lies; the
+  fixture-shape guard loses to the shape guard, and the leg pins today's spelling — a
+  bypass that consumes a code into a variable nobody reads would read past it, which
+  the leg's own comment says; and option three loses with its whole-buffer assertion,
+  which the drop-the-path mutant proves was the same unreportable overrun in a second
+  register.
+- Checkpoint: 368ce91
