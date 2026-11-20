@@ -26239,6 +26239,194 @@ else
 	printf '            UTF-8 claims have no locale to be true under; the six content legs above ran\n'
 fi
 
+# A heading the entry parser cannot read is not refused by this gate -- it is never seen. `parse` finds
+# entries with `ENTRY` and every other rule walks the list it returns, so a row that puts an id where a
+# heading belongs, behind a separator `ENTRY` does not accept, carries a record no field check, no
+# checkpoint check and no id check is ever handed. Measured 19 Nov on `main`, taking #393's census: the
+# two logs answered `382 entries` while 383 lines in them begin with a heading and an id, and `make
+# verify` had been green over the extra record for two days. Both halves are planted here, the readable
+# separator first, so the refusal cannot be a fixture the gate never read. Each log keeps one readable
+# entry beside the plant: an empty log refuses on its own rule, `no entry found`, and a refusal that
+# fires with the plant absent would be measuring nothing.
+gate_invisible_heading_plant() { # <separator> <file> <sha> -- append one record whose separator varies
+	printf '\n## H-0003 %s the record with the planted separator\n\n' "$1" >>"$2" || return 1
+	printf '%s\n' '- Question: does the gate count a record it cannot read?' >>"$2" || return 1
+	printf '%s\n' '- Options: the gate counts it | the gate cannot see it' >>"$2" || return 1
+	printf '%s\n' '- Chose: the gate counts it' >>"$2" || return 1
+	printf '%s\n' '- Why: the planted row is the whole subject of this leg.' >>"$2" || return 1
+	printf '%s\n' "- Checkpoint: $3" >>"$2" || return 1
+	return 0
+}
+
+gate_invisible_heading() { # -> 0 when an unreadable heading is refused and the same bytes read are not
+	local repo=$work/planted-heading sha out seed
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" "$repo/factory" || {
+		pos_say "could not create $repo"
+		return 1
+	}
+	cp "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || {
+		pos_say 'the shipped gate could not be copied into the fixture'
+		return 1
+	}
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit the entry can cite' || return 1
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	# The readable neighbour is written once and copied back before each plant, so the two passes below
+	# differ by the one byte this leg is about and by nothing else.
+	seed=$repo/seed-factory.md
+	{
+		printf '# Harness decisions\n\n## H-0002 · the readable neighbour\n\n'
+		printf '%s\n' '- Question: does a readable entry beside the plant keep the other rules quiet?'
+		printf '%s\n' '- Options: it keeps them quiet | it does not'
+		printf '%s\n' '- Chose: it keeps them quiet'
+		printf '%s\n' '- Why: so the refusal this leg asks about can only come from the planted row.'
+		printf '%s\n' "- Checkpoint: $sha"
+	} >"$seed" || return 1
+	{
+		printf '# Product decisions\n\n## D-0001 · the log keeps one readable entry\n\n'
+		printf '%s\n' '- Question: is this the log the gate is reading?'
+		printf '%s\n' '- Options: it is | it is not'
+		printf '%s\n' '- Chose: it is'
+		printf '%s\n' '- Why: an empty log would refuse for a reason that is not the plant.'
+		printf '%s\n' "- Checkpoint: $sha"
+	} >"$repo/DECISIONS.md" || return 1
+	cp -- "$seed" "$repo/factory/DECISIONS.md" || return 1
+	gate_invisible_heading_plant '·' "$repo/factory/DECISIONS.md" "$sha" || {
+		pos_say 'the fixture could not be written'
+		return 1
+	}
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the readable-separator plant is refused BEFORE the unreadable one is planted, so the'
+		pos_say 'refusal below would prove nothing. That entry has to pass every other rule for this'
+		pos_say 'leg to be a test of one byte:'
+		pos_say "$out"
+		return 1
+	fi
+	cp -- "$seed" "$repo/factory/DECISIONS.md" || return 1
+	gate_invisible_heading_plant '—' "$repo/factory/DECISIONS.md" "$sha" || {
+		pos_say 'the fixture could not be rewritten'
+		return 1
+	}
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'a heading whose separator the entry parser does not accept was accepted, so the'
+		pos_say 'record under it stays invisible to every rule that walks the parsed list -- which is'
+		pos_say 'the state the census found sitting on trunk:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'H-0003' || {
+		pos_say 'the gate refused, but not for the planted heading, so this leg would pass for any'
+		pos_say 'reason at all. What it said:'
+		pos_say "$out"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'cannot read' || {
+		pos_say 'the gate refused the planted heading for something other than the unreadable row;'
+		pos_say 'the refusal a unit has to act on names the parser that could not read it:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+gen_leg 'gate: an unreadable heading' 'is refused, and the same bytes that read are not' \
+	gate_invisible_heading
+
+# The other half of #393: an id cited in prose that names no entry. `H-0122` is the specimen the issue
+# was filed with, and the class is open because the citation rule only ever opens `path:line` shapes, so
+# `` `H-NNNN` `` can dangle with `make verify` green and the count never moves. The issue asks a unit to
+# land the check as a report and say how many rows it finds, so this leg pins the report rather than a
+# refusal: a green run whose sentence names the id, and the same fixture with the mention taken out
+# printing no sentence at all -- a line that fired on every run would be a headline, not a finding.
+gate_dangling_id_fixture() { # <repo> <sha> <with-mention: yes|no> -- two valid logs, one cited id or none
+	local repo=$1 sha=$2 cite=$3 line
+	mkdir -p -- "$repo/factory" || return 1
+	{
+		printf '# Product decisions\n\n## D-0001 · the record that cites the missing one\n\n'
+		printf '%s\n' '- Question: does a citation shaped like an id resolve to anything?'
+		printf '%s\n' '- Options: it resolves | it names nothing'
+		printf '%s\n' '- Chose: it names nothing'
+		if [ "$cite" = yes ]; then
+			line='- Why: the row cites `H-0900`, an id no entry in either log carries.'
+		else
+			line='- Why: the row cites no id, which is the control this leg asks for.'
+		fi
+		printf '%s\n' "$line"
+		printf '%s\n' "- Checkpoint: $sha"
+	} >"$repo/DECISIONS.md" || return 1
+	{
+		printf '# Harness decisions\n\n## H-0002 · the neighbour, so no log is empty\n\n'
+		printf '%s\n' '- Question: does the union read both logs?'
+		printf '%s\n' '- Options: it reads both | it reads one'
+		printf '%s\n' '- Chose: it reads both'
+		printf '%s\n' '- Why: an empty log would change which corpus the count is over.'
+		printf '%s\n' "- Checkpoint: $sha"
+	} >"$repo/factory/DECISIONS.md" || return 1
+	return 0
+}
+
+gate_dangling_id_report() { # -> 0 when a green run reports the dangling id and the clean fixture says nothing
+	local repo=$work/dangling-id sha out
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" || {
+		pos_say "could not create $repo"
+		return 1
+	}
+	cp "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || {
+		pos_say 'the shipped gate could not be copied into the fixture'
+		return 1
+	}
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit the entry can cite' || return 1
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	gate_dangling_id_fixture "$repo" "$sha" no || {
+		pos_say 'the clean fixture could not be written'
+		return 1
+	}
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the fixture with NOTHING dangling is refused, so the report below would be a refusal'
+		pos_say 'wearing a sentence, and this leg is about a green run:'
+		pos_say "$out"
+		return 1
+	fi
+	if printf '%s\n' "$out" | grep -qi 'id citation'; then
+		pos_say 'the clean fixture printed the dangling-id sentence anyway. A report that fires when'
+		pos_say 'there is nothing to report is a headline, and its count would be read as a finding:'
+		pos_say "$out"
+		return 1
+	fi
+	gate_dangling_id_fixture "$repo" "$sha" yes || {
+		pos_say 'the planted fixture could not be written'
+		return 1
+	}
+	if ! out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the gate REFUSED on a dangling id. #393 asks for the class as a report first, and a'
+		pos_say 'refusal here would turn every branch holding one of these rows red -- including the'
+		pos_say 'branch landing the rule. What it said:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'H-0900' || {
+		pos_say 'the run was green and said nothing about the planted id, which is the silence #393'
+		pos_say 'was filed about: count unchanged, exit 0, the pointer false forever. What it said:'
+		pos_say "$out"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'Reported, not refused' || {
+		pos_say 'the sentence names the id but does not say it is a report, so a reader of a green run'
+		pos_say 'cannot tell whether the run passed or gave up. What it said:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+gen_leg 'gate: an id citation with no entry' 'is counted on a green run and named, and the clean fixture is silent' \
+	gate_dangling_id_report
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not

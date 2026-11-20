@@ -2812,6 +2812,9 @@ def main(argv):
         shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
                        if SHA.match(e["fields"].get("Checkpoint", "").strip())})
         problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+        # Everything above this line judges the list `parse` returned, so the first rule that has to
+        # look at the raw bytes is the one that asks whether that list is the whole log.
+        problems += invisible_heading_problems(text, label)
         cites = scan_citations(text, entries, index)
         for c in cites:
             c["label"] = label
@@ -2898,7 +2901,139 @@ def main(argv):
         line = tally_line(len(tally))
         if line:
             print(line)
+        # The id-citation census, over the same corpus the entries were read from -- `where_seen` is the
+        # union of every heading this run parsed, monoliths and filed entries alike, which is exactly the
+        # set a reader following an id expects to land in. A second pass over the texts rather than a
+        # clause in the loop above, because the loop sits above lines the two logs quote by number.
+        dangling = scan_id_mentions([(os.path.relpath(p, ROOT), read(p)[0]) for p in paths],
+                                    set(where_seen))
+        line = dangling_line(dangling)
+        if line:
+            print(line)
     return 0
+
+
+# The one regex in this file that is deliberately WIDER than `ENTRY`, and therefore the only way this
+# gate can see an entry it has no power to read. Kept beside the rule it serves, below `main`, because
+# the two logs quote this file by line: `--citations scripts/check-decisions.py` lists every one, and
+# the three anchored rows nearest this end of the file -- the `--log` rationale comment and
+# `problems += layout_problems(label, entries)` -- sit ABOVE the seam where a per-file rule can still be
+# called from, so the call went below them and this definition goes below all of them. Anything inserted
+# above a quoted row moves a published coordinate; this seam moves the two lines of the `__main__`
+# guard, which nothing quotes.
+HEADING_LIKE = re.compile(r"^(#{1,6})\s+([DH]-\d{4})\b")
+
+# How many unresolved ids the clean-run sentence names before it says `and N more`. Thirty because the
+# census this shipped under found twenty-three, and a line that holds the whole set is a line a reader
+# can act on without re-deriving the census by hand.
+DANGLING_SHOWN = 30
+
+
+def invisible_heading_problems(text, label):
+    """Every heading-shaped line the entry parser cannot read: an entry no other rule in this file sees.
+
+    `parse` finds an entry with `ENTRY`, and every other rule here walks the list `parse` returns --
+    the required fields, the `Options` count, the `Chose:`-against-`Options` agreement, checkpoint
+    existence, id reuse and ordering, the filed-file layout rule, the cross-log duplicate. A line that
+    puts an id where a heading belongs, in a shape `ENTRY` does not accept, is therefore never refused
+    as malformed. It is INVISIBLE: the run containing it prints a clean headline one entry short of the
+    truth, and the citations that name that id read to whoever follows them as dangling -- which is how
+    #393 found the one that was genuinely dangling, and found this shape on the same pass.
+
+    Measured 19 Nov taking the census that issue asked for, on `origin/main` at `25d2904`: the two logs
+    answer `382 entries`, and 383 lines in them start with `## ` and an id. The extra line separates its
+    id from its title with an em-dash where `ENTRY` wants `·`, `|` or `-`. The entry was not thin --
+    `Question`, `Options`, `Chose`, `Why`, `Checkpoint`, `Effect`, `Confidence`, `Revisit`, `Scope` and
+    `Status` are all in it and its checkpoint resolves -- and `make verify` had been green over it for
+    two days with none of the rules above ever handed its bytes. Making it visible was one character of
+    punctuation plus the bullets its fields were already using, and it then refused twice on its own
+    field shapes before it passed: which is what a record owes, and exactly what invisibility withheld.
+
+    The boundary, measured on the same tree: this reads a line that BEGINS with one-to-six `#`, a space
+    and an id, so a counterexample printed at the start of a fenced line would refuse here too. Neither
+    log holds one -- every non-`##` heading level shape in both logs counts zero, and the fenced copies
+    of log rows in this repository are in `docs/factory.md`, which is not a log. Quote a malformed shape
+    inside a sentence rather than as a line of its own; `self_test` already refuses to print an example
+    heading `ENTRY` cannot read, which is the same obligation from the writing side.
+    """
+    problems = []
+    for n, line in enumerate(text.splitlines(), 1):
+        shaped = HEADING_LIKE.match(line)
+        if shaped and not ENTRY.match(line):
+            problems.append(
+                "%s:%d: %s is a heading-shaped line the entry parser cannot read, so this gate counts "
+                "no entry there and runs no rule on the record under it -- not its fields, not its "
+                "checkpoint, not id reuse or ordering -- while `--citations` and a reader both see an id "
+                "that resolves to nothing. `ENTRY` wants the id, then one of these separators, then a "
+                "title: `## D-0001 · the question that was asked`. Expect the newly visible entry to "
+                "refuse on its own fields once it parses; that refusal is the point of this one"
+                % (label, n, shaped.group(2)))
+    return problems
+
+
+def scan_id_mentions(pairs, known):
+    """Every `D-NNNN`/`H-NNNN` in the logs' text that names no entry in `known`, with where it sits.
+
+    A heading DEFINES an id; a mention anywhere else CITES it. `HEADING_LIKE` is the test for the first,
+    so a heading line never reports itself, and everything else carrying an id token is a promise that a
+    reader can arrive at a record -- which is what `DECISIONS.md`'s preamble says ids exist for ("Ids are
+    shared across the repository rather than per branch, because `git log --grep 'Decision: D-0011'` has
+    to name exactly one commit"). A mention whose id is in `known` is that promise kept and is dropped;
+    one whose id is in no log is what #393 was filed about.
+
+    Two exemptions, both the issue's own:
+
+    * a token the previous character introduces with `#` -- `backup-tip:factory/DECISIONS.md#H-0122` --
+      names the ref it lives on, so the reader has an address even though the log does not hold it;
+    * a file this run could not read is not a file with no citations. `read()` reports the failure and
+      the caller refuses on it; a census that read it as empty would be a count of nothing.
+
+    Deliberately NOT exempt: an id in a `Checkpoint:` or `Effect:` field. Those are prose a reader
+    follows, and `Decision: H-NNNN` in a commit message is the same promise one layer out.
+    """
+    mentions = []
+    for label, text in pairs:
+        if text is None:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            if HEADING_LIKE.match(line):
+                continue
+            for m in ID_TOKEN.finditer(line):
+                if m.group(0) in known:
+                    continue
+                if m.start() and line[m.start() - 1] == "#":
+                    continue
+                mentions.append({"id": m.group(0), "label": label, "line": n,
+                                 "text": line.strip()})
+    return mentions
+
+
+def dangling_line(mentions):
+    """The clean-run sentence about id citations that resolve to nothing, or None when there are none.
+
+    Report-only, and the sentence says so: #393 asks for this class "as a report-only list first and say
+    how many rows it finds", and its own census is the reason. Measured 19 Nov on the tree this entry was
+    written against: the count this function prints is not single figures, so a refusal turned every
+    branch red on the day it shipped -- including the branch whose job is to land the check -- which is
+    the opposite of what a ratchet is for. `POINTER_DEBT` was raised the same way for `path:line` rows
+    and its comment still carries the number it opened at.
+
+    The ids are printed, not just counted, because the set is small enough to act on and a count without
+    the names sends a reader to re-derive the census with a script of their own, which is how #393 had to
+    argue its case. Capped, because the line is one line: the cap is stated rather than silent, so a
+    reader who sees `…` knows there are more and how many more.
+    """
+    if not mentions:
+        return None
+    ids = sorted({m["id"] for m in mentions})
+    shown = ", ".join(ids[:DANGLING_SHOWN])
+    if len(ids) > DANGLING_SHOWN:
+        shown += " and %d more" % (len(ids) - DANGLING_SHOWN)
+    return ("check-decisions: %d id citation(s) in the two logs name %d id(s) no entry in either log "
+            "carries (%s) -- a reader sent to grep for them lands in a hole. Reported, not refused: "
+            "#393 asks for the class as a report first, because these rows predate the rule and a gate "
+            "that refuses every branch on the day it ships cannot be the branch that fixes them"
+            % (len(mentions), len(ids), shown))
 
 
 if __name__ == "__main__":

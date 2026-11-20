@@ -548,6 +548,26 @@ ROWS = [
      "            code = self_test_verdict(list(ran_shape), list(bad_shape), trips)",
      "            code = want"),
 
+    # ---- #396: a deleted call site, where nobody calls the guard ----
+    # The three deletions the ticket measured for itself. On the pre-pin tree each one printed
+    # `capture self-test: 84 refusal rules hold` at exit 0 -- every per-guard rule green because
+    # each rule calls its helper directly and none reads the driver's call sites. They are CAUGHT
+    # here now because the pin `the drivers' capture paths still call the guards they owe` reads
+    # the same bytes (D-0091): the suite re-measures the gap instead of restating the defect.
+    (CAUGHT, "pages.py",
+     "the shoot loop stops calling require_records and its labelled-cells sibling (#396 probe 1)",
+     "        cdp.require_records(got, page)\n        cdp.require_labelled_cells(got, page)",
+     "        pass"),
+    (CAUGHT, "testlock.py",
+     "the single-shot probe driver stops calling require_labelled_cells (#396 probe 2)",
+     '    cdp.require_labelled_cells(g, "the result page")',
+     "    pass"),
+    (CAUGHT, "lock.py",
+     "the lock driver stops asserting its own trail (#396 probe 3)",
+     '    cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",\n'
+     '                      {"lock.requested"}, "the lock-now click")',
+     "    pass"),
+
     # ---- honest edits: these must stay green, or the guard is matching text it should ignore, and
     #      a guard that is a tax gets switched off ----
     (GREEN, "pages.py", "a comment is added above the rule helper",
@@ -580,7 +600,10 @@ ROWS = [
 # was already here and stays one row -- only its expectation moves, from `HOLE` on `origin/main` to
 # `CAUGHT` here. A merge of two branches that each added rows and left this number at one side's
 # value is a merge that dropped rows, which is the failure this pin exists to catch.
-EXPECTED_ROWS = 78
+# 78 -> 81 on 19 Nov (#396, D-0091): the three call-site deletions the ticket measured as silent,
+# re-measured against the new pin. None of the three replaces a row: no row in the previous 78
+# touched `require_records`, `require_labelled_cells` or `require_trail` at all.
+EXPECTED_ROWS = 81
 
 
 def shape_problems():
