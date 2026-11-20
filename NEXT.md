@@ -1,6 +1,6 @@
 # NEXT — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
 
-State at push: two decision commits — `885e0e9` carrying `Decision: H-0343` over checkpoint `bef7403`, and `1687f18` carrying `Decision: H-0344` over checkpoint `25b0066`. Both code edits are line-count-neutral, so no decision pointer moved in either file.
+State at push: two decision commits (`885e0e9`/`H-0343` over `bef7403`, `1687f18`/`H-0344` over `25b0066`), then the base sync `e17db5a`→ this merge carrying `H-0346` over checkpoint `1a0bee6` — `NEXT.md` headed with the `issue-423` head demoted to a Record byte-kept, the `DECISIONS.md` tail junction unioned ascending (H-0342 before H-0343/H-0344), 36 hazard-pair pointers re-aimed `+51` to `NEXT.md:587`/`590` by the gate's own refusals. Both code edits stay line-count-neutral.
 
 ## What this round shipped
 
@@ -16,10 +16,9 @@ State at push: two decision commits — `885e0e9` carrying `Decision: H-0343` ov
 
 ## What is still owed (all of it, none silent)
 
-1. The supervisor merges; this unit merged nothing and asked nobody. The first merge carrying
-   this head is its own live end-to-end check: after it, `factory/log/supervisor.log` should
-   show the close check grading that merge by verdict (silence when healthy), and its
-   `read back state=` UNKNOWN shape should never print again for a real ticket.
+1. The supervisor merges; this unit merged nothing and asked nobody, and the base-sync push
+   spends the `APPROVED` read at `45011c5` (the #269 class; nobody re-asked yet, the poke owns
+   the ask). Its live check: the first merge carrying this head should grade by verdict.
 2. A working second signal for the MERGE arm — retry `.merged` once before refusing — is NOT
    delivered and is NOT claimed by `H-0344`; the exposure its `What lost` row discloses (a read
    glitch skipping the ledger clear and worktree removal, the `#221` shape) predates this
@@ -45,6 +44,57 @@ State at push: two decision commits — `885e0e9` carrying `Decision: H-0343` ov
 - Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or
   an approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
 
+## Record — issue-423 unit (branch `issue-423`, PR open at writing time; this round ships `H-0342`: the idle check that asked the wrong systemd manager answered `inactive`/`dead` at exit 0 while the pass stood `activating` — the 16 Nov 11:14:56Z receipt is on the ticket — and the new `factory_unit_idle` reads `LoadState` first, refuses `not-found`/`masked`/`failed` as unknown rather than idle, and grants `idle` only to three agreeing signals: the user manager's keyed properties, a non-blocking `flock` on the run lock, and the process table, with the journal deliberately NOT a signal because #380 measured its two silences; eleven legs pin it with stubbed reply shapes written in reverse ask order and live-process controls both ways; the stop-the-timer recipe bullet now names the guard, rewritten line-count-neutrally because the file carries cited rows 489/492, the range 949-977 and pointers at 928 and 958; base sync `077efaf` (the #487 merge, carrying `H-0340`/`H-0341`); merging belongs to the supervisor)
+
+State at push: trunk `077efaf`; the branch carries checkpoint `444ab00`, the base-sync merge
+`460e526`, and the `H-0342` effect commit — the open pull request is the only artifact this round
+updates.
+
+## What this round shipped
+
+- `factory_unit_idle` at the foot of `factory/common.sh`: three signals, one verdict line,
+  verdict first; `idle` only when all agree, `unknown` (rc 2, never 0) when any question could
+  not be asked; the missing-run-directory arm proved not to mkdir what it only reads.
+- `docs/factory.md`: the closing section carries the three-command receipt block and what each
+  exit code permits; the stop-the-timer recipe bullet names the guard instead of the bare
+  property command that lied.
+- `factory/selftest.sh`: eleven legs — the measured not-found shape refused, its control (the
+  same `inactive`/`dead` pair under `LoadState=loaded` reads idle, so only the property a wrong
+  manager cannot produce separates the legs), a held lock outranking a dead-looking unit, a real
+  shebang-spawned pass process seen in procfs while the lock still reads free, its negative
+  control (a live `tail -f` of the same path is a reader), and three unknown arms.
+- `factory/DECISIONS.md`: `H-0342` (allocator answered `H-0342` on a `REFRESH 0s union` read
+  re-taken after `git fetch`), checkpoint `444ab00`.
+- `NEXT.md`: this head on top; the `issue-421` head demoted in place to a `## Record —` below;
+  the 36 in-log pointers at the hazard pair re-aimed uniformly by this head's width, digits
+  only, destinations opened on the shipped bytes.
+
+## What this push spent
+
+- `bash -n` and `shellcheck -S warning` clean on both scripts; the new family 11 of 11 in a
+  standalone harness run; the final-tree `make verify` verdict is quoted in the pull body,
+  never here, with the env-stripping named there (#425, #482).
+- Citation census: 1340 read, 583 owing an anchor — unmoved, this round adds no bare pointers —
+  and 0 refused; the docs edit stays line-count-neutral around every cited row.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges; this pass merged nothing and no artifact but the pull body carries a
+   finishing verb. The reviewer ask is the supervisor's poke (AGENTS.md, `H-0010`).
+2. `H-0342`'s follow-up: no run of the guard against a second real manager — this session's
+   harness refused every `systemctl` invocation (`Permission denied: shell`), so the ticket's
+   16 Nov receipts are the live evidence and the suite's stubs the repeatable one; say which is
+   quoted whenever the shape is claimed.
+3. Carried from the `issue-421` Record below, unrenumbered there: the `RuntimeMaxSec` rename of
+   `H-0329`'s title, question and the #418 journal fixture; and from further Records: the
+   merge-census leg (#428), the two-word hazard-row repair (#428, #440), the #482 fence leg, and
+   the `SUPERVISOR-FF`/`SUPERVISOR-RERUN` watch — all still open.
+4. Measured this round, on this runner only, by the control itself doing its job: a suite started
+   from inside an agent session that exports `OPENCODE_CONFIG_CONTENT` leaks that value by plain
+   inheritance into every fixture session, and `and nothing else does` fails for the environment,
+   not the code (the leg's own comment names this exact inheritance). The suite should scrub
+   `OPENCODE_*` from the runner's environment at startup, the way #482's fence leg scrubs knobs;
+   the run of record for this branch was re-taken under `env -u OPENCODE_CONFIG_CONTENT`.
 ## Record — issue-421 unit (branch `issue-421`, PR open; the tree-claim repair `H-0340` was already on the branch when this tick was dispatched — `triage` reported it `branch_without_pr` — and this round ships `H-0341` on top: the claim family's prose leaned on an installer `RuntimeMaxSec` that `git grep -c` against `origin/main` and the live unit both refuse to contain, so the sweep's licence is now stated against the two ceilings that exist — the tick's `timeout(1)` kill window and the rendered `TimeoutStartSec` belt — and pinned by four new legs with one-knob controls; five prose sites corrected line-count-neutrally, 65 in-log pointers re-read unmoved; the CI red on `f3029bd` that this file's own head authored — 45 net lines sliding the hazard pair's first home 444/447 to 489/492, 36 in-log pointers refused — is repaired in the same push, all 36 re-aimed onto the `issue-417` Record copy by the `+45` the gate's own homes corroborate; merging belongs to the supervisor)
 
 State at push: the round is 15 commits ahead of `origin/main` — checkpoint `ac4ea69`, decision commit `dd089b8` carrying `Decision: H-0341`, the 36-pointer repair and this head's review-state row on top of both — and PR #487 is the only artifact this round updates.

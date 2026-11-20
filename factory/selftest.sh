@@ -28642,6 +28642,137 @@ gen_split
 claim_leg 'control: a belt rendered 3600s below the budget is refused' \
 	claim_control_refused claim_belt_clears_tick_ceiling "$HERE/common.sh" "$gen_svc"
 
+# ---------------------------------------- the idle guard's three signals (#423, H-0342)
+# `systemctl` is stubbed here rather than trusted: this suite runs on machines whose user manager
+# holds no such unit, and the defect being pinned is a REPLY SHAPE -- the same two property lines
+# a wrong manager prints for a unit it never loaded (measured 16 Nov 11:14:56Z: bare
+# `systemctl show parental-lockout-factory.service -p ActiveState -p SubState` against the system
+# manager answered `inactive`/`dead` at exit 0 while the unit stood `activating` with
+# `MainPID=3224807` and a live `git fetch` child). The stubs answer; the guard's READING is what
+# is under test. Each canned reply is written in reverse ask order on purpose: `systemctl show`
+# answers in its own order, not the order asked, and a parser that indexed lines instead of keys
+# must fail here rather than on a stranger's box.
+ui_work=$work/unit-idle
+mkdir -p "$ui_work/bin" "$ui_work/factory" "$ui_work/run"
+# The shebang the unit really carries. Spawning the script through it leaves the kernel's true
+# cmdline shape in /proc for the positive legs to read -- no `exec`, or the interpreter replaces
+# the argv the guard is being tested against.
+printf '#!/usr/bin/env bash\nsleep 120\n' >"$ui_work/factory/factory.sh"
+chmod +x "$ui_work/factory/factory.sh"
+cat >"$ui_work/bin/systemctl" <<'UI_SC'
+#!/bin/sh
+printf '%s\n' "${UI_SHOW:-}"
+exit "${UI_SHOW_RC:-0}"
+UI_SC
+cat >"$ui_work/bin/pgrep" <<'UI_PG'
+#!/bin/sh
+[ -z "${UI_PIDS:-}" ] || printf '%s\n' "$UI_PIDS"
+exit "${UI_PGREP_RC:-1}"
+UI_PG
+cat >"$ui_work/bin/flock" <<'UI_FL'
+#!/bin/sh
+exit "${UI_FLOCK_RC:-0}"
+UI_FL
+chmod +x "$ui_work/bin/systemctl" "$ui_work/bin/pgrep" "$ui_work/bin/flock"
+touch "$ui_work/run/lock"
+
+ui_ask() { # -> "rc=<n> <verdict line>", the guard sourced the way factory.sh sources it
+	local rc=0 out=''
+	out=$(PATH="$ui_work/bin:$PATH" FACTORY_RUN="${UI_RUN:-}" \
+		UI_SHOW="${UI_SHOW:-}" UI_SHOW_RC="${UI_SHOW_RC:-0}" \
+		UI_PGREP_RC="${UI_PGREP_RC:-1}" UI_PIDS="${UI_PIDS:-}" \
+		UI_FLOCK_RC="${UI_FLOCK_RC:-0}" \
+		bash -c 'set -euo pipefail; . "$1" >/dev/null 2>&1 || exit 63
+			factory_unit_idle probe-factory.service' _ "$HERE/common.sh") || rc=$?
+	printf 'rc=%s %s\n' "$rc" "$out"
+}
+
+ui_probe() { # <want rc> <substring the one line must name> -> 0 when verdict, width and word all match
+	local want=$1 want_s=$2 got='' rc line n
+	got=$(ui_ask)
+	rc=${got#rc=}
+	rc=${rc%% *}
+	line=${got#rc="$rc" }
+	if [ "$rc" != "$want" ]; then
+		printf 'want rc=%s, got rc=%s: %s\n' "$want" "$rc" "$line"
+		return 1
+	fi
+	n=$(printf '%s\n' "$line" | grep -c '')
+	if [ "$n" != 1 ]; then
+		printf 'the verdict is %s lines, not the one line the contract promises: %s\n' "$n" "$line"
+		return 1
+	fi
+	case $line in
+	*"$want_s"*) return 0 ;;
+	esac
+	printf 'the line does not name %s: %s\n' "$want_s" "$line"
+	return 1
+}
+
+ui_leg() { # <label> <want rc> <substr> <show> [pgrep_rc] [pids] [flock_rc] [run] [show_rc]
+	# One leg = one planted answer-set. Every UI_ name is assigned here (defaults included) so no
+	# leg inherits another's fixture.
+	UI_SHOW=$4 UI_SHOW_RC=${9:-0} UI_PGREP_RC=${5:-1} UI_PIDS=${6:-} \
+		UI_FLOCK_RC=${7:-0} UI_RUN=${8:-$ui_work/run} \
+		claim_leg "$1" ui_probe "$2" "$3"
+}
+
+# The ticket's own failure, as a reply shape.
+ui_leg 'an activating unit reads busy' 1 'ActiveState=activating' \
+	$'SubState=start\nActiveState=activating\nLoadState=loaded'
+# The bug itself: those are the bytes the system manager printed, for a unit it had never
+# loaded, at exit 0, while a pass ran. The guard's whole duty is to refuse them.
+ui_leg 'not-found is never idle' 2 'not-found is not idle' \
+	$'ActiveState=inactive\nSubState=dead\nLoadState=not-found'
+# And the control that falsifies "the leg above is red because of inactive/dead": the same two
+# properties under LoadState=loaded are the idle reading, so what separates the two legs is
+# exactly the property a wrong manager cannot produce.
+ui_leg 'control: the same state pair under LoadState=loaded reads idle' 0 'idle' \
+	$'ActiveState=inactive\nSubState=dead\nLoadState=loaded'
+ui_leg 'an unreachable manager is unknown, not idle' 2 'could not be asked' \
+	'' 1 '' 0 "$ui_work/run" 1
+ui_leg 'a failed unit is not read as idle' 2 'cannot be read from' \
+	$'SubState=failed\nActiveState=failed\nLoadState=loaded'
+# A hand-started pass on a box whose unit is dead: only the lock sees it (path-shaped, so no
+# manager -- right or wrong -- can answer for it).
+ui_leg 'a held run lock outranks a dead-looking unit' 1 'held' \
+	$'SubState=dead\nActiveState=inactive\nLoadState=loaded' 1 '' 1
+ui_leg 'a pgrep that cannot run leaves the verdict unknown' 2 'pgrep exited 2' \
+	$'SubState=dead\nActiveState=inactive\nLoadState=loaded' 2 '' 0
+# The activation window between systemd forking the pass and `flock -n 9` (the self-report
+# hoist runs ahead of the lock, H-0191): procfs sees what neither property nor lock can.
+"$ui_work/factory/factory.sh" >/dev/null 2>&1 &
+ui_pass=$!
+for _ui in 1 2 3 4 5 6 7 8 9 10; do
+	grep -qa 'factory/factory.sh' "/proc/$ui_pass/cmdline" 2>/dev/null && break
+	sleep 0.2
+done
+ui_leg 'a pass that has not armed the lock yet is seen in procfs' 1 "pid $ui_pass" \
+	$'SubState=dead\nActiveState=inactive\nLoadState=loaded' 0 "$ui_pass" 0
+kill "$ui_pass" 2>/dev/null || true
+wait "$ui_pass" 2>/dev/null || true
+# The negative control beside it: a live process that only NAMES the script is a reader, and a
+# guard that called `tail -f factory/factory.sh` busy would stop every human who opens the file.
+tail -f "$ui_work/factory/factory.sh" >/dev/null 2>&1 &
+ui_tail=$!
+# Wait for the exec, and prove the premise the control rests on: the reader is live AND its
+# cmdline carries the script path. A dead pid would make the leg pass vacuously -- the guard
+# skips unreadable cmdlines -- so the greps are the leg's precondition, not decoration.
+for _ui in 1 2 3 4 5 6 7 8 9 10; do
+	grep -qa 'factory/factory.sh' "/proc/$ui_tail/cmdline" 2>/dev/null && break
+	sleep 0.2
+done
+ui_leg 'control: a process that only names the script is not a pass' 0 'no running pass process' \
+	$'SubState=dead\nActiveState=inactive\nLoadState=loaded' 0 "$ui_tail" 0
+kill "$ui_tail" 2>/dev/null || true
+wait "$ui_tail" 2>/dev/null || true
+# The guard is called by strangers: reading a FACTORY_DIR that never armed must answer idle with
+# the file it asked named on the line, and must not mkdir its way into a tree it does not own.
+ui_leg 'a run directory that never existed reads idle, named as asked' 0 'no run directory' \
+	$'SubState=dead\nActiveState=inactive\nLoadState=loaded' 1 '' 0 "$ui_work/nodir"
+claim_leg 'the guard read the missing run directory without creating it' \
+	test ! -e "$ui_work/nodir"
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
