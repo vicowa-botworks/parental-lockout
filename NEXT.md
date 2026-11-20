@@ -1,6 +1,6 @@
 # NEXT — issue-421 unit (branch `issue-421`, PR open; the tree-claim repair `H-0340` was already on the branch when this tick was dispatched — `triage` reported it `branch_without_pr` — and this round ships `H-0341` on top: the claim family's prose leaned on an installer `RuntimeMaxSec` that `git grep -c` against `origin/main` and the live unit both refuse to contain, so the sweep's licence is now stated against the two ceilings that exist — the tick's `timeout(1)` kill window and the rendered `TimeoutStartSec` belt — and pinned by four new legs with one-knob controls; five prose sites corrected line-count-neutrally, 65 in-log pointers re-read unmoved; the CI red on `f3029bd` that this file's own head authored — 45 net lines sliding the hazard pair's first home 444/447 to 489/492, 36 in-log pointers refused — is repaired in the same push, all 36 re-aimed onto the `issue-417` Record copy by the `+45` the gate's own homes corroborate; merging belongs to the supervisor)
 
-State at push: the round is 14 commits ahead of `origin/main` — checkpoint `ac4ea69`, decision commit `dd089b8` carrying `Decision: H-0341`, the 36-pointer repair on top of both — and PR #487 is the only artifact this round updates.
+State at push: the round is 15 commits ahead of `origin/main` — checkpoint `ac4ea69`, decision commit `dd089b8` carrying `Decision: H-0341`, the 36-pointer repair and this head's review-state row on top of both — and PR #487 is the only artifact this round updates.
 
 ## What this round shipped
 
@@ -12,28 +12,28 @@ State at push: the round is 14 commits ahead of `origin/main` — checkpoint `ac
   (slack 30; a belt rendered `FACTORY_BUDGET - 3600`) and must turn exactly its leg; both
   predicates read shipped defaults or the rendered unit, never a literal.
 - Prose: the `H-0340` lines above, two comments in the suite's claim family, the `common.sh`
-  death-path header, the `docs/factory.md` claim-section sentence — all line-count-neutral, so no
-  anchored pointer moved; the shipped gate is the proof, not this sentence.
-- `NEXT.md`: this head, rewritten line-count-neutrally so the 36 re-aimed digits stay true — a head
-  that re-aims pointers must not itself move them, the ordering rule earned twice on this branch
-  (f3029bd moved the pair its own round had aimed); the `issue-418` head sits demoted below, its
-  `#484` state read stale (#484 is the merge that is now `origin/main` `a3681a6`), named there.
+  death-path header, the `docs/factory.md` claim-section sentence — all line-count-neutral.
+- `NEXT.md`: this head, rewritten line-count-neutrally — a head that re-aims pointers must not
+  itself move them (f3029bd moved the pair its own round had aimed); the `issue-418` head sits
+  demoted below, its `#484 APPROVED/CLEAN` read stale (#484 is the merge now at `a3681a6`).
 
 ## What this push spent
 
-- The `H-0341` verdict at `dd089b8` under the #482 stripping (`env -u FACTORY_LOG
-  -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u OPENCODE_CONFIG_CONTENT`): `factory/selftest.sh:
-  945 passed, 0 failed`, `verify: OK` — and spent by the head written after it: at `f3029bd` CI's
-  verify job read FAILURE, `check-decisions` refusing 36 pointers, the #428 ordering gap here.
-- The repair re-aims exactly those 36 — `:444`→`:489`, `:447`→`:492`, 25 rows, uniform `+45`,
-  every destination one of the gate's printed homes, the `issue-417` Record copy per the
-  newest-Record rule the `issue-418` Record states — line-count-neutral, so nothing moves
-  again; final-tree `make verify` (same stripping) is quoted in the pull body, never here.
+- The `H-0341` verdict at `dd089b8` under the #482 stripping (`env -u FACTORY_LOG -u
+  FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH -u OPENCODE_CONFIG_CONTENT`): `945 passed, 0 failed`,
+  `verify: OK` — spent by the head written after it: CI verify FAILURE at `f3029bd`, 36 refused.
+  The repair re-aims exactly those 36 — `:444`→`:489`, `:447`→`:492`, 25 rows, uniform `+45`,
+  destinations among the gate's printed homes, the `issue-417` Record copy per the newest-Record
+  rule; the final-tree `make verify` is quoted in the pull body, never here.
 
 ## What is still owed (all of it, none silent)
 
-1. This pull: review and merge are the supervisor's; the ask is the `factory_request_review`
-   poke, not this unit's (AGENTS.md, `H-0010`).
+1. This pull: `CHANGES_REQUESTED` (hermesvicowa, 18:07Z) stands on `f3029bd`; its one blocking
+   defect — those 36 pointers — head `94bfdcb` answers, and the verdict now waits on the
+   reviewer's re-read, not the poke: a standing verdict holds `factory_request_review` quiet
+   (AGENTS.md, `H-0010`). Its NON-BLOCKING notes are NOT addressed at this head — a guard or
+   release-before-mint on the `FACTORY_CLAIM_ACTIVE` clobber (`factory.sh:1008-1010`, dead in
+   today's order), `${VAR:-60}` at use on `common.sh:1909`'s bare reads (short source → now).
 2. `H-0329`'s title, its question, and the #418 journal-fixture comment still carry the same
    `RuntimeMaxSec` misnomer for the 16 Nov activation whose own transcribed journal row says
    `start operation timed out` — that is the start deadline. Those records live on #418's merged
