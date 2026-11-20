@@ -670,13 +670,17 @@ factory_timer_state() {
 # marker -- `factory_verdict`, `factory.sh --status`, and the journal's `HALTED` line -- print this
 # one. `factory/selftest.sh` refuses a shipped script that prints the stored sentence without it.
 	# SC2120/SC2119: the argument is passed at call sites shellcheck cannot see from this file --
-	# factory.sh's guard passes `probed`/`guarded`; every call HERE means the default clause.
+	# factory.sh's guard passes `probed`/`guarded`; the report-only readers pass the marker test's
+	# answer, which is the empty string -- and an empty argument is the default clause.
 	# shellcheck disable=SC2120
 factory_halt_report() { # [probed|guarded] -> 'cause recorded <age> ago, <asking>: <sentence>'
 	# The asking clause is a parameter because the guard now asks (#341): the same line used to
 	# promise "not re-probed since" unconditionally, and after the re-probe shipped, that promise
-	# would have been false on every guarded pass. `--status` and `factory_verdict` take no argument
-	# -- they report without asking -- so only the guard's line may claim it asked.
+	# would have been false on every guarded pass. No reader here re-probes: what the clause claims
+	# comes from the marker's own machine target -- the zero-write `factory_halt_target` test the
+	# `halt:` line applies, and the `verdict:` line applies identically since #420, so one marker
+	# speaks one asking clause through every reader of it. Only the guard's line may claim it asked
+	# THIS pass (`probed`).
 	local reason mtime now asked
 	asked='and not re-probed since'
 	case "${1:-}" in
@@ -853,8 +857,12 @@ factory_reap_usec() { # <stamp> -> epoch microseconds
 #             age    seconds since that teardown
 #             open   1 when a newer activation has started and not yet finished
 #   exit 1  no terminal line in the tail: nothing finished inside the window, or there is no journal.
-#   exit 2  a finished activation with nothing to measure the hold FROM -- no `Main process exited`
-#           from systemd and no process line at or before the terminal one.
+#   exit 2  a finished activation with nothing to measure the hold FROM -- no process line at or
+#           before the terminal one, or a killed one whose newest such line is less than a whole
+#           rounded second before the terminal stamp. On a kill, systemd's own `Main process
+#           exited` is the kill's stamp, written 194 microseconds before that activation's
+#           terminal line (#418), and a hold measured from it is the forbidden sentence again:
+#           the teardown timed by its own ending instead of by the moment work stopped.
 #           Both are Unknown, and Unknown is its own answer (#228's polarity -- a read that failed is
 #           not the clean state). Two codes, because the two arms tell the reader different things:
 #           one says the unit has not finished a pass recently, the other says it finished one and the
@@ -909,26 +917,57 @@ factory_reap_read() {
 		# 11 Nov, 4 of the last 15 activations logged `Main process exited, code=exited,
 		# status=4/NOPERMISSION` and the other 11 logged nothing of the kind, because `-t systemd`
 		# excludes the unit's own stdout altogether. So the clean case is settled below by
-		# `factory_reap_lastword`, from the unit's own lines. Whichever way it arrives, the reading is
-		# conservative: a process line predates the exit by whatever the pass did without logging on
-		# its way out, which overestimates the hold -- the right direction for an alarm. A `Starting`
+		# `factory_reap_lastword`, from the unit's own lines. A KILLED activation writes the line too,
+		# and there it names the kill, not the stopping of work: systemd put `Main process exited,
+		# code=killed` 194 microseconds before that activation's terminal line (16 Nov 06:14, #418),
+		# so the clause below refuses it as a start point and measures from the unit's own lines the
+		# same way. Whichever way it arrives, the reading is conservative: a process line predates
+		# the exit by whatever the pass did without logging on its way out, which overestimates the
+		# hold -- the right direction for an alarm. A `Starting`
 		# from the activation running right now is met before any terminal line, so it is not counted.
 	done
 	[ -n "$term" ] || return 1
 	t=$(factory_reap_usec "$term") || return 1
-	if [ -z "$work" ]; then
-		# No `Main process exited` in the stream means systemd had nothing to say about the exit, and
-		# then the hold has exactly one source: the pass's own last line. If that is not there either,
-		# there is no start point and the honest answer is that this read does not know -- arm 2 of the
-		# contract above. Falling back to `work=$term` measured the hold against itself: `hold=0`,
-		# `how=clean`, `reaped in 0s`, the one sentence this read exists to withhold.
+	case $sig in
+	(deadline | client)
+		# The kill arm (#418). The stream may well carry a `Main process exited` line, but on a
+		# killed activation that line IS the kill -- 194 microseconds ahead of the terminal one on
+		# this box's live journal -- so it cannot be where the hold starts: the subtraction would
+		# measure the hold against the moment it ends and journal `HELD 0s to the stop deadline`
+		# for a pass frozen 88 minutes on a hung `git fetch` (16 Nov: last word 04:45:58, kill
+		# 06:14:09). A killed pass starts where it was last heard from -- the same source H-0124
+		# chose for the other arm -- and when the journal cannot show that moment either, this is
+		# arm 2 again, not a zero.
 		work=$(factory_reap_lastword "$term") || return 2
-	fi
+		;;
+	(*)
+		if [ -z "$work" ]; then
+			# No `Main process exited` in the stream means systemd had nothing to say about the exit,
+			# and then the hold has exactly one source: the pass's own last line. If that is not there
+			# either, there is no start point and the honest answer is that this read does not know
+			# -- arm 2 of the contract above. Falling back to `work=$term` measured the hold against
+			# itself: `hold=0`, `how=clean`, `reaped in 0s`, the one sentence this read exists to
+			# withhold.
+			work=$(factory_reap_lastword "$term") || return 2
+		fi
+		;;
+	esac
 	w=$(factory_reap_usec "$work") || return 2
 	hold=$((t > w ? (t - w + 500000) / 1000000 : 0))
 	now=$(date -u +%s)
 	case $sig in
-	(deadline | client) how=$sig ;;
+	(deadline | client)
+		# The same prohibition's second gate (#418): a killed pass whose last visible line falls
+		# inside the terminal's own rounded second has no start point above this number's
+		# resolution -- printing it would rebuild `HELD 0s` / `0 deadline` from a stream that did
+		# have a pass line in it. The rounded second is the only resolution the field has, so a
+		# hold that rounds to zero is unread, and unknown is the honest arm. A line a whole second
+		# older is a real margin and the read keeps it: the live 16 Nov kill's last word sits
+		# 5291 s before the terminal stamp, and that number is the only surviving account of the
+		# freeze.
+		[ "$hold" -gt 0 ] || return 2
+		how=$sig
+		;;
 	(*)
 		if [ "$hold" -gt "$FACTORY_REAP_NOTICE_SECS" ]; then
 			how=unexplained
@@ -957,7 +996,7 @@ factory_reap_line() {
 		# activation" when one finished and the journal cannot say when its work stopped would send a
 		# reader to the timer, when the thing to look at is the unit's stdout.
 		if [ "$rc" = 2 ]; then
-			printf 'unknown -- %s finished, but nothing in the tail says when its work stopped: no `Main process exited` from systemd and no line from the pass at or before that moment, so the hold is unread, not zero%s\n' \
+			printf 'unknown -- %s finished, but nothing in the tail says when its work stopped: no line from the pass beats the terminal stamp by a whole rounded second, and a `Main process exited` in the tail of a killed activation is the stamp of the ending itself, not of the work stopping, so the hold is unread, not zero%s\n' \
 				"$(factory_service_unit)" "${live:+; manager says: $live}"
 		else
 			printf 'unknown -- journalctl --user has no finished activation for %s to read%s\n' \
@@ -1079,11 +1118,18 @@ EOF
 # It reads local state only -- a marker, a journal, one ledger line, one systemctl query -- because
 # the times it matters most are the times GitHub may not be reachable either.
 factory_verdict() {
-	local tick pass stale reason
+	local tick pass stale reason halt_asking
 	if factory_halted; then
-		# Zero-argument is the verdict's clause: it reports, never probes.
-		# shellcheck disable=SC2119
-		printf 'HALTED %s\n' "$(factory_halt_report)"
+		# The verdict never probes: like `--status`'s `halt:` line it chooses the asking clause from
+		# the marker itself, and the test is zero-write. A marker carrying a machine target is
+		# re-asked by the activation guard every pass (#341), so the default "and not re-probed
+		# since" would promise the opposite of what the harness does to it -- measured on #420: one
+		# `--status` on such a marker printed `not re-probed since` on the `verdict:` line and
+		# `re-probed on every activation without release` on the `halt:` line. A marker nobody
+		# stamped keeps the default: only the hand that wrote it may clear it, and nobody re-asked.
+		halt_asking=''
+		factory_halt_target >/dev/null 2>&1 && halt_asking=guarded
+		printf 'HALTED %s\n' "$(factory_halt_report "$halt_asking")"
 		return 0
 	fi
 	tick=$(factory_journal_age 'TICK-START ')

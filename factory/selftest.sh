@@ -8500,6 +8500,181 @@ else
 	printf '          Two formats for one fact is how #237'"'"'s four prints stopped meaning anything.\n'
 fi
 
+# ---------------------------------------- one marker, one asking clause, across the `--status` pair (#420)
+#
+# The leg above compares the verdict with the composer, so it can only ever be as true as the argument
+# the verdict hands the composer. #341 parameterised the asking clause precisely so the guard could
+# claim it asked, and left `factory_verdict` calling with no argument: since then every marker the
+# harness itself wrote -- the activation guard always stamps ` :: halt-target: ` -- printed #237's
+# "and not re-probed since" on the `verdict:` line while the `halt:` line under it said "re-probed on
+# every activation without release". Two opposite sentences about one marker inside one `--status` run,
+# measured on this branch's head before the repair with the issue's planted marker:
+#
+#   verdict: HALTED cause recorded 0s ago, and not re-probed since: tree dirty at activation: ...
+#   halt:    YES -- cause recorded 0s ago, re-probed on every activation without release: tree dirty ...
+#
+# The legs #341 shipped pinned the guarded `halt:` line and the hand-written shape, never the pair, so
+# the contradiction stood on the one reader a person actually types. The pair legs below run the shipped
+# `factory.sh --status` as a PROCESS: the in-process comparison above cannot see a drift at a print
+# site, and #420's drift WAS a print site -- the composer never lied. Both marker shapes are asked:
+# a guarded one must agree on the guarded clause, and the hand-written null variant must still agree on
+# #237's default -- an over-eager test that flipped the hand-written pair too is the same defect with
+# the sign flipped. The control plants the pre-#420 call (verdict back to zero-argument) in a copy
+# OUTSIDE the repository and refuses the leg if the copied shape no longer disagrees.
+q_pair_dir=$work/halt-pair
+mkdir -p "$q_pair_dir/stub" "$q_pair_dir/units"
+# A box with no user manager: `journalctl` and `systemctl` fail fast and the `reaping:` line degrades
+# visibly. The leg asks the box, never the host.
+printf '#!/bin/sh\nexit 1\n' >"$q_pair_dir/stub/journalctl"
+printf '#!/bin/sh\nexit 1\n' >"$q_pair_dir/stub/systemctl"
+chmod +x "$q_pair_dir/stub/journalctl" "$q_pair_dir/stub/systemctl"
+# The two marker shapes. The guarded one carries the machine target exactly as `factory_tree_halt`
+# stamps it; the hand-written one is a person's sentence and nothing else.
+q_pair_guarded='tree dirty at activation: kept for the person :: halt-target: unit=unclaimed:900|cause=quarantined|mirror=/nonexistent/mirror|tree=/nonexistent/tree'
+q_pair_hand='tree dirty at activation: kept for the person'
+
+q_pair_lines() { # <factory.sh to run> --status over the marker planted at $FACTORY_HALT -> the two lines
+	PATH="$q_pair_dir/stub:$PATH" \
+		FACTORY_DIR=$q_pair_dir FACTORY_LOG=$q_pair_dir/log \
+		FACTORY_LEDGER=$q_pair_dir/ledger FACTORY_RUN=$q_pair_dir/run \
+		FACTORY_HALT="$FACTORY_HALT" FACTORY_UNITS_DIR=$q_pair_dir/units \
+		FACTORY_REPO=example/repo FACTORY_HARNESS=$repo FACTORY_ROOT=$repo \
+		timeout 60 bash "$1" --status 2>"$q_pair_dir/err" \
+		| grep -E '^(verdict:|halt:)' || true
+}
+
+q_pair_plant() { # guarded|hand -> that marker, aged 5m so the age phrase is stable
+	case "$1" in
+	guarded) printf '%s\n' "$q_pair_guarded" >"$FACTORY_HALT" ;;
+	*) printf '%s\n' "$q_pair_hand" >"$FACTORY_HALT" ;;
+	esac
+	touch -d '-5 minutes' "$FACTORY_HALT"
+}
+
+q_pair_asked() { # <verdict|halt> <line> -> that line's asking clause between the age phrase and the reason
+	case "$1" in
+	verdict) printf '%s\n' "$2" | sed -n 's/^verdict: HALTED //; s/^cause recorded .* ago, //; s/: .*$//p' ;;
+	*) printf '%s\n' "$2" | sed -n 's/^halt:    *YES -- //; s/^cause recorded .* ago, //; s/: .*$//p' ;;
+	esac
+}
+
+q_pair_clauses() { # guarded|hand <factory.sh> -> `<verdict-clause>NL<halt-clause>`
+	local out
+	q_pair_plant "$1"
+	out=$(q_pair_lines "$2")
+	if [ -z "$out" ]; then
+		printf 'the spawned --status printed neither line; stderr said:\n' >&2
+		sed -n 's/^/            /p' "$q_pair_dir/err" | head -5 >&2
+		return 1
+	fi
+	printf '%s\n%s\n' \
+		"$(q_pair_asked verdict "$(printf '%s\n' "$out" | sed -n '1p')")" \
+		"$(q_pair_asked halt "$(printf '%s\n' "$out" | sed -n '2p')")"
+}
+
+q_pair_agrees() { # <label> guarded|hand <want-clause> [script] -> 0 when both lines carry that clause
+	local label=$1 shape=$2 want=$3 script=${4:-$HERE/factory.sh}
+	local got v h
+	if ! got=$(q_pair_clauses "$shape" "$script"); then
+		printf '            the --status spawn failed; see the %s lines above.\n' "$label" >&2
+		return 1
+	fi
+	v=$(printf '%s\n' "$got" | sed -n '1p')
+	h=$(printf '%s\n' "$got" | sed -n '2p')
+	if [ "$v" = "$want" ] && [ "$h" = "$want" ]; then
+		return 0
+	fi
+	printf '            the two lines of one --status run did not both carry the clause:\n' >&2
+	printf '              want:  %s\n' "$want" >&2
+	printf '              said:  %s\n' "$v" >&2
+	printf '              said:  %s\n' "$h" >&2
+	printf '          One marker speaks one asking clause; #420 is the pair disagreeing in one run.\n' >&2
+	return 1
+}
+
+q_pair_guarded_agrees() {
+	q_pair_agrees 'guarded marker' guarded 're-probed on every activation without release' || return 1
+	# And neither half may still carry the opposite sentence anywhere in the line.
+	q_pair_plant guarded
+	if q_pair_lines "$HERE/factory.sh" | grep -q 'not re-probed since'; then
+		printf '            a --status line still carries `and not re-probed since` under a\n' >&2
+		printf '            marker the harness stamped -- the guard re-asks that marker every pass.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_guarded_agrees; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s both lines claim the re-probe the marker earns\n' "halt pair: guarded marker"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the verdict: and halt: lines disagree about one guarded marker\n' "halt pair: guarded marker"
+fi
+
+q_pair_hand_agrees() {
+	q_pair_agrees 'hand-written marker' hand 'and not re-probed since' || return 1
+	q_pair_plant hand
+	if q_pair_lines "$HERE/factory.sh" | grep -E -q 're-probed (on every activation|this pass)'; then
+		printf '            a --status line claims a re-probe of a marker with no target to ask;\n' >&2
+		printf '            #237'"'"'s clause is the only true one for a hand-written halt.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_hand_agrees; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s both lines keep #237'"'"'s clause for a stampless marker\n' "halt pair: hand-written"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the pair drifted on the marker nobody stamps\n' "halt pair: hand-written"
+fi
+
+# The control: the pre-#420 call, planted in a copy OUTSIDE the repository. Without it these legs could
+# be passing on a pair that never disagreed -- so the mutated copy MUST produce two different clauses
+# on the guarded marker, and an unmutated copy of the same two files must not, which keeps the failure
+# attributable to the one mutated line rather than to the copying or the spawn.
+q_pair_control() {
+	local root=$q_pair_dir/ctrl mut
+	mkdir -p "$root/factory" "$root/mut/factory" || return 1
+	cp -- "$HERE/factory.sh" "$HERE/common.sh" "$root/factory/" || return 1
+	cp -R -- "$root/factory/." "$root/mut/factory/" || return 1
+	if [ "$(grep -c 'halt_asking=guarded' "$root/mut/factory/common.sh")" != 1 ]; then
+		printf '            the mutant anchor `halt_asking=guarded` does not occur exactly once in\n' >&2
+		printf '            factory/common.sh, so it would not be planted where it is described.\n' >&2
+		return 1
+	fi
+	sed -i 's/halt_asking=guarded/halt_asking=/' "$root/mut/factory/common.sh" || return 1
+	# The mutation must be in the copy AND the shipped shape gone: an anchor that never applied is a
+	# control that ran shipped code and proved nothing.
+	if ! grep -q 'halt_asking=guarded' "$root/factory/common.sh" \
+		|| grep -q 'halt_asking=guarded' "$root/mut/factory/common.sh"; then
+		printf '            the mutant line is not planted exactly on the verdict'"'"'s guard,\n' >&2
+		printf '            so the control would have run shipped code.\n' >&2
+		return 1
+	fi
+	mut=$(q_pair_clauses guarded "$root/mut/factory/factory.sh") || return 1
+	if [ "$(printf '%s\n' "$mut" | sed -n '1p')" = "$(printf '%s\n' "$mut" | sed -n '2p')" ]; then
+		printf '            control failed: the copy with the zero-argument verdict still printed\n' >&2
+		printf '            one clause, so the legs above cannot see #420'"'"'s shape.\n' >&2
+		return 1
+	fi
+	if ! q_pair_agrees 'control-copy' guarded 're-probed on every activation without release' \
+		"$root/factory/factory.sh"; then
+		printf '            control failed: the UNMUTATED copy disagreed, so the disagreement\n' >&2
+		printf '            the leg just saw belongs to the copy, not to the mutated line.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_control; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s the pre-#420 call disagrees with itself, the copy does not\n' "control: halt pair leg"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the pair legs cannot see the shape they were written for\n' "control: halt pair leg"
+fi
+rm -f -- "$FACTORY_HALT"
+
 ageless_halt_prints() { # dir -> shipped lines under factory/ that print the sentence with no age
 	if [ ! -d "$1/factory" ]; then
 		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
@@ -21049,6 +21224,43 @@ cat >"$rp_dir/two-activations" <<'F'
 2026-11-11T04:00:11.999972+00:00 h systemd[4485]: plrev283b.service: State 'stop-sigterm' timed out. Killing.
 2026-11-11T04:00:12.000000+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
 F
+# A deadline kill of an activation that wrote nothing while it died -- the #418 shape, transcribed
+# from this box's live journal (16 Nov 04:43 activation, unit renamed): systemd RuntimeMaxSec-killed
+# it after 91 silent minutes and wrote the whole kill block inside 565 microseconds, so the stream's
+# only `Main process exited` candidate sits 194 microseconds ahead of the terminal `Failed to start`.
+# A read that takes that stamp for the work line answers `0 deadline`: the H-0124 sentence
+# re-entering through the arm that HAS an exit line, a 1 h 31 min freeze timed against its own kill.
+cat >"$rp_dir/deadline-kill" <<'F'
+2026-11-16T04:43:09.002543+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-16T06:14:09.249970+00:00 h systemd[4485]: plrev283b.service: start operation timed out. Terminating.
+2026-11-16T06:14:09.250275+00:00 h systemd[4485]: plrev283b.service: Main process exited, code=killed, status=15/TERM
+2026-11-16T06:14:09.250298+00:00 h systemd[4485]: plrev283b.service: Failed with result 'timeout'.
+2026-11-16T06:14:09.250469+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+2026-11-16T06:14:09.250535+00:00 h systemd[4485]: plrev283b.service: Consumed 7.100s CPU time over 1h 31min 247ms wall clock time, 46.6M memory peak.
+F
+# The same kill armed: one line from the pass 400 microseconds before the terminal stamp, a pass
+# killed mid-sentence. The last word EXISTS, so it is the margin that answers, not the missing
+# line -- 400 us of margin rounds to the forbidden zero anyway, and zero is the thing no killed
+# pass may print whichever arm it came from.
+cat >"$rp_dir/deadline-kill-noise" <<'F'
+2026-11-16T04:43:09.002543+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-16T06:14:09.250069+00:00 h factory.sh[313344]: 2026-11-16T06:14:09Z ACTION git -C /home/rodney/prj/wt/issue-340 fetch origin main
+2026-11-16T06:14:09.250275+00:00 h systemd[4485]: plrev283b.service: Main process exited, code=killed, status=15/TERM
+2026-11-16T06:14:09.250298+00:00 h systemd[4485]: plrev283b.service: Failed with result 'timeout'.
+2026-11-16T06:14:09.250469+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+F
+# And the margin's other side, the real 16 Nov shape: the pass's last word a whole second-plus
+# before the kill. A hold of 1 s must still be PRINTED here -- rc 2 for this transcript would mean
+# the margin swallows every killed pass, and the live one it generalises over held the queue
+# 5291 s, a number this read is the only surviving trace of.
+cat >"$rp_dir/deadline-kill-second" <<'F'
+2026-11-16T04:43:09.002543+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-16T06:14:08.249469+00:00 h factory.sh[313344]: 2026-11-16T06:14:08Z ACTION git -C /home/rodney/prj/wt/issue-340 fetch origin main
+2026-11-16T06:14:09.249970+00:00 h systemd[4485]: plrev283b.service: start operation timed out. Terminating.
+2026-11-16T06:14:09.250275+00:00 h systemd[4485]: plrev283b.service: Main process exited, code=killed, status=15/TERM
+2026-11-16T06:14:09.250298+00:00 h systemd[4485]: plrev283b.service: Failed with result 'timeout'.
+2026-11-16T06:14:09.250469+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+F
 
 rp_ask() { # rp_ask <fixture> <dumb 0|1> -> the read's TAB line; the read's status is the status
 	local f=$1 dumb=${2:-0}
@@ -21064,6 +21276,50 @@ rp_sentence() { # rp_sentence <fixture> <dumb> -> the `reaping:` line, manager s
 		bash -c '. "$1/common.sh" 1>/dev/null
 			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
 			factory_reap_line' _ "$HERE"
+}
+
+# The rc-2 reason, pinned once and replayed over EVERY state that emits it (the #484 review). The
+# sentence used to enumerate two absences -- no `Main process exited` from systemd, no line from the
+# pass at or before the terminal moment -- and both halves are false on the sub-second kill: the
+# tail CARRIES systemd's exit line (its own kill stamp, at 06:14:09.250275 in the fixture) and a
+# pass line AT 06:14:09.250069, inside the terminal 06:14:09.250469 -- at or before, which is
+# exactly why the margin gate refused it. A `REAP-UNKNOWN` row must never state a falsehood about
+# the journal it is reading: the reader at 03:00 would doubt the capture instead of the kill. So
+# each rc-2 fixture renders the sentence here, and the sentence must carry the fact true of all
+# four states -- no pass line beats the terminal stamp by a whole rounded second, and a
+# `Main process exited` in a killed tail stamps the ending, not the stop of work -- and must
+# forbid the old enumeration's return. Pinning the lead clause alone (the shape before this
+# review) is the gap: it passed over a sentence whose every colon clause the tail refuted.
+rp_pin_unknown() { # rp_pin_unknown <fixture> -> 0 iff the reaping line gives the true rc-2 reason
+	local f=$1 line='' lied='no `Main process exited` from systemd'
+	line=$(rp_sentence "$f" 1)
+	case $line in
+	(*'nothing in the tail says when its work stopped'*) : ;;
+	(*) rp_say "the reaping sentence for $f is not the unknown sentence:"; rp_say "$line"
+		rp_say "and it must never be a hold: 'reaped in 0s' and 'HELD 0s' are both retired numbers"; return 1 ;;
+	esac
+	case $line in
+	(*'beats the terminal stamp by a whole rounded second'*) : ;;
+	(*) rp_say "the reaping sentence for $f does not say the margin gate is why it cannot read:"
+		rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*'stamp of the ending itself'*) : ;;
+	(*) rp_say "the reaping sentence for $f does not say a killed tail's Main process exited is"
+		rp_say "the stamp of the ending itself, so the reader hunts an absent line that is there:"
+		rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*"$lied"*)
+		rp_say "the reaping sentence for $f still denies the tail carries a Main process exited"
+		rp_say "line. The kill fixtures HAVE one (it is the kill stamp itself): the emitted reason"
+		rp_say "would state a falsehood about the journal it is reading:"; rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*'HELD'* | *'reaped in'*)
+		rp_say "the unread teardown $f still printed a hold:"; rp_say "$line"; return 1 ;;
+	esac
+	return 0
 }
 
 rp_fields() { # rp_fields <TAB line> -> hold|how|open. The age is dropped on purpose: it counts from
@@ -21168,20 +21424,11 @@ reap_leg_boundary() {
 claim_leg 'reap: nothing after the terminal line counts' reap_leg_boundary
 
 reap_leg_no_worker() {
-	local got='' rc=0 line=''
+	local got='' rc=0
 	got=$(rp_ask "$rp_dir/no-worker" 1) || rc=$?
 	[ "$rc" -eq 2 ] || { rp_say "rc=$rc, want 2 (arm 2 of factory_reap_read's contract)"; return 1; }
 	[ -z "$got" ] || { rp_say "arm 2 printed a verdict anyway: '$got'"; return 1; }
-	line=$(rp_sentence "$rp_dir/no-worker" 1)
-	case $line in
-	(*'nothing in the tail says when its work stopped'*) : ;;
-	(*) rp_say "the reaping line for an unread teardown is not the unknown sentence:"; rp_say "$line"
-		rp_say "what it must not be is 'reaped in 0s', the healthy case's own words"; return 1 ;;
-	esac
-	case $line in
-	(*'reaped in'* | *'HELD'*)
-		rp_say "the unread teardown still printed a hold:"; rp_say "$line"; return 1 ;;
-	esac
+	rp_pin_unknown "$rp_dir/no-worker" || return 1
 	return 0
 }
 claim_leg 'reap: no worker line is unknown, not zero' reap_leg_no_worker
@@ -21219,12 +21466,66 @@ reap_leg_rounding() {
 }
 claim_leg 'reap: the hold is the truth, not the seconds' reap_leg_rounding
 
+reap_leg_deadline_kill() {
+	local got='' rc=0
+	# #418's fixture pair, silent side: the kill's `Main process exited` is 194 us ahead of the
+	# terminal line, so a read that takes it for the work stamp answers `0 deadline` for a
+	# 1 h 31 min freeze -- the H-0124 sentence through the arm that has an exit line. The stream
+	# wrote nothing the manager did not also write, so there is no start point: arm 2.
+	got=$(rp_ask "$rp_dir/deadline-kill" 1) || rc=$?
+	[ "$rc" -eq 2 ] || {
+		rp_say "a deadline kill of a silent pass answered rc=$rc, want 2 (arm 2 of the contract)"
+		rp_say "it printed: '$got' -- '0 deadline' is a teardown timed by its own ending"
+		return 1; }
+	[ -z "$got" ] || { rp_say "arm 2 printed a verdict anyway: '$got'"; return 1; }
+	rc=0
+	got=$(rp_ask "$rp_dir/deadline-kill" 0) || rc=$?
+	[ "$rc" -eq 2 ] || { rp_say "honouring --until and -n the same kill answers rc=$rc, want 2"; return 1; }
+	# The reason is rendered and pinned too (#484 review): this tail CARRIES the kill's
+	# `Main process exited`, so the emitted sentence may not deny it -- 'HELD 0s to the stop
+	# deadline' and a false enumeration are both retired shapes of this same lie.
+	rp_pin_unknown "$rp_dir/deadline-kill" || return 1
+	return 0
+}
+claim_leg 'reap: a silent pass killed at the deadline is unknown, not zero' reap_leg_deadline_kill
+
+reap_leg_deadline_margin() {
+	local got='' rc=0 shape=''
+	# The gate is the number's resolution, not a magic distance. 400 microseconds is a positive
+	# margin in stamps and still rounds to the forbidden `0 deadline`, so the arm answers unknown;
+	# 1.001 s is the same kill a measurable distance from its pass's last word, and answering
+	# rc 2 THERE would erase the account of every killed pass -- the live 16 Nov kill included,
+	# whose 5291 s hold only this read carries.
+	got=$(rp_ask "$rp_dir/deadline-kill-noise" 1) || rc=$?
+	[ "$rc" -eq 2 ] || {
+		rp_say "a killed pass with its last word 400 us before the terminal answered rc=$rc, want 2"
+		rp_say "it printed: '$got'"
+		return 1; }
+	rc=0
+	# The doubly-false state the #484 review measured: this tail carries BOTH the kill's exit line
+	# and a pass line at or before the terminal stamp (06:14:09.250069 against 06:14:09.250469 --
+	# inside it, which is why the margin refused it). Render the emitted reason here and pin the
+	# true one; before this round the noise fixture never rendered a sentence at all, which is the
+	# width the suite could not see through.
+	rp_pin_unknown "$rp_dir/deadline-kill-noise" || return 1
+	shape=$(rp_fields "$(rp_ask "$rp_dir/deadline-kill-second" 1)")
+	[ "$shape" = "1|deadline|0" ] || {
+		rp_say "a kill 1.001 s after the pass's last word read $shape, want 1|deadline|0"
+		rp_say "rc 2 here means the gate swallowed the measurable kills with the unmeasurable ones"
+		return 1; }
+	return 0
+}
+claim_leg 'reap: the kill margin is the printed second' reap_leg_deadline_margin
+
 reap_leg_live() {
 	# The read against the journal that is actually here, as a shape and not a value: what the last
 	# pass cost this machine changes minute to minute, and a leg that pinned it would be a clock. What
 	# is invariant is the contract -- four tab-separated fields, a numeric hold, a verdict word -- plus
-	# one substantive pairing: a verdict of `deadline` with a hold of 0 is the exact shape `H-0124`
-	# removed, so if this box's journal can produce a deadline it cannot produce a zero one.
+	# one substantive pairing: a killed verdict (`deadline`, `client`) with a hold of 0 is the exact
+	# shape `H-0124` retired and `#418` re-opened through the kill arm. The synthetic kill legs above
+	# pin it as a property of the READ -- a box whose newest finished activation is a silent kill
+	# lands in the rc-2 case a few lines up and passes here -- so this is its live witness, no longer
+	# a premise about what this box's journal can or cannot produce.
 	local got='' rc=0 shape='' hold='' how='' age='' open=''
 	if ! journalctl --user --no-pager -n 1 >/dev/null 2>&1; then
 		printf '        skip  the live journal: this box has no user journal to read\n'
@@ -21252,9 +21553,15 @@ EOF
 	(clean | deadline | client | unexplained) : ;;
 	(*) rp_say "unrecognised verdict '$how': $got"; return 1 ;;
 	esac
-	[ "$how" != deadline ] || [ "$hold" -gt 0 ] || {
-		rp_say "the live journal produced a deadline hold of 0s: $got"
-		rp_say "that is the H-0124 shape: held by the deadline, measured against itself"; return 1; }
+	case $how in
+	(deadline | client)
+		[ "$hold" -gt 0 ] || {
+			# The sentence below read "the live journal produced a deadline hold of 0s" until #418
+			# widened it over both killed verdicts; log rows citing the original keep a line here
+			# that still carries it.
+			rp_say "the live journal produced a $how hold of 0s: $got"
+			rp_say "that is the H-0124/#418 shape: held by the kill, measured against the kill"; return 1; } ;;
+	esac
 	return 0
 }
 claim_leg 'reap: the live journal, if there is one' reap_leg_live
