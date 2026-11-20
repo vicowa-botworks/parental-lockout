@@ -5657,3 +5657,178 @@ factory_delivery_after_failure() {
 # number moves by six; neither decision log cites the constant by line, so the move costs nothing, and
 # the review that found the finding was written against the old head in any case.
 FACTORY_MCP_FENCE='{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}'
+
+# ---------------------------------------------------------------------------------------------
+# Is the factory loop out of the tree at this instant, and can that answer be trusted? (#423)
+#
+# Why a function exists when `systemctl show` already prints a state: the bytes a naive idle check
+# reads are the same bytes a WRONG MANAGER prints for free. This unit is installed in the user
+# manager (`FragmentPath=` under `~/.config/systemd/user/`), and measured 2026-11-16T11:14:56Z
+# while a pass was `activating` with `MainPID=3224807` and a live `git fetch` child, a bare
+# `systemctl show parental-lockout-factory.service -p ActiveState -p SubState` asked of the SYSTEM
+# manager answered `ActiveState=inactive SubState=dead` at exit 0 (#423). Those two properties are
+# the exact precondition people act on -- fast-forward `main`, edit `factory/*.sh`, remove a
+# worktree -- and systemd serves them, with exit 0, for a unit it has never loaded, through a
+# manager where the unit does not exist. `LoadState` is the only property that separates "idle"
+# from "not here", so it must be read FIRST, and `not-found` is not idle.
+#
+# Three signals, because each one misses what the others see, and a verdict may answer `idle` only
+# when all three agree:
+#
+#   1. the user manager's properties, read as KEY=VALUE lines because `systemctl show` answers in
+#      its own order, not the order asked (measured on systemd 259 beside `factory_unit_state`).
+#      `active|activating|deactivating|reloading` is a pass running or being reaped; a `LoadState`
+#      that is not `loaded` means this manager is not the one the unit lives in -- the question
+#      `LoadState` exists to refuse.
+#   2. `flock -n` on `$FACTORY_RUN/lock` -- the file the pass holds from before its first read
+#      until it exits. It is path-shaped, so unlike a systemd property it cannot be answered by
+#      the wrong manager, and it is the only signal here that sees a hand-started
+#      `bash factory/factory.sh` on a box where the unit is not even installed. The line names
+#      the file it asked, because the lock lives per tree and a reader standing in a second
+#      checkout has to see which lock was asked.
+#   3. the process table: a field of some `/proc/<pid>/cmdline` that IS a `*/factory/factory.sh`
+#      path, in front of an argv0 that runs things (a shell, or `env` with the shell next, or the
+#      script itself -- the unit's own `ExecStart` shape after `#!/usr/bin/env bash`). This is
+#      the signal that sees the activation which has started but not yet reached `flock -n 9`
+#      (the self-report hoist runs ahead of the lock, H-0191). A process that merely names the
+#      script without a runner in front -- `sed -n 1,5p factory/factory.sh`, `tail -f` -- is a
+#      reader, not the pass, and is not counted: requiring the whole field to equal the script
+#      path is what keeps `bash -c "grep x factory/factory.sh"` out of the count.
+#
+# The journal is NOT one of the three, and the omission is the ticket's own finding: #380 measured
+# that an activation refused by the lock exits 7 with a stderr sentence and no journal line, so
+# `END rc=` with nothing after it can sit beside an armed queue, and a missing `END` can sit beside
+# a pass that only failed to speak. A verdict that read the journal would inherit both defects.
+#
+# What it deliberately does not do is call `factory_paths`: the mkdir that would ensure
+# `$FACTORY_RUN` is a write, and a guard a stranger may call from any checkout must not leave
+# directories in trees it does not own -- the same rule that keeps `factory_worktree_busy` from
+# re-probing. A missing run directory is a real answer (nothing has ever armed under this
+# `FACTORY_DIR`), not a missing mkdir.
+#
+# usage: factory_unit_idle [unit]   -- default unit: factory_service_unit
+# stdout: exactly one line, verdict first:
+#           idle    <the three signals with their values>
+#           busy    <the signal that fired, with its receipt>
+#           unknown <which question could not be asked, and what was refused>
+# exit:   0 idle     -- all three signals ran and none saw a pass. A check is not a lock: the
+#                       timer can arm a new activation at any moment, and mutating trunk still
+#                       owes the claim check (`factory_tree_claim_check`) and, for a worktree,
+#                       `factory_worktree_busy`.
+#         1 busy     -- at least one signal saw a pass running or being reaped.
+#         2 unknown  -- a question could not be asked (bus unreachable, unit not loaded HERE,
+#                       `flock` or `pgrep` exited neither-way, unit `failed`). Never 0: the
+#                       green light is only for a read that completed (#232's polarity, kept
+#                       here exactly as `factory_worktree_busy` keeps it).
+factory_unit_idle() { # [unit] -> 0 idle | 1 busy | 2 unknown; one verdict line on stdout
+	local unit=${1:-}
+	[ -n "$unit" ] || unit=$(factory_service_unit)
+
+	local -a unknowns=()
+	local out='' rc=0 line load='' active='' sub='' busy='' note=''
+	local lock=${FACTORY_RUN:-}/lock lock_note=''
+	local plist='' pgrc=0 pid argv0 f direct ui_r0 ui_run
+
+	out=$(systemctl --user show "$unit" -p LoadState -p ActiveState -p SubState 2>/dev/null) || rc=$?
+	while IFS= read -r line; do
+		case $line in
+		'LoadState='*) load=${line#'LoadState='} ;;
+		'ActiveState='*) active=${line#'ActiveState='} ;;
+		'SubState='*) sub=${line#'SubState='} ;;
+		esac
+	done <<<"$out"
+
+	if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+		unknowns+=("the user manager could not be asked (systemctl exit $rc)")
+	elif [ -z "$load" ]; then
+		# `systemctl show` was asked for LoadState and did not answer it. Today every shape of unit
+		# gets a LoadState line; the arm exists so the day one does not cannot read as idle, which
+		# is the whole thesis of this function.
+		unknowns+=("the user manager answered without a LoadState line, so the not-found question is unanswered")
+	elif [ "$load" != "loaded" ]; then
+		unknowns+=("$unit reads LoadState=$load ActiveState=${active:-unset} SubState=${sub:-unset} to the user manager: not-found is not idle -- a bare \`systemctl show\` of this unit against the SYSTEM manager answers \`ActiveState=inactive SubState=dead\` at exit 0 whether or not a pass is running (#423)")
+	elif [ "$active" = active ] || [ "$active" = activating ] || [ "$active" = deactivating ] ||
+		[ "$active" = reloading ]; then
+		busy="the user manager reads ActiveState=$active SubState=${sub:-unset}"
+	elif [ "$active" = "inactive" ] && [ "$sub" = "dead" ]; then
+		note="unit $unit is $load/$active/$sub to the user manager"
+	else
+		# `failed` lands here: nothing runs, but #246's table is the record of what a `failed`
+		# reading hides (Result=exit-code beside a 91-minute hold), and "idle" is a green light --
+		# a guard that cannot read health says so instead of handing out the green.
+		unknowns+=("unit $unit is loaded but in a state idle cannot be read from: ActiveState=${active:-unset} SubState=${sub:-unset}")
+	fi
+
+	# Signal 2, the lock. Only asked when signal 1 did not already see the pass: the busy answer
+	# is the first one that fires, and reading a stranger's lock file when nothing needs it is
+	# not this guard's business.
+	if [ -z "$busy" ]; then
+		if [ ! -e "${FACTORY_RUN:-/nonexistent}" ]; then
+			lock_note="lock $lock -- no run directory under FACTORY_DIR, nothing has ever armed here"
+		elif [ ! -e "$lock" ]; then
+			lock_note="lock $lock -- no lock file, nothing has ever armed here"
+		else
+			rc=0
+			flock -n "$lock" -c true 2>/dev/null || rc=$?
+			case $rc in
+			0) lock_note="lock $lock -- free" ;;
+			1) busy="the run lock $lock is held by a live supervisor" ;;
+			*) unknowns+=("flock on $lock exited $rc, which is neither free (0) nor held (1)") ;;
+			esac
+		fi
+	fi
+
+	# Signal 3, the process table. `|| pgrc=$?` so `set -e` sees the refusal as data.
+	if [ -z "$busy" ]; then
+		plist=$(pgrep -f 'factory/factory\.sh' 2>/dev/null) || pgrc=$?
+		case $pgrc in
+		0 | 1)
+			local -a uif=()
+			for pid in $plist; do
+				[ -r "/proc/$pid/cmdline" ] || continue
+				uif=()
+				while IFS= read -r -d '' f; do uif+=("$f"); done <"/proc/$pid/cmdline"
+				[ ${#uif[@]} -gt 0 ] || continue
+				argv0=${uif[0]}
+				direct=0
+				for f in "${uif[@]}"; do
+					case $f in */factory/factory.sh) direct=1; break ;; esac
+				done
+				[ "$direct" = 1 ] || continue
+				# The field that decides "runner": argv0, unless argv0 is `env` (what the kernel
+				# leaves for `#!/usr/bin/env bash`, the unit's own ExecStart shape: argv0 is env,
+				# the shell is the NEXT field) or `busybox` (same indirection).
+				local ui_r0=$argv0
+				case $argv0 in
+				env | */env | busybox | */busybox) ui_r0=${uif[1]:-} ;;
+				esac
+				local ui_run=0
+				case $ui_r0 in
+				bash | sh | dash | zsh | ksh | -bash | -sh | */bash | */sh | */dash | */zsh | */ksh)
+					ui_run=1 ;;
+				esac
+				case $argv0 in */factory/factory.sh) ui_run=1 ;; esac # direct kernel exec: path is argv0
+				if [ "$ui_run" = 1 ]; then
+					busy="a live pass process pid $pid is running $(tr '\0' ' ' <"/proc/$pid/cmdline")"
+					break
+				fi
+			done
+			[ -n "$busy" ] || note="${note:+$note; }no running pass process (a naming of the script that is not a run is not counted)"
+			;;
+		*) unknowns+=("pgrep exited $pgrc, so the process question is unanswered") ;;
+		esac
+	fi
+
+	if [ -n "$busy" ]; then
+		printf 'busy   %s\n' "$busy"
+		return 1
+	fi
+	if [ ${#unknowns[@]} -ne 0 ]; then
+		local uij
+		uij=$(printf '%s; ' "${unknowns[@]}")
+		printf 'unknown %s\n' "${uij%; }"
+		return 2
+	fi
+	printf 'idle   %s; %s\n' "$note" "$lock_note"
+	return 0
+}
