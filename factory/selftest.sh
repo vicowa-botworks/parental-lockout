@@ -23452,6 +23452,9 @@ proc_claim_mut=0
 proc_mutate_factory 'factory_tree_claim_check "$unit" "$tree" || return 5' \
 	'	factory_tree_claim_check "$unit" "$tree" || true' && proc_claim_mut=1
 cl_mut_claim=$(cl_plant_box_claim human:merge issue-901 "$(( $(date +%s) + 600 ))")
+# the planted file IS the control's precondition: if it is gone, a merged pass
+# proves the mutant worked for the wrong reason
+[ -f "$cl_mut_claim" ] || { printf 'claim-tick-held-mut: the planted claim file is gone\n' >&2; proc_rc=99; }
 proc_run claim-tick-held-mut-1
 proc_claim_control_return5() { # <mutated>
 	[ "$1" = 1 ] || {
@@ -23543,6 +23546,9 @@ proc_leg 'control: with the release muted the mint still fires and the file outl
 proc_new claim-tick-expired
 cl_branch issue-903
 cl_stale=$(cl_plant_box_claim dead:1 issue-903 "$(( $(date +%s) - 10 ))")
+# the stale file must exist for the sweep to have anything to sweep: if minting
+# returned nothing, TREE-CLAIM-EXPIRED could only be the fixture talking to itself
+[ -f "$cl_stale" ] || { printf 'claim-tick-expired: the planted claim file is gone\n' >&2; proc_rc=99; }
 proc_run claim-tick-expired-1
 proc_claim_expiry_leg() { # <journal> <claimfile>
 	local j=$1 f=$2
@@ -23653,6 +23659,9 @@ proc_claim_conflict_leg() { # <journal> <tree>
 
 proc_claim_conflict_box claim-conflict-held || proc_rc=98
 cl_conf_claim=$(cl_plant_box_claim human:merge issue-900 "$(( $(date +%s) + 600 ))")
+# the planted file IS the leg's precondition: without it the refusal below would
+# be the shipped code refusing nothing
+[ -f "$cl_conf_claim" ] || { printf 'claim-conflict-held: the planted claim file is gone\n' >&2; proc_rc=99; }
 proc_run claim-conflict-held-1
 proc_leg 'a live claim stops the inline conflict merge before git, not after' \
 	'TREE-HELD pr:900 and CONFLICT-DEFERRED, with no CONFLICT-UNRESOLVED, no queued tick, no MERGE_HEAD' \
@@ -23663,6 +23672,7 @@ proc_claim_mut=0
 proc_mutate_factory 'factory_tree_claim_check "pr:$pr" "$tree" || return 2' \
 	'	factory_tree_claim_check "pr:$pr" "$tree" || true' && proc_claim_mut=1
 cl_conf_claim=$(cl_plant_box_claim human:merge issue-900 "$(( $(date +%s) + 600 ))")
+[ -f "$cl_conf_claim" ] || { printf 'claim-conflict-held-mut: the planted claim file is gone\n' >&2; proc_rc=99; }
 proc_run claim-conflict-held-mut-1
 proc_claim_control_merge() { # <mutated>
 	[ "$1" = 1 ] || {
