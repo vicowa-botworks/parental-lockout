@@ -11,6 +11,12 @@
   journal has ever journalled (`H-0219`) is still the one id that cannot be flagged when re-issued,
   and whether the allocator's union contains the calling branch's own log under a dispatch is still
   unanswered. That is the open question filed in #427's blast-radius item 5; it is not closed here.
+- Pushed at 2026-11-20T23:09Z as `eb8c61441fe9d9c882e470cf43b111fd64ae20cc`, checkpoint
+  `416388e96c9ba7dcd99a0eff9a3f5d18eee0e2b0`, base `401dbdcec0776672f5069ca3ee6eba338225e01e`, PR
+  #493 open at that sha (read back: `headRefName=issue-427`, body md5
+  `e8cbfb28fdadc0a777315d1252ee36d4` identical on both sides). Nobody was asked for review: the ask is
+  the supervisor's poke, not this unit's, and `gh pr edit --add-reviewer` writes nothing here
+  (`H-0010`).
 - Gate state at push, as measured, not as expected: `bash -n` clean on `factory/common.sh`,
   `factory/factory.sh`, `factory/selftest.sh`; `python3 scripts/check-decisions.py` exits 1 with 210
   refused citations, and that is PRE-EXISTING on trunk — re-run
