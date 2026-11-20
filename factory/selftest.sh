@@ -7510,12 +7510,12 @@ proc_leg 'mktemp is the difference' \
 # conflict arm back outside the sweep while every leg above still went green -- the marker names in those
 # legs come from the arm's own writing, so they follow a rename rather than resisting one.
 proc_both_arms_name_one_stream() {
-	local tick conflict maker got
+	local tick conflict maker minted got
 	tick=$(grep -cF -- 'werr=$(factory_worktree_stream)' "$HERE/factory.sh" || true)
 	conflict=$(grep -cF -- 'worktree_err=$(factory_worktree_stream)' "$HERE/factory.sh" || true)
-	# A code line, not a mention: the sentence that explains why `mktemp` went away necessarily names
-	# it, and a leg that reddens on the word would be a leg someone deletes the sentence for.
-	maker=$(grep -v '^[[:space:]]*#' "$HERE/factory.sh" | grep -c 'mktemp' || true)
+	# A code line, not a mention — #415's mint and the sentence journaling its refusal both name
+	# `mktemp` (H-0322, H-0323); the guard counts the invocation the pre-#364 stream arms spelled:
+	maker=$(grep -v '^[[:space:]]*#' "$HERE/factory.sh" | grep -cF '$(mktemp' || true); minted=$(grep -cF 'scratch=$(mktemp -d' "$HERE/factory.sh" || true)
 	[ "$tick" = 1 ] || {
 		printf '            factory_tick takes its stream name from factory_worktree_stream %s time(s).\n' "$tick" >&2
 		return 1
@@ -7525,11 +7525,11 @@ proc_both_arms_name_one_stream() {
 		printf '            %s time(s), so it is naming the file itself again.\n' "$conflict" >&2
 		return 1
 	}
-	[ "$maker" = 0 ] || {
-		printf '            factory/factory.sh calls mktemp on a code line %s time(s) again. A stream\n' "$maker" >&2
-		printf '            written to $TMPDIR is outside the sweep, which is the whole of #364.\n' >&2
+	if [ "$maker" != 1 ] || [ "$minted" != 1 ]; then # the one allowed invocation is the mint
+		printf '            factory/factory.sh invokes mktemp %s time(s); its #415 scratch mint occurs\n' "$maker" >&2
+		printf '            %s time(s). A stream named by mktemp sits outside the sweep (#364).\n' "$minted" >&2
 		return 1
-	}
+	fi
 	# The name itself, from the shipped helper, in a scratch home: the file must sit inside the
 	# directory the sweep reads AND carry the pattern the sweep matches. Both halves of the fix are
 	# worth a sentence each -- a swept directory with an unmatched name preserves nothing, and an

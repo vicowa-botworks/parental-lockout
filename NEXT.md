@@ -1,4 +1,63 @@
-# NEXT — issue-372 conflict tick, round 2 (branch `issue-372`, PR #474: the second base sync is in,
+# NEXT — issue-415 verify-fix round (branch `issue-415`, PR #480: the red this branch shipped is
+the #364 guard eating its own host — `both arms name one stream` still counted code-line `mktemp`
+occurrences at 0, and the per-tick scratch mint this branch's H-0322 ships is exactly one such line,
+at `factory/factory.sh:1307`, the very shape the pre-#364 stream arms spelled; the leg now demands
+exactly one such invocation and pins it by the mint's own bytes, so the exception is a ledger and
+not a hole. The `shellcheck` job died first — two continuation-backslash mutants and an
+unquoted `FACTORY_LEDGER` assignment, both inside this branch's own #415 fixtures — so neither red
+was visible under it; both were fixed ahead of the decision pass with the mutant anchors
+re-measured byte-identical; the pass is `H-0323`; the pull Refs #415 and the issue keeps its own
+terms, never this file; merging belongs to the supervisor)
+
+## What this round shipped
+
+- The leg in `factory/selftest.sh` re-authored at net-zero lines: `maker` counts the code-line
+  invocation `$(mktemp`, `minted` counts the mint's fixed string `scratch=$(mktemp -d`, and the
+  leg passes only at 1/1. The block is 7/7 — `factory/selftest.sh:7512`, the anchored function
+  line H-0322 cites, is its first line and 159 log pointers sit above the block — so no
+  coordinate anywhere in the file moved.
+- The two shellcheck fixes, committed ahead of the checkpoint because that job gates every check
+  under it: the `scr415_env_channel` mutant strings carry their trailing backslash in a
+  double-quoted `"$cont"` segment (SC1003; the bytes handed to awk re-measured as one-hit
+  anchors in `factory/factory.sh`), and the halt-box fixture carries the SC2034 directive on
+  `FACTORY_LEDGER` like the three H-0322 placed — both blocks sit past the file's highest cited
+  coordinate (26242), so their growth was free.
+- `factory/DECISIONS.md` gained `H-0323` on checkpoint `1de4ac8`; the twenty-two `NEXT.md`
+  pointers re-aimed from 2753/2857 to the hazard rows as this head ships them, and this file's
+  own prose rows naming those numbers re-aimed to the same coordinates.
+
+## What this push spent
+
+- Any `APPROVED` read on #480 is voided by this push — the ask is the supervisor's
+  `factory_request_review` poke, not this unit's.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of #480 after this push — the poke owns the ask.
+2. Carried from the issue-372 round-2 Record below, unrenumbered: its items 1–7 — #474's
+   re-review, the `H-0283` Record row 7 (`dash_ctl`'s locale pin) and the #352-errata placement
+   question, the issue-390 base-sync items 2–5, the two hazard rows (now at 2812 and 2916),
+   round 1's "nine legs" nit, trunk's 23 dangling ids, and the `H-0283` locale-caveat debt and
+   every row the deeper Records still carry.
+
+## Constraints a stranger would break here
+
+- `factory/selftest.sh:7528` is the mktemp exception ledger: if a second legitimate `mktemp`
+  ever enters `factory/factory.sh`, both counts move in the commit that adds the call, or the
+  leg reddens by design.
+- The two mutant strings in `scr415_env_channel` are exact-byte anchors into
+  `factory/factory.sh`'s tick-env block; the `"$cont"` concatenation is measured, and any
+  re-quoting must re-count the one-hit before trusting a green leg.
+- The cited region of `factory/selftest.sh` runs to 26242 and the tail from the #415 blocks
+  (~26505) on is the only growth-free zone; an insert anywhere before the highest cited
+  coordinate moves every pointer below it — re-run `python3 scripts/check-decisions.py
+  --citations factory/selftest.sh` and fix what you moved in the same commit.
+- The `and nothing else does` MCP-fence control needs a parent environment that does NOT carry
+  `OPENCODE_CONFIG_CONTENT`: this box's own harness exports the fixture's fence verbatim into every
+  shell, so a local run must go through `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh`;
+  CI runners carry no such export and the leg shipped green on trunk — measured here by `env | grep`.
+
+## Record — the issue-372 conflict tick, round 2 (branch `issue-372`, PR #474: the second base sync is in,
 onto `origin/main@64b2813`, and both of its append tails are adjudicated by UNION on the merged
 bytes — `factory/DECISIONS.md` seats this branch's `H-0315`, then trunk's `H-0316`–`H-0319`, then
 this branch's `H-0320` by ascending id with every entry byte-identical to the parent it came from,
@@ -67,7 +126,7 @@ could name at read time).
    3 (the in-activation cgroup and stop-sigterm reads no offline run can meet), Option B (an
    escalation class, owed a maintainer word), the two in-row-disclosed `H-0268` `Effect:` phrases,
    and its item 6's two promise-pointers that owe one joint commit across log, fence copy and quote.
-4. The two hazard rows of this file, now at 2753 and 2857, that keep
+4. The two hazard rows of this file, now at 2812 and 2916, that keep
    `python3 scripts/check-close-verb.py NEXT.md` at rc 1 — inherited, untouched, and owed the
    two-word fix at the coordinates the gate names.
 5. Round 1's reviewer nit, still true and deliberately untouched: the round-1 body section says
@@ -82,7 +141,7 @@ could name at read time).
 ## Constraints a stranger would break here
 
 - Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again:
-  all twenty in-file pointers name the same two hazard rows at 2753 and 2857, and every head
+  all twenty in-file pointers name the same two hazard rows at 2812 and 2916, and every head
   edit moves them. The census is re-run after every head edit and never inherited — the `H-0313`
   Record measures what trusting a `+N` costs.
 - The `factory/selftest.sh` tail has an ORDER, and it is measured: this branch's `#372` block starts
