@@ -4499,3 +4499,45 @@ twelve rows exactly as this round did:
 - The #425 instance, carried with it: neither proposed cause reproduced on the measuring tree,
   so the question stays open even though that unit measured a real
   RED on its own shell. Do not close #425 on this branch's measurement alone.
+
+## Record — the issue-426 round (branch `issue-426`, PR open at writing time; this round ships `H-0345`, checkpoint `bf5c6cb`)
+
+Appended at the foot rather than installed at the top, and that is a measured choice, not a shy
+one: `factory/DECISIONS.md` anchors 36 pointers from 25 rows into this file at two destinations, so
+a head written above line 540 moves every one of them and the re-aim lands inside other units'
+`Effect:` prose — which is the work #426 told this unit not to do ("rebase your line into it, never
+rewrite someone else's"). The `issue-423` head keeps its seat above, unedited; this append moves no
+line anyone cites, and the two hazard rows still answer to 540 and 543.
+
+- `.github/workflows/ci.yml`: a `concurrency:` block under `name:` — group `ci-<PR number>` for a
+  `pull_request` event, `ci-<run_id>` for anything with no PR number, `cancel-in-progress` true only
+  for a `pull_request`. Four pushes to one branch no longer queue four ~12-minute passes that a
+  person has to cancel by hand (PR #401, 16 Nov: four runs, three cancelled mid-flight). A push to
+  `main` and a `workflow_dispatch`ed debug run each land in a group of one, so nothing a person
+  asked for on purpose can be stopped by a later push; `release.yml` still carries no key, on
+  purpose — a cancelled half-published release is worse than a queue that makes someone wait.
+- `factory/DECISIONS.md`: `H-0345` (allocator answered `H-0345` on a `REFRESH 0s union` read taken
+  after `git fetch origin`), checkpoint `bf5c6cb`, effect commit `5a0f67d`. The block's 19 lines
+  moved four rows in that log that aim into `ci.yml` — `H-0054` twice, `H-0266`, `H-0267` — and all
+  four were re-aimed in that same commit with every destination opened on the shipped bytes first.
+  The census re-run on `5a0f67d` reads 414 entries, 1341 citations, 583 owing an anchor, 0 refused:
+  this round added one anchored pointer and no bare one, so `POINTER_DEBT` stayed 583 and was not
+  touched.
+- What this push spent: `python3 scripts/check-decisions.py`, `bash scripts/check-next-md.sh` and
+  `bash scripts/check-commit-verbs.sh` on these bytes, all rc 0; the `make verify` verdict and the
+  CI run this branch schedules are quoted in the pull body, never here. The group's positive test
+  is one `cancelled` row from two pushes inside a single run's duration, and its receipts go in the
+  pull body — an absent run is not a failed group, because `b8b36f2` is this repository's own record
+  that an event can schedule nothing at all.
+
+## What is still owed (issue-426's rows, none silent)
+
+1. Nobody has totalled the runner-minutes a cancellation returns on this workflow. Cancellation is
+   cooperative, so the saving is bounded by the gap between pushes, not by the run's length; the
+   number is not measured here and no entry claims it.
+2. The other two run-volume sources #425 names — a tick that cannot read a green local verdict
+   pushes and re-pushes — stay open on their own authority. A `concurrency:` key settles neither.
+3. The 36 anchored pointers at this file's two hazard rows still name the lines they name, because
+   this append sits below all of them. Whoever rewrites the head re-aims them, and
+   `python3 scripts/check-close-verb.py NEXT.md` is still rc 1 on those two rows — carried
+   unchanged, disclosed, owed.

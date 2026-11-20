@@ -1,5 +1,24 @@
 name: CI
 
+# A superseded push has to stop the run nobody will read, and this file is the only place that can
+# say so: GitHub has no repository or organisation setting that cancels superseded runs, so without
+# a group every push queues its own ~12-minute pass over the four legs below and finishes green on
+# a head no reviewer can ever be shown -- a push dismisses the review and moves the head, so a
+# verdict on a superseded SHA is worth nothing to anyone. Measured on PR #401 on 2026-11-16: four
+# pushes to `issue-334` started four runs at once and three of them were cancelled by hand
+# mid-flight, which is the automation this block is.
+#
+# The group is keyed per pull request, which keeps stacked PRs apart -- the same reason the
+# `pull_request:` trigger below is deliberately unfiltered. `cancel-in-progress` is true only for a
+# `pull_request` event, so a push to `main` and a `workflow_dispatch`ed debug run each land in a
+# group of one (`run_id`) and no later PR push can cancel them. Cancelling is not erasing: a
+# completed run stays attached to its SHA, and what gets stopped is an in-flight run of a head that
+# no longer exists. `release.yml` carries no group at all and should keep not carrying one -- a
+# cancelled half-published release is worse than a queue that makes someone wait.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   push:
     branches: [main]
