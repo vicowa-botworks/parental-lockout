@@ -339,7 +339,7 @@ fi
 # program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
-	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
+	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' -o -name 'push-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -1097,14 +1097,41 @@ factory_resolve_conflict() {
 			return 1
 		fi
 	fi
-	if ! run_action git -C "$tree" push origin "HEAD:refs/heads/$branch"; then
-		# The merge is in the local tree and the branch on origin has not moved. That is not a
-		# conflict a model can resolve -- it is a push that failed -- and leaving it as `1` would
-		# spend a tick on a permissions problem. The next pass re-merges (already up to date) and
-		# pushes again.
-		log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed -- retried next activation"
-		return 2
+	# H-0332 (#419 repair 1): the one network write a pass makes was the last harness git call with
+	# no deadline. It fails in the shape #419 measured for the fetches -- ssh accepts the connection
+	# and stops answering -- so it goes behind `FACTORY_PUSH_TIMEOUT` like every read, and it leaves
+	# `run_action` for the same reason the fetch arm did (#417): `run_action` answers 1 for every
+	# failed command, and this arm must tell a parked write (124 from `timeout`) from git's own 128
+	# to write the right sentence, with the stderr kept in the swept directory the deferral line
+	# points a person at. What the arm DECIDES is unchanged: a failed push is `CONFLICT-UNPUSHED`,
+	# return 2, retried next activation -- the merge is local, the remote did not move, and nothing
+	# a model could do helps either cause.
+	local push_err push_rc=0 push_why
+	push_err=$(factory_push_stream)
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s git -C %s push origin HEAD:refs/heads/%s\n' \
+			"$FACTORY_PUSH_TIMEOUT" "$tree" "$branch"
+	else
+		log_event "ACTION timeout --signal=TERM --kill-after=5 $FACTORY_PUSH_TIMEOUT git -C $tree push origin HEAD:refs/heads/$branch"
+		timeout --signal=TERM --kill-after=5 "$FACTORY_PUSH_TIMEOUT" git -C "$tree" push origin "HEAD:refs/heads/$branch" 2>"$push_err" || push_rc=$?
+		if [ "$push_rc" -ne 0 ]; then
+			log_event "FAILED ($push_rc) timeout --signal=TERM --kill-after=5 $FACTORY_PUSH_TIMEOUT git -C $tree push origin HEAD:refs/heads/$branch"
+			push_why=$(factory_git_said "$push_err")
+			if [ -n "$push_why" ]; then
+				push_why="git said: $push_why"
+			elif [ "$push_rc" -eq 124 ] || [ "$push_rc" -eq 137 ]; then
+				push_why="killed at the ${FACTORY_PUSH_TIMEOUT}s push bound with nothing written, which is what a parked connection looks like"
+			fi
+			# The merge is in the local tree and the branch on origin has not moved. That is not a
+			# conflict a model can resolve -- it is a push that failed -- and leaving it as `1` would
+			# spend a tick on a permissions problem. The next pass re-merges (already up to date) and
+			# pushes again.
+			log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed${push_why:+; $push_why} -- retried next activation"
+			rm -f -- "$push_err"
+			return 2
+		fi
 	fi
+	rm -f -- "$push_err"
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch by $merged_by"
 	factory_ledger_clear "pr:$pr" stuck-since
 	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
