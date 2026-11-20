@@ -17890,3 +17890,44 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `#334`'s size discipline accepts because each such line is a finding, the
   healthy path staying silent. `POINTER_DEBT` is quoted from the gate in the
   pull-request body, not here -- prose is never re-run.
+
+## H-0344 · The merge verdict's second signal compares a REST read against `MERGED`, a value the REST `pulls/.state` field has never answered: drop the dead belt, re-aim it at `merged_at`, or lowercase it to `closed`? · issue #424
+
+- Question: `H-0343` normalised the close check's state at its boundary, and this
+  file carries the same mistake sixty lines earlier: as read on 20 Nov the belt
+  was `[ "$merged" != "true" ] && [ "$state_now" != "MERGED" ]`, where
+  `state_now` is `api_get "pulls/$pr" '.state'` -- and REST answers `open` or
+  `closed` for a pull request, never `MERGED`; that is the same fact
+  `factory/factory.sh:777` "REST `state` a pull request carries is `closed`. The raw REST read"
+  records, and `#424`'s blast radius item 4 names it a belt that is always true.
+  Every MERGED journal line on this box prints `merged_field=true` and
+  `MERGE-FAILED` appears nowhere in `supervisor.log`, so no merge was ever
+  graded by the dead clause and none ever will be. What should the second
+  signal become -- or should there be one at all?
+- Options: drop the dead clause and keep `state_now` as the diagnostic the MERGE-FAILED line prints | re-aim the belt at a second read of `merged_at` | lowercase the comparison to `closed`
+- Chose: drop the dead clause and keep `state_now` as the diagnostic the MERGE-FAILED line prints
+- Why: lowercasing to `closed` trades a dead belt for a wrong one: a pull
+  closed WITHOUT merging is exactly the failure the arm exists to print, and
+  `state=closed, merged=false` would silence it. Re-aiming at `merged_at` looks
+  like the honest second signal but inverts the failure mode: `api_get` hands
+  back its default, the non-empty string `UNKNOWN`, whenever the read itself
+  fails, so a pull whose merge state cannot be read at all would pass the belt
+  silently -- a phantom success of the `#1180` shape, and the tie-break that
+  refuses rather than proceeds on a missing input selects against it. Dropping
+  the clause changes no measured behaviour (the clause never fired) and keeps
+  `if [ "$merged" != "true" ]; then` refusing on `merged=unknown`, while the
+  journal line still prints `state=$state_now`, which tells a reader whether the
+  pull they failed to merge is still `open` or was closed under them.
+- Checkpoint: 25b00661a1b5a56ee451a112ae4035b917e6acd1
+- Effect: one line, `factory/factory.sh:625`, line-count-neutral; the
+  MERGE-FAILED arm, its log text, and the `MERGED` arms are untouched. A
+  genuinely working second signal -- retrying `.merged` once before refusing --
+  is NOT delivered here and is not claimed; this entry only stops the arm from
+  pretending it has one.
+- What lost, as measured: the nominal protection against a false `MERGE-FAILED`
+  when a merge landed but `.merged` misreads is gone -- it never existed, since
+  the value compared could not occur, and the exposure (a skipped ledger clear
+  and worktree removal, the `#221` shape) predates this change unchanged; the
+  second-option belt, had it been taken, would have bought that same protection
+  with a silent-success door, and this entry is the record of paying the known
+  exposure instead.

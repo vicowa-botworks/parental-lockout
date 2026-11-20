@@ -622,7 +622,7 @@ factory_merge() {
 	rm -f -- "$gh_err"
 	merged=$(api_get "pulls/$pr" '.merged | tostring' 'unknown')
 	state_now=$(api_get "pulls/$pr" '.state' 'UNKNOWN')
-	if [ "$merged" != "true" ] && [ "$state_now" != "MERGED" ]; then
+	if [ "$merged" != "true" ]; then # state_now below is diagnostic only: REST answers open/closed for a pull, never MERGED (#424)
 		log_event "MERGE-FAILED pr:$pr gh_exit=$merge_rc state=$state_now :: ${gh_reason:-gh printed nothing on stderr}"
 		return 1
 	fi
