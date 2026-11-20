@@ -1320,11 +1320,19 @@ Inventing the ask is the failure this repository has written up more often than 
 	# `factory_decision_provenance` below reads that journal at the end of the tick. A session that
 	# sanitises its own environment loses the journalling and gains an `UNEARNED` report -- the
 	# report is the point; the allocator answers exactly the same either way.
+	#
+	# `OPENCODE_CONFIG_CONTENT` carries the MCP fence (#390): every MCP server the user's own
+	# configuration declares is removed from the session before it can start one, and the Wine bridge
+	# behind 30 `winedevice.exe` kills on 17 and 18 Nov is one of them. An environment layer and not a
+	# config file, so the fence holds wherever a tick is dispatched from and a person's `mcp` entries
+	# stay theirs outside the queue. `FACTORY_MCP_FENCE` in common.sh carries what was measured on the
+	# installed client and what `factory/selftest.sh` pins.
 	timeout --signal=TERM --kill-after="$FACTORY_TICK_KILL_AFTER" "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
 		FACTORY_LOG="$FACTORY_LOG" \
 		FACTORY_TICK_UNIT="$unit" \
 		FACTORY_TICK_BRANCH="$branch" \
+		OPENCODE_CONFIG_CONTENT="$FACTORY_MCP_FENCE" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
