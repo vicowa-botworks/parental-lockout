@@ -1,40 +1,44 @@
-# NEXT — issue-416: the cortexkit marker is untracked, so the main-checkout restore arm keeps its full semantics and loses its only permanent subject (branch `issue-416`, Refs #416; merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
+# NEXT — issue-417: the conflict fetch defers with git's cause in the journal, behind the fetch bound (branch `issue-417`; the 20 Nov adoption pass ships it — merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
 
-State this unit read off the live tree and the journal before it wrote a byte
-(2026-11-20T05:31–05:35Z): the main checkout read CLEAN at `ae61064`; the two untracked strays
-#416 named (keepme.txt and wiring_post.py) are already gone from it; the supervisor's journal
-holds zero `MAIN-CHECKOUT-RESTORED` rows to date, its newest `MAIN-CHECKOUT-CLEAN` is
-2026-11-20T05:31:10Z, and its newest `MAIN-CHECKOUT-REFUSED` naming the marker is
-2026-11-18T08:34:03Z. #416's premise moved while the ticket queued — toward the defect, not away
-from it: with the strays gone, one tool deletion makes the dirt exactly the committed-and-missing
-shape, permanently, and the pass starts writing the file back every activation.
+State this pass read off the live tree before writing a byte (2026-11-20): trunk still `0f343db`
+(#481 merged 06:27Z), `gh pr list --head issue-417` answered `[]`, and every gate re-ran green on
+the shipped bytes — `919 passed, 0 failed` on `env -u OPENCODE_CONFIG_CONTENT
+bash factory/selftest.sh`, plus check-shell, check-denies, check-next-md and check-decisions.
 
 ## What this branch ships
 
-- `git rm --cached .cortexkit/.gitignore` — the bytes stay on this checkout's disk and the root
-  ignore rules keep the whole directory out of every status read in both states, present and
-  absent; the restore arm's precondition keeps its teeth and loses its only permanent subject
-  here. `git check-ignore -v` against the marker itself answers the root rule.
-- `H-0325` in factory/DECISIONS.md carries the question, the four rejected options and the three
-  losses; checkpoint 1a8bf37.
-- The record the tracked marker used to be now lives in the closing section of docs/factory.md,
-  and the two scripts/mutate.py comments that claimed the real tree still carried that tracked
-  file read in the past tense now — the `_snap04` fixture still pins the
-  tracked-and-never-copied shape, synthetically, with its both-ways assertion intact.
+- The conflict arm's fetch of `origin/$base` in `factory_resolve_conflict` no longer returns 2
+  behind a silent `FAILED (128)`: it captures stderr to the swept `factory_fetch_stream()`
+  (factory/common.sh), quotes git's FIRST stderr line into its own `CONFLICT-BLOCKED` sentence
+  under the harness's `git said:` marker — the last line of a transport burst is the access-rights
+  decoy — and it runs behind `FACTORY_FETCH_TIMEOUT` like the refresh arm's activation fetch, so
+  a parked connection now answers `killed at the …s fetch bound` instead of costing 135 s a unit.
+  `run_action` is off this call on purpose: it normalizes every failure to 1, and this arm must
+  tell 124 from 128.
+- `H-0327` in factory/DECISIONS.md carries the four options, the three losses and the measured
+  receipts (the 16 Nov SSH burst; the empty-stderr 124 measured over a parking stub, where git
+  retries ssh once, so one burst costs 2x the park); checkpoint a92a8bc.
+- The selftest grew the transport family at its tail (a fast ssh failure, a parked ssh killed at
+  the bound, and blinded controls for the clause, the bound and the sweep term), plus two harness
+  knobs: `proc_extra_env` reaches the pass BEFORE the shipped env — a leg moving a name the
+  shipped list re-spells must use a `proc_*` knob (`proc_fetch_timeout` is the new one), never
+  the array — and journal needles that are substrings of `REFRESH-FAILED` rows must keep their
+  leading space.
+- The 219 `path:line` pointers this round's inserts slid were re-aimed by the checker's own
+  census; `python3 scripts/check-decisions.py` reads rc 0 with the debt unmoved at 583.
+- #417's third proposal is NOT here: port 443 of `ssh.github.com` is a machine `~/.ssh/config`
+  edit, named in H-0327's `Revisit:` for whoever owns that file.
 
 ## What is still owed
 
-- The supervisor merges; this unit merged nothing, and no artifact but the pull body carries a
-  closing verb.
-- Until this pull merges, a `MAIN-CHECKOUT-RESTORED` row naming `.cortexkit/.gitignore` in the
-  main checkout is #416's churn, not a clean verdict — the carried `issue-346` hand-off warning
-  retires at the merge, not before.
-- The first main-checkout sync after the merge: a clean working copy there is deleted by the sync
-  itself (git applies the removal; the tooling rewrites the file when it wants it, ignored either
-  way) — expected, not a defect. A modified copy meets one modify/delete refusal and the
-  quarantine arm absorbs it, once per clone. Do not open a ticket on that single refusal.
-- #346 stays open on its own terms; this branch measured and claimed nothing about its remaining
-  criteria.
+- The supervisor merges; this pass merged nothing, and no artifact but the pull body carries a
+  closing verb. The reviewer ask is the supervisor's poke, per AGENTS.md.
+- `make verify` inside a live tick fails one fence leg (`and nothing else does`, filed as #482):
+  the tick's own OPENCODE_CONFIG_CONTENT leaks through `proc_run` into the control; until that
+  lands, re-measure with `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh` (H-0327).
+- After this merges, a later branch re-derives the pointer census with
+  `python3 scripts/check-decisions.py --citations` (#389); if the SSH burst recurs, `git said:`
+  quotes git's answer and `killed at the …s fetch bound` names the parked connection.
 
 ## Carried forward — verbatim, because the decision log is anchored into these two lines
 
