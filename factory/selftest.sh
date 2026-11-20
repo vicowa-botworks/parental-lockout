@@ -18406,6 +18406,7 @@ dpn_p2c_leg() {
 }
 dpn_leg 'the UNCHECKED line is that arm' 'blinding it lets the failed read pass in silence' dpn_p2c_leg
 
+
 # ----------------------------------------------------------------------- the wiring: dispatch to journal
 #
 # The two contracts above meet across a process boundary: `factory_tick` exports the unit context,
@@ -28774,6 +28775,116 @@ claim_leg 'the guard read the missing run directory without creating it' \
 	test ! -e "$ui_work/nodir"
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
+
+
+# --------------------------------------------------------------------- the baseline: #427's two states
+#
+# The leg that would have caught #427 before it shipped. Every leg above asks about an id the tick
+# WROTE; none asked whether an id the branch ALREADY carried was ever allocatable. It was not:
+# `DECISION-ID` lines exist only from `148a7e8` (15 Nov 08:18), so a heading committed before that is
+# byte-identical to an eyeballed id. Measured on the first tick that ran the shipped check: five
+# `DECISION-ID-UNEARNED` lines, seventeen more queued across eight of nine open branches, one fresh
+# line per inherited id per unit -- and the id this check exists to catch buried among them.
+#
+# Three claims: a heading present at TICK-START is not reported UNEARNED; it is reported once, as
+# UNJOURNALABLE, with the count an operator can act on; and the id the unit takes by eye DURING the
+# tick is still reported UNEARNED, with its one dedupe report still unspent.
+dpn_p4_dir=$dpn_work/p4
+if ! dpn_repo "$dpn_p4_dir" issue-p4; then
+	pos_say 'fixture p4 could not be built; the baseline legs below read a tree that does not exist'
+fi
+# The inherited heading: committed to the branch before this unit existed, new against trunk, and
+# journalled nowhere -- which is exactly what the pre-#427 pass called unearned.
+if ! (
+	set -eu
+	printf '## D-0100 · inherited by this unit, not taken by it\nbody\n' \
+		>>"$dpn_p4_dir/unit/DECISIONS.md"
+	git -C "$dpn_p4_dir/unit" add -A
+	git -C "$dpn_p4_dir/unit" commit -qm 'fixture: one heading that predates the tick'
+); then
+	pos_say "fixture p4's inherited heading could not be committed; the baseline legs read nothing"
+fi
+mkdir -p -- "$dpn_p4_dir/log"
+# The shipped snapshot, run at the instant the dispatch runs it: the inherited heading is in the tree,
+# the unit has written nothing. This pins the `DECISION-ID-BASELINE` event as well as the file.
+(
+	set -eu
+	# shellcheck source=./common.sh
+	# shellcheck disable=SC1090,SC1091
+	. "$HERE/common.sh"
+	FACTORY_DIR=$dpn_p4_dir/state FACTORY_LOG=$dpn_p4_dir/log \
+		FACTORY_LEDGER=$dpn_p4_dir/state/ledger FACTORY_RUN=$dpn_p4_dir/state/run DRY_RUN=0 \
+		FACTORY_REPO=example/repo FACTORY_OWNER=example FACTORY_NAME=repo \
+		factory_decision_provenance_snapshot unclaimed:p4 "$dpn_p4_dir/unit"
+) >"$dpn_work/p4-snap.out" 2>&1 ||
+	pos_say 'the shipped baseline snapshot exited non-zero (it returns 0 by contract); see '"$dpn_work"'/p4-snap.out'
+# And now the unit's own hands: an id taken by eye mid-tick, uncommitted, as #345 measured it.
+printf '## D-0101 · taken by eye during the tick\nbody\n' >>"$dpn_p4_dir/unit/DECISIONS.md"
+dpn_prove "$HERE/common.sh" unclaimed:p4 issue-p4 "$dpn_p4_dir/unit" "$dpn_p4_dir/log" "$dpn_p4_dir/state" \
+	>"$dpn_work/p4.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero on the baselined tree; see '"$dpn_work"'/p4.out'
+dpn_p4_leg() {
+	local j=$dpn_p4_dir/log/supervisor.log
+	if grep -qF -- 'DECISION-ID-UNEARNED D-0100' "$j"; then
+		printf '            the pass called a heading that was on the branch at TICK-START UNEARNED.\n' >&2
+		printf '            That is the #427 wave: one unacted line per inherited id per unit, and\n' >&2
+		printf '            the reason an operator stops reading a verdict written for #345:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNJOURNALABLE 1 unit=unclaimed:p4 branch=issue-p4 log=DECISIONS.md ids=D-0100' "$j"; then
+		printf '            the inherited heading was not named once, counted, as UNJOURNALABLE. The\n' >&2
+		printf '            exemption has to be auditable or it is a silent `case` in the loop:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0101 (no allocation journalled for this unit) unit=unclaimed:p4 branch=issue-p4 log=DECISIONS.md baseline=tick-start' "$j"; then
+		printf '            the id the unit took by eye DURING the tick went unreported, or lost its\n' >&2
+		printf '            baseline= field. Silencing this is the whole cost of quieting the wave:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-BASELINE unclaimed:p4 n=' "$j"; then
+		printf '            the dispatch recorded no baseline event, so nothing outside this leg can\n' >&2
+		printf '            tell "judged against a snapshot" from "judged against nothing":\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'inherited is not unearned' \
+	'a heading present at TICK-START reports UNJOURNALABLE, never UNEARNED, and the mid-tick id still does' \
+	dpn_p4_leg
+
+# The dedupe is per WORD. If the backlog shared the `unearned-reported` budget, seventeen inherited
+# ids would spend each real claim's single report and a genuine over-claim on the second pass would be
+# silent -- #427's third blast-radius item. Two passes over the same tree: the second prints neither
+# line again, and the count of UNEARNED lines stays exactly one.
+dpn_prove "$HERE/common.sh" unclaimed:p4 issue-p4 "$dpn_p4_dir/unit" "$dpn_p4_dir/log" "$dpn_p4_dir/state" \
+	>>"$dpn_work/p4.out" 2>&1 ||
+	pos_say 'the second baselined pass exited non-zero; see '"$dpn_work"'/p4.out'
+dpn_p4b_leg() {
+	local j=$dpn_p4_dir/log/supervisor.log n
+	n=$(grep -c 'DECISION-ID-UNEARNED D-0101' "$j") || true
+	if [ "${n:-0}" != 1 ]; then
+		printf '            the baselined pass ran twice and journalled %s UNEARNED line(s) for\n' "${n:-0}" >&2
+		printf '            D-0101, not one: the dedupe ledger is what keeps a stuck unit from\n' >&2
+		printf '            drowning the journal in itself:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	n=$(grep -c 'DECISION-ID-UNJOURNALABLE' "$j") || true
+	if [ "${n:-0}" != 1 ]; then
+		printf '            the second pass repeated the UNJOURNALABLE line (%s in the journal): a\n' "${n:-0}" >&2
+		printf '            backlog re-printed every pass is the noise this leg exists to end:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'each word dedupes alone' \
+	'two baselined passes cost one UNEARNED and one UNJOURNALABLE line, not a wave' dpn_p4b_leg
+
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
 # by the repository: measured at f60c367 on one machine with only `TMPDIR` moved, 191 passed 0 failed

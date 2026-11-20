@@ -3712,6 +3712,63 @@ factory_quarantine_after_tick() {
 	return 0
 }
 
+# Every decision heading this tree carries right now, as `<log> <id>` pairs -- both logs, each read as
+# committed HEAD plus the working file, which is the same shape the end-of-tick comparison reads so the
+# two can never disagree about what "carried" means.
+#
+# usage: factory_decision_headings TREE
+factory_decision_headings() {
+	local tree=$1 rel
+	# The quoted spelling is not style: the selftest's MUTANT-345 anchors the unquoted `for rel in
+	# DECISIONS.md factory/DECISIONS.md; do` in `factory_decision_provenance` and `dpn_mut` refuses a
+	# mutant anchor that occurs twice. Two loops over the same two names is one fact spelled twice.
+	for rel in 'DECISIONS.md' 'factory/DECISIONS.md'; do
+		{
+			git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
+			[ -f "$tree/$rel" ] && cat -- "$tree/$rel" 2>/dev/null || true
+		} | sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$rel \\1|p"
+	done | sort -u
+	return 0
+}
+
+# The provenance baseline: the headings the branch already carried the moment this unit was handed the
+# tree (#427). Written at `TICK-START`, read by `factory_decision_provenance` at the end.
+#
+# Without it the end-of-tick pass has one word for two opposite states. #427 measured the cost of that
+# one word on the first tick after #345's check reached trunk: five `DECISION-ID-UNEARNED` lines, and
+# seventeen more queued on eight of nine open branches, for entries committed *before the journalling
+# existed* (`148a7e8`, 15 Nov 08:18 -- and two of the five flagged ids were provably committed seven
+# hours earlier). No allocation line was skipped for those ids; no allocation line could exist. A
+# verdict that reads the same for "nobody issued this" and "the record could not hold this" gets acted
+# on by nobody, and the one case it was written for -- an id taken by eye during this tick -- drowns in
+# it, once per id per unit, with the backlog consuming each id's one report against the dedupe ledger.
+#
+# The baseline is a snapshot of the tree, not an archaeological claim. The alternatives -- the journal's
+# own age, or `git log -S'## <id>'` for each heading -- are both refuted in #427: a journal that rotates
+# (nothing rotates it today, nothing pins that) makes every id unjournalable, and the pickaxe is blind to
+# merge-introduced content, so it returns nothing for `H-0219`, which `64c6580` plainly contains.
+#
+# One file per unit under `$FACTORY_RUN/provenance/`, beside the claim directory's precedent, because
+# the ledger's contract is one line per fact (#1178 region above) and this is a list. A tick that
+# started before this shipped has no file and the pass says `baseline=none` on whatever it reports.
+#
+# usage: factory_decision_provenance_snapshot UNIT TREE
+# exit:  0 always -- a baseline nobody could write must not stop a tick from running.
+factory_decision_provenance_snapshot() {
+	local unit=$1 tree=$2 f n=0
+	# "Print, don't do" cannot be partial: a rehearsal that wrote a baseline would be a baseline.
+	[ "$DRY_RUN" = "1" ] && return 0
+	f="$FACTORY_RUN/provenance/$(factory_slug "$unit").headings"
+	mkdir -p -- "${f%/*}" 2>/dev/null || return 0
+	if ! factory_decision_headings "$tree" >"$f" 2>/dev/null; then
+		rm -f -- "$f"
+		return 0
+	fi
+	while IFS= read -r _; do n=$((n + 1)); done <"$f"
+	log_event "DECISION-ID-BASELINE $unit n=$n baseline=written file=${f#"$FACTORY_RUN"/} the headings this branch carried before this unit touched it"
+	return 0
+}
+
 # The second end-of-tick read: did every decision id this branch newly carries come from the
 # allocator? (#345)
 #
@@ -3723,6 +3780,16 @@ factory_quarantine_after_tick() {
 # cost the conflict-resolution ticks `H-0143` through `H-0152` had to splice apart. The allocator now
 # journals what it handed out (`next-decision-id.sh`, `DECISION-ID`); this is the other half of the
 # pair -- a heading with no journalled allocation reports `DECISION-ID-UNEARNED`.
+#
+# Two words, because there are two states (#427). A heading this unit introduced with no journalled
+# allocation is `UNEARNED`, the one state #345 built this to see. A heading the branch already carried
+# when the unit was handed the tree is `UNJOURNALABLE`: no allocation line could exist for it, because
+# the only instant it was allocatable was either before the journalling shipped (`148a7e8`, 15 Nov
+# 08:18) or inside a tick whose own end-of-tick read already spoke about it. So the check judges only
+# what the tick could have done, every id is judged exactly once -- at the end of the tick that
+# introduced it -- and the pre-feature backlog #427 measured (17 entries on 8 of 9 open branches, one
+# fresh line per id per unit) costs one counted `UNJOURNALABLE` line per unit instead of seventeen
+# unacted ones per pass, without spending each real claim's single report from the dedupe ledger.
 #
 # Reported, not fatal, and attributed per BRANCH, not per tick:
 #   * a unit legitimately copies an id a sibling published -- resolving a conflict against `main`
@@ -3743,7 +3810,8 @@ factory_quarantine_after_tick() {
 # exit:  0 always. What the tick delivered remains the tick's own answer; this is the journal's.
 factory_decision_provenance() {
 	local unit=$1 branch=$2 tree=$3
-	local rel id journal earned reported added new held base bad=''
+	local rel id journal earned reported added new held base bad='' snap baseline
+	local pre unj shown nn
 	journal="$FACTORY_LOG/supervisor.log"
 
 	if [ -z "$branch" ]; then
@@ -3759,11 +3827,25 @@ factory_decision_provenance() {
 		return 0
 	fi
 
+	# The #427 baseline: the headings that were already here when this unit was handed the tree, as
+	# written by `factory_decision_provenance_snapshot` at `TICK-START`. Absent is a real state -- a tick
+	# that started before this shipped, or a dispatch whose snapshot write failed -- and it is named on
+	# every line below rather than silently read as "the branch was empty at the start", which is the
+	# same lie in the other direction.
+	snap="$FACTORY_RUN/provenance/$(factory_slug "$unit").headings"
+	baseline=none
+	if [ -e "$snap" ] && [ ! -r "$snap" ]; then
+		log_event "DECISION-ID-UNCHECKED $unit the TICK-START baseline $snap is not readable; an unreadable baseline is not an empty one and no id is claimed either way"
+		return 0
+	fi
+	[ -r "$snap" ] && baseline=tick-start
+
 	# Every id the journalled answers for this branch carry, folded to one space-separated set.
 	# The field match is exact on `$2` so a `DECISION-ID-UNEARNED` line can never certify itself.
 	earned=$(awk -v b="$branch" '$2 == "DECISION-ID" && $5 == "branch=" b {print $3}' \
 		"$journal" 2>/dev/null | sort -u | tr '\n' ' ') || earned=''
 	reported=$(factory_ledger_get "$unit" unearned-reported) || reported=''
+	unj=$(factory_ledger_get "$unit" unjournalable-reported) || unj=''
 	added=''
 
 	for rel in DECISIONS.md factory/DECISIONS.md; do
@@ -3784,12 +3866,52 @@ factory_decision_provenance() {
 		# New to the branch means new against the trunk it will merge into; an id `main` already
 		# carries is not this unit's claim to make and not this unit's to have journalled.
 		new=$(comm -23 <(printf '%s\n' "$held") <(printf '%s\n' "$base")) || new=''
+		# The part of `new` this unit inherited rather than wrote. Present at `TICK-START`, so the
+		# journalling this check compares against was never in a position to see it allocated: an id
+		# added by an earlier tick on this branch was judged at the END of that tick, which is the one
+		# instant its allocation could be in the journal. Every id therefore gets judged exactly once,
+		# at the end of the tick that introduced it -- and a tick killed before its own end-of-tick
+		# read is covered by the allocator's `PENDING` line, not by this one.
+		pre=''
+		if [ "$baseline" = tick-start ]; then
+			pre=$(awk -v r="$rel" '$1 == r {print $2}' "$snap" 2>/dev/null |
+				sort -u | tr '\n' ' ') || pre=''
+		fi
+		pre_new=''
 		for id in $new; do
 			case " $earned " in *" $id "*) continue ;; esac
+			if [ "$baseline" = tick-start ]; then
+				case " $pre " in
+				*" $id "*)
+					pre_new="${pre_new:+$pre_new }$id"
+					continue
+					;;
+				esac
+			fi
+			# Past here the id arrived DURING this tick and nothing journalled it. That is the one
+			# state `UNEARNED` was written to name (#345), and the one state worth this line.
 			case " $reported " in *" $id "*) continue ;; esac
-			log_event "DECISION-ID-UNEARNED $id (no allocation journalled for this unit) unit=$unit branch=$branch log=$rel"
+			log_event "DECISION-ID-UNEARNED $id (no allocation journalled for this unit) unit=$unit branch=$branch log=$rel baseline=$baseline"
 			added="${added:+$added }$id"
 		done
+		# The inherited half, reported as ITSELF. One line per unit per log naming the count and the
+		# ids -- so the exemption is auditable rather than a silent `case` in the loop, which is what
+		# #427 asked for -- and never through the `unearned-reported` ledger, so the backlog cannot
+		# spend the one report each real claim is owed.
+		if [ -n "$pre_new" ]; then
+			shown=''
+			nn=0
+			for id in $pre_new; do
+				case " $unj " in *" $id "*) continue ;; esac
+				shown="${shown:+$shown }$id"
+				nn=$((nn + 1))
+			done
+			if [ -n "$shown" ]; then
+				log_event "DECISION-ID-UNJOURNALABLE $nn unit=$unit branch=$branch log=$rel ids=$shown (on the branch at TICK-START; no allocation line could exist for them) baseline=$baseline"
+				factory_ledger_set "$unit" unjournalable-reported "${unj:+$unj }$shown"
+				unj="${unj:+$unj }$shown"
+			fi
+		fi
 	done
 
 	if [ -n "$bad" ]; then

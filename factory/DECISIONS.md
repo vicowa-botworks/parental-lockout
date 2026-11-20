@@ -18050,3 +18050,54 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   stale against the head rewrite that caused the move — amended into the shipped text before
   the push. Disclosed further: this push spends the `APPROVED` read taken at `45011c5` — the #269/`H-0010` class —
   and nobody has been re-asked: the ask is the supervisor's poke, not this unit's.
+
+## H-0347 · DECISION-ID-UNEARNED judges only what the tick could have done
+
+- Question: when a heading is new against trunk and carries no journalled allocation, what may the
+  end-of-tick pass say about it, given that for entries older than the journalling itself the journal
+  cannot hold an allocation line whether or not the allocator ran?
+- Options: 1) baseline the pre-feature set once as its own journal event enumerating every heading
+  new-against-trunk at the journalling's own commit (`148a7e8`, 15 Nov 08:18) — the ticket's spelling;
+  costs: it must decide, per id, when that id arrived, and #427 measured that `git log -S'## <id>'`
+  answers nothing for `H-0219`, which `64c6580` plainly contains, so a 400-row baseline would be
+  built on a pickaxe already proven blind to merge-introduced content; 2) judge only what the tick
+  could have done: inventory the tree's headings at `TICK-START` and report UNEARNED only for ids that
+  appear during the tick; costs: one file per unit under the run directory, and the pass goes silent
+  about ids no tick introduced; 3) one read, two words (UNEARNED / UNJOURNALABLE), no snapshot;
+  costs: choosing the word still needs an age or a pickaxe, i.e. option 1's archaeology by another
+  name; 4) change nothing and let operators learn to ignore the line; costs: #345's signal, bought
+  with the `D-0058` collision, dies of noise — five lines on the first tick that ran it, seventeen
+  more queued on eight of nine open branches.
+- Chose: 2, carrying 3's vocabulary: `factory_decision_provenance_snapshot` writes the heading
+  inventory at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass splits the
+  new-against-trunk set into headings the branch already carried — one counted
+  `DECISION-ID-UNJOURNALABLE n … ids=…` line per unit per log, deduped under its own ledger key — and
+  ids the unit itself introduced, which keep the `DECISION-ID-UNEARNED` line with
+  `baseline=tick-start|none` on it.
+- Why: tie-break 3 decides it — the pass refuses rather than proceeds on a missing input, because the
+  failure being fixed was precisely an absent read being read as a verdict: an empty earned-set was
+  answering "nobody earned these" when it could only mean "nothing could have". Every id is then
+  judged exactly once, at the end of the tick that introduced it, which is the only instant its
+  allocation can be in the journal; a tick killed before its own end-of-tick read is covered by the
+  allocator's `PENDING` line, not here, and the entry says so rather than pretending otherwise.
+  Keeping both words is what makes the exemption auditable instead of a silent branch in the loop,
+  and keeping the backlog off `unearned-reported` is what stops seventeen inherited ids spending each
+  real claim's single report. Tie-break 4: two harness files plus the legs, no new knob, nothing
+  outside `factory/` touched. Tie-break 6: the ledger stays one line per fact and the list goes in a
+  file, following the claim directory's precedent under the run directory.
+- Checkpoint: 416388e96c9ba7dcd99a0eff9a3f5d18eee0e2b0
+- Effect: measured on the bytes this entry ships. Three new legs — `inherited is not unearned` (the
+  control #427 asked for: a heading committed before the tick began must NOT read UNEARNED, beside the
+  mid-tick id that must), `each word dedupes alone`, and the baseline event assertion inside the
+  first; the six pre-#427 legs in the same section were left untouched on purpose, because with no
+  baseline file they are the only thing that exercises the `baseline=none` arm. `bash -n` clean on
+  `factory/common.sh`, `factory/factory.sh` and `factory/selftest.sh`;
+  `python3 scripts/check-decisions.py` and `bash scripts/check-next-md.sh` verdicts, and the
+  `make verify` verdict, are quoted in the pull-request body, never here (#1180).
+- What lost: the check no longer flags an id introduced by a tick that died before its own end-of-tick
+  read — it lands in the next unit's baseline and is never judged by this pass. Accepted: that id was
+  in the tree while the dead tick ran, so the dead tick's own pass was the one that could have spoken,
+  and the allocator's `PENDING` line is what protects the next unit from it. Not delivered here, and
+  still open on #427: the exemption's other half — `earned` exempts an id outright, so the one id the
+  journal has ever journalled, `H-0219`, is also the one id that cannot be flagged when re-issued, and
+  whether the allocator's union contains the calling branch's own log under a dispatch is unanswered.

@@ -1,4 +1,51 @@
-# NEXT — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
+# NEXT — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped: the tick-scoped baseline (snapshot at `TICK-START`, `DECISION-ID-BASELINE` journalled), the
+  second word `DECISION-ID-UNJOURNALABLE` with its own dedupe key, `baseline=tick-start|none` on the
+  UNEARNED line, and the control #427 asked for — a heading committed before the tick began must NOT
+  read UNEARNED while a mid-tick by-eye id still does (`inherited is not unearned`,
+  `each word dedupes alone`).
+- Not shipped: the exemption's other half. `earned` still exempts an id outright, so the one id the
+  journal has ever journalled (`H-0219`) is still the one id that cannot be flagged when re-issued,
+  and whether the allocator's union contains the calling branch's own log under a dispatch is still
+  unanswered. That is the open question filed in #427's blast-radius item 5; it is not closed here.
+- Gate state at push, as measured, not as expected: `bash -n` clean on `factory/common.sh`,
+  `factory/factory.sh`, `factory/selftest.sh`; `python3 scripts/check-decisions.py` exits 1 with 210
+  refused citations, and that is PRE-EXISTING on trunk — re-run
+  `git show 401dbdc:factory/selftest.sh | sed -n '20607p;20608p'` and the anchor
+  `the names git does not hold at 100755` is on 20608 at the base commit while `H-0168` cites 20607.
+  This branch adds no new pointer. `make verify` did NOT complete before the tick ceiling; the
+  selftest was still running at push time and its verdict is quoted on the pull request, never here.
+
+## What is still owed (unmeasured, outstanding)
+
+- Run `make verify` with the tick environment sanitised (`env -u FACTORY_SERVICE_UNIT
+  -u OPENCODE_CONFIG_CONTENT`): #489 measured that an inherited `FACTORY_SERVICE_UNIT` makes the
+  selftest's stale-repair arm fast-forward the REAL installed tree, and #482 that an inherited
+  `OPENCODE_CONFIG_CONTENT` reddens the fence control. Quote the `verify: OK` line on #427 when it is
+  green, and re-check the three new legs by name: `inherited is not unearned`,
+  `each word dedupes alone`.
+- The 210 refused citations are trunk debt with a uniform +1 drift into `factory/selftest.sh`; whoever
+  re-aims them is re-aiming rows from `H-0168` onward and should run
+  `python3 scripts/check-decisions.py --citations factory/selftest.sh` first. Do not fold that into
+  this branch.
+- #427 stays OPEN after this merge: the re-issued-id half of its title is unshipped (above), so the
+  body deliberately says `Refs #427` and carries no closing verb.
+
+## Constraints a stranger would break
+
+- The two new functions in `factory/common.sh` are called from `TICK-START` and the end-of-tick pass
+  respectively; the snapshot must stay at `TICK-START` and nowhere later, because the instant the
+  session writes a byte the distinction between "inherited" and "taken by this unit" is gone.
+- Do not add headings to `factory/selftest.sh` mid-file on a whim: MUTANT-345's anchors in that file
+  are quoted by rows in `factory/DECISIONS.md`, and inserting above them re-aims 200+ citations. The
+  new legs went to the tail for exactly that reason; `factory_decision_headings` spells its own loop
+  quoted (`for rel in 'DECISIONS.md' …`) so the single unquoted anchor stays unique for `dpn_mut`.
+
+
+## Record — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
 
 State at push: two decision commits (`885e0e9`/`H-0343` over `bef7403`, `1687f18`/`H-0344` over `25b0066`), then the base sync `e17db5a`→ this merge carrying `H-0346` over checkpoint `1a0bee6` — `NEXT.md` headed with the `issue-423` head demoted to a Record byte-kept, the `DECISIONS.md` tail junction unioned ascending (H-0342 before H-0343/H-0344), 36 hazard-pair pointers re-aimed `+51` to `NEXT.md:587`/`590` by the gate's own refusals. Both code edits stay line-count-neutral.
 

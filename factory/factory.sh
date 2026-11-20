@@ -1414,6 +1414,11 @@ Inventing the ask is the failure this repository has written up more often than 
 
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
+	# The provenance baseline (#427), taken here and nowhere later: this is the last instant the tree is
+	# the dispatch's, before the session has written a byte. `factory_decision_provenance` at the end of
+	# the pass needs it to tell an id this unit took by eye from an id the branch already carried, and
+	# the second the session starts, that distinction is gone from every read it has.
+	factory_decision_provenance_snapshot "$unit" "$tree"
 	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
 	# the `factory_tree_stop` above, so the counter was back to 0 before the tick that would have shown
 	# whether this tree is one that keeps dying -- `attempt=2` was unreachable for every tick unit, and
