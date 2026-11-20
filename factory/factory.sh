@@ -622,7 +622,7 @@ factory_merge() {
 	rm -f -- "$gh_err"
 	merged=$(api_get "pulls/$pr" '.merged | tostring' 'unknown')
 	state_now=$(api_get "pulls/$pr" '.state' 'UNKNOWN')
-	if [ "$merged" != "true" ] && [ "$state_now" != "MERGED" ]; then
+	if [ "$merged" != "true" ]; then # state_now below is diagnostic only: REST answers open/closed for a pull, never MERGED (#424)
 		log_event "MERGE-FAILED pr:$pr gh_exit=$merge_rc state=$state_now :: ${gh_reason:-gh printed nothing on stderr}"
 		return 1
 	fi
@@ -776,7 +776,7 @@ factory_close_delta() {
 # Measured here: `gh issue view 282 --json state` answers `MERGED`, which is gh's own projection -- the
 # REST `state` a pull request carries is `closed`. The raw REST read is refused in this session's
 # harness (`gh api repos/.../issues/282` prints `Permission denied: shell`), so the discriminator is
-# pinned by a planted payload in `factory/selftest.sh`, not by a live read.
+# pinned by a planted payload; #424 read the live sentence itself: `state=closed` in the merge journal.
 #
 # One read, not three, because two reads of one ticket can straddle a write: a verdict built from the
 # state before a close and the timestamp after it is a delta nobody observed.
@@ -787,7 +787,7 @@ factory_close_delta() {
 # collapse.
 factory_close_read() {
 	api_get "issues/$1" \
-		'[.state // "", (.closed_at // ""), (if .pull_request then "PR" else "ISSUE" end)] | join("\u001f")' ''
+		'[ ((.state // "") | ascii_upcase), (.closed_at // ""), (if .pull_request then "PR" else "ISSUE" end)] | join("\u001f")' '' # #424: REST answers lowercase; normalise once at the boundary
 }
 
 # The verdict for a ticket that reads CLOSED, spelled ONCE because both arms of the pass used to have

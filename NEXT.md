@@ -1,4 +1,50 @@
-# NEXT — issue-423 unit (branch `issue-423`, PR open at writing time; this round ships `H-0342`: the idle check that asked the wrong systemd manager answered `inactive`/`dead` at exit 0 while the pass stood `activating` — the 16 Nov 11:14:56Z receipt is on the ticket — and the new `factory_unit_idle` reads `LoadState` first, refuses `not-found`/`masked`/`failed` as unknown rather than idle, and grants `idle` only to three agreeing signals: the user manager's keyed properties, a non-blocking `flock` on the run lock, and the process table, with the journal deliberately NOT a signal because #380 measured its two silences; eleven legs pin it with stubbed reply shapes written in reverse ask order and live-process controls both ways; the stop-the-timer recipe bullet now names the guard, rewritten line-count-neutrally because the file carries cited rows 489/492, the range 949-977 and pointers at 928 and 958; base sync `077efaf` (the #487 merge, carrying `H-0340`/`H-0341`); merging belongs to the supervisor)
+# NEXT — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
+
+State at push: two decision commits (`885e0e9`/`H-0343` over `bef7403`, `1687f18`/`H-0344` over `25b0066`), then the base sync `e17db5a`→ this merge carrying `H-0346` over checkpoint `1a0bee6` — `NEXT.md` headed with the `issue-423` head demoted to a Record byte-kept, the `DECISIONS.md` tail junction unioned ascending (H-0342 before H-0343/H-0344), 36 hazard-pair pointers re-aimed `+51` to `NEXT.md:587`/`590` by the gate's own refusals. Both code edits stay line-count-neutral.
+
+## What this round shipped
+
+- `factory/factory.sh`: the close-read filter upcases `.state` at its boundary, and the MERGE
+  arm's dead belt `[ "$state_now" != "MERGED" ]` is gone — `state_now` now prints as the
+  diagnostic it always was on the `MERGE-FAILED` line.
+- `factory/selftest.sh`: sixteen close-verb plants carry REST's lowercase `open`/`closed`; the
+  CLOSE-OPEN leg and the re-probe SETTLED leg each refuse a `CLOSE-CHECK-UNKNOWN` on their own
+  run. The `issues_95`/`issues_96` `MERGED` plants and the `cdec` family's uppercase plants stay
+  uppercase on purpose: they pin the neither-answer anomaly and `gh issue view`, whose GraphQL
+  projection really does answer `CLOSED`.
+- `factory/DECISIONS.md`: `H-0343` and `H-0344`, each committed with what it decides.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges; this unit merged nothing and asked nobody, and the base-sync push
+   spends the `APPROVED` read at `45011c5` (the #269 class; nobody re-asked yet, the poke owns
+   the ask). Its live check: the first merge carrying this head should grade by verdict.
+2. A working second signal for the MERGE arm — retry `.merged` once before refusing — is NOT
+   delivered and is NOT claimed by `H-0344`; the exposure its `What lost` row discloses (a read
+   glitch skipping the ledger clear and worktree removal, the `#221` shape) predates this
+   branch unchanged.
+3. Carried, verbatim where still live, from the Records below: the merge-census leg (#428), the
+   two-word hazard-row repair (#428, #440), the #482 fence leg — run the suite as CI runs it,
+   `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, plus
+   `env -u OPENCODE_CONFIG_CONTENT` inside a live tick — and the SUPERVISOR-FF/SUPERVISOR-RERUN
+   watch: read those journal lines before blaming the branch. #489 names a second live poison,
+   `FACTORY_SERVICE_UNIT`, inherited into the selftest's supervisor fixtures — inside a tick
+   strip it too, as this unit did: `env -u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT
+   make verify`.
+
+## Constraints a stranger would break here
+
+- Both files this unit repaired are line-count-neutral ON PURPOSE: the decision logs anchor
+  over a hundred pointers into `factory/factory.sh` and into `factory/selftest.sh`; a one-line
+  repair that adds a line moves all of them. Add lines only with a pointer re-aim in the same
+  commit.
+- Do not "fix" the uppercase plants in the `cdec` family or the `MERGED` plants at
+  `issues_95`/`issues_96`: those reads really are uppercase (gh's GraphQL projection) or are
+  the anomaly under test. REST casing belongs to the `cv_` close-verb family only.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or
+  an approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-423 unit (branch `issue-423`, PR open at writing time; this round ships `H-0342`: the idle check that asked the wrong systemd manager answered `inactive`/`dead` at exit 0 while the pass stood `activating` — the 16 Nov 11:14:56Z receipt is on the ticket — and the new `factory_unit_idle` reads `LoadState` first, refuses `not-found`/`masked`/`failed` as unknown rather than idle, and grants `idle` only to three agreeing signals: the user manager's keyed properties, a non-blocking `flock` on the run lock, and the process table, with the journal deliberately NOT a signal because #380 measured its two silences; eleven legs pin it with stubbed reply shapes written in reverse ask order and live-process controls both ways; the stop-the-timer recipe bullet now names the guard, rewritten line-count-neutrally because the file carries cited rows 489/492, the range 949-977 and pointers at 928 and 958; base sync `077efaf` (the #487 merge, carrying `H-0340`/`H-0341`); merging belongs to the supervisor)
 
 State at push: trunk `077efaf`; the branch carries checkpoint `444ab00`, the base-sync merge
 `460e526`, and the `H-0342` effect commit — the open pull request is the only artifact this round
