@@ -18112,3 +18112,64 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   stale against the head rewrite that caused the move — amended into the shipped text before
   the push. Disclosed further: this push spends the `APPROVED` read taken at `45011c5` — the #269/`H-0010` class —
   and nobody has been re-asked: the ask is the supervisor's poke, not this unit's.
+
+## H-0348 · The suite's append tail is the largest measured conflict artifact in the repository: phase 1 seats a leg-file runner, or the split is done in one pass, or the collision is merged silently
+
+- Question: what shape removes the shared append tail from `factory/selftest.sh` without invalidating a
+  single open branch? Measured on #428's table at `6ca61c3`: the file held 18,450 lines touched by 147
+  trunk commits, and 3 of 8 open branches conflicted on it, each carrying a 67–197-line appended tail
+  rather than a line; one merge resolution has already dropped a unit's hand-off once on the same defect
+  at one-fifth the size (#337, recorded in `NEXT.md` since). The suite cannot keep two append targets
+  forever, and the falsification the ticket demanded — two appended monolith tails must still CONFLICT —
+  had never been executed anywhere before this unit ran it on a throwaway fixture on 20 Nov.
+- Options: **(a)** phase 1 lands a runner at the end of the monolith body that sources
+  `factory/selftest.d/*.sh` at maxdepth one in `LC_ALL=C` byte order, the first leg family ships as a
+  file containing the falsification as its own first leg, every inline leg stays where it is, and
+  `NEXT.md` stays one gated file until its own gate can read a directory | **(b)** the same runner and
+  every leg moved into files in one pass — the cleanest end state | **(c)** the runner alone, with the
+  witness leg deferred to phase 2 so phase 1 touches nothing but the tail | **(d)** phase 1 and the
+  `NEXT.d/` hand-off directory together, the gate following later | **(e)** a `merge=union` driver on
+  the monolith so two appends merge green
+- Chose: **(a)** phase 1 lands a runner at the end of the monolith body that sources
+  `factory/selftest.d/*.sh` at maxdepth one in `LC_ALL=C` byte order, the first leg family ships as a
+  file containing the falsification as its own first leg, every inline leg stays where it is, and
+  `NEXT.md` stays one gated file until its own gate can read a directory
+- Why: tie-break 1 (do not destroy in-flight work) kills (b): #381's table measured 437 lines of legs
+  appended on three open branches, and every one of them would rebase over a rewritten monolith. (e) is
+  #381's own rejected answer — a silent union of two intentions is exactly the swallow #337 measured,
+  and (a) keeps the same-name collision a visible `add/add`, now pinned by a leg so the driver cannot
+  arrive quietly. (d) would ship a home without its gate: a claim written where `scripts/check-next-md.sh`
+  does not read is the #337 defect re-imported, so the hand-off split waits for its gate in the same
+  commit that gets its reader. (c) fails H-0189's measured class — an enforcement nobody has exercised:
+  a discovery loop with zero files in it has never sourced anything, and the contract (byte order,
+  `*.sh`, maxdepth one, silent-and-green empties) would be prose before it was pinned. The witness lands
+  with the mechanism it witnesses, and it carries the falsification the ticket asked for, so the premise
+  stays executable: the leg asserts two real appended tails answer `CONFLICT (content)` — measured rc=1
+  on 20 Nov — and if that ever goes green the leg goes red and says the premise is dead. Ordering is the
+  filename under `LC_ALL=C`, which is why the numbering is padded and why the leg extracts the shipped
+  loop by text rather than transcribing it: `factory/selftest.sh:28802` "source every leg file, sorted; silent and green"
+  is what the loop must stay, read from the file that ships it.
+  The checkpoint `bd7d309` is empty because the decision preceded its first edit, per H-0245.
+- What each cost: (b) buys one clean tree at the price of every open branch and every phase-2 batch's
+  green-before-next discipline in one commit. (c) keeps phase 1 minimal and leaves the new loop's
+  discovery pinned only by code that does not exist yet. (d) makes today's claims ungated. (e) restores
+  the silent swallow. (a)'s cost is a suite living in two places for a stretch: the inline body and the
+  directory lint differently (a sourced file must name its inherited variables for the standalone
+  `scripts/check-shell.sh:118` "git ls-files -z '*.sh' 'deploy/packaging/deb/*'" pass), and the self-reading
+  legs keep scanning the monolith until they move — which is why the witness also runs
+  `pos_unconfigured_repos` over every file in the directory: `scripts/check-scripts.py:216` "def shell_files():"
+  walks `factory/` recursively for the shape gate and `check-shell.sh` takes the tracked `*.sh` set, so
+  the new files enter every gate silently, and only this leg says the identity scan sees them too.
+- Checkpoint: bd7d309
+- Effect: `factory/selftest.sh` gains `run_selftest_d_legs` between the last inline leg and the tally,
+  above every line the logs cite in that file — `--citations factory/selftest.sh` re-run after the edit
+  names every pointer still live on the edited tree — and
+  `factory/selftest.d/000-split-merge-clean.sh` "shellcheck shell=bash" is the first file it sources:
+  eight legs, the fixture's null variants, the falsification, the clean-merge repair sentence, the kept
+  `add/add` hazard, the extracted-loop ordering pins, the real-merge end-to-end, and the identity-scan
+  coverage of the directory. The skill page gains the new-leg procedure at EOF, below its highest cited
+  line; `NEXT.md` swapped its head line-for-line and rode the demoted head to the foot so the 40
+  hazard-pair pointers into that ledger stayed live — `--citations NEXT.md` names zero problems on
+  the tree that ships this entry. the full suite `bash factory/selftest.sh` in the sanitized env #482 demands answered 964 passed, 0 failed, rc 0 on 20 Nov, with all eight new legs green inside it; the standalone smoke that sources the file against a copied `pos_unconfigured_repos` answered 8 passed 0 failed; `check-shell` rc 0 over 33 scripts, `check-scripts.py` rc 0 over 29 shell scripts, `check-next-md` rc 0, and `--citations` names zero problems on both edited files `POINTER_DEBT` stays 583: every coordinate this
+  entry writes carries its fragment on its own physical line, and none aims at a line any later append
+  of this unit can slide.

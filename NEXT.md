@@ -1,4 +1,4 @@
-# NEXT — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
+# NEXT — issue-428 unit (branch `issue-428`, PR open; the shared append tail on `factory/selftest.sh` — 3 of 8 open branches measured conflicting on it by #428 — got its phase 1 repair: the suite now sources `factory/selftest.d/*.sh` in `LC_ALL=C` order via `run_selftest_d_legs`, the first leg family ships as a file there, and it opens with the falsification leg #428 demanded: two appended monolith tails MUST still conflict; merging belongs to the supervisor)
 
 State at push: two decision commits (`885e0e9`/`H-0343` over `bef7403`, `1687f18`/`H-0344` over `25b0066`), then the base sync `e17db5a`→ this merge carrying `H-0346` over checkpoint `1a0bee6` — `NEXT.md` headed with the `issue-423` head demoted to a Record byte-kept, the `DECISIONS.md` tail junction unioned ascending (H-0342 before H-0343/H-0344), 36 hazard-pair pointers re-aimed `+51` to `NEXT.md:587`/`590` by the gate's own refusals. Both code edits stay line-count-neutral.
 
@@ -4541,3 +4541,40 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
    this append sits below all of them. Whoever rewrites the head re-aims them, and
    `python3 scripts/check-close-verb.py NEXT.md` is still rc 1 on those two rows — carried
    unchanged, disclosed, owed.
+
+## Record — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
+
+## What this round shipped (issue-428)
+
+- `factory/selftest.sh`: a `run_selftest_d_legs` runner appended at the last append-safe junction (it
+  runs before the tally, so leg files can never touch the summary), sourcing `factory/selftest.d/*.sh`
+  at maxdepth one in `LC_ALL=C` byte order; absent or empty directory is silent-and-green. The old body
+  stays inline and untouched — phase 1 only seats the runner and the first file.
+- `factory/selftest.d/000-split-merge-clean.sh`: the first leg family as a file, eight legs: the
+  fixture, its premise and null variants (one-sided merges clean), the #428 falsification control
+  (two appended monolith tails must still CONFLICT — if this leg ever goes green the ticket's premise
+  is dead), the repair sentence (two distinct leg files merge CLEAN and both land with distinct
+  blobs), the kept hazard (same filename stays a visible `add/add` — no `merge=union`, per #381),
+  the runner's own discovery pinned from the shipped text (sorted byte order, `*.sh`, maxdepth one,
+  both quiet arms), a real merged-worktree end-to-end (both units' legs run, sorted), and the scan
+  half of the migration hazard: `pos_unconfigured_repos` now also reads every leg file, with its
+  control planted on a copy of the leg file itself.
+- `.opencode/skills/factory/SKILL.md`: the new-leg procedure appended at EOF — a leg is a file,
+  sourced mid-run, linted standalone, and a unit never migrates an existing leg.
+- Decision `H-0348` over checkpoint `bd7d309`. `NEXT.md` kept its shape: this H1 replaced the
+  `issue-424` head line-for-line and the demoted head rides at the foot as a Record, so the 40
+  hazard-pair pointers into this file stayed exactly where they were read on 20 Nov.
+
+## What is still owed by this round (issue-428)
+
+- **Phase 2, un-ticketed as of 20 Nov**: move the inline legs into `factory/selftest.d/` in batches,
+  each batch green in `make verify`, never rewriting an open branch. The five self-reading sites to
+  carry `$BASH_SOURCE` with them were listed in `factory/selftest.sh` on 20 Nov at `:1538`, `:1718`,
+  `:14923` (plus its control at `:14933`), `:14954`, and `:26603`–`:26612` — re-read them with
+  `grep -n 'HERE/selftest.sh' factory/selftest.sh` before moving anything; they slide with every
+  merge. In-flight branches keep appending to the old body until they merge, then move in a batch.
+- **`NEXT.d/` split with its gate** (#428's second artifact): one file per claim plus pointing
+  `scripts/check-next-md.sh` at the directory — deliberately not shipped here, because shipping the
+  home without moving the gate would put claims where nothing reads them.
+- The runner's discovery is pinned, but a leg file that prints to stdout would still land in the
+  suite's verdict stream; nobody has planted one to see what the tally does with it.
