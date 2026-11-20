@@ -27113,6 +27113,188 @@ proc_leg 'the push bound is the kill: without it the same park just runs long' \
 	proc_push_ctl_nobound "$proc_journal" "$proc_work/push-ssh-ctl-nobound.txt"
 printf '[]\n' >"$proc_fix/pr-open.json"
 
+# ------------------------- the death of an activation writes its own END (#419 repair 2, H-0333)
+#
+# The ticket's headline is 1h39m with ZERO journal lines and no `END rc=` -- a pass killed by
+# systemd's start deadline left no verdict, because the parked git call outran every line the
+# pass might still have written. #419 repair 1 (H-0332) bounds the parked call so a dying pass
+# is usually one bash can still run; this half makes that pass SAY SO: a death line carrying
+# the same `END rc=` token plus `died=<cause>`, so a death can never read as a verdict, plus
+# `inside=<unit>` and the elapsed time. Two silences no trap outruns -- SIGKILL, and a stop
+# inside a child that ignores TERM until the cgroup escalation -- are stated in the function;
+# the control pins what the traps themselves are worth by removing the EXIT and TERM
+# registrations and nothing else (measured here, bash 5.3.9: a lone EXIT trap still fires on a
+# default-TERM death and forges `END rc=0` -- the wrong rc in the wrong direction): the same
+# TERM then leaves the journal ending mid-work, the incident's shape at fixture scale, with no
+# END at all.
+#
+# The kill is the #364 family's with the signal changed, and the pattern is anchored to the
+# START of `BASH_COMMAND` (`timeout *push origin*`), not a substring: the `log_event` line
+# describing the push carries `push origin` in its expanded text too, and a substring needle
+# would land the TERM one command earlier, before the ACTION line was even journalled -- the
+# leg's own precondition would plant the kill in the wrong place. The box needs no parked
+# transport -- the TERM lands BEFORE the push command starts -- so the scripted ssh stub sits
+# at its `FAKE_SSH_HOLD_PUSH` default of 0: it exists so a mutant that somehow misses the kill
+# fails loudly rather than pushing into a shared bare.
+
+proc_kill_enable_term() { # SIGTERM the pass at the supervisor's own bounded-push command
+	local f=$proc_work/kill-trap-term.sh
+	cat >"$f" <<'KILLTRAP'
+set -o functrace
+# `if`, not `&&`: a DEBUG trap that returns non-zero SKIPS the command it interrupted.
+trap 'if [[ $0 == *factory.sh && $BASH_COMMAND == timeout*push*origin* ]]; then kill -TERM -- "$$"; fi' DEBUG
+KILLTRAP
+	proc_kill=$f
+}
+
+proc_death_box() { # <name> -> the conflict box from the push family's shape, transport unheld
+	local name=$1
+	local up=$proc_work/deathup-$name.git
+	proc_new "death-$name" || return 1
+	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
+		git -C "$proc_repo" push -q "$up" main &&
+		git -C "$proc_repo" branch -q issue-900 origin/main &&
+		git -C "$proc_repo" update-ref refs/heads/issue-900 \
+			"$(git -C "$proc_repo" commit-tree "$(git -C "$proc_repo" rev-parse 'issue-900^{tree}')" \
+				-p issue-900 -m 'fixture: the commit the TERM must interrupt')" &&
+		git -C "$proc_repo" remote set-url origin "ssh://git@github.invalid/x/y.git" &&
+		printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+			>"$proc_fix/pr-view-900.json" &&
+		proc_conflict_row
+}
+
+proc_death_leg_verdict() { # <journal> <rc> -> the death line is the pass's last word, and one line
+	local j=$1 rc=$2 line
+	# The fixture's precondition: the kill had its instruction. Without the ACTION line for the
+	# bounded push, the box died somewhere else and every assertion below is vacuous -- the same
+	# "prove the fixture before trusting the leg" order the push family keeps.
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the pass never journalled the push it was to be TERMed at, so this\n' >&2
+		printf '            box measured a death somewhere else. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" ' died=TERM')
+	printf '%s\n' "$line" | grep -q 'END rc=143 ticks_started=0 died=TERM inside=conflict:900 after=' || {
+		printf '            no death line reading `END rc=143 ... died=TERM inside=conflict:900\n' >&2
+		printf '            after=<n>s` -- the 128+n rc, the unit, the cause, and the elapsed\n' >&2
+		printf '            time are the four things a reader needs and all four are the point.\n' >&2
+		printf '            Line: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(grep -c 'END rc=' "$j")" = 1 ] || {
+		printf '            the journal carries %s END lines -- a death must be the pass last\n' "$(grep -c 'END rc=' "$j")" >&2
+		printf '            word, once. Journal:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$(tail -n 1 "$j")" = "$line" ] || {
+		printf '            the death line is not the last line the pass wrote:\n' >&2
+		printf '              %s\n            vs\n              %s\n' "$(tail -n 1 "$j")" "$line" >&2
+		return 1
+	}
+	# died= is what tells the two apart: no `END rc=` may exist WITHOUT it (the whole contract --
+	# a death never reads as a verdict), and the arm must not have reached its verdict tokens.
+	grep 'END rc=' "$j" | grep -qv ' died=' && {
+		printf '            an END without died= exists beside the death line.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'CONFLICT-UNPUSHED pr:900')" ] || {
+		printf '            the arm judged its own push after the pass was killed making it.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'TICK-START')" ] || {
+		printf '            a tick started in a pass killed before its dispatch loop.\n' >&2
+		return 1
+	}
+	[ "$rc" = 143 ] || {
+		printf '            the killed pass exited %s, not 143 -- the journal and `systemctl`\n' "$rc" >&2
+		printf '            must show the same 128+n number for one death.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-shipped.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-shipped.git")
+proc_death_box shipped && proc_death_shipped_planted=1 || proc_death_shipped_planted=0
+proc_kill_enable_term
+proc_run death-shipped-1
+proc_kill=''
+proc_death_rc=$proc_rc
+[ "$proc_death_shipped_planted" = 1 ] || proc_death_rc=-1
+proc_leg 'a pass TERMed at its own push writes its own death sentence' \
+	'END rc=143 died=TERM inside=conflict:900 is the last and only END, no verdict tokens, rc 143' \
+	proc_death_leg_verdict "$proc_journal" "$proc_death_rc"
+
+proc_death_ctl_noreg() { # <journal> <rc> -> without the registrations the same TERM leaves no END
+	local j=$1 rc=$2
+	[ "${proc_ctl_death_noreg_planted:-0}" = 2 ] || {
+		printf '            only %s of the two registrations could be removed, so this control\n' "${proc_ctl_death_noreg_planted:-0}" >&2
+		printf '            ran a shipped trap.\n' >&2
+		return 1
+	}
+	proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900' | grep -q 'ACTION timeout --signal=TERM' || {
+		printf '            the mutant box never reached the push either -- same precondition, or\n' >&2
+		printf '            the control is not measuring the same death.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ "$rc" = 143 ] || {
+		printf '            the untrapped pass exited %s, not 143 -- the control died a different\n' "$rc" >&2
+		printf '            death than the shipped box.\n' >&2
+		return 1
+	}
+	grep -q 'END rc=' "$j" && {
+		printf '            the journal has an END although nothing was registered to write one --\n' >&2
+		printf '            the shipped box'"'"'s death line is then not what the trap produced.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	grep -q 'died=' "$j" && {
+		printf '            the untrapped pass names a death it had no trap to name.\n' >&2
+		return 1
+	}
+	# The incident's shape at fixture scale: the journal's last word is the work it was doing.
+	local last
+	last=$(proc_journal_line "$j" 'push origin HEAD:refs/heads/issue-900')
+	if ! { printf '%s\n' "$last" | grep -q 'ACTION timeout --signal=TERM' &&
+			[ "$(tail -n 1 "$j")" = "$last" ]; }; then
+		printf '            the untrapped journal did not end mid-work on its ACTION line -- the\n' >&2
+		printf '            incident this trap retires ends at exactly that shape.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_extra_env=("SSH_REC=$proc_work/death-ssh-ctl-noreg.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh-push" "FAKE_SSH_REAL=$proc_work/deathup-ctl-noreg.git")
+proc_death_box ctl-noreg || true
+# Both registrations go: the TERM one is the line-maker, and the EXIT one is the line-FAKER.
+# Measured on this bash (5.3.9): with only a plain EXIT trap registered, a default-TERM death
+# still runs it -- `EXIT-RAN rc=0` printed, process died 143 -- so an un-trapped pass forges
+# `END rc=0 died=EXIT`, an END whose number is wrong in the worst direction: a killed pass
+# claiming the clean rc. That measurement is half of why the control exists.
+proc_ctl_death_noreg_planted=0
+proc_mutate_factory \
+	"	trap 'factory_death TERM 143' TERM" \
+	'	:' && proc_ctl_death_noreg_planted=1
+sed -i 's/^\ttrap .factory_death EXIT.*/	:/' "$proc_dir/factory.sh" &&
+	[ "$(grep -c "trap 'factory_death" "$proc_dir/factory.sh")" = 2 ] &&
+	proc_ctl_death_noreg_planted=2
+proc_kill_enable_term
+proc_run death-ctl-1
+proc_kill=''
+proc_death_ctl_rc=$proc_rc
+proc_leg 'the death line is the traps: without them the same TERM leaves no END' \
+	'rc 143, no END at all, no died=, journal ends mid-work on the ACTION line' \
+	proc_death_ctl_noreg "$proc_journal" "$proc_death_ctl_rc"
+
+proc_extra_env=()
+printf '[]\n' >"$proc_fix/pr-open.json"
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
