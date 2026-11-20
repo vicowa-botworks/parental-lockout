@@ -1,4 +1,88 @@
-# NEXT — issue-390 unit, base-sync round (branch `issue-390`, PR #473: the sync the 20:41Z review measured as mechanical is in, its recipe followed on the merged bytes and its numbers reproduced — it predicted `380 / 1240 / 583 / 0 refused`, this tree reads `381 / 1254 / 583 / 0 refused` with this round's entry in it; the third seam it did not name, fourteen `NEXT.md` pointers, is re-aimed here; the fossil sentence and the whole gate that review asked for are both landed; the pass is `H-0313`; the pull refs #390 and the issue stays open on its own terms, never on this file; merging belongs to the supervisor)
+# NEXT — issue-399 unit (branch `issue-399`, the pull for `issue-399`: the last hand-rolled serve site now starts through `startServe`, the helper hands back the config path it passed, the dead `extra ...string` is gone, the startup announcement is judged as the one line it is, and a source-scanning leg refuses an inline serve start; the pass is `D-0092`; the ticket's own guard question was answered by that leg rather than by a fixture-shape assertion, and the entry says what lost; merging belongs to the supervisor)
+
+State read by this unit before it wrote a byte: the worktree `../wt/issue-399`
+was clean at `0466134` with `origin/main` equal to it; no `factory/HALT`; the
+allocator answered `D-0092` on a `REFRESH 1s union` read after `git fetch
+--prune origin` (the fetch moved nothing), and the checkpoint is `368ce91`.
+
+## What this round shipped
+
+- `TestServeAnnouncesItsStart` routes through `startServe` — the seam, the count and
+  the naming arm all reach it now — and `startServe` returns the config path it wrote
+  and passed as `--config`, so the assertion compares the announcement against the
+  document the daemon was actually handed. The variadic `extra ...string` is removed:
+  `git log --all -S 'append(args'` finds no commit that ever used it and the commit
+  that introduced the helper names it once, in the signature — a parameter that
+  silently swallowed arguments is the same silent-no-op family as the unreported
+  overrun #399 filed.
+- The path and program-name assertions read the announcement LINE, not the buffer.
+  The whole-buffer form could never fail: the engine prints its own
+  `enforce: running, every %v, config %s` line at the same path a beat later —
+  measured 19 Nov with a product mutant that deleted the path from the announcement:
+  green on the buffer shape, and red on the line shape. This defect was not in the
+  ticket; the ticket's probe (weakening the wait) could not see it because it mutated
+  the test, not the product.
+- Four product mutants against the shipped line-wise guard, each verified to have
+  edited `cmd/plock/serve.go` before the run and restored byte-identically after:
+  drop-the-path red, literal wrong path red (the arm names both the expected path and
+  the line), `plockd serve` red on the identity arm, no-phrase red from the wait;
+  unmutated green.
+- New leg `TestNoServeTestStartsTheDaemonAroundTheHelpers`: scans the package's
+  `*_test.go` and refuses a `runServeContext` call outside `startServe` whose exit
+  code is not consumed on its own line. Measured both directions: a planted inline
+  site is refused naming file and line, and the shipped tree passes. Its first draft
+  refused `refuseWithin` and the two synchronous refusal probes and its own source
+  line — three false positives, repaired into the same-line-consume rule and a
+  needle built by concatenation; the repair history is in `D-0092` because it is the
+  design, not a slip.
+- Receipts re-derived on THIS tree, not quoted from the ticket: the inline shape reads
+  seam `(production)` with `liveServeDaemons` 0 live and 0 after stop; the routed
+  shape reads the stub with the count at 1. Under a `PATH` whose `loginctl` is a
+  logging shim, one inline run recorded four real `loginctl` executions (startup
+  probe and one tick: `list-sessions --json=short` plus `show-session`); the routed
+  daemon under the same shim recorded zero. Note this falsifies the ticket's bounding
+  sentence: `lockBackends: ["logind"]` is a lock backend and `list-sessions` is its
+  first call.
+- `D-0092` in `DECISIONS.md`, checkpoint `368ce91`, one effect commit carrying
+  `Decision: D-0092`.
+
+## What is still owed (all of it, none silent)
+
+1. The leg pins today's spelling: a bypass that consumes the exit code into a
+   variable nobody reads, or routes through a renamed wrapper that consumes it, reads
+   past it. The leg's comment and the entry's `What lost:` both say so; the next unit
+   who wants more should extend the predicate, not trust it.
+2. `TestServeStartsWhenOneBackendIsUsable` and the TLS sites wait on the whole
+   `starting, config` phrase but assert no path, so they carry no dead assertion
+   today. Anyone who later adds a path assertion at a buffer-sharing site must judge
+   the line — the buffer contains the engine's path line and the wait's phrase.
+3. #399's own numbers (one runner call in a 35 s window at `pollSeconds` 30) belong
+   to the tree at filing; this unit re-derived the seam, count and real-execution
+   facts at the checkpoint tree with a different instrument (PATH shim, not counting
+   stub) and did not re-run the 35 s window.
+4. The fixture-shape guard the ticket floated — asserting `writeServeConfig` ships no
+   users — was weighed and declined; if a future unit ships it anyway, it pins
+   fixture content and will be edited by the very commit that adds a user.
+
+## Constraints a stranger would break here
+
+- `startServe` returns five values now (`out`, `errOut`, `cancel`, `code`,
+  `cfgPath`); every serve site in the package goes through it or consumes a
+  `runServeContext` exit code on the call's own line — the leg refuses anything else,
+  with a file-and-line message pointing at #399.
+- The startup announcement's load-bearing text is asserted on the announcement line
+  only. A future line that repeats the path (the engine line does) must not be
+  allowed to prop a whole-buffer assertion back up.
+- Run the suite as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT
+  -u FACTORY_TICK_BRANCH make verify`, and say so wherever the verdict is quoted.
+- Mutant work on `cmd/plock/serve.go` here was done with `cp` backups and verified
+  restored with `diff` against `git show HEAD:` — keep that shape; the probes this
+  unit needed were throwaway `cmd/plock/zz_probe_*_test.go` files, run and deleted,
+  never committed (the ticket's recipe says the same of its probes).
+
+
+
+## Record — the issue-390 unit, base-sync round (branch `issue-390`, PR #473: the sync the 20:41Z review measured as mechanical is in, its recipe followed on the merged bytes and its numbers reproduced — it predicted `380 / 1240 / 583 / 0 refused`, this tree reads `381 / 1254 / 583 / 0 refused` with this round's entry in it; the third seam it did not name, fourteen `NEXT.md` pointers, is re-aimed here; the fossil sentence and the whole gate that review asked for are both landed; the pass is `H-0313`; the pull refs #390 and the issue stays open on its own terms, never on this file; merging belongs to the supervisor)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: at
 `2026-11-19T20:50:51Z` `gh pr view 473 --json reviewDecision,mergeable,mergeStateStatus,headRefOid`

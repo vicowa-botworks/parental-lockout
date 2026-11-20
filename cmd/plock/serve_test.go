@@ -215,7 +215,18 @@ func writeServeConfig(t *testing.T, dir string) string {
 // announced on a channel the helper keeps to itself, so a test that wants the code and
 // a cleanup that wants the stop ask two different questions, and a daemon that does not
 // stop in time is a failure with a message rather than a silent 15 seconds.
-func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, context.CancelFunc, <-chan int) {
+//
+// The last value is the path of the config the helper wrote and passed as --config,
+// because a test that starts through here cannot otherwise know which document the
+// daemon was told to open, and the guard that the startup line names the opened path
+// needs exactly that. The parameter this used to also take — a trailing
+// `extra ...string` — is gone: no caller ever passed it and the body never read it,
+// so it was a promise to accept arguments that silently swallowed them, the same
+// silent-no-op family as the unreported overrun #399 filed. The contract is the
+// opposite, as the comment inside TestServeStartsWhenOneBackendIsUsable says: the
+// helper writes the fixture config the seam guards stand on and "nothing needs to be
+// passed in".
+func startServe(t *testing.T) (*syncBuffer, *syncBuffer, context.CancelFunc, <-chan int, string) {
 	t.Helper()
 	installServeRunner(t, workingLoginctl)
 	dir := t.TempDir()
@@ -253,7 +264,7 @@ func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, contex
 				"this way can lock the session of whoever is running the suite.")
 		}
 	})
-	return &out, &errOut, cancel, code
+	return &out, &errOut, cancel, code, cfgPath
 }
 
 // canaryRunner answers with its own name, so a test can tell WHICH stub a seam holds
@@ -400,6 +411,80 @@ func TestSeamRestorationIsHeldWhileADaemonHasNotStopped(t *testing.T) {
 	})
 }
 
+// TestNoServeTestStartsTheDaemonAroundTheHelpers is #399's guard on the class, not
+// on the sentence. What #399 measured at its head — a test whose daemon held the
+// production runner, moved no liveServeDaemons, and armed nothing of the helper's —
+// is what any inline `go`-style start of the daemon means: a run whose exit code no
+// test waits for, started without the seam. startServe owns that shape; refuseWithin
+// and the two usage- and config-refusal probes call runServeContext on their own
+// goroutine and consume the exit code on the same line, which cannot leave a daemon
+// behind — a refusal returns before a daemon exists, and a start that is not a
+// refusal blocks the test loudly instead of silently outliving it. So the leg reads
+// this package's own test sources and refuses a call to runServeContext whose result
+// is not consumed on its own line and whose owner is not startServe, with line
+// comments stripped — this file has always named the function in prose, and prose is
+// not a call site. It pins today's spelling: a bypass that consumes a code into a
+// variable nobody reads would read past it, and the decision entry says so.
+func TestNoServeTestStartsTheDaemonAroundTheHelpers(t *testing.T) {
+	dir, ok := packageDir()
+	if !ok {
+		t.Skip("cmd/plock sources not found; the scan has nothing to read")
+	}
+	names, err := filepath.Glob(filepath.Join(dir, "*_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) == 0 {
+		t.Fatalf("glob %s/*_test.go found no files to scan", dir)
+	}
+	// Built, not written: a literal carrying the call token would make this scan
+	// flag its own source line as a call site.
+	needle := "runServeContext" + "("
+	for _, name := range names {
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := "(file top)"
+		for i, line := range strings.Split(string(src), "\n") {
+			if strings.HasPrefix(line, "func ") {
+				owner = "(anonymous)"
+				if fs := strings.Fields(line); len(fs) > 1 && !strings.HasPrefix(fs[1], "(") {
+					owner = fs[1]
+					if k := strings.Index(owner, "("); k >= 0 {
+						owner = owner[:k]
+					}
+				}
+				continue
+			}
+			if j := strings.Index(line, "//"); j >= 0 {
+				line = line[:j]
+			}
+			at := strings.Index(line, needle)
+			if at < 0 {
+				continue
+			}
+			if owner == "startServe" {
+				continue
+			}
+			// A direct synchronous call ends in an assignment token before the
+			// call: `refused := runServeContext(`, `if code := runServeContext(`.
+			// Anything else — a channel send, a bare go statement, a discarded
+			// result — starts a daemon the line does not wait for.
+			before := strings.TrimRight(line[:at], " \t")
+			if strings.HasSuffix(before, ":=") || strings.HasSuffix(before, "=") {
+				continue
+			}
+			t.Errorf("%s:%d: a test starts the daemon through runServeContext inside %s "+
+				"without waiting for its exit code on the same line — the inline shape #399 "+
+				"measured, with no runner stub and no liveServeDaemons movement. Start it "+
+				"through startServe, or call the function and consume the code directly the "+
+				"way the refusal probes do; see #399.",
+				filepath.Base(name), i+1, owner)
+		}
+	}
+}
+
 func TestServeRejectsABrokenConfigAtStartup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -489,7 +574,7 @@ func TestOneRunnerFailingCancelsTheOthers(t *testing.T) {
 // the runners hold, because the enforcement loop is not a socket and will only stop
 // when the context says so.
 func TestServeStopsWhenTheContextIsCancelled(t *testing.T) {
-	out, _, cancel, code := startServe(t)
+	out, _, cancel, code, _ := startServe(t)
 	waitFor(t, out, "listening on", 10*time.Second)
 
 	cancel()
@@ -511,7 +596,7 @@ func TestServeStopsWhenTheContextIsCancelled(t *testing.T) {
 // yet. It is now, so the notice was deleted rather than left as insurance, and what
 // is pinned here is the two ways the daemon can get this wrong.
 func TestServeRunsTheEnforcementLoop(t *testing.T) {
-	out, _, cancel, code := startServe(t)
+	out, _, cancel, code, _ := startServe(t)
 	waitFor(t, out, "listening on", 10*time.Second)
 
 	// The engine ticks immediately rather than waiting out the first period, so a
@@ -656,7 +741,7 @@ func TestARefusalLeavesNoAuditTrailBehind(t *testing.T) {
 func TestServeStartsWhenOneBackendIsUsable(t *testing.T) {
 	// startServe installs the working runner and writes a config that names logind,
 	// which is the shape being tested here; nothing needs to be passed in.
-	out, errOut, cancel, code := startServe(t)
+	out, errOut, cancel, code, _ := startServe(t)
 	waitFor(t, out, "starting, config", 10*time.Second)
 	// The startup line comes FIRST, ahead of the probe, so waiting for it says only
 	// that the daemon began starting. Both assertions below read what the probe
@@ -715,7 +800,7 @@ func TestServeRefusesToStartWhenTheAuditPathIsUnusable(t *testing.T) {
 // stream a daemon's operator redirects, and a warning that lands there is a warning that
 // gets read by nobody.
 func TestServeWarnsEveryTimeTLSIsOff(t *testing.T) {
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
 }
 
@@ -724,7 +809,7 @@ func TestServeWarnsEveryTimeTLSIsOff(t *testing.T) {
 // line to both streams would satisfy the test above while proving nothing about where the
 // operator looks.
 func TestTheTLSSWarningIsNotOnStdout(t *testing.T) {
-	out, errOut, _, _ := startServe(t)
+	out, errOut, _, _, _ := startServe(t)
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
 	// Something else must already be on stdout, or this passes for the wrong reason:
 	// "the warning is not on stdout" is only evidence of a split when stdout is
@@ -753,35 +838,56 @@ func TestTheTLSSWarningIsNotOnStdout(t *testing.T) {
 // a wrong --config still loads, still validates, and still gets written back, so the
 // operator gets a healthy-looking dashboard for a document nobody meant to edit.
 func TestServeAnnouncesItsStart(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := writeServeConfig(t, dir)
-	var out, errOut syncBuffer
+	// #399 measured this site starting its daemon inline, and inline meant all of:
+	// no seam installed, so the daemon held the real platform.ExecRunner and ran the
+	// host's `loginctl` from a test whose cleanup had no opinion about it; no
+	// liveServeDaemons movement, so an overrun here was invisible to the exit read
+	// that catches every other serve overrun in the package; and an arm naming
+	// neither. It comes through the helper, which owns all three.
+	out, _, cancel, code, cfgPath := startServe(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	code := make(chan int, 1)
-	go func() {
-		code <- runServeContext(ctx, &out, &errOut, []string{
-			"--config", cfgPath, "--state-dir", dir,
-			"--audit-path", filepath.Join(dir, "audit.jsonl"),
-		})
-	}()
-
-	waitFor(t, &out, "starting, config", 10*time.Second)
-	if !strings.Contains(out.String(), "plock serve") {
-		t.Errorf("the startup line does not identify the program: %q", out.String())
+	waitFor(t, out, "starting, config", 10*time.Second)
+	// The assertions are LINE-wise, not whole-buffer, and that is load-bearing.
+	// A whole-buffer Contains(cfgPath) can never fail here even when the guard is
+	// needed: the engine prints its own `enforce: running … config <path>` line,
+	// at the same path, a beat after the announcement — measured 19 Nov, editing
+	// the announcement to drop its path left the buffer assertion green on the
+	// strength of the engine's line. #399 called this site's arm one that cannot
+	// miss; the engine line is HOW it misses. So the announcement is pulled out
+	// of the buffer and judged as the one line it is.
+	announcement := ""
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "starting, config") {
+			announcement = line
+			break
+		}
 	}
-	// The exact path, not merely the word "config". The line exists to catch a start
-	// against the wrong document, and an assertion that any path-looking text
-	// appears would survive the line naming a file nobody asked for.
-	if !strings.Contains(out.String(), cfgPath) {
-		t.Errorf("the startup line does not name the config that was opened (%s): %q", cfgPath, out.String())
+	if announcement == "" {
+		// waitFor above makes this unreachable; the guard is against a future
+		// edit making the two phrases disagree, which would otherwise turn the
+		// two checks below into checks of the empty string.
+		t.Fatalf("waitFor matched %q yet no line of stdout carries it:\n%s", "starting, config", out.String())
+	}
+	if !strings.Contains(announcement, "plock serve") {
+		t.Errorf("the startup line does not identify the program: %q", announcement)
+	}
+	// The exact path, on the startup line itself — not merely the word "config"
+	// and not merely the path somewhere in the log. The line exists to catch a
+	// start against the wrong document, and cfgPath is the document the helper
+	// passed as --config, so this compares the announcement against the argument
+	// the daemon was actually handed.
+	if !strings.Contains(announcement, cfgPath) {
+		t.Errorf("the startup line does not name the config that was opened (%s): %q", cfgPath, announcement)
 	}
 
 	cancel()
 	select {
 	case <-code:
 	case <-time.After(15 * time.Second):
+		// The helper's cleanup runs the same wait with the arm that names the seam
+		// and what a daemon left running can reach; this drain keeps the exit a
+		// property of THIS test, worded as its neighbour
+		// TestServeStartsWhenOneBackendIsUsable words its own.
 		t.Error("serve did not exit after cancel")
 	}
 }
@@ -792,7 +898,7 @@ func TestServeAnnouncesItsStart(t *testing.T) {
 // The default logger stamps every line with a date, so the stamp's absence is what
 // proves the line came through the caller's writer.
 func TestTheTLSSWarningReachesTheConfiguredSink(t *testing.T) {
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
 
 	for _, line := range strings.Split(errOut.String(), "\n") {
