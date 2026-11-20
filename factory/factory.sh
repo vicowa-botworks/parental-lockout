@@ -340,6 +340,19 @@ fi
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
 	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' -o -name 'push-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
+	# #421: the backstop for claims no read reached. A claim's own guarantee is that its writer
+	# is dead once `deadline=` passed, and `factory_claim_held` sweeps expired files at the
+	# moment a reader could be endangered by them -- that is the guard's duty, not cleanup's.
+	# This find is for the file no guard will ever ask about: a unit retired, a tree renamed, a
+	# machine that stopped dispatching to this path. Its bound is therefore strictly past every
+	# bound a LIVE claim could carry -- ceiling + grace + slack, plus a 15-minute margin for a
+	# mint whose clock read early -- so it can only ever retire a file whose deadline passed
+	# with room to spare; a young live claim is untouched by construction, and a file that is
+	# older than its own expiry by all that margin cannot name a writer that can still be
+	# running (mint, ceiling, grace, slack, margin -- all bounded, H-0340).
+	find "$FACTORY_RUN/claim" -maxdepth 1 -name '*.claim' -mmin \
+		"$(((FACTORY_TICK_TIMEOUT + FACTORY_TICK_KILL_AFTER + FACTORY_CLAIM_SLACK + 900) / 60))" \
+		-delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -979,6 +992,30 @@ factory_resolve_conflict() {
 	# that cannot be done for certain, or when the same unit goes dirty twice without a tick between.
 	factory_tree_stop CONFLICT-HALTED "pr:$pr" "$tree" || return $?
 
+	# #421, H-0340: the tree claim, asked AFTER the content verdict and BEFORE the first write --
+	# here the `git merge` below, which is the half of #361's pair the journal cannot witness:
+	# the 16 Nov measurement had a second unit dispatched into `wt/issue-341` 2m16s before a
+	# session started merging in the same resolution, 8m05s of two writers on one index, while
+	# `TICK-START` (the journal's only claim) was being written by that same activation a breath
+	# later. The inline merge was the path with no tick and therefore no `TICK-START` at all
+	# until the refusal; this is its claim. `return 2` is this function's own "not now", and the
+	# `CONFLICT-DEFERRED … the reason is the line above` in the dispatcher points at `TREE-HELD`.
+	# The mint is skipped under DRY_RUN because the dry run stops two arms later at its own
+	# `merge` line -- a claim for a writer that will not write would be evidence with no
+	# activation behind it, exactly what the deadline exists to prevent.
+	factory_tree_claim_check "pr:$pr" "$tree" || return 2
+	if [ "$DRY_RUN" != "1" ]; then
+		FACTORY_CLAIM_ACTIVE=$(factory_claim_write "pr:$pr" "$tree") || FACTORY_CLAIM_ACTIVE=''
+		if [ -n "$FACTORY_CLAIM_ACTIVE" ]; then
+			FACTORY_CLAIM_ACTIVE_UNIT="pr:$pr"
+		else
+			# The refusal already read free and the mint failed: the merge proceeds UNCLAIMED,
+			# which is what every dispatch was before #421 -- and said in words, because a
+			# silently missing claim is the silence this whole component replaces.
+			log_event "TREE-CLAIM-FAILED pr:$pr $tree the tree read free and the claim could not be minted; merging unclaimed, the pre-#421 posture"
+		fi
+	fi
+
 	# The base is not always `main`. Pull request #215 is based on `fix/audit-row-label` -- another open
 	# pull request, because its capture work needs the audit-row change -- and this function merged
 	# `origin/main` into it unconditionally and then logged `CONFLICT-RESOLVED`. Every word of that line was
@@ -1348,6 +1385,33 @@ Inventing the ask is the failure this repository has written up more often than 
 	# cannot be mirrored, because one dead tick's four modified files froze 22 units for 15h57m.
 	factory_tree_stop TICK-HALTED "$unit" "$tree" || return $?
 
+	# #421, H-0340: the tree claim, between the content verdict and `TICK-START`, so the tree is
+	# signed as held before anything -- including the journal line that is this pass's only other
+	# record of it -- claims it. The 13 Nov #361 incident is the retrospective half this journal
+	# already answers; #421's 16 Nov instance is the instant half a second writer ignored: a unit
+	# dispatched into `wt/issue-341` 2m16s before a session started a merge in the same
+	# resolution, 8m05s of two writers on one index. A refused claim is `return 5`, the same
+	# "ran nothing, budget unchanged" verdict as a tree that could not be built -- the dispatcher's
+	# NOT-STARTED arm counts it, and the queue re-offers the unit on a later pass; a hold is a
+	# wait, and the `TREE-HELD` line above names the holder, its pid, and the deadline.
+	factory_tree_claim_check "$unit" "$tree" || return 5
+	local claim_file=''
+	claim_file=$(factory_claim_write "$unit" "$tree") || claim_file=''
+	if [ -n "$claim_file" ]; then
+		# shellcheck disable=SC2034  # both globals are read by `factory_claim_release_active`,
+		# which lives in the sourced common.sh; shellcheck analyses factory.sh alone. Same shape
+		# as the FACTORY_* and FACTORY_TICK_* notes above.
+		FACTORY_CLAIM_ACTIVE=$claim_file
+		# shellcheck disable=SC2034  # the other half of the pair above
+		FACTORY_CLAIM_ACTIVE_UNIT=$unit
+	else
+		# The check read free and the mint failed (disk, permissions, a race the lock says is
+		# impossible). The tick is dispatched UNCLAIMED -- the pre-#421 posture -- rather than
+		# losing the unit's turn to an infrastructure stumble, and the journal says so, because
+		# a silently missing claim is exactly the silence this component replaces.
+		log_event "TREE-CLAIM-FAILED $unit $tree the tree read free and the claim could not be minted; dispatching unclaimed, the pre-#421 posture"
+	fi
+
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
 	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
@@ -1435,6 +1499,8 @@ the tick ends; anything meant to survive belongs in a commit, in the tree."
 		FACTORY_TICK_UNIT="$unit" \
 		FACTORY_TICK_BRANCH="$branch" \
 		FACTORY_SCRATCH="$scratch" \
+		FACTORY_RUN="$FACTORY_RUN" \
+		FACTORY_TICK_CLAIM="$claim_file" \
 		OPENCODE_CONFIG_CONTENT="$FACTORY_MCP_FENCE" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
@@ -1469,6 +1535,18 @@ is open or updated. Merging belongs to the supervisor and is denied to you.$scra
 	# Same posture as the streak above -- reported, never fatal, above both exits below -- because an
 	# id whose provenance nobody saw is for a human to weigh, not for the pass to act on.
 	factory_decision_provenance "$unit" "$branch" "$tree"
+
+	# The tree claim dies with the activation's last touch of the tree (#421) -- above both exits
+	# below, because a delivered tick and a failed one are equally done with the tree, and a
+	# release that runs on only one path turns every failed tick into a 45-minute hold. The
+	# release checks the file's own `unit=` and `pid=` first: a file that is not this dispatch's
+	# claim is evidence, not debris, and gets a `TREE-CLAIM-FOREIGN` line naming both writers.
+	# If this bash is killed before reaching here, the claim stands to its deadline and the
+	# sweep in `factory_claim_held` retires it -- which is safe exactly because the mint bounded
+	# the writer's life. The trailing comment is load-bearing for `factory/selftest.sh`: it makes
+	# this call site a unique anchor for the release mutant, against the dispatcher's identical
+	# call in the conflict arm.
+	factory_claim_release_active # the activation's last touch of the tree (#421, H-0340)
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
@@ -2046,6 +2124,11 @@ factory_body() {
 			# the language. See the return-code list on that function.
 			rc_conflict=0
 			factory_resolve_conflict "$key" "$branch" || rc_conflict=$?
+			# The activation is done with the tree on every exit above; release the claim it
+			# minted (#421). This site, not inside the function, because the function has nine
+			# returns and a release that must run on all of them belongs where the call is
+			# made once. A no-op when nothing was minted (refusal, halt, dry run).
+			factory_claim_release_active
 			case "$rc_conflict" in
 			0) : ;;
 			1) workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s\037%s' conflict "$key" "$detail" "$branch" "$issue" '' "$unit")"$'\n' ;;

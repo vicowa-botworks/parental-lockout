@@ -17250,3 +17250,87 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   TERM -- the review's non-blocking note, a forensics gap only), and `died=EXIT` remains the
   shared token for internal aborts (`set -u`, a failed redirection), as H-0333 discloses.
 - Checkpoint: bc9dab8906a8df7a9558d6ce31c58500554913a1
+
+## H-0340 · The journal cannot witness an activation before its own first line, so what makes "who is writing to this tree right now" answerable the instant it is asked: a claim file minted at activation with a self-imposed expiry, a kernel flock for the tick's life, or a wider journal read?
+
+- Question: #421, measured 16 Nov: a second unit was dispatched into `wt/issue-341`
+  2m16s before a session started a merge in the same resolution -- 8m05s of two
+  writers on one index -- and the busy guard did nothing wrong: it was asked at
+  15:31:50 about a dispatch whose `TICK-START` was written at 15:31:50, BY that
+  same dispatch, and the second writer (a session merging outside the harness)
+  was never going to ask a journal at all. `factory_worktree_busy` answers "did a
+  dispatch claim this tree and never release it"; nothing answered "does anything
+  hold this tree THIS SECOND". What instant guard closes that, is answerable by a
+  writer the harness does not run, and cannot outlive its owner as a permanent
+  lock?
+- Options: a kernel `flock` held for the tick's life (the OS releases it at death,
+  so no expiry arithmetic) | a claim file under `$FACTORY_RUN/claim/` minted after
+  the content verdict and before the first write, read by every later arrival,
+  carrying a deadline the minting activation set for itself | widen the journal
+  read to pre-activation lines so `factory_worktree_busy` can see intentions
+  before `TICK-START`
+- Chose: a claim file under `$FACTORY_RUN/claim/` minted after
+  the content verdict and before the first write, read by every later arrival,
+  carrying a deadline the minting activation set for itself
+- Why: the third option is refuted by the measurement itself -- the collision is
+  inside one second of the journal's own first line, and a session writes no
+  `TICK-START` ever, so no widening of a journal read can witness either half.
+  `flock` loses three ways, and every loss is the ticket's own ask. (1) It only
+  exists between cooperating processes: the 16 Nov second writer is a session,
+  and `flock -n` from a process that never took the lock names nothing -- the
+  ticket asks the refusal to be journalled *in words* naming the holder, its pid
+  and when it must be gone, and a file whose content every reader parses is the
+  shape that can say that; the same file is why a session can also MINT its own
+  claim (the helper is a verb, not a side effect of dispatch). (2) A lock dies
+  with its fd, but the fd lives in the process that bash started: a tick that
+  survives via `setsid`/reparenting keeps locks no journal can attribute, and a
+  tree-repair path that removes files silently breaks locks -- this harness
+  quarantines trees (#326) and must never fight a lock it cannot see. (3) The
+  kernel releases at death, yes -- which is the dangerous direction, not the
+  safe one: `RuntimeMaxSec` fires TERM at the cgroup and the lock clears
+  *before* the teardown quarantine has finished moving the tree's work to the
+  stash and the mirror; the release point must be the activation's last touch of
+  the tree (after quarantine, after inventory), not the kernel's idea of when
+  the process ended. The deadline is why the file is safe to sweep: it is the
+  minting activation's own bound on its own life -- ceiling plus grace
+  (`FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK`) against the shipped
+  `RuntimeMaxSec` -- so a reader past the deadline holds proof nobody can still
+  be working there, which is exactly the licence the sweep needs and exactly
+  what a pid could never give (a dead pid gets reused; a deadline does not).
+  Identity is judged before matching inside the read -- a member whose fields
+  cannot be parsed could BE this tree's claim, so it answers `unknown`, and
+  `unknown` refuses: the same polarity the busy guard learned from #232, because
+  a guard whose read failed answering free is the incident all over again.
+- Checkpoint: a5ba03be90faf7396a5d00b40158dac90ebd068f
+- Effect: `factory/common.sh` gains the family `factory_claim_dir|norm|file|write|held|tree_claim_check|release|release_active`
+  and the knob `FACTORY_CLAIM_SLACK` (default 60); `factory_claim_held` answers
+  0 held / 1 free / 2 unknown / 3 expired-and-swept. `factory/factory.sh` asks
+  the guard on both dispatch paths -- the tick between the content verdict and
+  `TICK-START` (refusal: `TREE-HELD` + `NOT-STARTED`, budget unchanged) and the
+  inline conflict merge before `git merge` (refusal: `TREE-HELD` +
+  `CONFLICT-DEFERRED`, no model run queued) -- mints on both, releases at the
+  activation's teardown and inside the death traps, and `install-timer.sh`'s
+  `RuntimeMaxSec` arithmetic now reads the slack so the deadline can never
+  expire while the cgroup can still be alive. Journal vocabulary added:
+  `TREE-CLAIM`, `TREE-HELD`, `TREE-CLAIM-EXPIRED`, `TREE-CLAIM-FOREIGN`,
+  `TREE-CLAIM-FAILED`. `AGENTS.md` gains the writer-side rule at the end of its
+  Worktrees section: any session, person, or tool writing into a harness tree
+  checks the claim, mints `human:<name>` before the first write, and releases as
+  its last act there. The suite gains the unit family (held/free/unknown/expired
+  polarities, foreign-release, five-field mint, pinned deadline arithmetic, the
+  directory-as-file shape) plus four supervisor boxes -- tick-held, tick
+  mint+release, tick expiry sweep, conflict-held -- each with the mutant control
+  that reproduces the 16 Nov collision (`return 5`/`return 2` stood down: the
+  journal reads `TREE-HELD` and the writer runs anyway). <leg delta after the
+  post-merge suite run>
+- What lost, as measured: a claim refuses only writers that ask -- it stops both
+  harness paths and any session using the shipped verbs, not a raw `git` in an
+  unclaimed cwd; the collision window becomes the deadline grace
+  (`FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK` after a SIGKILL) instead of
+  zero, traded deliberately against a permanent lock; there is no self-exclusion
+  -- the unit that holds a live claim is refused by it too (pinned by a leg), so
+  a same-unit double dispatch loses one retry past the deadline rather than
+  trusting a pid it cannot prove; and a mint that fails dispatches UNCLAIMED
+  with `TREE-CLAIM-FAILED` in words -- the pre-#421 posture, said out loud,
+  because refusing every dispatch whose tempdir broke would hand #421's fix the
+  power to halt the queue.
