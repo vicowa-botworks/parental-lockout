@@ -1,4 +1,115 @@
-# NEXT — issue-399 conflict tick, round 2 (branch `issue-399`, PR #479: the second base sync is in — `origin/main` moved `7b47fad` → `ae61064` (the #480 merge, carrying `H-0322` and `H-0323`) thirty-four minutes after the round that shipped `H-0324`, and the same two append tails conflicted again: twelve hunks in `factory/DECISIONS.md`, eleven of them one carried sentence holding each parent's digits into its own copy of this file or into the two files trunk grew, the twelfth the tail junction that seats trunk's `H-0322` and `H-0323` beneath this branch's `H-0324` by ascending id. No parent digit was inherited for a `NEXT.md` pointer, because the merged hand-off matches neither parent: every one was re-aimed at the row the merged file makes true, opened by its quoted fragment. The `factory/factory.sh` and `docs/factory.md` rows took trunk's digits for the measured reason that the merged tree carries trunk's bytes for those two files, which this round checked by opening each cited line rather than by arithmetic. This file is re-headed by convention, this round on top, `H-0324`'s head and trunk's `issue-415` head demoted to `## Record —` in place with every body carried byte-identical, and the shared `issue-372` round-2 Record heading kept once in trunk's wording; the pass is `H-0326`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+# NEXT — issue-399 conflict tick, round 3 (branch `issue-399`, PR #479: the third base sync is in — `origin/main` moved `ae61064` → `0f343db` (the #481 merge, carrying `H-0325`) and the same two append tails conflicted a third time: thirteen hunks in `factory/DECISIONS.md`, twelve of them one carried sentence holding each parent's digits into its own copy of this file, the thirteenth the tail junction that seats trunk's `H-0325` between this branch's `H-0324` and `H-0326` by ascending id. The hand-off conflicted in a new shape: trunk's round shipped `NEXT.md` as a 49-line overwrite whose `Carried forward` section holds its own copy of the two hazard rows, while this branch's copy is a 3728-line append stack holding its older pair, so the merged file carries both copies and neither parent's digits were inherited — every live pointer into the hand-off was re-aimed at the rows inside trunk's `issue-416` Record, the section that names itself as the anchor for the next rewriter, each destination opened before its digit was written. This file is re-headed by convention: this round on top, trunk's `issue-416` head demoted to `## Record —` in place as the newest parent head, this round-2 head demoted in place atop the branch stack, every body byte-kept, no shared section to fold this round; the pass is `H-0328`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## What this round shipped
+
+- `origin/main` merged into `issue-399` as one merge commit, the only shape available here (squash
+  and rebase merge are off, force-push is denied to a tick), so the resolution is proved and never
+  rewritten. The adjudication is `H-0328`, carried by the merge commit itself, checkpoint `a77ad82`,
+  the allocator having answered `H-0328` on a `REFRESH 23s union` read before the checkpoint was
+  taken. `H-0327` is not a hole this unit authored: it lands on `refs/remotes/origin/issue-417`.
+- `factory/DECISIONS.md`: the tail junction is a union in ascending id order (`H-0324`, `H-0325`,
+  `H-0326`), and the twelve digit hunks plus every silently auto-merged stale row were adjudicated
+  per citation on the merged tree, not per side. The hazard pair now sits inside the demoted
+  `issue-416` Record, so trunk's own `H-0325` `Effect:` row lost its digits when its overwrite
+  stacked under this head — its citations were re-aimed like every other live row.
+- `NEXT.md`: re-headed by convention — this round on top, both parents' heads demoted in place,
+  every body byte-kept; the zero-deletion census and all gate verdicts are quoted in the
+  pull-request body, never here.
+
+## What this push spent
+
+- The `APPROVED` read at head `a11a6a3` is spent by this push — the #269/`H-0010` class, the third
+  time on this branch. The row flips `DISMISSED`, `mergeStateStatus` reads `BLOCKED` until a reviewer
+  is asked again, and nobody has been re-asked yet: the ask is the supervisor's
+  `factory_request_review` poke, not this unit's.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of #479 after this push — the poke owns the ask; see the row above.
+2. The hazard rows keep `python3 scripts/check-close-verb.py NEXT.md` at rc 1 and now sit TWICE in
+   this file — trunk's carried copy inside the `issue-416` Record (the live anchor set for the log's
+   citations) and the branch stack's older carried copy deeper below — because the zero-deletion
+   rule forbids retiring either, and the two copies quote alike. Every future union of a compressed
+   trunk hand-off with an appended branch hand-off doubles them again; the two-word repair of the
+   rows themselves is still owed and would retire the whole class (#428, #440). This round touched
+   neither copy: the log's citations are the claim, and the rows are read at their heads.
+3. Carried from the `H-0326` Record below, unrenumbered: its items 2–5 (the hazard-repair owed list,
+   the trunk-Record carry rule, the stamped-vs-live digit rule). Its item 1 was paid — the
+   `APPROVED` this push spends was filed against round 2's head.
+4. Carried from trunk's `issue-416` Record below, unrenumbered: all of its owed items — until that
+   pull merges a `MAIN-CHECKOUT-RESTORED` naming `.cortexkit/.gitignore` is #416's churn not a clean
+   verdict; the first post-merge main-checkout sync deleting the untracked marker is expected, not a
+   defect; #346 stays open on its own terms.
+5. Pointer digits inside Record bodies older than this head are stamped, not live — a `NEXT.md`
+   digit outside the log is read by no gate (#375); the live digits are the log's anchored
+   citations, and the shipped gate re-measures those on every run.
+
+## Constraints a stranger would break here
+
+- Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again:
+  the in-log pointers aim at the two carried hazard rows and every head edit moves them. The census
+  is re-run after every head edit and never inherited.
+- Those two hazard fragments each now answer on TWO rows of this file, and the shipped gate accepts
+  a citation whose anchor sits on several rows (#440) — so a re-aim must land on the `issue-416`
+  Record copy by this file's convention, not on whichever row the search finds first.
+- Run the suite as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make
+  verify`, and say so wherever the verdict is quoted. Inside a live tick also carry
+  `env -u OPENCODE_CONFIG_CONTENT` for `factory/selftest.sh` — the #482 leak poisons the fence
+  control otherwise, as trunk's `issue-415` Record already warned.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-416: the cortexkit marker is untracked, so the main-checkout restore arm keeps its full semantics and loses its only permanent subject (branch `issue-416`, Refs #416; merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
+
+State this unit read off the live tree and the journal before it wrote a byte
+(2026-11-20T05:31–05:35Z): the main checkout read CLEAN at `ae61064`; the two untracked strays
+#416 named (keepme.txt and wiring_post.py) are already gone from it; the supervisor's journal
+holds zero `MAIN-CHECKOUT-RESTORED` rows to date, its newest `MAIN-CHECKOUT-CLEAN` is
+2026-11-20T05:31:10Z, and its newest `MAIN-CHECKOUT-REFUSED` naming the marker is
+2026-11-18T08:34:03Z. #416's premise moved while the ticket queued — toward the defect, not away
+from it: with the strays gone, one tool deletion makes the dirt exactly the committed-and-missing
+shape, permanently, and the pass starts writing the file back every activation.
+
+## What this branch ships
+
+- `git rm --cached .cortexkit/.gitignore` — the bytes stay on this checkout's disk and the root
+  ignore rules keep the whole directory out of every status read in both states, present and
+  absent; the restore arm's precondition keeps its teeth and loses its only permanent subject
+  here. `git check-ignore -v` against the marker itself answers the root rule.
+- `H-0325` in factory/DECISIONS.md carries the question, the four rejected options and the three
+  losses; checkpoint 1a8bf37.
+- The record the tracked marker used to be now lives in the closing section of docs/factory.md,
+  and the two scripts/mutate.py comments that claimed the real tree still carried that tracked
+  file read in the past tense now — the `_snap04` fixture still pins the
+  tracked-and-never-copied shape, synthetically, with its both-ways assertion intact.
+
+## What is still owed
+
+- The supervisor merges; this unit merged nothing, and no artifact but the pull body carries a
+  closing verb.
+- Until this pull merges, a `MAIN-CHECKOUT-RESTORED` row naming `.cortexkit/.gitignore` in the
+  main checkout is #416's churn, not a clean verdict — the carried `issue-346` hand-off warning
+  retires at the merge, not before.
+- The first main-checkout sync after the merge: a clean working copy there is deleted by the sync
+  itself (git applies the removal; the tooling rewrites the file when it wants it, ignored either
+  way) — expected, not a defect. A modified copy meets one modify/delete refusal and the
+  quarantine arm absorbs it, once per clone. Do not open a ticket on that single refusal.
+- #346 stays open on its own terms; this branch measured and claimed nothing about its remaining
+  criteria.
+
+## Carried forward — verbatim, because the decision log is anchored into these two lines
+
+The close-verb lesson of the inherited ledger stays on the two lines the twelve
+factory/DECISIONS.md rows anchor into this file; the next rewrite of this file re-aims those
+twelve rows exactly as this round did:
+
+- The census row of the `issue-364` hand-off, carried because the rule outlives its round —
+  quoted from it must name its clock. And the row about #425 says "Do not close #425 on this branch's
+- The #425 instance, carried with it: neither proposed cause reproduced on the measuring tree,
+  so the question stays open even though that unit measured a real
+  RED on its own shell. Do not close #425 on this branch's measurement alone.
+
+## Record — issue-399 conflict tick, round 2 (branch `issue-399`, PR #479: the second base sync is in — `origin/main` moved `7b47fad` → `ae61064` (the #480 merge, carrying `H-0322` and `H-0323`) thirty-four minutes after the round that shipped `H-0324`, and the same two append tails conflicted again: twelve hunks in `factory/DECISIONS.md`, eleven of them one carried sentence holding each parent's digits into its own copy of this file or into the two files trunk grew, the twelfth the tail junction that seats trunk's `H-0322` and `H-0323` beneath this branch's `H-0324` by ascending id. No parent digit was inherited for a `NEXT.md` pointer, because the merged hand-off matches neither parent: every one was re-aimed at the row the merged file makes true, opened by its quoted fragment. The `factory/factory.sh` and `docs/factory.md` rows took trunk's digits for the measured reason that the merged tree carries trunk's bytes for those two files, which this round checked by opening each cited line rather than by arithmetic. This file is re-headed by convention, this round on top, `H-0324`'s head and trunk's `issue-415` head demoted to `## Record —` in place with every body carried byte-identical, and the shared `issue-372` round-2 Record heading kept once in trunk's wording; the pass is `H-0326`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
 
 ## What this round shipped
 
@@ -3725,4 +3836,5 @@ failure wearing a number.
   records the measurement.
 - Read the review after the push, not before. `gh pr view 431 --json reviewDecision,reviews,mergeable,mergeStateStatus`
   after the push is what the body may claim, and `gh pr checks 431` at rc 8 means pending, not failed.
+
 
