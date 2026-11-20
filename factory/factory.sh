@@ -339,7 +339,7 @@ fi
 # program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
-	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
+	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' -o -name 'push-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -1097,14 +1097,41 @@ factory_resolve_conflict() {
 			return 1
 		fi
 	fi
-	if ! run_action git -C "$tree" push origin "HEAD:refs/heads/$branch"; then
-		# The merge is in the local tree and the branch on origin has not moved. That is not a
-		# conflict a model can resolve -- it is a push that failed -- and leaving it as `1` would
-		# spend a tick on a permissions problem. The next pass re-merges (already up to date) and
-		# pushes again.
-		log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed -- retried next activation"
-		return 2
+	# H-0332 (#419 repair 1): the one network write a pass makes was the last harness git call with
+	# no deadline. It fails in the shape #419 measured for the fetches -- ssh accepts the connection
+	# and stops answering -- so it goes behind `FACTORY_PUSH_TIMEOUT` like every read, and it leaves
+	# `run_action` for the same reason the fetch arm did (#417): `run_action` answers 1 for every
+	# failed command, and this arm must tell a parked write (124 from `timeout`) from git's own 128
+	# to write the right sentence, with the stderr kept in the swept directory the deferral line
+	# points a person at. What the arm DECIDES is unchanged: a failed push is `CONFLICT-UNPUSHED`,
+	# return 2, retried next activation -- the merge is local, the remote did not move, and nothing
+	# a model could do helps either cause.
+	local push_err push_rc=0 push_why
+	push_err=$(factory_push_stream)
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s git -C %s push origin HEAD:refs/heads/%s\n' \
+			"$FACTORY_PUSH_TIMEOUT" "$tree" "$branch"
+	else
+		log_event "ACTION timeout --signal=TERM --kill-after=5 $FACTORY_PUSH_TIMEOUT git -C $tree push origin HEAD:refs/heads/$branch"
+		timeout --signal=TERM --kill-after=5 "$FACTORY_PUSH_TIMEOUT" git -C "$tree" push origin "HEAD:refs/heads/$branch" 2>"$push_err" || push_rc=$?
+		if [ "$push_rc" -ne 0 ]; then
+			log_event "FAILED ($push_rc) timeout --signal=TERM --kill-after=5 $FACTORY_PUSH_TIMEOUT git -C $tree push origin HEAD:refs/heads/$branch"
+			push_why=$(factory_git_said "$push_err")
+			if [ -n "$push_why" ]; then
+				push_why="git said: $push_why"
+			elif [ "$push_rc" -eq 124 ] || [ "$push_rc" -eq 137 ]; then
+				push_why="killed at the ${FACTORY_PUSH_TIMEOUT}s push bound with nothing written, which is what a parked connection looks like"
+			fi
+			# The merge is in the local tree and the branch on origin has not moved. That is not a
+			# conflict a model can resolve -- it is a push that failed -- and leaving it as `1` would
+			# spend a tick on a permissions problem. The next pass re-merges (already up to date) and
+			# pushes again.
+			log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed${push_why:+; $push_why} -- retried next activation"
+			rm -f -- "$push_err"
+			return 2
+		fi
 	fi
+	rm -f -- "$push_err"
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch by $merged_by"
 	factory_ledger_clear "pr:$pr" stuck-since
 	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
@@ -1839,6 +1866,37 @@ factory_refresh_origin() {
 
 # --------------------------------------------------------------------------- the pass
 
+# The death sentence of an activation. #419's measured incident is a pass that died for 98 minutes
+# of one parked fetch and left NO verdict behind: 1h39m, zero journal lines, no `END rc=` -- a
+# reader could not tell a killed pass from one that never started, because the journal says the
+# same thing either way. So the pass writes its own last line at the moment of dying, same
+# `END rc=` token the planned path writes, plus `died=<cause>` so a death never reads as a
+# verdict, plus `inside=<unit>` and the elapsed time. What it does NOT claim: that the tree it
+# left is settled -- the next activation's TREE-* pair adjudicates that. Two silences a trap
+# cannot outrun, stated rather than hidden: SIGKILL cannot be trapped, and neither can a pass
+# stopped inside a child that ignores SIGTERM until the cgroup's kill-after escalates. The bound
+# that makes those survivors rare is not this entry -- it is H-0330's and H-0332's, which
+# guarantee our children end and therefore guarantee a TERM delivered to this pass is heard by
+# this pass before the escalation. bash's own semantics this leans on, measured on 5.3.9 here:
+# an EXIT trap fires once in the shell that set it (a command substitution answers nothing), and
+# a trapped TERM runs the handler and then KEEPS GOING -- so the arms below exit, by hand.
+# shellcheck disable=SC2317  # invoked only from trap strings, which shellcheck cannot follow
+factory_death() { # <how> <rc> -- the activation's last journal line, written from its own death
+	local how=$1 death_rc=$2
+	# The subshell guard, not paranoia about this bash: if a future shell inherits traps into
+	# `$( )` the death would be journalled once per live substitution.
+	[ "${BASHPID:-$$}" = "${factory_shell_pid:-$$}" ] || return 0
+	if [ "$how" = EXIT ] && { [ -n "${factory_died:-}" ] || [ -n "${factory_disarmed:-}" ]; }; then
+		return 0
+	fi
+	factory_died=1
+	log_event "END rc=$death_rc ticks_started=${started:-0} died=$how inside=${factory_inflight:-the refs read} after=$(( $(date -u +%s) - ${started_at:-$(date -u +%s)} ))s"
+	[ "$how" = EXIT ] && return 0
+	# Not `kill -n $how $$` after clearing the trap, which would report through the signal
+	# channel: same number by the 128+n convention, no chance of the handler re-entering.
+	exit "$death_rc"
+}
+
 factory_body() {
 	local rows rc=0 started=0 census_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
@@ -1848,6 +1906,17 @@ factory_body() {
 	local started_at end_at now
 	started_at=$(date -u +%s)
 	end_at=$((started_at + FACTORY_BUDGET))
+	# (H-0333, #419) From this line the pass owes the journal a last word. Registered here, inside
+	# the body and after the lock: the `flock` refusal exits 7 BEFORE this point and stays silent by
+	# design -- a refused activation did nothing and must not look like a death -- and every
+	# deliberate stop after this point (SUPERVISOR-RERUN, the planned END) disarms. The rc numbers
+	# are the 128+n convention, so a reader comparing the journal to `systemctl` or to coreutils'
+	# `timeout` sees one number in all three places.
+	factory_died='' factory_shell_pid=$$ factory_inflight='the refs read'
+	trap 'factory_death EXIT "$?"' EXIT
+	trap 'factory_death TERM 143' TERM
+	trap 'factory_death INT 130' INT
+	trap 'factory_death HUP 129' HUP
 	# The refs come next (H-0075), and inside the budget rather than outside it: the triage read on the
 	# next line reports this tree's position against `origin/main`, `factory_worktree` cuts every new
 	# unit's branch from `origin/main`, and a tick's allocator reads the branch refs -- so all three
@@ -1951,6 +2020,9 @@ factory_body() {
 	sup_repair=$(factory_supervisor_repair) || sup_repair_rc=$?
 	[ -n "$sup_repair" ] && log_event "$sup_repair"
 	if [ "$sup_repair_rc" -ne 0 ]; then
+		# A deliberate stop, journalled by the line below -- stand the death trap down BEFORE it,
+		# so exit ${FACTORY_EXIT_RERUN} (9) keeps the shape its legs pin (H-0333, H-0335).
+		factory_disarmed=1
 		log_event "SUPERVISOR-RERUN the pass stops here with exit ${sup_repair_rc}: no triage, no id, no tick; the line above says what moved and the next activation runs it"
 		exit "$sup_repair_rc"
 	fi
@@ -1958,6 +2030,9 @@ factory_body() {
 	local workable='' unit key class detail branch issue ask rc_tick rc_conflict
 	while IFS=$'\037' read -r unit key class detail branch issue ask; do
 		[ -n "${unit:-}" ] || continue
+		# (H-0333) the unit this row is about, so a death inside `factory_merge` or
+		# `factory_resolve_conflict` names it; overwritten per row, cleared by the planned END.
+		factory_inflight="$class:$key"
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||
 			factory_ledger_now "$unit:$(factory_slug "$key")" first-seen
 		case "$class" in
@@ -2136,6 +2211,8 @@ factory_body() {
 	now=$(date -u +%s)
 	while IFS=$'\037' read -r _rank _age bkey bclass bdetail bbranch bissue bask; do
 		[ -n "${bclass:-}" ] || continue
+		# (H-0333) the unit this turn is about -- see the queue loop above for the same assignment.
+		factory_inflight="$bclass:$bkey"
 		if [ "$bclass" = "branch_without_pr" ]; then
 			# Two independent readings, both refusing, and the journal says which one fired -- because a
 			# queue that reports "refused" without saying why cannot be audited against the rule that
@@ -2216,6 +2293,13 @@ factory_body() {
 		log_event "QUEUED $left unit(s) remain after $started tick(s); nothing was idle"
 	fi
 
+	# The pass reached its own verdict; stand the death trap down BEFORE the planned END, because
+	# the return and the script's final `exit $?` still walk through the EXIT trap, and a guard
+	# planted after the line let the mutant's clean finish forge a death sentence -- the control
+	# caught it as `END rc=0 died=EXIT`, an END that lies in exactly the way the token forbids
+	# (H-0333).
+	factory_disarmed=1
+	trap - EXIT TERM INT HUP
 	log_event "END rc=$rc ticks_started=$started"
 	printf '\nfactory: %s tick(s), rc=%s. Journal: %s\n' "$started" "$rc" "$FACTORY_LOG/supervisor.log"
 	return "$rc"
