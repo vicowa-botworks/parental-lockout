@@ -2846,3 +2846,21 @@ What the fence is not: a sandbox, and not a statement about any other kind of ch
 tick *does* start -- a compiler, a test runner -- is still in the unit's cgroup and still systemd's
 to kill at the end of the activation; #390's other half, confining what lands there, is a
 tamper-resistance question and has never been decided here.
+
+## The `.cortexkit/` marker is tool state, deliberately untracked (#416, H-0325)
+
+The agent tooling that manages this machine's context keeps a managed block at
+`.cortexkit/.gitignore` in every tree it works in, and it writes and deletes that file outside git,
+on its own schedule. The file was committed on 2026-10-13 in `55a34f8`, which turned the tool's
+ordinary deletions into dirt: the primary checkout sat ` D .cortexkit/.gitignore` across 101
+activations (#346), and once the main-checkout read began restoring committed-and-missing files
+(#408), a tracked tool-owned file became a permanent restore subject -- the pass would write the
+marker back every activation while the tooling deleted it again, journalled and endless. `H-0325`
+untracked it (`git rm --cached`; the bytes stay on disk). This section is the record the tracked
+marker used to be, written down because nothing checks a paragraph: the whole `.cortexkit/`
+directory, including this marker in both of its states, present and absent, is ignored by the root
+`.gitignore`, so nothing under it can show in a status read and the main-checkout arm has no
+permanent subject in this checkout. The untracking travels with the merge: a clone whose copy is
+clean at sync time has the working-tree file deleted by the sync itself (the tooling rewrites it
+when it wants it, ignored either way), and a clone whose copy is modified at sync time meets one
+modify/delete refusal, which the quarantine arm is built to absorb.
