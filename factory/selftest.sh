@@ -93,7 +93,7 @@ HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # says exactly that). Legs that need an attribution variable pass it explicitly
 # (the journalling fixture pins its own values in both arms of `dpn_alloc_run`); nothing may rely
 # on the ambient one.
-unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG
+unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH
 
 pass=0
 fail=0
@@ -1536,9 +1536,9 @@ halt_call_sites_shaped
 # deleted -- which is exactly why the text half exists.
 scrub_at_the_door() {
 	local label="the tick attribution is scrubbed at the door" self="$HERE/selftest.sh" stripped
-	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$' "$self"; then
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$' "$self"; then
 		pass=$((pass + 1))
-		printf '  ok    %-40s %s\n' "$label" 'the preamble clears LOG and both TICK variables before any fixture runs'
+		printf '  ok    %-40s %s\n' "$label" 'the preamble clears LOG, both TICK variables and the scratch path before any fixture runs'
 	else
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the preamble no longer unsets the tick'"'"'s attribution variables, so\n' "$label"
@@ -1547,8 +1547,8 @@ scrub_at_the_door() {
 	fi
 	mkdir -p -- "$work/scrub"
 	stripped=$work/scrub/selftest.sh
-	sed '/^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$/d' "$self" >"$stripped"
-	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG$' "$stripped"; then
+	sed '/^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$/d' "$self" >"$stripped"
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$' "$stripped"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the scan still finds the unset after its line is deleted, so the\n' "control: $label"
 		printf '          ok above matches something else and means nothing.\n'
@@ -3724,8 +3724,8 @@ for a in "$@"; do
 	[ "$prev" = --title ] && title=$a
 	prev=$a
 done
-tree=$(printf '%s' "$*" | sed -n 's/.*Work only in this directory: \([^ ]*\).*/\1/p')
-printf 'tick title=%s tree=%s\n' "${title:-none}" "${tree:-none}" >>"${PROC_TICKS:?PROC_TICKS names the tick record}"
+tree=$(printf '%s' "$*" | sed -n 's/.*Work only in this directory: \([^ ]*\).*/\1/p') scratch=$(printf '%s' "$*" | sed -n 's/.*Scratch directory: \([^ ]*\).*/\1/p')
+printf 'tick title=%s tree=%s scratch=%s\n' "${title:-none}" "${tree:-none}" "${scratch:-none}" >>"${PROC_TICKS:?PROC_TICKS names the tick record}"
 # A control needs a session that FAILS. The title carries the unit (`factory unclaimed:900`), the same
 # string the journal's TICK-START names, so this refuses one named unit's session and not a coin flip.
 if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_FAILS"; then
@@ -26426,6 +26426,178 @@ gate_dangling_id_report() { # -> 0 when a green run reports the dangling id and 
 }
 gen_leg 'gate: an id citation with no entry' 'is counted on a green run and named, and the clean fixture is silent' \
 	gate_dangling_id_report
+
+# ---------------------------------------------------------------- the per-tick scratch directory (#415)
+#
+# A unit's own throwaway fixtures, left untracked inside its own tree, halt every other unit: the
+# content verdict cannot tell a half-finished deliverable from a scratch directory, and the halt is
+# global by design. Measured 15-16 Nov in the supervisor's own journal: one `.probe/` left in
+# `wt/issue-328` wrote 39 HALTED lines, the last of them recording a cause already 7h39m old, behind
+# a deliverable that was already approved when it halted.
+# The harness answer (H-0322) is one named scratch directory OUTSIDE the tree: minted at dispatch,
+# exported as `$FACTORY_SCRATCH`, named in the prompt beside the tree, deleted when the session
+# ends. The scratch reaches the tick on two channels at once -- the env export and the sentence in
+# the prompt -- and the two controls null one channel each, because either alone could hide the
+# other: the dispatch's first draft expanded the TICK-side variable name inside its own `set -u`
+# prompt and died at line one of the session, so `$scratch` was alive and `$FACTORY_SCRATCH` never
+# reached a tick. Three claims and two controls, because the shipped leg alone could pass on a literal the
+# dispatch pastes into its own prompt:
+#
+#   S.  the shipped dispatch: a session-inside probe found a real writable directory that is not the
+#       tree, the prompt names THE SAME path (the session stub captures the sentence), and the
+#       directory is gone when the pass returned -- and nothing halted.
+#   C1. null the EXPORT only: the session sees nothing while the prompt still names a directory --
+#       so the ok above read the env channel, not a prompt that happened to agree.
+#   C2. null the MINT only: both channels go empty together and `SCRATCH-FAILED` hits the journal --
+#       so the sentence is minted, not a constant.
+#
+# The probe records and never asserts: the stub inherits the probe's exit status, so an asserting
+# probe would turn the fixture into a TICK-FAILED before any leg could read what it learned. Every
+# verdict is made here, where a FAIL can print its evidence.
+scr415_rec=$work/scratch-415.probe
+cat >"$work/scratch-415-session.sh" <<SCR415
+#!/usr/bin/env bash
+# Runs INSIDE the fixture session through the PROC_TICK_ALLOC arm, where FACTORY_SCRATCH is
+# observable only from the dispatched environment. Records, never asserts -- see above.
+set -u
+tree=\$1
+if [ -z "\${FACTORY_SCRATCH:-}" ]; then
+	printf 'env-empty\n' >>'$scr415_rec'
+elif [ ! -d "\$FACTORY_SCRATCH" ]; then
+	printf 'missing %s\n' "\$FACTORY_SCRATCH" >>'$scr415_rec'
+elif [[ "\$FACTORY_SCRATCH" == "\$tree"/* ]]; then
+	printf 'inside-tree %s\n' "\$FACTORY_SCRATCH" >>'$scr415_rec'
+elif ! : >"\$FACTORY_SCRATCH/probe-file"; then
+	printf 'not-writable %s\n' "\$FACTORY_SCRATCH" >>'$scr415_rec'
+else
+	printf 'ok %s\n' "\$FACTORY_SCRATCH" >>'$scr415_rec'
+fi
+exit 0
+SCR415
+chmod +x "$work/scratch-415-session.sh"
+
+scr415_shipped() {
+	local bad='' line='' path=''
+	proc_new scr415-s
+	proc_tick_alloc=$work/scratch-415-session.sh
+	proc_plant
+	proc_run scr415-s
+	proc_tick_alloc=''
+	line=$(head -n1 "$scr415_rec" 2>/dev/null || true)
+	case "$line" in
+	'ok '*) path=${line#'ok '} ;;
+	*) bad="the session probe recorded \`${line:-nothing}\`, not a real writable directory outside the tree" ;;
+	esac
+	if [ -n "$path" ]; then
+		grep -qF -- "scratch=$path" "$proc_ticks" ||
+			bad="${bad:+$bad; }the prompt named no directory the session agreed to (record: $(head -n1 "$proc_ticks" 2>/dev/null))"
+		[ ! -e "$path" ] ||
+			bad="${bad:+$bad; }the scratch $path still exists after the pass returned, so the teardown never ran"
+		grep -q 'SCRATCH-FAILED' "$proc_journal" 2>/dev/null &&
+			bad="${bad:+$bad; }the pass journaled SCRATCH-FAILED while handing out a directory"
+		{ grep -q 'HALTED' "$proc_journal" 2>/dev/null; } &&
+			bad="${bad:+$bad; }the pass halted on a queue whose dispatch had just minted the scratch it owns"
+	fi
+	[ -n "$bad" ] && printf '            %s\n' "$bad" >&2
+	[ -z "$bad" ]
+}
+proc_leg 'tick gets a scratch directory' \
+	'a writable directory outside the tree, named in the prompt as the session found it, deleted when the pass ends' \
+	scr415_shipped
+
+scr415_env_channel() {
+	local bad='' line=''
+	proc_new scr415-c1
+	proc_mutate_factory '		FACTORY_SCRATCH="$scratch" \' '		FACTORY_SCRATCH= \' || {
+		printf '            the export line moved, so the control has nowhere to plant\n' >&2
+		return 1
+	}
+	: >"$scr415_rec"
+	proc_tick_alloc=$work/scratch-415-session.sh
+	proc_plant
+	proc_run scr415-c1
+	proc_tick_alloc=''
+	line=$(head -n1 "$scr415_rec" 2>/dev/null || true)
+	[ "$line" = 'env-empty' ] ||
+		bad="with the export nulled the session recorded \`${line:-nothing}\`, not env-empty"
+	grep -q 'scratch=/' "$proc_ticks" ||
+		bad="${bad:+$bad; }with only the export nulled the prompt also went blank, which is not what this control isolates: the mint was still live"
+	[ -n "$bad" ] && printf '            %s\n' "$bad" >&2
+	[ -z "$bad" ]
+}
+proc_leg 'scratch reaches the session by env' \
+	'nulling only the export leaves the session with nothing while the prompt still names the directory' \
+	scr415_env_channel
+
+scr415_mint_channel() {
+	local bad='' line=''
+	proc_new scr415-c2
+	proc_mutate_factory '${TMPDIR:-/tmp}/plock-$(factory_slug' \
+		'scratch="" # SCRATCH-MUTANT-415 the mint is gone, as if mktemp refused' || {
+		printf '            the mint line moved, so the control has nowhere to plant\n' >&2
+		return 1
+	}
+	: >"$scr415_rec"
+	proc_tick_alloc=$work/scratch-415-session.sh
+	proc_plant
+	proc_run scr415-c2
+	proc_tick_alloc=''
+	line=$(head -n1 "$scr415_rec" 2>/dev/null || true)
+	[ "$line" = 'env-empty' ] ||
+		bad="with the mint gone the session recorded \`${line:-nothing}\`, not env-empty"
+	grep -q 'scratch=none' "$proc_ticks" ||
+		bad="${bad:+$bad; }with the mint gone the prompt STILL named a scratch directory, so the sentence is a paste and not a mint"
+	grep -q 'SCRATCH-FAILED' "$proc_journal" ||
+		bad="${bad:+$bad; }a pass that could offer no scratch said nothing about it: the else arm never journalled"
+	[ -n "$bad" ] && printf '            %s\n' "$bad" >&2
+	[ -z "$bad" ]
+}
+proc_leg 'the scratch sentence is minted' \
+	'nulling the mint empties prompt and env together and journals SCRATCH-FAILED in the same pass' \
+	scr415_mint_channel
+
+# ------------------------------------------- the halt sentence names the dry run that cannot lie (#415)
+#
+# The queue-stopping finding was survived by a second trap: the documented resume step. `git clean
+# -fd` refuses to descend into a directory containing a `.git` -- exactly what a unit's fixture
+# repositories are -- so over that directory the plain dry run says only \`Would skip repository\`,
+# never a \`Would remove\` line, while the work stands, and the operator
+# who trusts it removes the marker and re-halts on the same bytes. The ticket's own reproduction:
+# 0 "Would remove" lines from `clean -fdn` where `clean -ffd -n` listed the fixture directories.
+# The leg asserts the PLANT before reading the sentence: a git that stopped honouring the nested
+# repo would falsify the premise, and that is a finding, not a pass.
+halt415_leg() {
+	local tree=$work/halt415-tree bad='' plain ffd
+	rm -rf -- "$tree" "$work/halt415-box"
+	mkdir -p "$work/halt415-box" || return 1
+	git init -q "$tree" || return 1
+	git -C "$tree" -c user.email=fixture@invalid -c user.name=fixture commit -q --allow-empty -m 'the deliverable' || return 1
+	mkdir -p "$tree/.probe/fixture-a"
+	git init -q "$tree/.probe/fixture-a"
+	git -C "$tree/.probe/fixture-a" -c user.email=fixture@invalid -c user.name=fixture \
+		commit -q --allow-empty -m 'a probe repository' || return 1
+	plain=$(git -C "$tree" clean -fdn 2>/dev/null || true)
+	ffd=$(git -C "$tree" clean -ffd -n 2>/dev/null || true)
+	printf '%s\n' "$plain" | grep -q 'Would remove .*\.probe' &&
+		bad='the plain clean -fdn dry run now NAMES the nested-repo directory: the hazard this sentence answers is gone from this git'
+	printf '%s\n' "$ffd" | grep -q 'Would remove .*\.probe' ||
+		bad="${bad:+$bad; }even clean -ffd -n does not name it, so this fixture cannot demonstrate the sentence"
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s premise: %s\n' 'halt sentence names honest dry run' "$bad"
+		printf '          plain said: %s | ffd said: %s\n' "${plain:-<nothing>}" "${ffd:-<nothing>}"
+		return 0
+	fi
+	# The halt box is this leg's own: the halt machinery reads FACTORY_* at call time, and by this
+	# point in the file the earlier sections' boxes have done their work.
+	FACTORY_DIR=$work/halt415-box
+	FACTORY_LOG=$work/halt415-box/log
+	FACTORY_LEDGER=$work/halt415-box/ledger
+	FACTORY_RUN=$work/halt415-box/run
+	FACTORY_HALT=$work/halt415-box/HALT
+	expect_halt 'halt sentence names honest dry run' "$tree" HALT 'clean -ffd -n'
+}
+halt415_leg
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
