@@ -29,14 +29,17 @@
 
 ## What this push spent
 
-- The `APPROVED` read taken at head `90fb705` is spent by this push — the #269/`H-0010` class. The
-  row flips `DISMISSED`, `mergeStateStatus` reads `BLOCKED` until a reviewer is asked again, and
-  nobody has been re-asked yet: the ask is the supervisor's `factory_request_review` poke, not
-  this unit's.
+- The push replaced the `APPROVED` read taken at `90fb705`: mid-recompute `mergeStateStatus` read
+  `BLOCKED` with an empty `reviewDecision`, then at head `a333c32` the live read-back answers
+  `APPROVED` and `CLEAN` — a fresh review on the new head at 15:36:38Z, not a carried approval,
+  since both older reviews read `DISMISSED`. Nobody was re-asked here: the ask is the
+  supervisor's `factory_request_review` poke, not this unit's, and all five checks read green on
+  `a333c32` — the pull sits mergeable for the supervisor alone; this pass merged nothing.
 
 ## What is still owed (all of it, none silent)
 
-1. Re-review of #484 after this push — the poke owns the ask; see the row above.
+1. Carried, conditional: the next push to #484 spends its `APPROVED` — the #269/`H-0010` class —
+   and if no fresh review lands, only the supervisor's poke asks; see the row above.
 2. The merge-census leg itself (#428's class houses the append-tail family): the both-parents
    multiset containment run that catches a body retired from the unmarked middle is still hand-run
    — this round ran it by hand over both blobs of both conflicted files plus the two auto-merged
