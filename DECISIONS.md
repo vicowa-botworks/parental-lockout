@@ -5535,3 +5535,49 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   commit whose effect is this set's id lines and this log's citation of them, and reverting it
   returns the collision the gate refuses.
 - Checkpoint: 93f97be
+
+## D-0091 · #396: a driver's capture path can stop calling its audit guards and every gate stays green — every per-guard rule calls the helper directly and none reads the driver's call sites — pin the multiset of call sites inside `pages.py --self-test` and ship the ticket's own three probes as CAUGHT attack rows
+
+- Question: the refusal contracts live in `cdp.require_*`, and every rule in
+  `pages.py --self-test` that polices one calls the helper directly — no rule reads the call sites
+  in the three driver functions that turn a measured page into a published PNG. Measured 19 Nov on
+  the tree checkpoint `7a789ec` copies, in a box holding `testing/capture/*.py`,
+  `internal/web/templates/*.tmpl` and `Makefile`: `pass` written over the shoot loop's
+  `cdp.require_records(got, page)` and its `require_labelled_cells` sibling printed
+  `capture self-test: 84 refusal rules hold` at exit 0, and the identical sentence followed `pass`
+  written over `testlock.py`'s only `require_labelled_cells` call and the deletion of `lock.py`'s
+  `require_trail` statement, with `capture manifest self-test: 54 rules hold` beside every one of
+  them; restoring each patch returned both suites to green, so what was missing was a witness, not
+  a flake. The ticket names two candidate repairs — an attack-suite line that ships as a HOLE row
+  documenting the gap, and a structural pin inside `pages.py --self-test` on the shape
+  `manifest.py` uses against the Makefile — and its tie-breakers.
+- Options: ship the ticket's three probes as HOLE rows in `scripts/attack-capture-self-test.py`,
+  a measured and documented gap that leaves the closure to the next pass | pin the multiset of
+  `cdp.require_*` calls per capture path as a new rule in `pages.py --self-test`, on the shape
+  `manifest.py` pins the Makefile, and ship the same three probes as CAUGHT rows | add attack rows
+  expecting CAUGHT now, with no pin, leaving their class dependent on a rule this entry does not
+  write | make the run itself demand every guard fires under the fake driver, pinning nothing
+  statically
+- Chose: pin the multiset of `cdp.require_*` calls per capture path as a new rule in
+  `pages.py --self-test`, on the shape `manifest.py` pins the Makefile, and ship the same three
+  probes as CAUGHT rows
+- Why: the runtime option is what the tree already runs, and the measurement above is exactly what
+  it is blind to — the fake browser satisfies every helper, so a deleted call site cannot change a
+  runtime verdict, which is also why options one and three lose: a HOLE row keeps the hole it
+  documents, and a CAUGHT row without the pin is a class resting on a rule that does not exist.
+  A pin that reads source is the only witness a deletion leaves, and a suite pinning text outside
+  itself is the shape this repo already trusts — `manifest.py` pins the Makefile's `verify:` clause
+  for exactly this reason (`D-0079`'s lineage). The table pins the MULTISET in both directions:
+  a deleted call is a count that fell, and a guard added to a capture path without a row here is
+  a count that rose, because the addition direction has no witness from a clean tree — a table
+  that under-counts looks identical to a path that under-calls. After the pin the same three
+  deletions each exit 1 with `1 of 85 rules failed`, and the attack suite reads
+  `VERDICT: 81 attacks, 0 problem(s)` with the three rows named CAUGHT on their own lines: the
+  suite now re-measures the gap instead of restating the defect, which was the ticket's own
+  wording for what it wanted. The rule's probe shadows `testlock.py`'s labelled-cells call and its
+  control drives both directions anchored in `lock.py`, not in `pages.py`: the first draft embedded
+  the control's find literals in `pages.py` and counted them there, so the rule reddened the suite
+  by finding its own quotations — 2 and 3 hits where it wanted 1 — inside the text it was reading.
+  What that slip cost is the design note: a control's anchor must not be counted in the file that
+  carries the control.
+- Checkpoint: 7a789ec

@@ -31,6 +31,7 @@ Run it from anywhere; every path is resolved from this file's location. Output g
 testing/capture/runs/pages/ unless --out names a directory inside the repository, so re-capturing
 the committed artifacts is an explicit `--out docs/screenshots/360`.
 """
+import ast
 import contextlib
 import datetime
 import re
@@ -1207,7 +1208,7 @@ def main(shoot_fn=None, record_fn=None):
 # an entry naming the thing it claims to guard, and the pass breaks it and requires THAT rule to go
 # red. A rule added without an entry reddens the run rather than passing unexamined, so the number
 # here and the table there are the two halves of one claim.
-EXPECTED_RULES = 84
+EXPECTED_RULES = 85
 
 
 # The bytes `_FakeSession.screenshot()` hands `cdp.capture_refused`, spelled a SECOND time inside
@@ -2458,6 +2459,109 @@ def _rule_probes_are_live(registry, ran, bad):
                    "arm nobody asks about any more")
 
 
+# #396: the call-site pin. Every per-guard rule above calls its `cdp.require_*` helper directly,
+# so none of them can see a driver stop calling that same guard: measured 19 Nov, `pass` written
+# over the shoot loop's `require_records`/`require_labelled_cells` pair printed
+# `capture self-test: 84 refusal rules hold` at exit 0, and the identical sentence followed the
+# same `pass` over `testlock.py`'s only labelled-cells call. The fake browser satisfies every
+# helper either way, so for a deleted call site the source is the only witness. The table pins
+# the MULTISET of `cdp.require_*` calls in each function that turns a measured page into a
+# published PNG, and it pins both directions: a deleted call is a count that fell, and a guard
+# added to a capture path without a row here is a count that rose. It reads files only -- no
+# browser, no fixture, nothing written -- so the pass stays inside #211's env rule.
+CAPTURE_PATH_GUARDS = {
+    ("pages.py", "shoot"): {
+        "require_records": 1,
+        "require_labelled_cells": 2,
+        "require_form": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_state_legible": 1,
+        "require_skip_link": 1,
+    },
+    ("lock.py", "capture"): {
+        "require_labelled_cells": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_skip_link": 1,
+        "require_state_legible": 1,
+        "require_declared_sessions": 1,
+        "require_detail_terminated": 1,
+        "require_trail": 1,
+    },
+    ("testlock.py", "capture"): {
+        "require_labelled_cells": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_skip_link": 1,
+        "require_state_legible": 1,
+        "require_declared_sessions": 1,
+        "require_detail_terminated": 1,
+        "require_trail": 1,
+    },
+}
+
+
+def capture_guard_call_problems(sources):
+    """Every way a capture path has stopped calling a pinned guard, as sentences.
+
+    Pure: takes `{filename: source text}`, returns sentences; reads nothing, writes nothing, so
+    the rule and its two control arms drive the same bytes through one code path. Every
+    unreadable shape is reported, never skipped: a file that is missing, one that does not parse,
+    and one whose named function has been renamed all produce sentences, because the direction
+    an ambiguous pin must resolve toward is the refusal (#873).
+    """
+    problems = []
+    for (name, func), want in sorted(CAPTURE_PATH_GUARDS.items()):
+        src = sources.get(name)
+        if src is None:
+            problems.append(f"{name} could not be read, so its {func}() capture path could not "
+                            "be checked against the guard calls it owes; a missing file is not "
+                            "evidence that no guard was deleted")
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError as exc:
+            problems.append(f"{name} does not parse ({exc}), so the {func}() call sites cannot "
+                            "be counted; a driver that does not parse cannot promise it calls "
+                            "anything")
+            continue
+        fn = next((node for node in ast.walk(tree)
+                   if isinstance(node, ast.FunctionDef) and node.name == func), None)
+        if fn is None:
+            problems.append(f"{name} no longer defines {func}(), so the capture path this table "
+                            "pins is gone and its guard calls went with it; a move of the "
+                            "capture path moves the table entry with it, it does not retire it")
+            continue
+        got = {}
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "cdp"
+                    and node.func.attr.startswith("require_")):
+                got[node.func.attr] = got.get(node.func.attr, 0) + 1
+        for guard in sorted(set(want) | set(got)):
+            if got.get(guard, 0) != want.get(guard, 0):
+                problems.append(
+                    f"{name}'s {func}() calls cdp.{guard} {got.get(guard, 0)} time(s), want "
+                    f"{want.get(guard, 0)}: the refusal contract is only live where a driver "
+                    "calls the guard, and the per-guard rules call the helpers themselves, so "
+                    "nothing else can see a deleted call site (#396)")
+    return problems
+
+
 RULE_PROBES = {
     "a refusal on every page still measures every page":
      ("returns", "cdp.capture_refused", None),
@@ -2631,6 +2735,10 @@ RULE_PROBES = {
      ("hollow", "pages.main"),
     "the scripts condition reaches the browser, not just the manifest":
      ("hollow", "cdp.scripts_disabled"),
+    "the drivers' capture paths still call the guards they owe":
+     ("shadow", (("testlock.py",
+                  '    cdp.require_labelled_cells(g, "the result page")',
+                  "    pass"),)),
 }
 
 
@@ -4726,6 +4834,43 @@ def self_test():
                                 "nowhere else, so a frame it accepted cannot be told apart from a "
                                 "page that has no state words at all")
 
+    def the_capture_paths_still_call_every_guard_they_owe(problems):
+        """#396: a helper enforces nothing where no driver calls it.
+
+        The per-guard rules above call the helpers themselves, so they stay green over a driver
+        that stopped calling them; the measured deletions are in the table comment. The control
+        drives both directions through the same pure function the reading uses, because the
+        deletion direction looks the same from a clean tree whether or not the table is wired to
+        anything -- a pin that only counts what it already remembers is decoration, not a check.
+        """
+        sources = {}
+        for name in sorted({n for n, _func in CAPTURE_PATH_GUARDS}):
+            with contextlib.suppress(OSError), open(op.join(cdp.HERE, name), encoding="utf-8") as fh:
+                sources[name] = fh.read()
+        problems.extend(capture_guard_call_problems(sources))
+        # The control drives both directions through the same pure function the reading uses:
+        # deleting the statement must read as a count that fell, and repeating it must read as a
+        # count that rose -- a pin that only counts what it already remembers is decoration, not
+        # a check. Its find is the statement the attack suite patches in `lock.py` (#396's own
+        # probe), and it is anchored THERE, not in pages.py: a control whose anchor is counted in
+        # the file that carries the control quotes itself -- the first draft of this arm reddened
+        # the suite by finding its own anchor literal lying inside the text it was counting.
+        lock_src = sources.get("lock.py", "")
+        stmt = ('    cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",\n'
+                '                      {"lock.requested"}, "the lock-now click")')
+        if lock_src.count(stmt) != 1:
+            problems.append(f"lock.py holds the require_trail statement this control drives "
+                            f"{lock_src.count(stmt)} times, so neither direction of the "
+                            "guard-call table can be re-measured against this tree")
+        else:
+            for label, repl, want_phrase in (
+                    ("deleted", "    pass", "cdp.require_trail 0 time(s), want 1"),
+                    ("added", stmt + "\n" + stmt, "cdp.require_trail 2 time(s), want 1")):
+                mutated = dict(sources, **{"lock.py": lock_src.replace(stmt, repl, 1)})
+                if not any(want_phrase in p for p in capture_guard_call_problems(mutated)):
+                    problems.append(f"the pin did not notice the {label} call: no sentence says "
+                                    f"{want_phrase!r}, so the table is decoration, not a check")
+
     def a_state_the_stylesheet_never_drew_refuses(problems):
         """The reported defect at both viewports, with no bytes staged -- and the drawn row beside it.
 
@@ -5470,6 +5615,11 @@ def self_test():
          the_state_census_is_printed_for_every_page)
     rule("the census is the vocabulary the templates use",
          every_state_class_the_pages_render_is_in_the_census)
+
+    # #396: the guards can all pass while no driver calls them. This is the only rule that reads
+    # the drivers' call sites, so it is the only witness a deleted call leaves anything had.
+    rule("the drivers' capture paths still call the guards they owe",
+         the_capture_paths_still_call_every_guard_they_owe)
 
     # #387: the skip link, from the browser's side.
     rule("the skip-link census is asked for, at both viewports",
