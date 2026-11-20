@@ -17709,14 +17709,14 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   tree-repair path that removes files silently breaks locks -- this harness
   quarantines trees (#326) and must never fight a lock it cannot see. (3) The
   kernel releases at death, yes -- which is the dangerous direction, not the
-  safe one: `RuntimeMaxSec` fires TERM at the cgroup and the lock clears
+  safe one: the cgroup start deadline fires TERM and the lock clears
   *before* the teardown quarantine has finished moving the tree's work to the
   stash and the mirror; the release point must be the activation's last touch of
   the tree (after quarantine, after inventory), not the kernel's idea of when
   the process ended. The deadline is why the file is safe to sweep: it is the
   minting activation's own bound on its own life -- ceiling plus grace
-  (`FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK`) against the shipped
-  `RuntimeMaxSec` -- so a reader past the deadline holds proof nobody can still
+  (`FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK`), bounded by the tick's own
+  `timeout(1)` ceiling and the cgroup belt `TimeoutStartSec` -- so a reader past the deadline holds proof nobody can still
   be working there, which is exactly the licence the sweep needs and exactly
   what a pid could never give (a dead pid gets reused; a deadline does not).
   Identity is judged before matching inside the read -- a member whose fields
@@ -17731,9 +17731,13 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `TICK-START` (refusal: `TREE-HELD` + `NOT-STARTED`, budget unchanged) and the
   inline conflict merge before `git merge` (refusal: `TREE-HELD` +
   `CONFLICT-DEFERRED`, no model run queued) -- mints on both, releases at the
-  activation's teardown and inside the death traps, and `install-timer.sh`'s
-  `RuntimeMaxSec` arithmetic now reads the slack so the deadline can never
-  expire while the cgroup can still be alive. Journal vocabulary added:
+  activation's teardown and inside the death traps. The claim's sweep safety
+  rests on two ceilings that exist -- the tick's `timeout(1)` kill window and
+  the unit's `TimeoutStartSec` belt -- neither of which this Effect originally
+  named correctly: an earlier shape of these lines claimed `install-timer.sh`'s
+  `RuntimeMaxSec` arithmetic "now reads the slack", and no such change was
+  ever made or needed (`H-0341` re-states it with the measurement, and two
+  legs pin the arithmetic). Journal vocabulary added:
   `TREE-CLAIM`, `TREE-HELD`, `TREE-CLAIM-EXPIRED`, `TREE-CLAIM-FOREIGN`,
   `TREE-CLAIM-FAILED`. `AGENTS.md` gains the writer-side rule at the end of its
   Worktrees section: any session, person, or tool writing into a harness tree
@@ -17756,3 +17760,78 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   with `TREE-CLAIM-FAILED` in words -- the pre-#421 posture, said out loud,
   because refusing every dispatch whose tempdir broke would hand #421's fix the
   power to halt the queue.
+
+## H-0341 · The claim family's prose leaned on a `RuntimeMaxSec` the installer never wrote and the live unit does not have: restate the sweep's safety on the two ceilings that actually exist, or write the missing one · issue #421
+
+- Question: `H-0340`'s Effect says `install-timer.sh`'s `RuntimeMaxSec` arithmetic
+  "now reads the slack so the deadline can never expire while the cgroup can still be
+  alive", and its Why bounds the deadline "against the shipped `RuntimeMaxSec`" -- but
+  `git grep -c RuntimeMaxSec origin/main -- factory/install-timer.sh` answers rc 1
+  (zero rows, measured 20 Nov on `a3681a6`), the file this branch ships has no such
+  line either, and the live unit reads `TimeoutStartSec=5460` and `TimeoutStopSec=60`
+  with no `RuntimeMaxSec` anywhere in the rendered `[Service]` block. The kill a tick
+  actually takes is `timeout(1)`'s -- `factory/factory.sh:1496` "timeout --signal=TERM --kill-after="
+  -- and the cgroup's outer belt is the start deadline derived at
+  `factory/install-timer.sh:114` "STOP=$((FACTORY_BUDGET + 60))", 5460 s on this
+  machine. Which statement does the claim sweep's licence rest on once the invented
+  ceiling is taken away, and what keeps the restated one from drifting?
+- Options: restate the prose on the two ceilings that exist and pin each with a leg
+  and a control of its own | change `install-timer.sh` to render a `RuntimeMaxSec`
+  line the unit has never needed | leave the prose unamended and let every later
+  reader re-derive the arithmetic from scratch
+- Chose: restate the prose on the two ceilings that exist and pin each with a leg
+  and a control of its own
+- Why: the second option builds a deadline to justify a sentence about a deadline --
+  `TimeoutStartSec` already bounds the whole cgroup, and tightening it toward the
+  tick's 2760 s would put the belt INSIDE the budget the pass is allowed to use,
+  killing live ticks mid-commit, the exact defect `#246` and `H-0292` retired. The
+  third leaves a reader to discover, as this unit did, that a quoted constant in the
+  log names no line in the tree. The measurement: the claim's deadline is minted at
+  `factory/common.sh:1909` "deadline=$((now + FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK))"
+  with `factory/common.sh:165` "FACTORY_CLAIM_SLACK=${FACTORY_CLAIM_SLACK:-60}", while
+  the tick's own kill window is `FACTORY_TICK_TIMEOUT` to TERM plus
+  `FACTORY_TICK_KILL_AFTER` (default 60) to SIGKILL -- so the sweep is licensed exactly
+  when the deadline passes, and it is SAFE exactly because `FACTORY_CLAIM_SLACK >=
+  FACTORY_TICK_KILL_AFTER` puts that moment no earlier than the last way the writer can
+  still be alive; the equality of the two defaults is load-bearing, and a knob that
+  cuts the slack below the grace makes the guard declare a tree free over a tick
+  systemd is still trying to stop. Above that window sits the real cgroup belt,
+  5460 s > 2760 s, which is why the belt never reopens a swept claim: it fires after
+  every death `timeout(1)` can deliver. Two legs pin the two inequalities --
+  `factory/selftest.sh:28558` "claim_slack_covers_kill_grace() {" and
+  `factory/selftest.sh:28581` "claim_belt_clears_tick_ceiling() {" -- reading shipped
+  defaults and the rendered unit, never a literal, each with the control that plants
+  one knob (slack 30 under grace 60; a belt rendered 3600 s below the budget) and must
+  turn exactly its leg. The prose this corrects: the Effect sentence above, the Why
+  line `H-0340` bounds the deadline by, the two comments in the claim family of the
+  suite, the docs sentence that called the invented ceiling "the shipped" one, and the
+  `common.sh` header comment. What this entry does NOT touch: `H-0329`'s title and
+  question and the #418 fixture comment carry the same misnomer for the 16 Nov
+  activation, but that activation's own journal row -- transcribed verbatim into that
+  fixture -- says `start operation timed out. Terminating.`, which is the start
+  deadline, and those records are #418's, merged on its own ref; a supervisor that
+  wants the name gone there should dispatch it with the fixture as the subject.
+- Checkpoint: ac4ea69edcfcef7e74e4bb1cefb198061fd40cb4
+- Effect: five prose corrections, all line-count-neutral -- the docs claim-section
+  passage included, which now states the deadline against `timeout(1)` and
+  `TimeoutStartSec` with this entry named, and moves no pointer under it;
+  `H-0340`'s Effect loses its false installer claim and says the
+  claim plainly was wrong, pointing here. The suite grows four legs and three helpers
+  at `factory/selftest.sh:28558` "claim_slack_covers_kill_grace() {",
+  `factory/selftest.sh:28581` "claim_belt_clears_tick_ceiling() {" and the control
+  wrapper `factory/selftest.sh:28607` "claim_control_refused() {", plus the re-armed
+  generator render the belt legs read. Live unit read back after these lines were
+  written: `TimeoutStartSec=5460`, `TimeoutStopSec=60`, no `RuntimeMaxSec` row; the
+  probe box rendered 5460 shipped and 1800 under the planted STOP, and the four legs
+  answered ok against both. `make verify` is quoted with its exit status in the
+  pull-request body from the run that ships these bytes, never here.
+- What lost, as measured: five commits become seven on a branch that already shipped
+  the prose being corrected, and the log grows an entry to say a sentence was wrong
+  rather than silently editing the sentence -- the trade `DECISIONS.md` exists to make;
+  the slack leg pins the DEFAULTS, so an operator who exports `FACTORY_CLAIM_SLACK=10`
+  still walks past both inequalities at runtime -- the belt legs read the rendered
+  unit, which does take live env, but nothing in the tree refuses a hostile knob pair,
+  same standing exposure as every other knob here; and the equality slack==grace==60
+  is pinned as `>=`, so a future that raises the grace alone fails the leg loudly
+  rather than sweeping silently -- the loudness is the purchase, and it costs whoever
+  raises the grace a knob edit in the same commit.

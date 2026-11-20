@@ -1856,7 +1856,7 @@ factory_worktree_busy() { # path -> 0 busy(unit stamp) | 1 free | 2 cannot answe
 # field, so a hand-minted claim at any filename in the directory is honoured by the same read.
 #
 # There is deliberately NO self-exclusion: a claim held by the same unit that is asking is refused
-# like any other. A pass SIGKILLed by `RuntimeMaxSec` never reaches its release line, and the
+# like any other. A pass killed at its ceilings never reaches its release line, and the
 # only party that could prove that activation's session is also dead is the cgroup, which a shell
 # here cannot ask; the delay that costs is one retry past the deadline, the collision that would
 # cost is 8m05s of two writers corrupting one index. Fail toward held, the same direction #879

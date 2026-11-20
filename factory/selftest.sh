@@ -23221,7 +23221,7 @@ claim_guard_holds_a_live_tree() {
 	[ "$rc" = 0 ] || bad="${bad:+$bad; }the same tree spelled with a trailing slash read free"
 
 	# No self-exclusion: the unit that holds the claim is refused by it too. A pass SIGKILLed by
-	# `RuntimeMaxSec` never reaches its release, and the party that could prove that session is
+	# its ceiling never leaves it a release, and the party that could prove that session is
 	# dead is the cgroup, which this shell cannot ask -- so the collision loses a retry past the
 	# deadline, never 8m05s of two writers on one index.
 	rc=0
@@ -23539,7 +23539,7 @@ proc_leg 'control: with the release muted the mint still fires and the file outl
 	proc_claim_control_release "$proc_claim_mut"
 
 # Tick path, expiry: the sweep at the moment it matters. A claim whose deadline passed -- a pass
-# SIGKILLed by `RuntimeMaxSec` never reached its release line -- must not hold the queue forever:
+# SIGKILLed at its ceiling never reached its release line -- must not hold the queue forever:
 # the guard says the word, retires the file, and the tick runs. (The deadline TEST itself is
 # pinned by control C of the unit family above; this leg pins that the shipped pass does the
 # human-recognisable thing with a stale file rather than parking the unit behind it.)
@@ -28535,6 +28535,112 @@ proc_leg 'the RERUN flag is the guard: without it the stop forges died=EXIT' \
 
 proc_extra_env=()
 printf '[]\n' >"$proc_fix/pr-open.json"
+
+# H-0341 -- the two ceilings the claim sweep actually stands on, pinned as arithmetic.
+# `H-0340`'s Effect said the installer's `RuntimeMaxSec` arithmetic "now reads the slack".
+# There is no `RuntimeMaxSec` anywhere in the installer or the live unit -- `git log -S`
+# names only prose -- and the comment's premise was a prose name for the kill a tick
+# takes, which is `timeout(1)`: FACTORY_TICK_TIMEOUT to TERM, FACTORY_TICK_KILL_AFTER to
+# SIGKILL. Above that sits the real cgroup belt, TimeoutStartSec = FACTORY_BUDGET + 60,
+# measured on the live unit at 5460 s while the session ceiling is 2760 s + 60 s grace.
+# A reader sweeps an expired claim on the promise that nobody can still be writing;
+# promise (a): the deadline T+L must not expire before the kill window T+KA closes
+# (L >= KA), or the sweep declares the tree free over a tick systemd is still trying to
+# stop. Promise (b): the belt must not fire before the session's own worst death
+# (start >= T + KA), or the cgroup lands inside the claim's held window with a teardown
+# the deadline has already licensed away. Both read shipped defaults, never a literal:
+# each control plants one knob and must turn exactly its leg.
+
+knob_default() { # <common.sh path> <NAME> -> the default written inside `${NAME:-NNN}`
+	sed -n "s/^$2=[^0-9]*\([0-9][0-9]*\)}.*/\1/p" "$1" | head -n 1
+}
+
+claim_slack_covers_kill_grace() { # <common.sh path> -> the sweep cannot precede the SIGKILL
+	local c=$1 slack grace
+	slack=$(knob_default "$c" FACTORY_CLAIM_SLACK)
+	grace=$(knob_default "$c" FACTORY_TICK_KILL_AFTER)
+	if ! { is_a_number "$slack" && is_a_number "$grace"; }; then
+		printf '            FACTORY_CLAIM_SLACK=%s or FACTORY_TICK_KILL_AFTER=%s is not a number\n' \
+			"${slack:-<absent>}" "${grace:-<absent>}" >&2
+		printf '            read out of %s, so the expiry arithmetic has no subject. A leg\n' "$c" >&2
+		printf '            whose knob cannot be read has stopped looking.\n' >&2
+		return 2
+	fi
+	if [ "$slack" -ge "$grace" ]; then
+		return 0
+	fi
+	printf '            slack %s s is shorter than the kill grace %s s: a claim would expire\n' \
+		"$slack" "$grace" >&2
+	printf '            while a TERM-immune tick is still between TERM and SIGKILL, and the\n' >&2
+	printf '            sweep would declare the tree free over a live writer -- #421 from\n' >&2
+	printf '            the other side. The sweep is licensed by the deadline only when the\n' >&2
+	printf '            deadline outlasts every way the writer can still be alive.\n' >&2
+	return 1
+}
+
+claim_belt_clears_tick_ceiling() { # <common.sh path> <rendered service unit> -> the belt is behind the session's worst death
+	local c=$1 svc=$2 start tick grace
+	start=$(deadline_value "$svc" TimeoutStartSec)
+	tick=$(knob_default "$c" FACTORY_TICK_TIMEOUT)
+	grace=$(knob_default "$c" FACTORY_TICK_KILL_AFTER)
+	if ! { is_a_number "$start" && is_a_number "$tick" && is_a_number "$grace"; }; then
+		printf '            TimeoutStartSec=%s, FACTORY_TICK_TIMEOUT=%s or FACTORY_TICK_KILL_AFTER=%s\n' \
+			"${start:-<absent>}" "${tick:-<absent>}" "${grace:-<absent>}" >&2
+		printf '            is not a number, so there is no arithmetic to compare.\n' >&2
+		return 2
+	fi
+	if [ "$start" -ge $((tick + grace)) ]; then
+		return 0
+	fi
+	printf '            the cgroup belt TimeoutStartSec=%s fires before the tick can die\n' "$start" >&2
+	printf '            its own way (timeout %s s + grace %s s = %s s): systemd would SIGKILL\n' \
+		"$tick" "$grace" "$((tick + grace))" >&2
+	printf '            the whole pass while its minted claims still read held, holding\n' >&2
+	printf '            trees nobody is working -- the inverse failure, but the queue still\n' >&2
+	printf '            loses a pass behind files the next reader must wait out.\n' >&2
+	return 1
+}
+
+# A control passes by refusing, so the wrapper inverts the predicate exactly the way the
+# generator family's `gen_control` does, and pins the refusal to rc 1: rc 2 is "no subject",
+# which would pass this control on a broken plant.
+claim_control_refused() { # <predicate> <args...>
+	local rc=0
+	"$@" >/dev/null 2>&1 || rc=$?
+	if [ "$rc" = 1 ]; then
+		return 0
+	fi
+	printf '            the control %s the planted state instead of refusing it (rc %s).\n' \
+		"$([ "$rc" = 0 ] && printf 'accepted' || printf 'declined to judge')" "$rc" >&2
+	return 1
+}
+
+claim_mut_common=$work/claim-knob-mut
+mkdir -p -- "$claim_mut_common"
+cp -- "$HERE/common.sh" "$claim_mut_common/common.sh"
+sed 's/^FACTORY_CLAIM_SLACK=[$]{FACTORY_CLAIM_SLACK:-60}/FACTORY_CLAIM_SLACK=${FACTORY_CLAIM_SLACK:-30}/' \
+	"$HERE/common.sh" >"$claim_mut_common/common.sh.planted" &&
+	mv -- "$claim_mut_common/common.sh.planted" "$claim_mut_common/common.sh"
+
+claim_leg 'the claim slack outlasts the tick kill grace' \
+	claim_slack_covers_kill_grace "$HERE/common.sh"
+claim_leg 'control: slack 30 under grace 60 sweeps over a live tick' \
+	claim_control_refused claim_slack_covers_kill_grace "$claim_mut_common/common.sh"
+
+# The belt legs need a rendered unit, so the generator fixture is re-armed here rather than
+# borrowing the earlier section's `$gen_svc`: which render a leg read must be readable in the
+# leg, not reconstructed from run order (H-0069's quiet-SKIP lesson).
+gen_setup "$gen_root" 1 || true
+gen_tree=$gen_root
+gen_dry_run "$HERE/install-timer.sh" || true
+gen_split
+claim_leg 'the cgroup belt fires only after the tick can die' \
+	claim_belt_clears_tick_ceiling "$HERE/common.sh" "$gen_svc"
+claim_belt_mut=$(gen_planted "$work/claim-belt-mut" 's/^STOP=.*$/STOP=$((FACTORY_BUDGET - 3600))/')
+gen_dry_run "$claim_belt_mut" || true
+gen_split
+claim_leg 'control: a belt rendered 3600s below the budget is refused' \
+	claim_control_refused claim_belt_clears_tick_ceiling "$HERE/common.sh" "$gen_svc"
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

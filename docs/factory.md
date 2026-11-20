@@ -2623,8 +2623,8 @@ the content verdict and **before the first write** -- before `TICK-START` on the
 tick path, before `git merge` on the inline conflict path -- carrying five fields
 (`unit=`, `tree=`, `dispatched=`, `pid=`, `deadline=`). The deadline is the
 minting activation's own bound on its own life, `FACTORY_TICK_TIMEOUT +
-FACTORY_CLAIM_SLACK` from the mint, which is strictly less than the shipped
-`RuntimeMaxSec`; past that moment nobody can still be working under the file, and
+FACTORY_CLAIM_SLACK` from the mint -- the tick's own `timeout(1)` kill window,
+inside the `TimeoutStartSec` belt (`H-0341`); past that moment nobody can still be working under the file, and
 that proof is what licences a later reader to sweep it. `factory_claim_held TREE`
 answers the probe in four polarities -- `0` held (stdout names the unit, its pid
 and its deadline), `1` free, `2` unknown, `3` expired-and-swept -- and identity is
