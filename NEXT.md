@@ -1,4 +1,63 @@
-# NEXT — issue-399 conflict tick (branch `issue-399`, PR #479: the base sync onto `origin/main@7b47fad` is in — the whole conflict surface was the two append tails, every one of the nine `factory/DECISIONS.md` hunks was the same class (a `NEXT.md` coordinate each side had re-aimed at its own copy of this file), so no parent digit was inherited: each was re-aimed at the row as this head ships it, opened by its quoted fragment; this file is re-headed by convention, this round on top, the `D-0092` head and trunk's `issue-372` round-2 head demoted to `## Record —` in place with every body carried whole and the duplicate `issue-390` Record heading folded to trunk's copy; the pass is `H-0324`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+# NEXT — issue-399 conflict tick, round 2 (branch `issue-399`, PR #479: the second base sync is in — `origin/main` moved `7b47fad` → `ae61064` (the #480 merge, carrying `H-0322` and `H-0323`) thirty-four minutes after the round that shipped `H-0324`, and the same two append tails conflicted again: twelve hunks in `factory/DECISIONS.md`, eleven of them one carried sentence holding each parent's digits into its own copy of this file or into the two files trunk grew, the twelfth the tail junction that seats trunk's `H-0322` and `H-0323` beneath this branch's `H-0324` by ascending id. No parent digit was inherited for a `NEXT.md` pointer, because the merged hand-off matches neither parent: every one was re-aimed at the row the merged file makes true, opened by its quoted fragment. The `factory/factory.sh` and `docs/factory.md` rows took trunk's digits for the measured reason that the merged tree carries trunk's bytes for those two files, which this round checked by opening each cited line rather than by arithmetic. This file is re-headed by convention, this round on top, `H-0324`'s head and trunk's `issue-415` head demoted to `## Record —` in place with every body carried byte-identical, and the shared `issue-372` round-2 Record heading kept once in trunk's wording; the pass is `H-0326`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## What this round shipped
+
+- `origin/main` merged into `issue-399` as one merge commit, the only shape available here (squash
+  and rebase merge are off, force-push is denied to a tick), so the resolution is proved and never
+  rewritten. The adjudication is `H-0326`, carried by the merge commit itself, checkpoint `4a59e75`,
+  the allocator having answered `H-0326` on a `REFRESH 65s union` read before the checkpoint was
+  taken. `H-0325` is not a hole this unit authored: it lands on `refs/remotes/origin/issue-416`.
+- `factory/DECISIONS.md`: the tail junction is a union in ascending id order (`H-0322`, `H-0323`,
+  `H-0324`), and the eleven remaining hunks were adjudicated per citation on the merged tree, not
+  per side. Where a pointer aimed at `NEXT.md` both parents were false and the shipped gate named
+  the landing line for each; where it aimed at `factory/factory.sh` or `docs/factory.md` the merged
+  bytes are trunk's, so trunk's digit is the one the line answers.
+- `NEXT.md`: re-headed by convention — this round on top, both parents' heads demoted in place, the
+  shared `issue-372` round-2 heading carried once in trunk's wording, the `D-0092` Record and every
+  body beneath it byte-kept.
+
+## What this push spent
+
+- The `APPROVED` read at head `29d21492` is spent by this push — the #269/`H-0010` class, the second
+  time on this branch. The row flips `DISMISSED`, `mergeStateStatus` reads `BLOCKED` until a reviewer
+  is asked again, and nobody has been re-asked yet: the ask is the supervisor's
+  `factory_request_review` poke, not this unit's.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of #479 after this push — the poke owns the ask; see the row above.
+2. The two hazard rows of this file that keep `python3 scripts/check-close-verb.py NEXT.md` at rc 1 —
+   inherited through three heads now, deliberately untouched, and owed the two-word repair at the
+   coordinates the gate names. This head moved their numbers again; the log's citations were re-aimed
+   at the moved rows, the rows were not.
+3. Carried from the `H-0324` Record below, unrenumbered: its items 2–5 (the `D-0092` owed list,
+   trunk's Record list, the inherited hazard rows, and the stamped-vs-live digit rule).
+4. Carried from trunk's `issue-415` Record below, unrenumbered: its items 1–2 — #480's re-review and
+   the whole `issue-372` round-2 owed list beneath it, including the `H-0283` locale pin, the
+   #352-errata placement question, the issue-390 items 2–5, round 1's "nine legs" nit and trunk's
+   dangling-id census.
+5. Pointer digits inside Record bodies older than this head are stamped, not live — a `NEXT.md`
+   digit outside the log is read by no gate (#375); the live digits are the log's anchored
+   citations, and the shipped gate re-measures those on every run.
+
+## Constraints a stranger would break here
+
+- Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again:
+  the in-log pointers aim at the same two hazard rows and at the `quoted from it must name its
+  clock` row, and every head edit moves them. The census is re-run after every head edit and never
+  inherited.
+- The two `factory/factory.sh` pointers this sync re-aimed (`A queue that reports a thing once and`
+  and `The census of every tree`) sit inside the block trunk's `H-0322` scratch mint grew; trunk is
+  now the only copy of that file, so re-aim them from the merged bytes, never from a branch copy.
+- Run the suite as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make
+  verify`, and say so wherever the verdict is quoted.
+- The `OPENCODE_CONFIG_CONTENT` caveat trunk's `issue-415` Record carries still binds this tree: a
+  local selftest run needs `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh`.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+
+## Record — issue-399 conflict tick (branch `issue-399`, PR #479: the base sync onto `origin/main@7b47fad` is in — the whole conflict surface was the two append tails, every one of the nine `factory/DECISIONS.md` hunks was the same class (a `NEXT.md` coordinate each side had re-aimed at its own copy of this file), so no parent digit was inherited: each was re-aimed at the row as this head ships it, opened by its quoted fragment; this file is re-headed by convention, this round on top, the `D-0092` head and trunk's `issue-372` round-2 head demoted to `## Record —` in place with every body carried whole and the duplicate `issue-390` Record heading folded to trunk's copy; the pass is `H-0324`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
 
 State read by this round before it wrote a byte, off the API and not off the dispatch: at
 `2026-11-20T~04:41Z` (box clock re-checked `2026-11-20T04:47:34Z` before this head was composed)
@@ -151,7 +210,66 @@ allocator answered `D-0092` on a `REFRESH 1s union` read after `git fetch
 
 
 
-## Record — issue-372 conflict tick, round 2 (branch `issue-372`, PR #474: the second base sync is in,
+## Record — the issue-415 verify-fix round (branch `issue-415`, PR #480: the red this branch shipped is
+the #364 guard eating its own host — `both arms name one stream` still counted code-line `mktemp`
+occurrences at 0, and the per-tick scratch mint this branch's H-0322 ships is exactly one such line,
+at `factory/factory.sh:1307`, the very shape the pre-#364 stream arms spelled; the leg now demands
+exactly one such invocation and pins it by the mint's own bytes, so the exception is a ledger and
+not a hole. The `shellcheck` job died first — two continuation-backslash mutants and an
+unquoted `FACTORY_LEDGER` assignment, both inside this branch's own #415 fixtures — so neither red
+was visible under it; both were fixed ahead of the decision pass with the mutant anchors
+re-measured byte-identical; the pass is `H-0323`; the pull Refs #415 and the issue keeps its own
+terms, never this file; merging belongs to the supervisor)
+
+## What this round shipped
+
+- The leg in `factory/selftest.sh` re-authored at net-zero lines: `maker` counts the code-line
+  invocation `$(mktemp`, `minted` counts the mint's fixed string `scratch=$(mktemp -d`, and the
+  leg passes only at 1/1. The block is 7/7 — `factory/selftest.sh:7512`, the anchored function
+  line H-0322 cites, is its first line and 159 log pointers sit above the block — so no
+  coordinate anywhere in the file moved.
+- The two shellcheck fixes, committed ahead of the checkpoint because that job gates every check
+  under it: the `scr415_env_channel` mutant strings carry their trailing backslash in a
+  double-quoted `"$cont"` segment (SC1003; the bytes handed to awk re-measured as one-hit
+  anchors in `factory/factory.sh`), and the halt-box fixture carries the SC2034 directive on
+  `FACTORY_LEDGER` like the three H-0322 placed — both blocks sit past the file's highest cited
+  coordinate (26242), so their growth was free.
+- `factory/DECISIONS.md` gained `H-0323` on checkpoint `1de4ac8`; the twenty-two `NEXT.md`
+  pointers re-aimed from 2753/2857 to the hazard rows as this head ships them, and this file's
+  own prose rows naming those numbers re-aimed to the same coordinates.
+
+## What this push spent
+
+- Any `APPROVED` read on #480 is voided by this push — the ask is the supervisor's
+  `factory_request_review` poke, not this unit's.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of #480 after this push — the poke owns the ask.
+2. Carried from the issue-372 round-2 Record below, unrenumbered: its items 1–7 — #474's
+   re-review, the `H-0283` Record row 7 (`dash_ctl`'s locale pin) and the #352-errata placement
+   question, the issue-390 base-sync items 2–5, the two hazard rows (now at 2812 and 2916),
+   round 1's "nine legs" nit, trunk's 23 dangling ids, and the `H-0283` locale-caveat debt and
+   every row the deeper Records still carry.
+
+## Constraints a stranger would break here
+
+- `factory/selftest.sh:7528` is the mktemp exception ledger: if a second legitimate `mktemp`
+  ever enters `factory/factory.sh`, both counts move in the commit that adds the call, or the
+  leg reddens by design.
+- The two mutant strings in `scr415_env_channel` are exact-byte anchors into
+  `factory/factory.sh`'s tick-env block; the `"$cont"` concatenation is measured, and any
+  re-quoting must re-count the one-hit before trusting a green leg.
+- The cited region of `factory/selftest.sh` runs to 26242 and the tail from the #415 blocks
+  (~26505) on is the only growth-free zone; an insert anywhere before the highest cited
+  coordinate moves every pointer below it — re-run `python3 scripts/check-decisions.py
+  --citations factory/selftest.sh` and fix what you moved in the same commit.
+- The `and nothing else does` MCP-fence control needs a parent environment that does NOT carry
+  `OPENCODE_CONFIG_CONTENT`: this box's own harness exports the fixture's fence verbatim into every
+  shell, so a local run must go through `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh`;
+  CI runners carry no such export and the leg shipped green on trunk — measured here by `env | grep`.
+
+## Record — the issue-372 conflict tick, round 2 (branch `issue-372`, PR #474: the second base sync is in,
 onto `origin/main@64b2813`, and both of its append tails are adjudicated by UNION on the merged
 bytes — `factory/DECISIONS.md` seats this branch's `H-0315`, then trunk's `H-0316`–`H-0319`, then
 this branch's `H-0320` by ascending id with every entry byte-identical to the parent it came from,
@@ -220,7 +338,7 @@ could name at read time).
    3 (the in-activation cgroup and stop-sigterm reads no offline run can meet), Option B (an
    escalation class, owed a maintainer word), the two in-row-disclosed `H-0268` `Effect:` phrases,
    and its item 6's two promise-pointers that owe one joint commit across log, fence copy and quote.
-4. The two hazard rows of this file, now at 2753 and 2857, that keep
+4. The two hazard rows of this file, now at 2812 and 2916, that keep
    `python3 scripts/check-close-verb.py NEXT.md` at rc 1 — inherited, untouched, and owed the
    two-word fix at the coordinates the gate names.
 5. Round 1's reviewer nit, still true and deliberately untouched: the round-1 body section says
@@ -235,7 +353,7 @@ could name at read time).
 ## Constraints a stranger would break here
 
 - Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again:
-  all twenty in-file pointers name the same two hazard rows at 2753 and 2857, and every head
+  all twenty in-file pointers name the same two hazard rows at 2812 and 2916, and every head
   edit moves them. The census is re-run after every head edit and never inherited — the `H-0313`
   Record measures what trusting a `+N` costs.
 - The `factory/selftest.sh` tail has an ORDER, and it is measured: this branch's `#372` block starts
