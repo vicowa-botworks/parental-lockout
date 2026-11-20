@@ -26507,8 +26507,13 @@ proc_leg 'tick gets a scratch directory' \
 
 scr415_env_channel() {
 	local bad='' line=''
+	# Both mutant lines END in the continuation backslash of the line they replace. A trailing
+	# backslash inside a single-quoted argument reads to shellcheck as a half-escaped quote
+	# (SC1003), so the backslash travels as its own double-quoted segment: the bytes handed to
+	# proc_mutate_factory, and through it to awk's ENVIRON, are byte-identical either way.
+	local cont="\\"
 	proc_new scr415-c1
-	proc_mutate_factory '		FACTORY_SCRATCH="$scratch" \' '		FACTORY_SCRATCH= \' || {
+	proc_mutate_factory '		FACTORY_SCRATCH="$scratch" '"$cont" '		FACTORY_SCRATCH= '"$cont" || {
 		printf '            the export line moved, so the control has nowhere to plant\n' >&2
 		return 1
 	}
@@ -26592,6 +26597,7 @@ halt415_leg() {
 	# point in the file the earlier sections' boxes have done their work.
 	FACTORY_DIR=$work/halt415-box
 	FACTORY_LOG=$work/halt415-box/log
+	# shellcheck disable=SC2034  # written by factory_paths(), which lives in the sourced common.sh
 	FACTORY_LEDGER=$work/halt415-box/ledger
 	FACTORY_RUN=$work/halt415-box/run
 	FACTORY_HALT=$work/halt415-box/HALT
