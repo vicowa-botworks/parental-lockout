@@ -23462,7 +23462,7 @@ proc_claim_control_return5() { # <mutated>
 		return 1
 	}
 	grep -q 'TREE-HELD unclaimed:901' "$proc_journal" || {
-		printf '            the mutant never even read the claim; the shipped leg cannot be about\n' >&22
+		printf '            the mutant never even read the claim; the shipped leg cannot be about\n' >&2
 		printf '            the refusal, if the read is not what shipped code added.\n' >&2
 		sed 's/^/              /' "$proc_journal" >&2
 		return 1
