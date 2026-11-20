@@ -975,7 +975,7 @@ factory_reap_line() {
 		# activation" when one finished and the journal cannot say when its work stopped would send a
 		# reader to the timer, when the thing to look at is the unit's stdout.
 		if [ "$rc" = 2 ]; then
-			printf 'unknown -- %s finished, but nothing in the tail says when its work stopped: no `Main process exited` from systemd and no line from the pass at or before that moment, so the hold is unread, not zero%s\n' \
+			printf 'unknown -- %s finished, but nothing in the tail says when its work stopped: no line from the pass beats the terminal stamp by a whole rounded second, and a `Main process exited` in the tail of a killed activation is the stamp of the ending itself, not of the work stopping, so the hold is unread, not zero%s\n' \
 				"$(factory_service_unit)" "${live:+; manager says: $live}"
 		else
 			printf 'unknown -- journalctl --user has no finished activation for %s to read%s\n' \

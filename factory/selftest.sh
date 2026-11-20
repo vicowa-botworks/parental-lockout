@@ -21099,6 +21099,50 @@ rp_sentence() { # rp_sentence <fixture> <dumb> -> the `reaping:` line, manager s
 			factory_reap_line' _ "$HERE"
 }
 
+# The rc-2 reason, pinned once and replayed over EVERY state that emits it (the #484 review). The
+# sentence used to enumerate two absences -- no `Main process exited` from systemd, no line from the
+# pass at or before the terminal moment -- and both halves are false on the sub-second kill: the
+# tail CARRIES systemd's exit line (its own kill stamp, at 06:14:09.250275 in the fixture) and a
+# pass line AT 06:14:09.250069, inside the terminal 06:14:09.250469 -- at or before, which is
+# exactly why the margin gate refused it. A `REAP-UNKNOWN` row must never state a falsehood about
+# the journal it is reading: the reader at 03:00 would doubt the capture instead of the kill. So
+# each rc-2 fixture renders the sentence here, and the sentence must carry the fact true of all
+# four states -- no pass line beats the terminal stamp by a whole rounded second, and a
+# `Main process exited` in a killed tail stamps the ending, not the stop of work -- and must
+# forbid the old enumeration's return. Pinning the lead clause alone (the shape before this
+# review) is the gap: it passed over a sentence whose every colon clause the tail refuted.
+rp_pin_unknown() { # rp_pin_unknown <fixture> -> 0 iff the reaping line gives the true rc-2 reason
+	local f=$1 line='' lied='no `Main process exited` from systemd'
+	line=$(rp_sentence "$f" 1)
+	case $line in
+	(*'nothing in the tail says when its work stopped'*) : ;;
+	(*) rp_say "the reaping sentence for $f is not the unknown sentence:"; rp_say "$line"
+		rp_say "and it must never be a hold: 'reaped in 0s' and 'HELD 0s' are both retired numbers"; return 1 ;;
+	esac
+	case $line in
+	(*'beats the terminal stamp by a whole rounded second'*) : ;;
+	(*) rp_say "the reaping sentence for $f does not say the margin gate is why it cannot read:"
+		rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*'stamp of the ending itself'*) : ;;
+	(*) rp_say "the reaping sentence for $f does not say a killed tail's Main process exited is"
+		rp_say "the stamp of the ending itself, so the reader hunts an absent line that is there:"
+		rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*"$lied"*)
+		rp_say "the reaping sentence for $f still denies the tail carries a Main process exited"
+		rp_say "line. The kill fixtures HAVE one (it is the kill stamp itself): the emitted reason"
+		rp_say "would state a falsehood about the journal it is reading:"; rp_say "$line"; return 1 ;;
+	esac
+	case $line in
+	(*'HELD'* | *'reaped in'*)
+		rp_say "the unread teardown $f still printed a hold:"; rp_say "$line"; return 1 ;;
+	esac
+	return 0
+}
+
 rp_fields() { # rp_fields <TAB line> -> hold|how|open. The age is dropped on purpose: it counts from
 	local hold='' how='' age='' open=''     # the fixture's stamp to NOW, so pinning its value would
 	IFS=$'\t' read -r hold how age open <<EOF
@@ -21201,20 +21245,11 @@ reap_leg_boundary() {
 claim_leg 'reap: nothing after the terminal line counts' reap_leg_boundary
 
 reap_leg_no_worker() {
-	local got='' rc=0 line=''
+	local got='' rc=0
 	got=$(rp_ask "$rp_dir/no-worker" 1) || rc=$?
 	[ "$rc" -eq 2 ] || { rp_say "rc=$rc, want 2 (arm 2 of factory_reap_read's contract)"; return 1; }
 	[ -z "$got" ] || { rp_say "arm 2 printed a verdict anyway: '$got'"; return 1; }
-	line=$(rp_sentence "$rp_dir/no-worker" 1)
-	case $line in
-	(*'nothing in the tail says when its work stopped'*) : ;;
-	(*) rp_say "the reaping line for an unread teardown is not the unknown sentence:"; rp_say "$line"
-		rp_say "what it must not be is 'reaped in 0s', the healthy case's own words"; return 1 ;;
-	esac
-	case $line in
-	(*'reaped in'* | *'HELD'*)
-		rp_say "the unread teardown still printed a hold:"; rp_say "$line"; return 1 ;;
-	esac
+	rp_pin_unknown "$rp_dir/no-worker" || return 1
 	return 0
 }
 claim_leg 'reap: no worker line is unknown, not zero' reap_leg_no_worker
@@ -21253,7 +21288,7 @@ reap_leg_rounding() {
 claim_leg 'reap: the hold is the truth, not the seconds' reap_leg_rounding
 
 reap_leg_deadline_kill() {
-	local got='' rc=0 line=''
+	local got='' rc=0
 	# #418's fixture pair, silent side: the kill's `Main process exited` is 194 us ahead of the
 	# terminal line, so a read that takes it for the work stamp answers `0 deadline` for a
 	# 1 h 31 min freeze -- the H-0124 sentence through the arm that has an exit line. The stream
@@ -21267,17 +21302,10 @@ reap_leg_deadline_kill() {
 	rc=0
 	got=$(rp_ask "$rp_dir/deadline-kill" 0) || rc=$?
 	[ "$rc" -eq 2 ] || { rp_say "honouring --until and -n the same kill answers rc=$rc, want 2"; return 1; }
-	line=$(rp_sentence "$rp_dir/deadline-kill" 1)
-	case $line in
-	(*'nothing in the tail says when its work stopped'*) : ;;
-	(*) rp_say "the reaping sentence for a killed silent pass is not the unknown sentence:"; rp_say "$line"
-		rp_say "what it must never be is 'HELD 0s to the stop deadline', the kill timing itself"
-		return 1 ;;
-	esac
-	case $line in
-	(*'HELD'* | *'reaped in'*)
-		rp_say "the killed silent pass still printed a hold:"; rp_say "$line"; return 1 ;;
-	esac
+	# The reason is rendered and pinned too (#484 review): this tail CARRIES the kill's
+	# `Main process exited`, so the emitted sentence may not deny it -- 'HELD 0s to the stop
+	# deadline' and a false enumeration are both retired shapes of this same lie.
+	rp_pin_unknown "$rp_dir/deadline-kill" || return 1
 	return 0
 }
 claim_leg 'reap: a silent pass killed at the deadline is unknown, not zero' reap_leg_deadline_kill
@@ -21295,6 +21323,12 @@ reap_leg_deadline_margin() {
 		rp_say "it printed: '$got'"
 		return 1; }
 	rc=0
+	# The doubly-false state the #484 review measured: this tail carries BOTH the kill's exit line
+	# and a pass line at or before the terminal stamp (06:14:09.250069 against 06:14:09.250469 --
+	# inside it, which is why the margin refused it). Render the emitted reason here and pin the
+	# true one; before this round the noise fixture never rendered a sentence at all, which is the
+	# width the suite could not see through.
+	rp_pin_unknown "$rp_dir/deadline-kill-noise" || return 1
 	shape=$(rp_fields "$(rp_ask "$rp_dir/deadline-kill-second" 1)")
 	[ "$shape" = "1|deadline|0" ] || {
 		rp_say "a kill 1.001 s after the pass's last word read $shape, want 1|deadline|0"

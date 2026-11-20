@@ -952,9 +952,10 @@ subtraction and the word beside it is not what most people reach for:
 - When either end of the subtraction is missing the line says so and prints no number, in one of two
   sentences: nothing has finished inside the window, or something finished and the journal cannot say
   when its work stopped. The second one used to print `reaped in 0s`, the healthy case's own words
-  (H-0124). A killed activation belongs to that second sentence whenever its newest pass line does
-  not beat the terminal stamp by a rounded second (#418): the journal holds the kill and nothing
-  holds the moment work stopped, which is exactly what the sentence says.
+  (H-0124). A killed activation belongs to that second sentence whenever no line from its pass
+  beats the terminal stamp by a whole rounded second (#418), and the emitted reason says exactly
+  that: no such pass line exists, and a `Main process exited` in a killed tail is the stamp of
+  the ending itself, not of the work stopping.
 
 **The same read is in the supervisor's journal on every activation, and not only in `--status`** (H-0129).
 `--status` is a question to a timer and nobody asks a timer a question -- the argument that put

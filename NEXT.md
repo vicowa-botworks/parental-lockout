@@ -1,6 +1,12 @@
 # NEXT — issue-418: the reap read no longer times a killed pass by its own kill (branch `issue-418`; merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
 
-State this pass read off the live tree before writing a byte (2026-11-20): trunk `49f7fa1`
+State this pass read off the live tree before writing a byte (2026-11-20, review round): PR #484
+answered `CHANGES_REQUESTED` with a review newer than head `8ff18fe`, the local tip was current
+at trunk `49f7fa1`, and the two kill fixtures re-rendered the rc-2 sentence whose every colon
+clause the tails refute — the control probe reproduced the review's numbers (the noise fixture's
+pass line at 06:14:09.250069 inside the terminal 06:14:09.250469) before any byte changed.
+
+State the first pass read off the live tree (2026-11-20): trunk `49f7fa1`
 (#483 merged), `gh pr list --head issue-418` answered `[]`, the live journal still carried the
 bug's own line — `REAP-HELD hold=0s how=deadline ended=660s open=1` at 06:25:09Z on 17 Nov —
 and the two code paths were replayed over the real 16 Nov window first: trunk answers hold 0
@@ -26,6 +32,19 @@ with verdict `deadline`, the fixed read answers hold 5291 with the same verdict.
 - The pointer census for the ~40 lines this commit inserts: 164 re-aimed rows in
   factory/DECISIONS.md (the four H-0325/H-0327 rows into docs/factory.md were already drifted
   by #481's merge and are repaired here), debt unmoved at 583, gate rc 0.
+
+## Review round of 20 Nov — the rc-2 reason reworded (H-0331)
+
+The #484 review measured that the single rc-2 sentence — "no `Main process exited` from systemd
+and no line from the pass at or before that moment" — is false in both kill states this branch
+routes through rc 2: their tails carry systemd's exit line, and the noise fixture's pass line
+sits at or before the terminal stamp. The branch answers with (c) of H-0331: the enumeration is
+reworded to the one fact all four rc-2 states share (no pass line beats the terminal stamp by a
+whole rounded second; a killed tail's `Main process exited` stamps the ending, not the stop), the
+docs bullet at docs/factory.md says exactly that, and `rp_pin_unknown` renders and pins the
+reason on all three emitting fixtures — the noise leg now renders a sentence at all, closing the
+width the review saw through. H-0329's Why is corrected in place: `client` is a hand-asked
+SIGKILL, not a SIGABRT/SIGSEGV self-fault.
 
 ## What is still owed
 
