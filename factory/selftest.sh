@@ -22383,22 +22383,22 @@ cv_reset() {
 	mkdir -p "$cv_plant" "$cv_rec"
 	: >"$cv_work/journal"
 	# The repository's own two specimens, at their measured deltas: #301, closed 14472 s after PR #338
-	# merged, and #304, closed 6086 s after PR #308 merged.
+	# merged, and #304, closed 6086 s after PR #308 merged. States carry REST's lowercase (#424).
 	printf '%s\n' '{"body":"The work is finished.\n\nCloses #301 — the whole repair.\n","merged_at":"2026-11-13T19:15:34Z","merge_commit_sha":"90f3c21"}' >"$cv_plant/pulls_77.json"
-	printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_301.json"
+	printf '%s\n' '{"state":"open","closed_at":null}' >"$cv_plant/issues_301.json"
 	printf '%s\n' '{"body":"One fix.\n\nCloses #9.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_78.json"
-	printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T19:15:36Z"}' >"$cv_plant/issues_9.json"
+	printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T19:15:36Z"}' >"$cv_plant/issues_9.json"
 	printf '%s\n' '{"body":"Two tickets, one verb.\n\nCloses #304 on merge.\n","merged_at":"2026-11-12T00:45:14Z"}' >"$cv_plant/pulls_79.json"
-	printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-12T02:26:40Z"}' >"$cv_plant/issues_304.json"
+	printf '%s\n' '{"state":"closed","closed_at":"2026-11-12T02:26:40Z"}' >"$cv_plant/issues_304.json"
 	printf '%s\n' '{"body":"Closed with no clock.\n\nCloses #11.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_80.json"
-	printf '%s\n' '{"state":"CLOSED","closed_at":null}' >"$cv_plant/issues_11.json"
+	printf '%s\n' '{"state":"closed","closed_at":null}' >"$cv_plant/issues_11.json"
 	printf '%s\n' '{"body":"A ticket nobody can read.\n\nCloses #12.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_81.json"
 	printf '%s\n' '{"body":"Nothing named with a verb here, only prose.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_82.json"
 	printf '%s\n' '{"body":"Part of #14 only; the umbrella is not finished.\n\nRefs #15.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_83.json"
 	printf '%s\n' '{"body":"The keyword is deliberate. `Closes #8.` — inside a span.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_84.json"
-	printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_8.json"
+	printf '%s\n' '{"state":"open","closed_at":null}' >"$cv_plant/issues_8.json"
 	printf '%s\n' '{"body":"In flight.\n\nCloses #10.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_85.json"
-	printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":"2026-11-13T19:15:37Z"}]' >"$cv_plant/issues_10.json"
+	printf '%s\n' '[{"state":"open","closed_at":null},{"state":"closed","closed_at":"2026-11-13T19:15:37Z"}]' >"$cv_plant/issues_10.json"
 }
 
 cv_reset
@@ -22407,8 +22407,8 @@ cv_extract "$HERE/factory.sh"
 # --- the specimen: the body asked, the ticket stayed open -----------------------------------------
 cv_run "$cv_work/fvc.sh" 77 >/dev/null 2>&1
 claim_leg 'a verb naming an open ticket is CLOSE-OPEN' bash -c \
-	'grep -q "CLOSE-OPEN pr:77 issue:301" "$1" && ! grep -q "CLOSE-SETTLED pr:77" "$1"' _ \
-	"$cv_work/journal"
+	'grep -q "CLOSE-OPEN pr:77 issue:301" "$1" && ! grep -q "CLOSE-SETTLED pr:77" "$1" &&
+	 ! grep -q "CLOSE-CHECK-UNKNOWN pr:77" "$1"' _ "$cv_work/journal"
 claim_leg '…and the note goes to the ticket, not to the pull request' bash -c \
 	'grep -q "^gh issue comment 301 --body" "$1/calls" &&
 	 ! grep -q "gh pr comment" "$1/calls" || {
@@ -22537,8 +22537,8 @@ claim_leg 'a ticket closed two seconds after the merge says nothing at all' bash
 cv_reset
 cv_run "$cv_work/fvc.sh" 85 >/dev/null 2>&1
 claim_leg 'a closer still in flight is re-probed, not reported' bash -c \
-	'grep -q "CLOSE-SETTLED pr:85 issue:10" "$1" && [ ! -e "$2/10.body" ]' _ \
-	"$cv_work/journal" "$cv_rec"
+	'grep -q "CLOSE-SETTLED pr:85 issue:10" "$1" && [ ! -e "$2/10.body" ] &&
+	 ! grep -q "CLOSE-CHECK-UNKNOWN pr:85" "$1"' _ "$cv_work/journal" "$cv_rec"
 
 # --- the two ways a close can be somebody else doing it -------------------------------------------
 cv_reset
@@ -22606,8 +22606,8 @@ claim_leg 'Refs and Part of are not closers and get no verdict' bash -c \
 # to. `scan($re)` yields every match of the pattern, so a number only appears if a keyword touched it.
 cv_reset
 printf '%s\n' '{"body":"Two tickets, one verb.\n\nCloses #91 and Closes #92.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_87.json"
-printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_91.json"
-printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:12:14Z"}' >"$cv_plant/issues_92.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_91.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T21:12:14Z"}' >"$cv_plant/issues_92.json"
 cv_run "$cv_work/fvc.sh" 87 >/dev/null 2>&1
 claim_leg 'one verb over two numbers verdicts BOTH of them' bash -c \
 	'grep -q "CLOSE-LATE pr:87 issue:91" "$1" && grep -q "CLOSE-LATE pr:87 issue:92" "$1" &&
@@ -22615,8 +22615,8 @@ claim_leg 'one verb over two numbers verdicts BOTH of them' bash -c \
 
 cv_reset
 printf '%s\n' '{"body":"The number first is not the number asked about.\n\n#7 is the reason. Fixes #12.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_88.json"
-printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_7.json"
-printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T22:45:34Z"}' >"$cv_plant/issues_12.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_7.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T22:45:34Z"}' >"$cv_plant/issues_12.json"
 cv_run "$cv_work/fvc.sh" 88 >/dev/null 2>&1
 claim_leg 'a verb verdicts the number it touches, not the first number on the line' bash -c \
 	'grep -q "CLOSE-LATE pr:88 issue:12" "$1" && ! grep -q "issue:7" "$1" &&
@@ -22643,14 +22643,14 @@ claim_leg 'a verb aimed at a pull request is named, and gets no issue verdict' b
 # the window at 120 s. Both arms now call `factory_close_verdict`, so both say what the first read says.
 cv_reset
 printf '%s\n' '{"body":"Closes it late and with no clock.\n\nCloses #93.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_90.json"
-printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":null}]' >"$cv_plant/issues_93.json"
+printf '%s\n' '[{"state":"open","closed_at":null},{"state":"closed","closed_at":null}]' >"$cv_plant/issues_93.json"
 cv_run "$cv_work/fvc.sh" 90 >/dev/null 2>&1
 claim_leg 'a close that lands during the re-probe with no clock is UNTIMED, not settled' bash -c \
 	'grep -q "CLOSE-UNTIMED pr:90 issue:93" "$1" && ! grep -q "CLOSE-SETTLED pr:90" "$1" &&
 	 ! grep -q "unknown s after the merge" "$1"' _ "$cv_work/journal"
 cv_reset
 printf '%s\n' '{"body":"Closes it nine hours late.\n\nCloses #94.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_91.json"
-printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":"2026-11-14T06:28:54Z"}]' >"$cv_plant/issues_94.json"
+printf '%s\n' '[{"state":"open","closed_at":null},{"state":"closed","closed_at":"2026-11-14T06:28:54Z"}]' >"$cv_plant/issues_94.json"
 cv_run "$cv_work/fvc.sh" 91 >/dev/null 2>&1
 claim_leg 'a close that lands during the re-probe 40400 s late is LATE, not settled' bash -c \
 	'grep -q "CLOSE-LATE pr:91 issue:94" "$1" && grep -q "40400s after the merge" "$1" &&
@@ -22671,28 +22671,28 @@ claim_leg 'a state that is neither OPEN nor CLOSED is UNKNOWN, in words' bash -c
 	_ "$cv_work/journal"
 cv_reset
 printf '%s\n' '{"body":"Answers neither way, then answers it again.\n\nCloses #96.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_93.json"
-printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"MERGED","closed_at":null}]' >"$cv_plant/issues_96.json"
+printf '%s\n' '[{"state":"open","closed_at":null},{"state":"MERGED","closed_at":null}]' >"$cv_plant/issues_96.json"
 cv_run "$cv_work/fvc.sh" 93 >/dev/null 2>&1
 claim_leg 'the re-probe names a state that is neither answer too' bash -c \
 	'grep -q "read back state=MERGED after the re-probe, which is neither answer" "$1" &&
 	 ! grep -q "CLOSE-SETTLED pr:93" "$1"' _ "$cv_work/journal"
 cv_reset
 printf '%s\n' '{"body":"A merge the API has no timestamp for.\n\nCloses #97.\n"}' >"$cv_plant/pulls_94.json"
-printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_97.json"
+printf '%s\n' '{"state":"open","closed_at":null}' >"$cv_plant/issues_97.json"
 cv_run "$cv_work/fvc.sh" 94 >/dev/null 2>&1
 claim_leg 'no merged_at means this pass is not after a merge, and says so' bash -c \
 	'grep -q "CLOSE-CHECK-SKIPPED pr:94 the API reports no merged_at" "$1" &&
 	 [ ! -s "$2/calls" ]' _ "$cv_work/journal" "$cv_rec"
 cv_reset
 printf '%s\n' '{"body":"Closed before it was merged.\n\nCloses #98.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_95.json"
-printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T18:15:34Z"}' >"$cv_plant/issues_98.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T18:15:34Z"}' >"$cv_plant/issues_98.json"
 cv_run "$cv_work/fvc.sh" 95 >/dev/null 2>&1
 claim_leg 'a close that predates the merge is named with its negative delta' bash -c \
 	'grep -q "CLOSE-LATE pr:95 issue:98" "$1" && grep -q -- "-3600s after the merge" "$1"' \
 	_ "$cv_work/journal"
 cv_reset
 printf '%s\n' '{"body":"Still open, and the note cannot be written.\n\nCloses #99.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_96.json"
-printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_99.json"
+printf '%s\n' '{"state":"open","closed_at":null}' >"$cv_plant/issues_99.json"
 : >"$cv_plant/fail-note"
 cv_run "$cv_work/fvc.sh" 96 >/dev/null 2>&1
 claim_leg 'a note that cannot be written is journalled, not swallowed' bash -c \
