@@ -27084,12 +27084,12 @@ proc_push_ctl_nobound() { # <journal> <ssh-argv-record> -> the blinded pass park
 		printf '            the mutant could not be planted, so this control ran the bound code.\n' >&2
 		return 1
 	}
-	[ -s "$rec" ] && grep -q 'git-receive-pack' "$rec" || {
+	if ! { [ -s "$rec" ] && grep -q 'git-receive-pack' "$rec"; }; then
 		printf '            the blinded pass never asked for the write, so this box measured a\n' >&2
 		printf '            pass that died before the push, not a bound that was removed.\n' >&2
 		sed 's/^/              /' "$j" >&2
 		return 1
-	}
+	fi
 	[ -z "$(proc_journal_line "$j" 'killed at the')" ] || {
 		printf '            the blinded pass still names a bound it no longer sets.\n' >&2
 		return 1
