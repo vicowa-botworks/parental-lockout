@@ -1,9 +1,9 @@
-# NEXT — issue-417: a deferred conflict unit now names its cause — the fetch arm quotes git's first line into `CONFLICT-BLOCKED` and runs behind the fetch bound (branch `issue-417`, Refs #417; merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
+# NEXT — issue-417: the conflict fetch defers with git's cause in the journal, behind the fetch bound (branch `issue-417`; the 20 Nov adoption pass ships it — merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
 
-State this unit read off the live tree before it wrote a byte (2026-11-20, after
-#481 merged at 06:27Z): the branch carries `origin/main` `0f343db` as an ancestor,
-`gh pr list --head issue-417` answered `[]`, and the suite read `919 passed, 0 failed`
-on `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh`.
+State this pass read off the live tree before writing a byte (2026-11-20): trunk still `0f343db`
+(#481 merged 06:27Z), `gh pr list --head issue-417` answered `[]`, and every gate re-ran green on
+the shipped bytes — `919 passed, 0 failed` on `env -u OPENCODE_CONFIG_CONTENT
+bash factory/selftest.sh`, plus check-shell, check-denies, check-next-md and check-decisions.
 
 ## What this branch ships
 
@@ -31,14 +31,14 @@ on `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh`.
 
 ## What is still owed
 
-- The supervisor merges; this unit merged nothing, and no artifact but the pull body carries a
+- The supervisor merges; this pass merged nothing, and no artifact but the pull body carries a
   closing verb. The reviewer ask is the supervisor's poke, per AGENTS.md.
-- After this merges, any later branch re-derives the pointer census with
-  `python3 scripts/check-decisions.py --citations` (#389): a merge moves these coordinates again,
-  and only the same-verb re-aim keeps the promise.
-- If the SSH burst recurs, read the new sentence first: `git said:` means git answered and quoted
-  it; `killed at the …s fetch bound` means the connection parked. Machine remediation is the
-  config edit above, not a ticket on this harness.
+- `make verify` inside a live tick fails one fence leg (`and nothing else does`, filed as #482):
+  the tick's own OPENCODE_CONFIG_CONTENT leaks through `proc_run` into the control; until that
+  lands, re-measure with `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh` (H-0327).
+- After this merges, a later branch re-derives the pointer census with
+  `python3 scripts/check-decisions.py --citations` (#389); if the SSH burst recurs, `git said:`
+  quotes git's answer and `killed at the …s fetch bound` names the parked connection.
 
 ## Carried forward — verbatim, because the decision log is anchored into these two lines
 
