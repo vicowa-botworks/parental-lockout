@@ -19143,23 +19143,23 @@ stop_leg 'a log of only blanks' "$stop_dir/blank.log" 2 'no output at all'
 # The cost of the blank test above, pinned. It asks "is there a non-blank byte" of the whole log, and the
 # first version asked it with `[ -z "${clean//[[:space:]]/}" ]` -- one bash expansion, no fork, and the
 # wrong shape. A whole-value expansion re-synchronises its multibyte decode from byte 0 for every multibyte
-# character in the value, so the cost is multibyte characters times how far into the value they sit. On the
-# real log `20261104T153010Z.unclaimed:202` -- 441,215 bytes carrying 487 of them, all of them ordinary
-# prose (EM DASH, MIDDLE DOT, arrows) -- that is 162.88 s and 164.43 s on a quiet box, against 0.007 s for
-# the streamed test that replaced it. Placement is the driver, not count: two synthetic files of the same
-# size with the same 487 characters cost 207.96 s scattered and 9.29 s clustered at byte 1000.
+# character in the value, so the cost is multibyte characters times how far into the value they sit: 162.88 s
+# and 164.43 s on a real 441,215-byte log carrying 487 of them, and 60 of the timer's 114 logs needed more
+# than the 25 s a probe waited (H-0160). Placement, not count, is the driver: the same 487 characters cost
+# 207.96 s scattered and 9.29 s clustered at byte 1000. This arm runs AFTER `timeout` has returned, so
+# nothing bounded that wait. The streamed grep #352 substituted for the expansion was fast but answered a
+# different question: under a UTF-8 locale grep cannot match an undecodable byte with a negated bracket
+# class, so a log whose only bytes are undecodable read as holding nothing (#372). The matcher that
+# replaced it, `[[ $clean != *[![:space:]]* ]]`, costs 0.002 s on the fixture below and agrees with the
+# replaced expansion on all seven shapes #372 measured, exotic whitespace included.
 #
-# This is the arm that runs AFTER `timeout` has returned, so the tick ceiling was already spent and nothing
-# bounded the wait; the stall lands on the unit's `TimeoutStartSec` instead. Over the 114 logs in the
-# directory the timer writes, 60 took more than the 25 s a probe was willing to wait and 98 more than a
-# second -- the median log there is already in the band.
-#
-# Fixture: ordinary prose at the dash density a real log carries -- four EM DASHes on every 94-byte line,
-# 1,300 of them, 127,200 bytes, 4,800 multibyte characters. The whole-value expansion measures 14.66 s on
-# that file here and the streamed test 0.01 s, so the 1 s bound below has 14x of margin against the
-# regression and 100x against a loaded box. The duration is asserted as a verdict, not as a measurement:
-# rc=124 is `timeout` saying it killed the call, and a machine that finished the bad shape inside 1 s would
-# have to be ~14x faster than the one that measured this.
+# Fixture: ordinary prose at the dash density a real log carries -- four EM DASHes on every 105-byte line
+# (97 characters, four of them multibyte), 1,300 of them under a header line: 137,835 bytes, 1,301 lines,
+# 5,200 DASHes. The expansion measures 15.8-17.3 s on that file here (a reviewer's box measured 39 s for
+# the same shape); the matcher, 0.002 s. The 1 s bound below therefore carries ~500x of margin over the
+# shipped shape, and a machine that finished the BAD shape inside it would have to be ~16x faster than the
+# one that measured this. The duration is asserted as a verdict, not as a measurement: rc=124 is `timeout`
+# saying it killed the call, and the control below runs the bad shape on these same bytes.
 printf 'reading the queue, then the ledger\n' >"$stop_dir/dense.log"
 for _dash_i in $(seq 1 1300); do
 	printf 'this is a tick log line with ordinary prose and no markup at all, and it ends with a dash \342\200\224 \342\200\224 \342\200\224 \342\200\224\n'
@@ -19174,7 +19174,7 @@ stop_leg 'a dense log is read, not mulled over' "$stop_dir/dense.log" 1 'its las
 # the old shape answers correctly too. So the assertion is about the bound, in both directions, on this
 # fixture on this machine:
 #
-#   rc_ok   the REAL function, sourced from $HERE, inside `timeout 1` -- must not be 124.
+#   rc_ok   the REAL function, sourced from $HERE, inside `timeout 1` -- must answer exactly 1: `!= 124` passed a `factory_stop_reason` stubbed to `return 0` (#352 review item 3, closed #372).
 #   rc_ctl  the expression this change replaced, on the same bytes under the same bound -- must be 124,
 #           because `timeout` says it killed it.
 #
@@ -19184,7 +19184,7 @@ stop_leg 'a dense log is read, not mulled over' "$stop_dir/dense.log" 1 'its las
 # bytes. An earlier draft reached for a `sed` copy of common.sh instead, and its proof-of-mutation grepped
 # for the needle string -- which matched the string in this file's own prose comment, not the assignment. The
 # copy was never mutated and the control passed while proving nothing.
-dash_ctl() { # -> 0 when the function answers inside the bound and the old shape does not
+dash_ctl() { # -> 0 when the function answers 1 inside the bound and the old shape does not
 	local rc_ok rc_ctl
 	rc_ok=$(timeout 1 bash -c 'FACTORY_DIR="$1"; . "$1/common.sh" >/dev/null 2>&1 || exit 90
 		factory_stop_reason "$2" >/dev/null 2>&1' _ "$HERE" "$stop_dir/dense.log" >/dev/null 2>&1
@@ -19194,7 +19194,7 @@ dash_ctl() { # -> 0 when the function answers inside the bound and the old shape
 		printf '%s' "$?")
 	printf '      function rc=%s, old shape rc=%s (124 is `timeout` saying it killed it)\n' \
 		"$rc_ok" "$rc_ctl"
-	[ "$rc_ok" != 124 ] && [ "$rc_ctl" = 124 ]
+	[ "$rc_ok" = 1 ] && [ "$rc_ctl" = 124 ]
 }
 gen_leg 'the streaming test is what answers' \
 	'function inside 1 s, old shape killed at it' dash_ctl
@@ -26177,6 +26177,67 @@ locksk_leg_ctl_noclose() {
 }
 proc_leg 'control: the closes keep the probe honest' 'drop both and the refused pass reports itself as a surplus opener' locksk_leg_ctl_noclose
 
+# ------------------------------------------------- #372: undecodable bytes are content, not "nothing"
+
+# The five shapes #352 review item 1 reproduced against the streamed grep -- bytes a UTF-8 grep
+# cannot match with `[^[:space:]]` -- reached the "holds nothing" arm of `factory_stop_reason`; the
+# matcher that replaced the grep answers content on all five, in this shell's locale or in `C`,
+# because it IS the matcher the replaced expansion used. The two UTF-8 claims at the end go through a
+# pinned locale, or SKIP with the reason named: in `C` the IDEOGRAPHIC SPACE bytes are not whitespace
+# by definition, and a scrubbed `env -i` suite run lives in `C` (row 7 of the `H-0283` Record is the
+# measurement of exactly this axis). Fixture bytes are the #372 table verbatim.
+undec_dir="$work/undec"
+mkdir -p "$undec_dir"
+undec_utf8_loc=''
+for _undec_c in en_US.utf8 en_US.UTF-8 C.utf8 C.UTF-8; do
+	locale -a 2>/dev/null | grep -qxF "$_undec_c" && { undec_utf8_loc=$_undec_c; break; }
+done
+printf '\377\376\n' >"$undec_dir/fffe.log"
+printf '\377 \n' >"$undec_dir/ff-space.log"
+printf '\240\240\n' >"$undec_dir/nbsp-bytes.log"
+printf '\342\200\n' >"$undec_dir/trunc-emdash.log"
+printf '\302\n' >"$undec_dir/trunc-lead.log"
+printf '\343\200\200\n' >"$undec_dir/ideospace.log"
+printf 'ordinary prose survives the leg too\n' >"$undec_dir/prose.log"
+stop_leg 'ff fe is content, not nothing' "$undec_dir/fffe.log" 1 'its last line reads'
+stop_leg 'ff space is content, not nothing' "$undec_dir/ff-space.log" 1 'its last line reads'
+stop_leg 'two a0 bytes are content' "$undec_dir/nbsp-bytes.log" 1 'its last line reads'
+stop_leg 'a truncated EM DASH is content' "$undec_dir/trunc-emdash.log" 1 'its last line reads'
+stop_leg 'a truncated lead byte is content' "$undec_dir/trunc-lead.log" 1 'its last line reads'
+stop_leg 'ordinary prose is quoted, control' "$undec_dir/prose.log" 1 'its last line reads'
+
+undec_ideo() { # -> 0 when the shipped function reads ideographic space as whitespace under UTF-8
+	local out rc=0
+	out=$(LC_ALL=$undec_utf8_loc bash -c 'FACTORY_DIR="$1"; . "$1/common.sh" >/dev/null 2>&1 || exit 90
+		factory_stop_reason "$2"' _ "$HERE" "$undec_dir/ideospace.log" 2>/dev/null) || rc=$?
+	[ "$rc" = 2 ] && printf '%s' "$out" | grep -qF -- 'no output at all'
+}
+undec_parity() { # -> 0 when matcher and replaced expansion answer the seven shapes identically
+	local spec want bytes m o bad=''
+	for spec in 'CONTENT:\377\376\n' 'CONTENT:\377 \n' 'CONTENT:\240\240\n' 'CONTENT:\342\200\n' \
+		'CONTENT:\302\n' 'EMPTY:\343\200\200\n' 'CONTENT:plain prose\n'; do
+		want=${spec%%:*}
+		bytes=${spec#*:}
+		m=$(LC_ALL=$undec_utf8_loc bash -c 'c=$(printf "%b" "$1" | tr -d "\033\r")
+			if [[ $c != *[![:space:]]* ]]; then printf EMPTY; else printf CONTENT; fi' _ "$bytes")
+		o=$(LC_ALL=$undec_utf8_loc bash -c 'c=$(printf "%b" "$1" | tr -d "\033\r")
+			if [ -z "${c//[[:space:]]/}" ]; then printf EMPTY; else printf CONTENT; fi' _ "$bytes")
+		{ [ "$m" = "$want" ] && [ "$o" = "$want" ]; } || bad="$bad${bad:+ }want=$want matcher=$m expansion=$o"
+	done
+	if [ -n "$bad" ]; then
+		printf '            the two engines diverge from the #372 table:%s\n' "$bad" >&2
+		return 1
+	fi
+	return 0
+}
+if [ -n "$undec_utf8_loc" ]; then
+	gen_leg 'ideographic space is whitespace in UTF-8' 'rc 2, no output at all, pinned locale' undec_ideo
+	gen_leg 'matcher equals expansion on seven shapes' 'same verdict per shape, UTF-8, #372 table' undec_parity
+else
+	printf '  SKIP  %-40s no UTF-8 locale here (locale -a lists none), so the two\n' \
+		'undecodable pair, UTF-8-only'
+	printf '            UTF-8 claims have no locale to be true under; the six content legs above ran\n'
+fi
 
 # A heading the entry parser cannot read is not refused by this gate -- it is never seen. `parse` finds
 # entries with `ENTRY` and every other rule walks the list it returns, so a row that puts an id where a
