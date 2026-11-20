@@ -17835,3 +17835,58 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   is pinned as `>=`, so a future that raises the grace alone fails the leg loudly
   rather than sweeping silently -- the loudness is the purchase, and it costs whoever
   raises the grace a knob edit in the same commit.
+
+## H-0343 · The post-merge close check reads REST and compares GraphQL, so all seven measured merges graded `CLOSE-CHECK-UNKNOWN` and no verdict arm ever printed: normalise once at the read boundary, or lowercase the four comparisons? · issue #424
+
+- Question: `factory_close_read` is a REST read and REST answers `state` in lowercase --
+  the helper's own comment said so from the first commit that shipped it,
+  `factory/factory.sh:777` "REST `state` a pull request carries is `closed`. The raw REST read" --
+  yet the first-pass comparisons were written against GraphQL casing, and the
+  suite planted its payloads in that same wrong casing, so every leg passed and
+  nothing live could match. `#424` measured seven merge journal lines reading
+  verbatim `CLOSE-CHECK-UNKNOWN pr:407 issue:345 read back state=closed, which
+  is neither answer` (and the same shape for pr:395, 398, 400, 403, 408, 411)
+  while `CLOSE-OPEN`, `CLOSE-LATE`, `CLOSE-UNTIMED` and `CLOSE-SETTLED` sat at
+  zero rows across every journal on this box. Where does the casing get
+  reconciled so a fifth consumer cannot reintroduce the split?
+- Options: normalise once inside `factory_close_read` with `ascii_upcase` and re-plant the close-verb fixtures in the casing the API actually sends, sharpening two legs to refuse `CLOSE-CHECK-UNKNOWN` | leave the helper alone and lowercase the four `[ "$state" = ... ]` comparisons at the call sites | re-plant nothing and let UNKNOWN stay the only live answer
+- Chose: normalise once inside `factory_close_read` with `ascii_upcase` and re-plant the close-verb fixtures in the casing the API actually sends, sharpening two legs to refuse `CLOSE-CHECK-UNKNOWN`
+- Why: the third option is the defect restated. The second fixes today's four
+  sites and leaves the contract -- which boundary answers which casing -- unwritten
+  for the next one, and this branch found a second instance of exactly that kind
+  within sixty lines of the first (`H-0344` decides it); the arm vocabulary this
+  file journals is uppercase (`CLOSE-OPEN`, `CLOSE-LATE`), so a helper that hands
+  out what the vocabulary says costs every later reader zero mapping, and
+  `factory/factory.sh:790` "((.state // "") | ascii_upcase)" puts the repair where
+  a consumer cannot be written wrong. The fixtures are the load-bearing half:
+  `factory/selftest.sh:22401` "[{\"state\":\"open\",\"closed_at\":null}" is the
+  byte shape the live read returns, so each re-planted leg is now the control
+  `#424` says was never possible -- planted lowercase `closed` inside the window
+  grades silent, and through the re-probe
+  `factory/selftest.sh:22540` "CLOSE-SETTLED pr:85 issue:10" must print while
+  `factory/factory.sh:881` "which is neither answer" must not. The red control
+  was run before the repair, outside the tree: the shipped bytes over the
+  journal's own plant (`{"state":"closed","closed_at":"2026-11-16T13:42:57Z"}`,
+  merged_at the same second) printed the UNKNOWN line; after, the same plant
+  prints nothing, a +22623 s plant prints `CLOSE-LATE`, and an open plant
+  prints `CLOSE-OPEN` past the re-probe -- three arms that had never been
+  observable, made observable by the same one-line change.
+- Checkpoint: bef74030db5743566000412217b03a700cc442ab
+- Effect: `factory/factory.sh` line 790 upcases the state at the boundary and
+  line 779 now records that the payload was later proved live rather than
+  claiming "not by a live read"; sixteen close-verb plants in
+  `factory/selftest.sh` carry lowercase `open`/`closed` (the `issues_95`/`issues_96`
+  `MERGED` plants stay -- they are the neither-answer anomaly by design, and the
+  `cdec` family's uppercase plants stay too, because those stand in for
+  `gh issue view`, whose GraphQL projection genuinely answers `CLOSED`); the
+  CLOSE-OPEN and re-probe-SETTLED legs each gained a not-UNKNOWN clause. Both
+  files are line-count-neutral (2416 and 28662 before and after), so no decision
+  pointer moved.
+- What lost, as measured: the suite can no longer show what a GraphQL-cased
+  payload does to the helper, because no close-verb leg plants uppercase any
+  more -- `ascii_upcase` accepts both casings, but only the live one is pinned;
+  and the journal grows verdict lines that were previously unreachable by
+  construction (`CLOSE-OPEN` notes land on tickets for the first time), which
+  `#334`'s size discipline accepts because each such line is a finding, the
+  healthy path staying silent. `POINTER_DEBT` is quoted from the gate in the
+  pull-request body, not here -- prose is never re-run.
