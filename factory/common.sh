@@ -2486,12 +2486,12 @@ factory_tree_halt() {
 		[ "$dirt_rc" -ne 1 ] || return 0
 	fi
 
-	# The action has to match the finding. "Commit it or discard it" is right for a half-done edit and
-	# wrong for a tree git could not read, where there is nothing to commit and the next thing to do is
-	# make the index readable again.
+	# The action has to match the finding. "Commit it or discard it" is right for a half-done edit,
+	# wrong for a tree git could not read, and incomplete since #415: the plain discard lies when the
+	# dirt holds fixture repositories, so the sentence below has to name the dry run that cannot.
 	case "$dirt_rc" in
 	2) how="make the tree readable and its index rewritable, then \`git -C $tree update-index --refresh\` to see what is really there" ;;
-	*) how="resolve the work it names (commit it to its branch, or discard it on purpose)" ;;
+	*) how="resolve the work it names (commit it to its branch, or discard it on purpose -- and check that with \`git -C $tree clean -ffd -n\`, never the plain \`clean -fdn\`, whose only output over an untracked directory holding a nested \`.git\` is a \`Would skip repository\` line at exit 0 -- no \`Would remove\` line, nothing removed: a dry run that skips the dirt is how a cleared marker re-halts on the same bytes (#415))" ;;
 	esac
 	# The machine fields on the same line (#341). A standing halt used to be a fact about the past --
 	# written once, then printed by every later activation that never asked the tree again, so a cause

@@ -1917,6 +1917,23 @@ that can hear you is the agent. The supervisor also writes this file itself when
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
 
+**Where a unit's scratch belongs (#415).** A unit's own throwaway fixtures -- probe repositories,
+fake trees, anything written to answer a question and thrown away -- belong in the scratch directory
+the dispatch mints for it: outside every worktree, exported as `$FACTORY_SCRATCH`, named in the
+tick's prompt beside the tree, deleted when the session ends whatever the session did to it,
+including being killed mid-tick. They do not belong in the unit's own tree, not even in a
+dot-directory: the content verdict cannot tell a half-finished deliverable from a scratch directory,
+and a halt is global. Measured 15-16 Nov in the supervisor's journal: one `.probe/` left in
+`wt/issue-328` wrote 39 `HALTED` lines, the last of them recording a cause already 7h39m old. If
+`mktemp` cannot mint the directory the pass journals `SCRATCH-FAILED` and dispatches without the
+sentence; the rule still stands, it just has no address to give. And when a halt does stand and its
+cause is named as untracked directories, clear them with `git -C <tree> clean -ffd -n` **before**
+`rm factory/HALT`: `git clean -fd` refuses to touch a directory containing a `.git` -- exactly what a
+unit's fixture repositories are -- so over that directory the plain dry run says only
+\`Would skip repository\`, never prints a \`Would remove\` line, and the work stands while the
+resume re-halts on the same bytes (measured on git 2.53.0: plain said one skip line at exit 0;
+\`clean -ffd -n\` said \`Would remove .probe/\`). The halt sentence carries that caveat for the same reason.
+
 **What the supervisor stops for (#341 demand 3).** It writes the marker itself over two shapes, and
 they have one thing in common: the work is nowhere else. A tree whose rescue was **refused** -- git
 would not stash it, or the tree cannot be read back clean afterwards -- journals

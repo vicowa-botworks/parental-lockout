@@ -1287,6 +1287,39 @@ Inventing the ask is the failure this repository has written up more often than 
 	# the review of #250 drove five abandoned ticks through the shipped functions to prove it. The reset
 	# now happens after the session, against the tree's verdict, at `factory_quarantine_after_tick`.
 
+	# #415: the one scratch location this session owns. A unit's own throwaway fixtures -- probe repos,
+	# fake trees, anything written to answer a question and thrown away -- halt EVERY other unit when
+	# they land untracked inside the tree: the content verdict cannot tell a half-finished deliverable
+	# from a scratch directory, and a halt is global by design. Measured 15-16 Nov in the supervisor's
+	# journal: a `.probe/` left in `wt/issue-328` wrote 39 HALTED lines behind a deliverable that was
+	# already approved, the last recording a cause already 7h39m old. So the dispatch mints one
+	# directory OUTSIDE the tree, names it in the
+	# instruction and in `$FACTORY_SCRATCH`, and the teardown below deletes it when the session ends --
+	# whatever the session did to it, including being killed mid-tick.
+	#
+	# Outside the tree rather than a `.scratch/` inside it, on the ground the halt itself rests on: an
+	# in-tree directory stays invisible only while an ignore rule says so, and an untracked fixture
+	# that matters is exactly the case the content verdict refuses to guess about (#228). Out here
+	# there is nothing to ignore and nothing to misread; the halt stays the backstop for a unit that
+	# litters the tree anyway, because this rule reaches the tick through its prompt and is advisory by
+	# construction.
+	local scratch='' scratch_note=''
+	scratch=$(mktemp -d "${TMPDIR:-/tmp}/plock-$(factory_slug "$unit")-XXXXXX" 2>/dev/null) || scratch=''
+	if [ -n "$scratch" ]; then
+		scratch_note="
+
+Scratch directory: $scratch (also in the tick's \`\$FACTORY_SCRATCH\` environment variable). Throwaway fixtures -- probe repos, fake
+trees, anything you write to answer a question and throw away -- go there and nowhere else. An
+untracked directory inside your tree halts every other unit in the queue until a person clears it
+(#415: one unit's \`.probe/\` froze the queue for 7h39m). The supervisor deletes this directory when
+the tick ends; anything meant to survive belongs in a commit, in the tree."
+	else
+		# The rule outlives the mint: with no directory to name, the tick is still not given leave to
+		# litter the tree -- it simply gets no sentence -- and the pass says out loud that it could not
+		# offer one, so a TMPDIR that stopped being writable reads as that and not as silence.
+		log_event "SCRATCH-FAILED $unit mktemp -d under ${TMPDIR:-/tmp} refused; the tick is dispatched with no scratch directory and no sentence naming one"
+	fi
+
 	# `--auto` approves permissions that are not explicitly denied; the deny rules in
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
 	# headless tick cannot stall on an answer nobody is there to give. See the skill for what it is
@@ -1332,6 +1365,7 @@ Inventing the ask is the failure this repository has written up more often than 
 		FACTORY_LOG="$FACTORY_LOG" \
 		FACTORY_TICK_UNIT="$unit" \
 		FACTORY_TICK_BRANCH="$branch" \
+		FACTORY_SCRATCH="$scratch" \
 		OPENCODE_CONFIG_CONTENT="$FACTORY_MCP_FENCE" \
 		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
@@ -1340,8 +1374,17 @@ Inventing the ask is the failure this repository has written up more often than 
 Work only in this directory: $tree (branch \`$branch\`). Follow .opencode/skills/factory/SKILL.md
 exactly: checkpoint before a judgement call, one decision per commit carrying its own \`Decision:\`
 trailer, DECISIONS.md updated in the same commit as what it decides, and stop once the pull request
-is open or updated. Merging belongs to the supervisor and is denied to you." \
+is open or updated. Merging belongs to the supervisor and is denied to you.$scratch_note" \
 		>"$log" 2>&1 || status=$?
+
+	# Teardown (#415): the scratch dies with the tick, on every path out of the session -- delivered,
+	# ceiling-killed, or wedged -- because a killed tick's fixtures are precisely the dirt that halts
+	# the next unit's pass (the 15 Nov instance outlived its own tick by 7h39m). The guard is the
+	# mint's own prefix rather than an emptiness test: `$scratch` is only ever what `mktemp -d`
+	# returned above or the empty string, and a recursive delete should still refuse anything else.
+	case "$scratch" in
+	"${TMPDIR:-/tmp}"/plock-*) rm -rf -- "$scratch" ;;
+	esac
 
 	# The quarantine streak is settled here, after the session has run, because this is the first moment
 	# the question has an answer: did work appear in this tree again? It used to sit three lines below

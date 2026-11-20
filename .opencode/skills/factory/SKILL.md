@@ -606,6 +606,14 @@ catches.
   because the code changed; fix the anchor, and say so in the PR body.
 - Touching `vendor/` or a submodule to get a build green: there is no `vendor/`.
 - Working outside your worktree, or reading another unit's worktree to "help".
+- Scratch inside your own tree. Throwaway fixtures -- probe repositories, fake trees, anything you
+  write to answer a question and throw away -- go in `$FACTORY_SCRATCH`, the directory the supervisor
+  mints outside every worktree, names in your prompt beside the tree, and deletes when your tick
+  ends. Untracked directories inside the tree are what the content verdict cannot tell apart from a
+  half-finished deliverable, and a halt is global: one unit's `.probe/` froze the whole queue for
+  7h39m (#415). If `$FACTORY_SCRATCH` is empty, use `/tmp`, never the tree -- an ignore rule is not
+  a fence, and the verdict that halts exists precisely because the harness will not guess about
+  untracked bytes.
 - A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
   the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
   it, and the entry reads as though it is still re-runnable. Write the text you measured after the
