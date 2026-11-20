@@ -5206,6 +5206,16 @@ factory_worktree_stream() {
 	printf '%s/worktree-stderr.%s\n' "$FACTORY_RUN" "$$"
 }
 
+factory_fetch_stream() {
+	# The conflict arm's fetch stderr (#417): `run_action` carries a command's stderr to the tick
+	# log, which is not where the journal sends a person, and the deferral line promises the reason
+	# is a journal line away. Same one-name-per-stream rule in the same swept directory as the two
+	# siblings in this file, so a pass killed between the write and the delete leaves the sentence
+	# somewhere the sweep at the top of `factory/factory.sh` still looks.
+	factory_paths
+	printf '%s/fetch-stderr.%s\n' "$FACTORY_RUN" "$$"
+}
+
 factory_triage_stream() {
 	# The queue read's stderr, in the same swept directory under the same one-name-per-stream rule
 	# (#311). The supervisor runs `triage.sh` inside a command substitution, so until this helper

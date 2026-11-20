@@ -339,7 +339,7 @@ fi
 # program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
 # what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
 if [ "$DRY_RUN" != "1" ]; then
-	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
+	find "$FACTORY_RUN" -maxdepth 1 \( -name 'worktree-stderr.*' -o -name 'worktree-error.*' -o -name 'triage-stderr.*' -o -name 'fetch-stderr.*' \) -mmin +180 -delete 2>/dev/null || true
 fi
 
 # --------------------------------------------------------------------------- handlers
@@ -992,9 +992,51 @@ factory_resolve_conflict() {
 		log_event "CONFLICT-BLOCKED pr:$pr its base branch could not be read; nothing was merged"
 		return 2
 	fi
-	if ! run_action git -C "$tree" fetch origin "$base"; then
-		return 2
+	# #417: this was the only `return 2` on this path that logged no sentence of its own, so the
+	# `CONFLICT-DEFERRED … the reason is the line above` in the dispatcher cited a bare
+	# `FAILED (128)` line — and git's 128 covers a revoked key, a deleted repository, a full disk
+	# and a TCP timeout, whose remedies are unrelated to each other. Measured 16 Nov: five of
+	# eight conflict units deferred on an SSH burst that way in one activation at 135 s a pop,
+	# while `gh` merged over HTTPS seconds later; the cause (`ssh: connect to host github.com
+	# port 22: Connection timed out`) rode on to the unit log and the journal kept pointing.
+	# Capture the stderr the way the refresh arm captures the activation fetch's, and quote git's
+	# FIRST line: the same burst writes `Please make sure you have the correct access rights` as
+	# its LAST line, so the tail is exactly the sentence that sends an operator hunting a rotated
+	# deploy key. `factory_git_said` is the harness's own first-line/cap helper and `git said:` is
+	# this repository's marker -- git's wording rides on unchanged, which is the bargain
+	# `factory_git_incomplete` already states, not a classification of it.
+	#
+	# The bound is the other half of the ticket: 135 s a unit is what an unbounded `ssh` costs,
+	# and H-0075 already decided that every network call inside a lock-holding pass rides behind
+	# `FACTORY_FETCH_TIMEOUT` -- the refresh arm states the can-it-hurt (a killed fetch returns
+	# 124 at the bound, leaves no `.lock`, costs seconds and nothing else). This fetch was the one
+	# network read on the conflict path that had been missed. `run_action` is gone from this call
+	# on purpose: it answers 1 for every failed command, and this arm must tell the parked
+	# connection (124 from `timeout`) from git's own 128 to write the right sentence -- the rc
+	# this call site sees is now the command's, and the ACTION/FAILED pair is journalled here in
+	# the shape the refresh arm already gives its fetch.
+	local fetch_err fetch_rc=0 fetch_why
+	fetch_err=$(factory_fetch_stream)
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s git -C %s fetch origin %s\n' \
+			"$FACTORY_FETCH_TIMEOUT" "$tree" "$base"
+	else
+		log_event "ACTION timeout --signal=TERM --kill-after=5 $FACTORY_FETCH_TIMEOUT git -C $tree fetch origin $base"
+		timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" git -C "$tree" fetch origin "$base" 2>"$fetch_err" || fetch_rc=$?
+		if [ "$fetch_rc" -ne 0 ]; then
+			log_event "FAILED ($fetch_rc) timeout --signal=TERM --kill-after=5 $FACTORY_FETCH_TIMEOUT git -C $tree fetch origin $base"
+			fetch_why=$(factory_git_said "$fetch_err")
+			if [ -n "$fetch_why" ]; then
+				fetch_why="git said: $fetch_why"
+			elif [ "$fetch_rc" -eq 124 ] || [ "$fetch_rc" -eq 137 ]; then
+				fetch_why="killed at the ${FACTORY_FETCH_TIMEOUT}s fetch bound with nothing written, which is what a parked connection looks like"
+			fi
+			log_event "CONFLICT-BLOCKED pr:$pr the fetch of origin/$base failed${fetch_why:+; $fetch_why} -- nothing was merged, retried next activation"
+			rm -f -- "$fetch_err"
+			return 2
+		fi
 	fi
+	rm -f -- "$fetch_err"
 	if ! git -C "$tree" rev-parse --verify "refs/remotes/origin/$base" >/dev/null 2>&1; then
 		# `git fetch origin <branch>` exits 0 and creates nothing when the clone has a single-branch
 		# refspec or is shallow: the merge would then die `not something we can merge` and be logged
@@ -1935,7 +1977,9 @@ factory_body() {
 			# 2 is `factory_resolve_conflict` declining (nothing to attempt); 6 is
 			# `factory_tree_stop` taking that unit's turn after its second mirrorable quarantine
 			# (#341 demand 3). Both are waits, and neither is a halt: the reason is the line above --
-			# `CONFLICT-RESUME-REFUSED`/`TREE-QUARANTINE-REFUSED` for 2, `UNIT-QUARANTINED` for 6.
+			# `CONFLICT-BLOCKED` for a refused worktree, an unreadable base, a failed fetch (#417)
+			# or a declining arbiter, `CONFLICT-RESUME-REFUSED`/`TREE-QUARANTINE-REFUSED` for 2,
+			# `UNIT-QUARANTINED` for 6.
 			2 | 6) log_event "CONFLICT-DEFERRED pr:$key nothing to attempt this activation; the reason is the line above" ;;
 			*)
 				log_event "CONFLICT-UNKNOWN pr:$key unexpected status $rc_conflict"

@@ -3872,6 +3872,10 @@ proc_rc=0
 # Set by `proc_kill_enable` (#364) and read by `proc_run` as the pass's `BASH_ENV`: a file that SIGKILLs
 # the supervisor at a named sentence. Empty means no trap, which is every fixture but two.
 proc_kill=''
+# #417's transport legs add variables to one pass's environment (the scripted ssh's argv record, and
+# later the connect-timeout knob) without changing what any other proc_run carries: `proc_run`
+# expands this array into its `env` only when a leg has put something in it.
+proc_extra_env=()
 proc_new() {
 	local name=$1
 	proc_repo=$proc_work/$name
@@ -3920,6 +3924,13 @@ proc_run() {
 	# the call rather than set to nothing.
 	local pass_kill=()
 	[ -z "$proc_kill" ] || pass_kill=(BASH_ENV="$proc_kill")
+	# A leg's own variables reach the pass through `env`. They are placed before the shipped list,
+	# so a name the shipped list re-spells below (FACTORY_FETCH_TIMEOUT among them) keeps the
+	# harness's value: a leg that needs to move one of those names uses the knob below it, never
+	# this array -- measured 20 Nov when a transport leg's `FACTORY_FETCH_TIMEOUT=1` lost to the
+	# shipped `=10` and the box killed at 10s while the leg asserted the 1s bound.
+	local pass_env=()
+	[ "${#proc_extra_env[@]}" -eq 0 ] || pass_env=("${proc_extra_env[@]}")
 	# #383's two knobs, and the pass bound, added only when a leg asks: every other proc_run in this
 	# file then keeps the shipped defaults it has always used -- including `FACTORY_TICK_KILL_AFTER`,
 	# whose value belongs to common.sh alone and must not be re-spelled here as a literal. Later env
@@ -3927,7 +3938,8 @@ proc_run() {
 	local pass_knobs=()
 	[ -z "${proc_tick_timeout:-}" ] || pass_knobs+=(FACTORY_TICK_TIMEOUT="$proc_tick_timeout")
 	[ -z "${proc_tick_kill_after:-}" ] || pass_knobs+=(FACTORY_TICK_KILL_AFTER="$proc_tick_kill_after")
-	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" \
+	[ -z "${proc_fetch_timeout:-}" ] || pass_knobs+=(FACTORY_FETCH_TIMEOUT="$proc_fetch_timeout")
+	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" "${pass_env[@]}" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
 		PROC_DIRTY="${proc_dirty:-}" \
@@ -5634,7 +5646,10 @@ mm_leg 'retire both, it reports a lie' 'rc 0, names the decoy, its own copy buri
 
 # Markers in the run directory of the scenario built last -- one name per line, sorted.
 proc_markers() {
-	find "$proc_rundir" -maxdepth 1 -name 'worktree-*' -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+	# #417 widens this past the worktree verdicts: the fetch stream is the same species of thing --
+	# a file in the swept directory whose only cleaners are its own path and the sweep -- and every
+	# `proc_no_markers` leg becomes a non-leak assertion for it for free.
+	find "$proc_rundir" -maxdepth 1 \( -name 'worktree-*' -o -name 'fetch-stderr.*' \) -printf '%f\n' 2>/dev/null | LC_ALL=C sort
 }
 
 # One per line, indented, for a failure message. Through sed rather than an unquoted printf
@@ -5807,14 +5822,17 @@ proc_leg 'and the refusal cleans up' 'the failure arm still deletes the stream, 
 	proc_no_markers 'a tick that was refused its tree'
 
 # Scenario three: the sweep. It exists for a tick killed between the write and the delete, and it has
-# to tell three planted files apart: the retired name past the bound (goes), the new name past the
-# bound (goes), and anything inside the bound (stays, because a live supervisor may be writing it).
+# to tell four planted files apart: the retired name past the bound (goes), the new name past the
+# bound (goes), the fetch stream past the bound (goes -- #417's arm), and anything inside the bound
+# (stays, because a live supervisor may be writing it).
 proc_new marker-sweep
 proc_plant
 : >"$proc_rundir/worktree-error.400001"
 : >"$proc_rundir/worktree-stderr.400002"
 : >"$proc_rundir/worktree-error.400003"
-touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001" "$proc_rundir/worktree-stderr.400002"
+: >"$proc_rundir/fetch-stderr.400004"
+touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001" "$proc_rundir/worktree-stderr.400002" \
+	"$proc_rundir/fetch-stderr.400004"
 proc_run marker-sweep-1
 
 proc_leg 'the sweep takes old names' 'a worktree-error. file past the bound goes, though nothing writes that name now' \
@@ -5825,6 +5843,9 @@ proc_leg 'and it takes the stream' 'a worktree-stderr. file past the bound goes 
 	'a tick killed between the write and the delete leaves exactly this file'
 proc_leg 'and spares what is fresh' 'a marker under the bound survives, because a supervisor may be writing it right now' \
 	proc_marker_present 'the sweep pass' 'worktree-error.400003'
+proc_leg 'and it takes the fetch stream' 'a fetch-stderr. file past the bound goes: #417 armed the sweep with a fourth name, and a leg pins that it fires' \
+	proc_marker_absent 'the sweep pass' 'fetch-stderr.400004' \
+	'a conflict pass killed between the fetch refusal and the delete leaves exactly this file'
 
 # ---------------------------------------------------------------------- the two controls
 #
@@ -5889,6 +5910,28 @@ proc_ctl_legacy_blinded() {
 
 proc_leg 'the retired name is the sweep' 'blinding the -o term leaves the old worktree-error file standing' \
 	proc_ctl_legacy_blinded
+
+# Control three blinds the FETCH term the same way (#417): the sweep leg above is only worth its
+# ok if removing the term it depends on brings the file back.
+proc_new marker-ctl-fetch
+PROC_MUT_LINE='	find "$FACTORY_RUN" -maxdepth 1 \( -name "worktree-stderr.*" -o -name "worktree-error.*" -o -name "triage-stderr.*" \) -mmin +180 -delete 2>/dev/null || true # MUTANT-417' \
+	proc_mutate_last "-o -name 'fetch-stderr.*'" || proc_ctl_fetch_planted=0
+proc_plant
+: >"$proc_rundir/fetch-stderr.400005"
+touch -d '4 hours ago' -- "$proc_rundir/fetch-stderr.400005"
+proc_run marker-ctl-fetch-1
+
+proc_ctl_fetch_blinded() {
+	[ "${proc_ctl_fetch_planted:-1}" != 0 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code: the\n' >&2
+		printf '            file it reports as spared was spared by the sweep it was meant to blind.\n' >&2
+		return 1
+	}
+	proc_marker_present 'the blinded sweep' 'fetch-stderr.400005'
+}
+
+proc_leg 'the fetch term is the sweep' 'blinding it leaves the fetch-stderr file standing, so the sweep leg above reads the term' \
+	proc_ctl_fetch_blinded
 
 # ---------------------------------------------------- queue order ranks the OLDER unit first (#307)
 #
@@ -26604,6 +26647,268 @@ halt415_leg() {
 	expect_halt 'halt sentence names honest dry run' "$tree" HALT 'clean -ffd -n'
 }
 halt415_leg
+
+# --------------------------------------- a deferred conflict unit names its cause (#417)
+#
+# `CONFLICT-DEFERRED … the reason is the line above` promised a reason and delivered a pointer:
+# the fetch arm was the only `return 2` in `factory_resolve_conflict` that logged nothing of its
+# own, so the line it pointed at was `FAILED (128) git -C <tree> fetch origin main` -- and 128 is
+# what git answers for a revoked key, a deleted repository, a full disk and a TCP timeout alike.
+# Measured 16 Nov: five of eight conflict units deferred that way in one SSH burst, 135 s a pop,
+# while `gh` merged over HTTPS seconds later; the cause lived only in the unit log, and git's OWN
+# LAST line there blamed access rights -- the sentence that sends an operator hunting a rotated
+# deploy key.
+#
+# The box reproduces the SHAPE without a network: the clone's origin is an ssh:// URL and
+# `GIT_SSH_COMMAND` points at a scripted ssh that prints the timeout sentence, a decoy sentence,
+# and exits 255. Measured here before scripting: git writes ssh's lines FIRST, appends its
+# access-rights block after, and exits 128 -- the incident's unit-log order exactly, with the
+# scripted sentence in ssh's slot. The clone's branch is built by `factory_worktree` from local
+# refs, so the fetch is the first thing on the pass that touches the transport, which is what
+# #417 measured.
+#
+# The legs assert the harness's OWN marker (`git said:`), the harness's OWN sentence shape, and
+# the FIXTURE's own sentences -- never git's wording, which is upstream text; the rule
+# `factory_git_incomplete` states is that a leg asserts it spoke, not what it said. The two
+# scripted sentences pin the SELECTION: the clause carrying the first and not the second is the
+# arm taking git's first stderr line, which is the difference between naming the burst and
+# blaming the key.
+
+cat >"$proc_bin/fake-ssh" <<'FAKESSH'
+#!/usr/bin/env bash
+# The scripted transport (#417). Only a pass aimed at it through `GIT_SSH_COMMAND` ever runs it,
+# and only the legs below aim a pass at it. The argv record is written even when SSH_REC is unset
+# (to /dev/null) so the script has one shape for every caller.
+printf '%s\n' "$*" >> "${SSH_REC:-/dev/null}"
+hold=${FAKE_SSH_HOLD-0}
+if [ "$hold" != 0 ]; then sleep "$hold"; fi
+printf 'ssh: connect to host github.com port 22: Connection timed out\n' >&2
+printf 'zorg the decoy, never the reason\n' >&2
+exit 255
+FAKESSH
+chmod +x "$proc_bin/fake-ssh"
+
+# The box: PR 900 conflicting, its branch present locally so the tree is built without asking
+# origin for anything, and origin aimed at a URL only the scripted ssh can answer. The queue row
+# arrives through triage's own classification, the way every conflict box in this family does it.
+proc_transport_box() { # <name> -> a conflict pass whose fetch can only fail over ssh
+	local name=$1
+	proc_new "transport-$name"
+	git -C "$proc_repo" branch -q issue-900 origin/main &&
+		git -C "$proc_repo" remote set-url origin "ssh://git@github.invalid/x/y.git" &&
+		printf '{"number":900,"baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}\n' \
+			>"$proc_fix/pr-view-900.json" &&
+		proc_conflict_row
+}
+
+proc_transport_names_cause() { # <journal> <ssh-argv-record> <tick-record>
+	local j=$1 rec=$2 ticks=$3 line
+	# The fixture's precondition first, the way this file does it everywhere: a fetch that never
+	# failed would leave every line below vacuously satisfied over a pass that resolved.
+	[ -s "$rec" ] || {
+		printf '            the scripted ssh was never run, so the fetch never went over the\n' >&2
+		printf '            transport this box is about; the pass resolved or died elsewhere.\n' >&2
+		return 1
+	}
+	# The leading space is the address: this box's planted ssh makes the ACTIVATION refresh fail
+	# too, and `REFRESH-FAILED (128)` carries the bare needle as a substring, earlier in the file.
+	# A probe that takes the first `FAILED (128)` reads the refresh, not the fetch under test.
+	proc_journal_line "$j" ' FAILED (128)' | grep -q 'fetch origin main' || {
+		printf '            no `FAILED (128) … fetch origin main` line: the measured defect is a\n' >&2
+		printf '            128 from git, and this box produced some other pass.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(awk 'index($0, "CONFLICT-BLOCKED pr:900 the fetch of origin/main failed") { print; exit }' "$j")
+	[ -n "$line" ] || {
+		printf '            no CONFLICT-BLOCKED line for the failed fetch -- the deferral is back\n' >&2
+		printf '            to pointing at a bare FAILED line, which is the #417 defect.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	printf '%s\n' "$line" |
+		grep -qF -- '; git said: ssh: connect to host github.com port 22: Connection timed out' || {
+		printf '            the git-said clause does not carry the ssh sentence verbatim:\n' >&2
+		printf '              %s\n' "$line" >&2
+		return 1
+	}
+	printf '%s\n' "$line" | grep -qF -- 'zorg the decoy' && {
+		printf '            the clause carries the SECOND stderr sentence -- taking git last line is\n' >&2
+		printf '            how the incident journalled a transport timeout as an access problem.\n' >&2
+		return 1
+	}
+	# The promise the deferral line makes, pinned literally: `the reason is the line above`, and
+	# the line above IS the sentence that names it.
+	awk '
+		index($0, "CONFLICT-BLOCKED pr:900 the fetch of origin/main failed") && bl == 0 { bl = NR }
+		index($0, "CONFLICT-DEFERRED pr:900") && dl == 0 { dl = NR }
+		END { exit !(bl > 0 && dl == bl + 1) }
+	' "$j" || {
+		printf '            CONFLICT-DEFERRED pr:900 does not sit one line below the sentence that\n' >&2
+		printf '            names the cause, so the line its text promises is not the line it gives.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	# Deferred, not ticked, and not resolved: the arm still declines, it only declines out loud.
+	if [ -n "$(proc_journal_line "$j" 'TICK-START conflict:900')" ] ||
+			[ -n "$(proc_journal_line "$j" 'CONFLICT-RESOLVED pr:900')" ] ||
+			grep -q 'conflict:900' "$ticks" 2>/dev/null; then
+		printf '            a conflict tick was dispatched, or the conflict read as resolved, on\n' >&2
+		printf '            a fetch that failed -- naming the cause must not change the verdict.\n' >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_kill=''
+proc_extra_env=("SSH_REC=$proc_work/transport-ssh-shipped.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh")
+proc_transport_box shipped
+proc_run transport-shipped-1
+proc_leg 'a blocked conflict fetch names the burst it hit' \
+	'git first line on the CONFLICT-BLOCKED line adjacent above CONFLICT-DEFERRED, the decoy absent from it, no tick and no RESOLVED' \
+	proc_transport_names_cause "$proc_journal" "$proc_work/transport-ssh-shipped.txt" "$proc_ticks"
+proc_leg 'and the deferral cleans its stream' 'no stream file survives a pass that read it into its journal line' \
+	proc_no_markers 'a conflict pass whose fetch failed'
+proc_extra_env=()
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+# The control takes the clause out of the shipped line and nothing else: the deferral must stand,
+# so what this control blinds is the naming, not the arm. A leg that stayed green over the mutant
+# would be reading the arm, not the clause.
+proc_ctl_t_planted=1
+proc_transport_box ctl-nocause
+PROC_MUT_LINE='	log_event "CONFLICT-BLOCKED pr:$pr the fetch of origin/$base failed -- nothing was merged, retried next activation"' \
+	proc_mutate_last ' the fetch of origin/$base failed${fetch_why:+; $fetch_why}' || proc_ctl_t_planted=0
+proc_extra_env=("SSH_REC=$proc_work/transport-ssh-ctl.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh")
+proc_run transport-ctl-nocause-1
+proc_extra_env=()
+
+proc_transport_ctl_names() { # <journal> -> the mutant pass deferred AND stayed silent about why
+	local j=$1
+	[ "${proc_ctl_t_planted:-0}" = 1 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code: the\n' >&2
+		printf '            clause it reports missing may be present.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" '; git said:')" ] || {
+		printf '            the blinded pass still carries a git-said clause -- the control did not\n' >&2
+		printf '            reach the line the leg reads.\n' >&2
+		return 1
+	}
+	if ! proc_journal_line "$j" 'CONFLICT-BLOCKED pr:900 the fetch of origin/main failed --' | grep -q .; then
+		printf '            the blinded pass has no CONFLICT-BLOCKED fetch sentence at all -- the\n' >&2
+		printf '            control was supposed to remove a clause, not the line. Journal was:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900' | grep -q .; then
+		printf '            the blinded pass has no CONFLICT-DEFERRED line; journal was:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_leg 'the clause is the naming: blinded, the pass defers without a cause' \
+	'mutant journal keeps CONFLICT-BLOCKED and CONFLICT-DEFERRED but has no git-said clause anywhere' \
+	proc_transport_ctl_names "$proc_journal"
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+# The bound, the ticket's budget half: 135 s a unit is what the unbounded ssh cost. The scripted
+# ssh can now HOLD the connection (`FAKE_SSH_HOLD` seconds) before it fails, and a held fetch is
+# killed mid-park by `FACTORY_FETCH_TIMEOUT` -- delivered through `proc_fetch_timeout`, because
+# the shipped env re-spells that name and an `env` assignment placed before it loses (measured
+# 20 Nov on the first run of this family: the box killed at the shipped 10s bound while the leg
+# asserted the 1s one). Mid-park is a specific silence: `timeout` answers 124, and git had
+# written NOTHING -- measured at /tmp/opencode/pk417, `timeout ... 10 git fetch` over a
+# 5s-parking stub answers rc 124 at 10.0s with an empty stderr, and the ssh record shows TWO
+# invocations: git retries a failed ssh once, so one burst costs 2x the park and every cause
+# git will name arrives only when git itself exits. The sentence must say which of the two
+# silences this is. The control removes the bound from the shipped exec and runs the same park:
+# the deferral survives, the bound sentence does not, and the ssh sentence arrives after both
+# parks -- which is the whole difference #417 was written about.
+proc_transport_killed_at_bound() { # <journal> <ssh-argv-record>
+	local j=$1 rec=$2 line
+	[ -s "$rec" ] || {
+		printf '            the scripted ssh never ran, so nothing was parked and the bound had\n' >&2
+		printf '            nothing to bite.\n' >&2
+		return 1
+	}
+	# Leading space, as in the shipped leg above: the same parked ssh fails the activation's
+	# refresh fetch too, and `REFRESH-FAILED (124)` carries the bare needle earlier in the file.
+	proc_journal_line "$j" ' FAILED (124)' | grep -q 'fetch origin main' || {
+		printf '            no FAILED (124) for the fetch: the park was not killed at the bound.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'CONFLICT-BLOCKED pr:900 the fetch of origin/main failed')
+	[ -n "$line" ] || {
+		printf '            no CONFLICT-BLOCKED line for the killed fetch.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	printf '%s\n' "$line" | grep -qF -- 'killed at the 1s fetch bound with nothing written' || {
+		printf '            the deferral does not name the bound it hit: %s\n' "$line" >&2
+		return 1
+	}
+	printf '%s\n' "$line" | grep -qF -- 'git said:' && {
+		printf '            the killed fetch quotes git, which wrote nothing: %s\n' "$line" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900')" ] || {
+		printf '            the killed fetch did not end in a deferral.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_kill=''
+proc_fetch_timeout=1
+proc_extra_env=("SSH_REC=$proc_work/transport-ssh-slow.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh" "FAKE_SSH_HOLD=5")
+proc_transport_box slow
+proc_run transport-slow-1
+proc_fetch_timeout=''
+proc_leg 'a parked fetch is killed at the bound and says which silence it is' \
+	'FAILED (124), the bound sentence on CONFLICT-BLOCKED with no git quote, and the unit still only defers' \
+	proc_transport_killed_at_bound "$proc_journal" "$proc_work/transport-ssh-slow.txt"
+proc_extra_env=()
+printf '[]\n' >"$proc_fix/pr-open.json"
+
+proc_ctl_nb_planted=1
+proc_transport_box ctl-nobound
+PROC_MUT_LINE='	git -C "$tree" fetch origin "$base" 2>"$fetch_err" || fetch_rc=$?' \
+	proc_mutate_last 'timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" git -C "$tree" fetch origin "$base"' || proc_ctl_nb_planted=0
+# The park here is 4 s, not 1: the mutant removes the bound from the CONFLICT arm only, and the
+# activation's refresh arm keeps the shipped 10 s bound — a 1 s park would kill the refresh and
+# make this box prove the control by accident. 4 s x two ssh invocations still runs past any
+# bound the arm under test could have had.
+proc_extra_env=("SSH_REC=$proc_work/transport-ssh-ctl-nobound.txt" "GIT_SSH_COMMAND=$proc_bin/fake-ssh" "FAKE_SSH_HOLD=4")
+proc_run transport-ctl-nobound-1
+proc_extra_env=()
+
+proc_transport_ctl_nobound() { # <journal> -> the blinded pass parks to the end and never names a bound
+	local j=$1 line
+	[ "${proc_ctl_nb_planted:-0}" = 1 ] || {
+		printf '            the mutant could not be planted, so this control ran the bound code.\n' >&2
+		return 1
+	}
+	[ -z "$(proc_journal_line "$j" 'killed at the')" ] || {
+		printf '            the blinded pass still names a bound it no longer sets.\n' >&2
+		return 1
+	}
+	line=$(proc_journal_line "$j" 'CONFLICT-BLOCKED pr:900 the fetch of origin/main failed')
+	printf '%s\n' "$line" | grep -qF -- 'git said: ssh: connect to host github.com port 22: Connection timed out' || {
+		printf '            the unbounded pass did not end up quoting the late ssh sentence: %s\n' "$line" >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$j" 'CONFLICT-DEFERRED pr:900')" ]
+}
+
+proc_leg 'the bound is the kill: without it the same park just runs long' \
+	'mutant journal has no bound sentence, quotes the late ssh line instead, and still defers' \
+	proc_transport_ctl_nobound "$proc_journal"
+printf '[]\n' >"$proc_fix/pr-open.json"
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

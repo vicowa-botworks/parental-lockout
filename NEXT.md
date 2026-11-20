@@ -1,4 +1,135 @@
-# NEXT — issue-399 conflict tick, round 3 (branch `issue-399`, PR #479: the third base sync is in — `origin/main` moved `ae61064` → `0f343db` (the #481 merge, carrying `H-0325`) and the same two append tails conflicted a third time: thirteen hunks in `factory/DECISIONS.md`, twelve of them one carried sentence holding each parent's digits into its own copy of this file, the thirteenth the tail junction that seats trunk's `H-0325` between this branch's `H-0324` and `H-0326` by ascending id. The hand-off conflicted in a new shape: trunk's round shipped `NEXT.md` as a 49-line overwrite whose `Carried forward` section holds its own copy of the two hazard rows, while this branch's copy is a 3728-line append stack holding its older pair, so the merged file carries both copies and neither parent's digits were inherited — every live pointer into the hand-off was re-aimed at the rows inside trunk's `issue-416` Record, the section that names itself as the anchor for the next rewriter, each destination opened before its digit was written. This file is re-headed by convention: this round on top, trunk's `issue-416` head demoted to `## Record —` in place as the newest parent head, this round-2 head demoted in place atop the branch stack, every body byte-kept, no shared section to fold this round; the pass is `H-0328`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+# NEXT — issue-399 conflict tick, round 4 (branch `issue-399`, PR #479: the fourth base sync is in — `origin/main` moved `0f343db` → `49f7fa1` (the #483 merge, carrying `H-0327`) and the same two append tails conflicted a fourth time: fourteen hunks in `factory/DECISIONS.md`, thirteen of them one carried sentence holding each parent's digits into its own copy of this file, the fourteenth the tail junction that seats trunk's `H-0327` between this branch's `H-0326` and `H-0328` by ascending id. The overwrite shape returned and this time git's alignment destroyed a body silently: trunk's round shipped `NEXT.md` again as a compressed overwrite (49 lines → 53), and its `Carried forward` block is byte-identical to the one inside our demoted `issue-416` Record, so git aligned on that block and the AUTO-MERGED region wrote trunk's new body over the Record's body — `git show f4f9d6d:NEXT.md` lines 64-99, thirty-six lines, absent from every conflict hunk and from the working file at rc 0, no marker. This resolution restores that Record byte-for-byte from this branch's parent, carries trunk's head and body as the demoted `issue-417` Record above it, and re-aims every live pointer at the carried pair inside the `issue-417` Record — the newest Record copy, the section that names itself as the anchor for the next rewriter; each destination opened before its digit was written. This file is re-headed by convention: this round on top, both parents' heads demoted to `## Record —` in place, every body byte-kept; the zero-deletion census here is a multiset containment run on BOTH parents (a per-side diff cannot see a body stolen from the unmarked middle), and it is `H-0330`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## What this round shipped
+
+- `origin/main` merged into `issue-399` as one merge commit, the only shape available here (squash
+  and rebase merge are off, force-push is denied to a tick), so the resolution is proved and never
+  rewritten. The adjudication is `H-0330`, carried by the merge commit itself, checkpoint `f4f9d6d`,
+  the allocator having answered `H-0330` on a `REFRESH 61s union` read before the checkpoint was
+  taken. `H-0329` is not a hole this unit authored: it lands on `refs/remotes/origin/issue-418`.
+- `factory/DECISIONS.md`: the tail junction is a union in ascending id order (`H-0326`, `H-0327`,
+  `H-0328`), and the thirteen digit hunks were adjudicated per citation on the merged tree, not per
+  side; the two `factory/factory.sh` digits inside `H-0313`'s `Effect:` row took the merged bytes'
+  coordinates (the merged file is trunk's for that path — `git diff origin/main -- factory/factory.sh`
+  reads empty — and the cited lines were opened, not arithmeticed).
+- `NEXT.md`: the unmarked loss repaired — the `issue-416` Record body restored byte-identical from
+  this branch's parent, trunk's shipped body kept whole as the demoted `issue-417` Record, the
+  branch stack untouched beneath; re-headed by convention, both parents' heads demoted in place,
+  every body byte-kept. The zero-deletion census, all gate verdicts and the restore proof are
+  quoted in the pull-request body, never here.
+
+## What this push spent
+
+- The `APPROVED` read taken at head `62653fc` is spent by this push — the #269/`H-0010` class, the
+  fourth time on this branch. The row flips `DISMISSED`, `mergeStateStatus` reads `BLOCKED` until a
+  reviewer is asked again, and nobody has been re-asked yet: the ask is the supervisor's
+  `factory_request_review` poke, not this unit's.
+
+## What is still owed (all of it, none silent)
+
+1. Re-review of #479 after this push — the poke owns the ask; see the row above.
+2. The unmarked swallow itself: a compressed trunk overwrite whose tail aligns with a carried
+   section inside our stack lets git's auto-merge retire an appended Record's body at rc 0, and
+   only a both-parents multiset census of the merged file catches it — a per-side conflict walk
+   finds nothing because there is no conflict. The merge-census tool that would make this a leg
+   instead of a hand-run is owed to a harness unit (#428's class houses the append-tail family);
+   this round restored the 36 lines and disclosed the mechanism, it built no tool.
+3. The hazard rows now stand THREE times in this file — trunk's carried pair inside the demoted
+   `issue-417` Record (the live anchor set for the log's citations), the `issue-416` Record's copy
+   the restore put back, and the branch stack's older carried copy deeper below — because the
+   zero-deletion rule forbids retiring any of them and the three copies quote alike. Every future
+   union of a compressed trunk hand-off with an appended branch hand-off doubles them again; the
+   two-word repair of the rows themselves is still owed and would retire the whole class
+   (#428, #440). This round touched none of the copies: the log's citations are the claim, and the
+   rows are read at their heads.
+4. Carried from the `H-0328` Record below, unrenumbered: its items 2–5 (the hazard-repair owed
+   list, the trunk-Record carry rule, the stamped-vs-live digit rule). Its item 1 was paid — the
+   `APPROVED` this push spends was filed against round 3's head.
+5. Carried from trunk's `issue-417` Record below, unrenumbered: all of its owed items — the
+   re-review of the #483 merge, `make verify` inside a live tick failing the fence leg filed as
+   #482, and the post-merge pointer-census re-derivation.
+6. Carried from the `issue-416` Record below, unrenumbered: until that pull's follow-ups land a
+   `MAIN-CHECKOUT-RESTORED` naming `.cortexkit/.gitignore` is #416's churn not a clean verdict;
+   the first post-merge main-checkout sync deleting the untracked marker is expected, not a
+   defect; #346 stays open on its own terms.
+7. Pointer digits inside Record bodies older than this head are stamped, not live — a `NEXT.md`
+   digit outside the log is read by no gate (#375); the live digits are the log's anchored
+   citations, and the shipped gate re-measures those on every run.
+
+## Constraints a stranger would break here
+
+- After ANY merge whose trunk side rewrote this file, run the both-parents multiset census
+  (every line of `git show <parent>:NEXT.md`, digits folded, contained in the merged file) before
+  trusting the auto-merged middle: round 4 lost 36 lines with zero conflict markers, and `H-0330`
+  carries the measurement.
+- Anyone who edits a head here owes `python3 scripts/check-decisions.py --citations NEXT.md` again:
+  the in-log pointers aim at the two carried hazard rows and every head edit moves them. The census
+  is re-run after every head edit and never inherited.
+- Those two hazard fragments each now answer on THREE rows of this file, and the shipped gate
+  accepts a citation whose anchor sits on several rows (#440) — so a re-aim must land on the
+  `issue-417` Record copy (the newest Record copy), not on whichever row the search finds first.
+- Run the suite as CI runs it: `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make
+  verify`, and say so wherever the verdict is quoted. Inside a live tick also carry
+  `env -u OPENCODE_CONFIG_CONTENT` for `factory/selftest.sh` — the #482 leak poisons the fence
+  control otherwise, as trunk's `issue-415` Record already warned.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-417: the conflict fetch defers with git's cause in the journal, behind the fetch bound (branch `issue-417`; the 20 Nov adoption pass ships it — merging belongs to the supervisor, and the one close-verb on this work lives in the pull body)
+
+State this pass read off the live tree before writing a byte (2026-11-20): trunk still `0f343db`
+(#481 merged 06:27Z), `gh pr list --head issue-417` answered `[]`, and every gate re-ran green on
+the shipped bytes — `919 passed, 0 failed` on `env -u OPENCODE_CONFIG_CONTENT
+bash factory/selftest.sh`, plus check-shell, check-denies, check-next-md and check-decisions.
+
+## What this branch ships
+
+- The conflict arm's fetch of `origin/$base` in `factory_resolve_conflict` no longer returns 2
+  behind a silent `FAILED (128)`: it captures stderr to the swept `factory_fetch_stream()`
+  (factory/common.sh), quotes git's FIRST stderr line into its own `CONFLICT-BLOCKED` sentence
+  under the harness's `git said:` marker — the last line of a transport burst is the access-rights
+  decoy — and it runs behind `FACTORY_FETCH_TIMEOUT` like the refresh arm's activation fetch, so
+  a parked connection now answers `killed at the …s fetch bound` instead of costing 135 s a unit.
+  `run_action` is off this call on purpose: it normalizes every failure to 1, and this arm must
+  tell 124 from 128.
+- `H-0327` in factory/DECISIONS.md carries the four options, the three losses and the measured
+  receipts (the 16 Nov SSH burst; the empty-stderr 124 measured over a parking stub, where git
+  retries ssh once, so one burst costs 2x the park); checkpoint a92a8bc.
+- The selftest grew the transport family at its tail (a fast ssh failure, a parked ssh killed at
+  the bound, and blinded controls for the clause, the bound and the sweep term), plus two harness
+  knobs: `proc_extra_env` reaches the pass BEFORE the shipped env — a leg moving a name the
+  shipped list re-spells must use a `proc_*` knob (`proc_fetch_timeout` is the new one), never
+  the array — and journal needles that are substrings of `REFRESH-FAILED` rows must keep their
+  leading space.
+- The 219 `path:line` pointers this round's inserts slid were re-aimed by the checker's own
+  census; `python3 scripts/check-decisions.py` reads rc 0 with the debt unmoved at 583.
+- #417's third proposal is NOT here: port 443 of `ssh.github.com` is a machine `~/.ssh/config`
+  edit, named in H-0327's `Revisit:` for whoever owns that file.
+
+## What is still owed
+
+- The supervisor merges; this pass merged nothing, and no artifact but the pull body carries a
+  closing verb. The reviewer ask is the supervisor's poke, per AGENTS.md.
+- `make verify` inside a live tick fails one fence leg (`and nothing else does`, filed as #482):
+  the tick's own OPENCODE_CONFIG_CONTENT leaks through `proc_run` into the control; until that
+  lands, re-measure with `env -u OPENCODE_CONFIG_CONTENT bash factory/selftest.sh` (H-0327).
+- After this merges, a later branch re-derives the pointer census with
+  `python3 scripts/check-decisions.py --citations` (#389); if the SSH burst recurs, `git said:`
+  quotes git's answer and `killed at the …s fetch bound` names the parked connection.
+
+## Carried forward — verbatim, because the decision log is anchored into these two lines
+
+The close-verb lesson of the inherited ledger stays on the two lines the twelve
+factory/DECISIONS.md rows anchor into this file; the next rewrite of this file re-aims those
+twelve rows exactly as this round did:
+
+- The census row of the `issue-364` hand-off, carried because the rule outlives its round —
+  quoted from it must name its clock. And the row about #425 says "Do not close #425 on this branch's
+- The #425 instance, carried with it: neither proposed cause reproduced on the measuring tree,
+  so the question stays open even though that unit measured a real
+  RED on its own shell. Do not close #425 on this branch's measurement alone.
+
+## Record — issue-399 conflict tick, round 3 (branch `issue-399`, PR #479: the third base sync is in — `origin/main` moved `ae61064` → `0f343db` (the #481 merge, carrying `H-0325`) and the same two append tails conflicted a third time: thirteen hunks in `factory/DECISIONS.md`, twelve of them one carried sentence holding each parent's digits into its own copy of this file, the thirteenth the tail junction that seats trunk's `H-0325` between this branch's `H-0324` and `H-0326` by ascending id. The hand-off conflicted in a new shape: trunk's round shipped `NEXT.md` as a 49-line overwrite whose `Carried forward` section holds its own copy of the two hazard rows, while this branch's copy is a 3728-line append stack holding its older pair, so the merged file carries both copies and neither parent's digits were inherited — every live pointer into the hand-off was re-aimed at the rows inside trunk's `issue-416` Record, the section that names itself as the anchor for the next rewriter, each destination opened before its digit was written. This file is re-headed by convention: this round on top, trunk's `issue-416` head demoted to `## Record —` in place as the newest parent head, this round-2 head demoted in place atop the branch stack, every body byte-kept, no shared section to fold this round; the pass is `H-0328`; the pull Refs #399 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
 
 ## What this round shipped
 
