@@ -880,11 +880,11 @@ than a smarter kill. Three things travel with that:
   renders the shipped generator and asserts the two values are *different* and that start still clears
   the budget (H-0066).
 - The only line in the whole system that recorded this failure is the unit's own substate, and nobody
-  reads it. Whatever watches the loop has to print it:
-  `systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState -p TasksCurrent`,
-  alongside the timer's `TriggerNextElapseUSecRealtime`. A timer that is `active` with no elapse is the
-  least suspicious thing a stalled queue can look like: H-0037 is the same shape -- 3h13m of nothing
-  after a boot, with the timer reporting `active`.
+  reads it: print it via `factory_unit_idle`, or `systemctl --user` explicitly and never bare --
+  scope is not decoration, and asked of the SYSTEM manager this unit reads `inactive`/`dead` at
+  exit 0 while a pass stands `activating` (#423); the guard reads `LoadState` first because
+  `not-found` is not idle. Beside the state read the timer's `TriggerNextElapseUSecRealtime`: a
+  timer `active` with no elapse is the least suspicious thing a stalled queue can look like (H-0037).
 - After an escalated kill the unit ends `failed` -- `Result=exit-code`, from whatever the pass returned
   -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
   after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
@@ -2942,3 +2942,65 @@ permanent subject in this checkout. The untracking travels with the merge: a clo
 clean at sync time has the working-tree file deleted by the sync itself (the tooling rewrites it
 when it wants it, ignored either way), and a clone whose copy is modified at sync time meets one
 modify/delete refusal, which the quarantine arm is built to absorb.
+
+## Is the loop out of the tree? Ask `factory_unit_idle`, which refuses to let the wrong manager answer (#423)
+
+The question this page tells a person to ask before touching shared state -- fast-forward `main`,
+edit `factory/*.sh`, remove a worktree -- is "is a pass running?", and the obvious command can lie
+about it with a straight face. Measured 16 Nov at 11:14:56Z, while a pass stood `activating` with
+`MainPID=3224807` and a live `git fetch` child:
+
+```
+$ systemctl show parental-lockout-factory.service -p ActiveState -p SubState
+ActiveState=inactive
+SubState=dead          # exit 0, while the pass ran
+$ systemctl --user show parental-lockout-factory.service -p LoadState
+LoadState=not-found    # the system manager has never heard of this unit
+$ systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState
+ActiveState=activating
+SubState=start         # the unit's real state, in the manager that owns it
+```
+
+Nothing about the first reply looks like an error: exit 0, two plausible properties, the exact
+pair `inactive`/`dead` that every recipe on this page treats as permission to write. The unit is
+installed in the *user* manager (`FragmentPath=` under `~/.config/systemd/user/`), and a manager
+asked about a unit it has never loaded does not say "I am the wrong manager" through
+`ActiveState` -- it says `inactive`. The separation lives in one other property: `LoadState`, so
+any idle check worth its verdict reads `LoadState` FIRST, and treats `not-found` (or `masked`) as
+the refusal it is: the question "is a pass running" cannot be answered by a manager where the
+unit does not exist.
+
+`factory_unit_idle` [unit] is that refusal made a verb, because three facts make one property
+insufficient. It consults three signals and answers `idle` only when all three agree, on one
+line, verdict first:
+
+1. **the user manager's properties**, keyed (not positional: `systemctl show` answers in its own
+   order, the `live:` readout's own note says why), refusing rather than guessing when
+   `LoadState` is not `loaded` or the unit is `failed`;
+2. **`flock -n` on `$FACTORY_RUN/lock`**, the file the pass holds from before its first read
+   until it exits -- path-shaped, so no manager, right or wrong, can answer for it, and the only
+   signal that sees a hand-started `bash factory/factory.sh` on a box with no unit installed at
+   all. The line names the lock it asked: the lock lives per tree, and a reader standing in a
+   second checkout has to see which lock was asked. (A second tree's hand-run loop is still
+   visible through signal 3, whose match is any `factory/factory.sh` run anywhere.)
+3. **the process table**: a live `/proc/<pid>/cmdline` whose fields contain a
+   `*/factory/factory.sh` path driven by a runner (a shell, or the script execed directly). The
+   window this exists for is the activation that forked but has not reached `flock -n 9` yet --
+   the self-report hoist runs ahead of the lock (H-0191). A process that only *names* the script
+   (`tail -f`, `sed -n 1,5p`) is a reader, not the pass, and is not counted.
+
+The journal is deliberately NOT a fourth signal, and that is the ticket's own finding rather than
+an oversight: #380 measured that an activation refused by the lock exits 7 with a stderr sentence
+and no journal line, so `END rc=` followed by nothing can sit beside an armed queue, and a missing
+`END` can sit beside a pass that only failed to speak. A verdict read from the journal inherits
+both defects; #380's mirror (no journalled record of a refused start) stays open on its own terms.
+
+Exit codes, and what each permits: `0` idle -- every question ran and none saw a pass; `1` busy --
+at least one signal did; `2` unknown -- a question could not be asked (bus unreachable, unit not
+loaded *here*, `flock` or `pgrep` exiting neither-way), and unknown is never 0, the same polarity
+`factory_worktree_busy` keeps: the green light is only for a read that completed. Two honest
+limits. A check is not a lock: the timer can arm a new activation at any instant after an `idle`
+line prints, so a mutation of trunk still owes the claim check (`factory_tree_claim_check`,
+AGENTS.md) and a worktree still owes `factory_worktree_busy`. And the unit-state signal reads the
+user manager of the machine it runs on: an idle answer says nothing about the installed service on
+some other host.
