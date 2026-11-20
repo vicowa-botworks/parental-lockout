@@ -27469,6 +27469,8 @@ proc_rerun_box() { # <name> -> the installed tree planted exactly one fast-forwa
 	printf '[Unit]\nDescription=fixture supervisor\n\n[Service]\nExecStart=%s/factory/factory.sh\n' \
 		"$proc_repo" >"$proc_work/units-$name/proc-rerun-factory.service" || return 1
 	git init -q --bare "$up" &&
+		git -C "$up" config user.email fixture@invalid &&
+		git -C "$up" config user.name fixture &&
 		git -C "$proc_repo" push -q "$up" main &&
 		git -C "$proc_repo" remote set-url origin "$up" || return 1
 	# The trunk moves ahead by a plain descendant commit -- never a rewrite: the arm refuses any

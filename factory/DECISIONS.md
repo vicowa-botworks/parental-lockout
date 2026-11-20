@@ -17227,8 +17227,8 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   leg's failure text. (c) lost on scope: one plant for one claim, not a framework. The exit-code
   correction rides with the legs because the review named it in the same sentence: the
   `factory/factory.sh` RERUN-stop comment now prints the constant, not 8, and the leg H-0333
-  claimed existed finally exists: `factory/selftest.sh:27583` "SUPERVISOR-RERUN stops with no END"
-  pins rc 9, and `factory/selftest.sh:27625` "the RERUN flag is the guard" kills the mutant that
+  claimed existed finally exists: `factory/selftest.sh:27585` "SUPERVISOR-RERUN stops with no END"
+  pins rc 9, and `factory/selftest.sh:27627` "the RERUN flag is the guard" kills the mutant that
   stands that stop's guard down.
 - Effect: `factory/selftest.sh` gains one leg family after the ctl-noreg leg -- two boxes, two
   mutant plants, four `proc_leg` legs on the same proc driver the shipped legs use: the invariant
