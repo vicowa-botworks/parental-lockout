@@ -1,4 +1,49 @@
-# NEXT — issue-418 conflict tick, round 3 for PR #484 (branch `issue-418`: the third base sync of this branch is in — `origin/main` moved `2ec2f91` → `629fb5c` (the #486 merge, carrying `H-0336` and `H-0337`, six commits) and both append tails collided: seventy-eight hunks in `factory/DECISIONS.md`, seventy-four of them one coordinate row holding each parent's digits into its own copy of the file, three of them this branch's repeated-anchor repair holding the sentence with the ambiguous anchor quoted twice against trunk's once, the seventy-eighth the tail junction that seats trunk's `H-0336` and `H-0337` above this branch's `H-0338` by ascending id; `NEXT.md` conflicted again after round 2's clean pass — both parents re-headed while trunk rewrote the shared constraint rows under the one `## Constraints` heading git kept single, so both heads were demoted in place to `## Record —` and each Record keeps its own Constraints section, trunk's stack carried byte-kept beneath. The mechanical union was MEASURED before any side was trusted: each parent's archived tree answers `0` moved pointers, the union answered `186` — 141 landed by the shipped gate's own single refusals and 45 multi-home rows were adjudicated by cited-plus-regional-delta (uniform `+11` in `factory/common.sh`, `+175` in `factory/selftest.sh`, and the `H-0228` entry's own `busy_guard` definition-and-leg pair corroborating the second) intersected with the printed homes; the hazard pair re-seated at the `issue-417` Record copy, the newest Record copy by position, and the file re-headed after, so every in-log pointer was aimed at the bytes that ship. The adjudication is `H-0339`, carried by the merge commit itself; the pull Refs #418 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+# NEXT — issue-421 unit (branch `issue-421`, PR open; the tree-claim repair `H-0340` was already on the branch when this tick was dispatched — `triage` reported it `branch_without_pr` — and this round ships `H-0341` on top: the claim family's prose leaned on an installer `RuntimeMaxSec` that `git grep -c` against `origin/main` and the live unit both refuse to contain, so the sweep's licence is now stated against the two ceilings that exist — the tick's `timeout(1)` kill window and the rendered `TimeoutStartSec` belt — and pinned by four new legs with one-knob controls; five prose sites corrected line-count-neutrally, 65 in-log pointers re-read unmoved, `check-decisions` rc 0 with `POINTER_DEBT` 583 unmoved; merging belongs to the supervisor)
+
+State at push: the repair is 10 commits ahead of `origin/main` — checkpoint `ac4ea69`, decision commit `dd089b8` carrying `Decision: H-0341` — and the pull is the only artifact this round opens.
+
+## What this round shipped
+
+- `factory/DECISIONS.md`: `H-0341` (allocator answered `H-0341` on a `REFRESH 0s union` read,
+  re-read after fetch), `H-0340`'s `Effect:`/`Why:` corrected in place to say the installer claim
+  was wrong rather than silently editing the story; the correction names `H-0341` beside it.
+- `factory/selftest.sh`: four legs and three helpers at `:28558`/`:28581`/`:28607` — slack >=
+  kill-grace, belt >= tick timeout + grace, each with the control that plants exactly one knob
+  (slack 30; a belt rendered `FACTORY_BUDGET - 3600`) and must turn exactly its leg; both
+  predicates read shipped defaults or the rendered unit, never a literal.
+- Prose: the `H-0340` lines above, two comments in the suite's claim family, the `common.sh`
+  death-path header, the `docs/factory.md` claim-section sentence — all line-count-neutral, so no
+  anchored pointer moved; the shipped gate is the proof, not this sentence.
+- `NEXT.md`: this head; the `issue-418` round-3 head demoted in place to `## Record —` with its
+  body byte-identical (its `#484 APPROVED/CLEAN` state read is stale — #484 is the merge that is
+  now `origin/main` `a3681a6`; the Record is kept as written, the staleness is named here).
+
+## What this push spent
+
+- The verify verdict, run under the #482 stripping (`env -u FACTORY_LOG -u FACTORY_TICK_UNIT
+  -u FACTORY_TICK_BRANCH -u OPENCODE_CONFIG_CONTENT`) at `dd089b8`, the last code commit this
+  round ships: `factory/selftest.sh: 945 passed, 0 failed` and `verify: OK`, log last written
+  2026-11-20T17:40:31Z; this `NEXT.md` head was written after that run, outside the suite's scope,
+  and carries its own gate — `bash scripts/check-next-md.sh` rc 0 — quoted with the push.
+- The trunk baseline ran first and is not green either: `932 passed, 1 failed`, the failure the
+  #482 fence leg leaking `OPENCODE_CONFIG_CONTENT` inside a live tick — measured, not assumed,
+  and the reason the shipped run above is quoted with its stripping.
+
+## What is still owed (all of it, none silent)
+
+1. This pull: review and merge are the supervisor's; the ask is the `factory_request_review`
+   poke, not this unit's (AGENTS.md, `H-0010`).
+2. `H-0329`'s title, its question, and the #418 journal-fixture comment still carry the same
+   `RuntimeMaxSec` misnomer for the 16 Nov activation whose own transcribed journal row says
+   `start operation timed out` — that is the start deadline. Those records live on #418's merged
+   ref; `H-0341` names them. Dispatch the rename with the fixture as its subject if it is wanted.
+3. Carried, verbatim where still live, from the Record below: the merge-census leg (#428's
+   append-tail family), the two-word hazard-row repair (#428, #440), the #482 fence leg (red in
+   this tick's own baseline above), and the verify-journal `SUPERVISOR-FF`/`SUPERVISOR-RERUN`
+   watch — all still open; item 4 of the Record's owed list is now #484's merged history only in
+   its `#484` wording, the fence itself is not fixed.
+
+## Record — — issue-418 conflict tick, round 3 for PR #484 (branch `issue-418`: the third base sync of this branch is in — `origin/main` moved `2ec2f91` → `629fb5c` (the #486 merge, carrying `H-0336` and `H-0337`, six commits) and both append tails collided: seventy-eight hunks in `factory/DECISIONS.md`, seventy-four of them one coordinate row holding each parent's digits into its own copy of the file, three of them this branch's repeated-anchor repair holding the sentence with the ambiguous anchor quoted twice against trunk's once, the seventy-eighth the tail junction that seats trunk's `H-0336` and `H-0337` above this branch's `H-0338` by ascending id; `NEXT.md` conflicted again after round 2's clean pass — both parents re-headed while trunk rewrote the shared constraint rows under the one `## Constraints` heading git kept single, so both heads were demoted in place to `## Record —` and each Record keeps its own Constraints section, trunk's stack carried byte-kept beneath. The mechanical union was MEASURED before any side was trusted: each parent's archived tree answers `0` moved pointers, the union answered `186` — 141 landed by the shipped gate's own single refusals and 45 multi-home rows were adjudicated by cited-plus-regional-delta (uniform `+11` in `factory/common.sh`, `+175` in `factory/selftest.sh`, and the `H-0228` entry's own `busy_guard` definition-and-leg pair corroborating the second) intersected with the printed homes; the hazard pair re-seated at the `issue-417` Record copy, the newest Record copy by position, and the file re-headed after, so every in-log pointer was aimed at the bytes that ship. The adjudication is `H-0339`, carried by the merge commit itself; the pull Refs #418 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
 
 ## What this round shipped
 
