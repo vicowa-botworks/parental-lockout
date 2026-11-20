@@ -16392,8 +16392,8 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   origin` left `origin/main` at `64b2813` (the #478 merge, incoming product `D-0091` and harness
   `H-0316`–`H-0319`), this branch 5 ahead and 12 behind, and `git merge-tree --write-tree` named two
   conflicted paths and no third: `factory/DECISIONS.md`, where ours is `H-0315` above `H-0320` and
-  theirs is `H-0316`–`H-0319`, and `factory/selftest.sh`, where ours is the 62-line `#372` leg block
-  and theirs the 188-line pair `H-0317` and `H-0318` ship. Both are append tails at EOF, so the
+  theirs is `H-0316`–`H-0319`, and `factory/selftest.sh`, where ours is the 61-line `#372` leg block
+  and theirs the 187-line pair `H-0317` and `H-0318` ship. Both are append tails at EOF, so the
   content question is already settled — the union keeps every intent — and what is left to decide is
   the order, which decides which side's anchored coordinates survive the merge.
 - Options: (a) `--ours` or `--theirs`, one side whole | (b) union both files with the order free,
@@ -16410,7 +16410,10 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   Seating ours first leaves that block starting on the line it started on at `b01294c8`, so the merge
   moves zero anchored citations in that file: both numbers were re-read in the merged bytes and
   compared to the `HEAD:` blob, and trunk's block is byte-identical to its own parent at `+61`. The
-  mirror order moves those two and buys nothing, because there is nothing of trunk's to pay for —
+  mirror order was measured, not asserted: a script outside the gated tree rebuilt both orders from
+  this head's blob and located the two fragments those rows quote — ours first keeps them on the two
+  lines `H-0315` names, trunk first displaces both by 188 lines (26388 and 26403). So the alternative
+  falsifies two anchored rows and buys nothing, because there is nothing of trunk's to pay for —
   its rows carry no pointer into that tail. `--ours` loses because it deletes trunk's four records and
   both new gate legs; `--theirs` loses because it deletes `H-0315`, which is the entire content of
   #474, and `H-0320`. (d) is not available here: force-push is denied to a tick and rebase merge is
@@ -16430,23 +16433,31 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 - Checkpoint: c59ab05
 - Effect: one merge commit of `origin/main` (`64b2813`, twelve commits) into `issue-372`, carrying
   `Decision: H-0321` in the merge commit itself, over two resolved paths plus this entry and the
-  hand-off. Measured on these bytes before the commit, off the blobs and not off a memory of them:
-  `factory/DECISIONS.md` ships 16385 lines with the junction `H-0315 → H-0316 → H-0317 → H-0318 →
+  hand-off. Every number below is read off the branch head that carries this entry — a forward
+  correction commit follows the merge commit `ccad58d`, so the counts are the shipped ones rather
+  than a measurement taken before an append: `factory/DECISIONS.md` ships 16468 lines with the
+  junction `H-0315 → H-0316 → H-0317 → H-0318 →
   H-0319 → H-0320`, each of the six entries byte-identical to the region in the `HEAD:` or
   `origin/main:` blob it came from; `factory/selftest.sh` ships 26447 lines with ours first and
   trunk's two gate legs opening at `factory/selftest.sh:26242` "# A heading the entry parser cannot read is not refused by this gate", body byte-equal to trunk at `+61`. `python3
-  scripts/check-decisions.py` on the merged tree answers 390 entries, 1270 citations, 583 owing an
+  scripts/check-decisions.py` on the merged tree answers 391 entries, 1275 citations, 583 owing an
   anchor — the debt unmoved by this merge — and 0 refused at rc 0, with trunk's new dangling-id
   census firing as a report (176 citations naming 23 ids) exactly as `H-0318` ships it. `NEXT.md`
   re-headed for this round, 3359 → 3457 lines, round 1's heading demoted to a Record in place, and
   the twenty live pointers into it re-aimed for the `+98`, each destination opened before its digit
   was written and all twenty reported `anchored` by that same gate run:
-  `NEXT.md:2753` "quoted from it must name its clock" and `NEXT.md:2857` "RED on its own shell.". One slip, disclosed because the
-  tree repaired it and not my judgement: the first resolution script split the log with
-  `splitlines()` and no `keepends`, so `factory/DECISIONS.md` came out as six newline-less lines;
-  `git checkout -m -- factory/DECISIONS.md` regenerated the identical conflict — markers read back at
-  16040, 16185, 16388, the same three the merge wrote — and the union was re-run from there, which is
-  why every claim above names a re-read rather than a diff I was glad of.
+  `NEXT.md:2753` "quoted from it must name its clock"; `NEXT.md:2857` "RED on its own shell.".
+  One slip, disclosed because the tree repaired it and not my judgement: the first resolution script
+  split the log with `splitlines()` and no `keepends`, so `factory/DECISIONS.md` came out as six
+  newline-less lines; `git checkout -m -- factory/DECISIONS.md` regenerated the identical conflict —
+  markers read back at 16040, 16185, 16388, the same three the merge wrote — and the union was re-run
+  from there, which is why every claim above names a re-read rather than a diff I was glad of. Two
+  further slips, disclosed because re-measuring caught them and no gate did: the first draft called
+  the two tail blocks 62 and 188 lines where the measured lengths are 61 and 187, and it quoted this
+  log's length, entry count and citation census from a read taken a moment before this entry was
+  appended to it rather than as the merge shipped them. Both are the class this file keeps recording — a figure carried over from an
+  earlier read, true when written and false at the head — and the mirror-order control described
+  under `Why:` is what re-measured the first pair.
 - Follow-up: three, named, none opened silently. One: this entry is written before the gate runs on
   the merged tree, so it claims no `make verify` or selftest tally; the quoted gate line lives in
   this pull's body, where the run can be seen. Two: the standing approval is spent by the push this
