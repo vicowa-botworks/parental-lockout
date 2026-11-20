@@ -16888,8 +16888,9 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   true of the revision they name and were left alone.
 - Effect: one merge commit over two files, `Decision: H-0328` carried in the merge commit itself,
   checkpoint `a77ad82`; the allocator answered `H-0328` on a `REFRESH 23s union` read before the
-  checkpoint, and `H-0327` is not a hole this unit authored — it lives on `refs/remotes/origin/issue-417`,
-  measured with `git ls-remote --refs`, the same class `H-0306` recorded. Additivity, clamped
+  checkpoint, and `H-0327` is not a hole this unit authored — it lives on `refs/remotes/origin/issue-417`
+  (read there on 20 Nov: `git show origin/issue-417:factory/DECISIONS.md` carries its heading at row
+  16691), the same class `H-0306` recorded. Additivity, clamped
   multiset census over non-blank lines against BOTH parent blobs of BOTH files: `NEXT.md` loses ONE
   line per parent — its `# NEXT —` head row, the line the in-place demotion rewrites, and only that
   line; `factory/DECISIONS.md` loses SIXTEEN per parent, and the sixteen are exactly the citation
