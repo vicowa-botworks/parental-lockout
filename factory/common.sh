@@ -166,6 +166,14 @@ FACTORY_BUDGET=${FACTORY_BUDGET:-5400}
 # one activation that finds the lock held and exits 7 -- and the pass continues either way, because
 # a queue that stops running is indistinguishable from a queue with nothing in it.
 FACTORY_FETCH_TIMEOUT=${FACTORY_FETCH_TIMEOUT:-120}
+# H-0332 (#419 repair 1, completion): the bound on the one network WRITE a pass makes -- the mirror
+# push of a conflict git resolved by itself. The census #483 ran over "every harness-owned git call"
+# bounded the scan's fetches and missed this write, which fails in exactly the shape #419 measured:
+# ssh accepts the connection and stops answering, and `git push` holds open indefinitely while the
+# pass holds the queue lock. The default is the fetch's, deliberately: a parked write costs the
+# queue what a parked read costs it, and the pass's worst case becomes fetch + push per conflicted
+# branch -- both journalled as `ACTION` before they start, so a death at either names itself.
+FACTORY_PUSH_TIMEOUT=${FACTORY_PUSH_TIMEOUT:-120}
 
 # Where per-unit worktrees live. Deliberately outside /tmp: six abandoned trees were found in
 # /tmp/opencode on 4 Nov, and a tree that a reboot can delete can also delete unmerged work.
@@ -5214,6 +5222,14 @@ factory_fetch_stream() {
 	# somewhere the sweep at the top of `factory/factory.sh` still looks.
 	factory_paths
 	printf '%s/fetch-stderr.%s\n' "$FACTORY_RUN" "$$"
+}
+
+factory_push_stream() {
+	# H-0332 (#419 repair 1): the conflict arm's push stderr, the twin of `factory_fetch_stream`
+	# for the write that arm also had to stop handing to `run_action`. Same rule, same directory,
+	# same sweep; the name says which command parked.
+	factory_paths
+	printf '%s/push-stderr.%s\n' "$FACTORY_RUN" "$$"
 }
 
 factory_triage_stream() {
