@@ -8500,6 +8500,181 @@ else
 	printf '          Two formats for one fact is how #237'"'"'s four prints stopped meaning anything.\n'
 fi
 
+# ---------------------------------------- one marker, one asking clause, across the `--status` pair (#420)
+#
+# The leg above compares the verdict with the composer, so it can only ever be as true as the argument
+# the verdict hands the composer. #341 parameterised the asking clause precisely so the guard could
+# claim it asked, and left `factory_verdict` calling with no argument: since then every marker the
+# harness itself wrote -- the activation guard always stamps ` :: halt-target: ` -- printed #237's
+# "and not re-probed since" on the `verdict:` line while the `halt:` line under it said "re-probed on
+# every activation without release". Two opposite sentences about one marker inside one `--status` run,
+# measured on this branch's head before the repair with the issue's planted marker:
+#
+#   verdict: HALTED cause recorded 0s ago, and not re-probed since: tree dirty at activation: ...
+#   halt:    YES -- cause recorded 0s ago, re-probed on every activation without release: tree dirty ...
+#
+# The legs #341 shipped pinned the guarded `halt:` line and the hand-written shape, never the pair, so
+# the contradiction stood on the one reader a person actually types. The pair legs below run the shipped
+# `factory.sh --status` as a PROCESS: the in-process comparison above cannot see a drift at a print
+# site, and #420's drift WAS a print site -- the composer never lied. Both marker shapes are asked:
+# a guarded one must agree on the guarded clause, and the hand-written null variant must still agree on
+# #237's default -- an over-eager test that flipped the hand-written pair too is the same defect with
+# the sign flipped. The control plants the pre-#420 call (verdict back to zero-argument) in a copy
+# OUTSIDE the repository and refuses the leg if the copied shape no longer disagrees.
+q_pair_dir=$work/halt-pair
+mkdir -p "$q_pair_dir/stub" "$q_pair_dir/units"
+# A box with no user manager: `journalctl` and `systemctl` fail fast and the `reaping:` line degrades
+# visibly. The leg asks the box, never the host.
+printf '#!/bin/sh\nexit 1\n' >"$q_pair_dir/stub/journalctl"
+printf '#!/bin/sh\nexit 1\n' >"$q_pair_dir/stub/systemctl"
+chmod +x "$q_pair_dir/stub/journalctl" "$q_pair_dir/stub/systemctl"
+# The two marker shapes. The guarded one carries the machine target exactly as `factory_tree_halt`
+# stamps it; the hand-written one is a person's sentence and nothing else.
+q_pair_guarded='tree dirty at activation: kept for the person :: halt-target: unit=unclaimed:900|cause=quarantined|mirror=/nonexistent/mirror|tree=/nonexistent/tree'
+q_pair_hand='tree dirty at activation: kept for the person'
+
+q_pair_lines() { # <factory.sh to run> --status over the marker planted at $FACTORY_HALT -> the two lines
+	PATH="$q_pair_dir/stub:$PATH" \
+		FACTORY_DIR=$q_pair_dir FACTORY_LOG=$q_pair_dir/log \
+		FACTORY_LEDGER=$q_pair_dir/ledger FACTORY_RUN=$q_pair_dir/run \
+		FACTORY_HALT="$FACTORY_HALT" FACTORY_UNITS_DIR=$q_pair_dir/units \
+		FACTORY_REPO=example/repo FACTORY_HARNESS=$repo FACTORY_ROOT=$repo \
+		timeout 60 bash "$1" --status 2>"$q_pair_dir/err" \
+		| grep -E '^(verdict:|halt:)' || true
+}
+
+q_pair_plant() { # guarded|hand -> that marker, aged 5m so the age phrase is stable
+	case "$1" in
+	guarded) printf '%s\n' "$q_pair_guarded" >"$FACTORY_HALT" ;;
+	*) printf '%s\n' "$q_pair_hand" >"$FACTORY_HALT" ;;
+	esac
+	touch -d '-5 minutes' "$FACTORY_HALT"
+}
+
+q_pair_asked() { # <verdict|halt> <line> -> that line's asking clause between the age phrase and the reason
+	case "$1" in
+	verdict) printf '%s\n' "$2" | sed -n 's/^verdict: HALTED //; s/^cause recorded .* ago, //; s/: .*$//p' ;;
+	*) printf '%s\n' "$2" | sed -n 's/^halt:    *YES -- //; s/^cause recorded .* ago, //; s/: .*$//p' ;;
+	esac
+}
+
+q_pair_clauses() { # guarded|hand <factory.sh> -> `<verdict-clause>NL<halt-clause>`
+	local out
+	q_pair_plant "$1"
+	out=$(q_pair_lines "$2")
+	if [ -z "$out" ]; then
+		printf 'the spawned --status printed neither line; stderr said:\n' >&2
+		sed -n 's/^/            /p' "$q_pair_dir/err" | head -5 >&2
+		return 1
+	fi
+	printf '%s\n%s\n' \
+		"$(q_pair_asked verdict "$(printf '%s\n' "$out" | sed -n '1p')")" \
+		"$(q_pair_asked halt "$(printf '%s\n' "$out" | sed -n '2p')")"
+}
+
+q_pair_agrees() { # <label> guarded|hand <want-clause> [script] -> 0 when both lines carry that clause
+	local label=$1 shape=$2 want=$3 script=${4:-$HERE/factory.sh}
+	local got v h
+	if ! got=$(q_pair_clauses "$shape" "$script"); then
+		printf '            the --status spawn failed; see the %s lines above.\n' "$label" >&2
+		return 1
+	fi
+	v=$(printf '%s\n' "$got" | sed -n '1p')
+	h=$(printf '%s\n' "$got" | sed -n '2p')
+	if [ "$v" = "$want" ] && [ "$h" = "$want" ]; then
+		return 0
+	fi
+	printf '            the two lines of one --status run did not both carry the clause:\n' >&2
+	printf '              want:  %s\n' "$want" >&2
+	printf '              said:  %s\n' "$v" >&2
+	printf '              said:  %s\n' "$h" >&2
+	printf '          One marker speaks one asking clause; #420 is the pair disagreeing in one run.\n' >&2
+	return 1
+}
+
+q_pair_guarded_agrees() {
+	q_pair_agrees 'guarded marker' guarded 're-probed on every activation without release' || return 1
+	# And neither half may still carry the opposite sentence anywhere in the line.
+	q_pair_plant guarded
+	if q_pair_lines "$HERE/factory.sh" | grep -q 'not re-probed since'; then
+		printf '            a --status line still carries `and not re-probed since` under a\n' >&2
+		printf '            marker the harness stamped -- the guard re-asks that marker every pass.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_guarded_agrees; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s both lines claim the re-probe the marker earns\n' "halt pair: guarded marker"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the verdict: and halt: lines disagree about one guarded marker\n' "halt pair: guarded marker"
+fi
+
+q_pair_hand_agrees() {
+	q_pair_agrees 'hand-written marker' hand 'and not re-probed since' || return 1
+	q_pair_plant hand
+	if q_pair_lines "$HERE/factory.sh" | grep -E -q 're-probed (on every activation|this pass)'; then
+		printf '            a --status line claims a re-probe of a marker with no target to ask;\n' >&2
+		printf '            #237'"'"'s clause is the only true one for a hand-written halt.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_hand_agrees; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s both lines keep #237'"'"'s clause for a stampless marker\n' "halt pair: hand-written"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the pair drifted on the marker nobody stamps\n' "halt pair: hand-written"
+fi
+
+# The control: the pre-#420 call, planted in a copy OUTSIDE the repository. Without it these legs could
+# be passing on a pair that never disagreed -- so the mutated copy MUST produce two different clauses
+# on the guarded marker, and an unmutated copy of the same two files must not, which keeps the failure
+# attributable to the one mutated line rather than to the copying or the spawn.
+q_pair_control() {
+	local root=$q_pair_dir/ctrl mut
+	mkdir -p "$root/factory" "$root/mut/factory" || return 1
+	cp -- "$HERE/factory.sh" "$HERE/common.sh" "$root/factory/" || return 1
+	cp -R -- "$root/factory/." "$root/mut/factory/" || return 1
+	if [ "$(grep -c 'halt_asking=guarded' "$root/mut/factory/common.sh")" != 1 ]; then
+		printf '            the mutant anchor `halt_asking=guarded` does not occur exactly once in\n' >&2
+		printf '            factory/common.sh, so it would not be planted where it is described.\n' >&2
+		return 1
+	fi
+	sed -i 's/halt_asking=guarded/halt_asking=/' "$root/mut/factory/common.sh" || return 1
+	# The mutation must be in the copy AND the shipped shape gone: an anchor that never applied is a
+	# control that ran shipped code and proved nothing.
+	if ! grep -q 'halt_asking=guarded' "$root/factory/common.sh" \
+		|| grep -q 'halt_asking=guarded' "$root/mut/factory/common.sh"; then
+		printf '            the mutant line is not planted exactly on the verdict'"'"'s guard,\n' >&2
+		printf '            so the control would have run shipped code.\n' >&2
+		return 1
+	fi
+	mut=$(q_pair_clauses guarded "$root/mut/factory/factory.sh") || return 1
+	if [ "$(printf '%s\n' "$mut" | sed -n '1p')" = "$(printf '%s\n' "$mut" | sed -n '2p')" ]; then
+		printf '            control failed: the copy with the zero-argument verdict still printed\n' >&2
+		printf '            one clause, so the legs above cannot see #420'"'"'s shape.\n' >&2
+		return 1
+	fi
+	if ! q_pair_agrees 'control-copy' guarded 're-probed on every activation without release' \
+		"$root/factory/factory.sh"; then
+		printf '            control failed: the UNMUTATED copy disagreed, so the disagreement\n' >&2
+		printf '            the leg just saw belongs to the copy, not to the mutated line.\n' >&2
+		return 1
+	fi
+	return 0
+}
+if q_pair_control; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s the pre-#420 call disagrees with itself, the copy does not\n' "control: halt pair leg"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s the pair legs cannot see the shape they were written for\n' "control: halt pair leg"
+fi
+rm -f -- "$FACTORY_HALT"
+
 ageless_halt_prints() { # dir -> shipped lines under factory/ that print the sentence with no age
 	if [ ! -d "$1/factory" ]; then
 		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"

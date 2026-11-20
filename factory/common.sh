@@ -661,13 +661,17 @@ factory_timer_state() {
 # marker -- `factory_verdict`, `factory.sh --status`, and the journal's `HALTED` line -- print this
 # one. `factory/selftest.sh` refuses a shipped script that prints the stored sentence without it.
 	# SC2120/SC2119: the argument is passed at call sites shellcheck cannot see from this file --
-	# factory.sh's guard passes `probed`/`guarded`; every call HERE means the default clause.
+	# factory.sh's guard passes `probed`/`guarded`; the report-only readers pass the marker test's
+	# answer, which is the empty string -- and an empty argument is the default clause.
 	# shellcheck disable=SC2120
 factory_halt_report() { # [probed|guarded] -> 'cause recorded <age> ago, <asking>: <sentence>'
 	# The asking clause is a parameter because the guard now asks (#341): the same line used to
 	# promise "not re-probed since" unconditionally, and after the re-probe shipped, that promise
-	# would have been false on every guarded pass. `--status` and `factory_verdict` take no argument
-	# -- they report without asking -- so only the guard's line may claim it asked.
+	# would have been false on every guarded pass. No reader here re-probes: what the clause claims
+	# comes from the marker's own machine target -- the zero-write `factory_halt_target` test the
+	# `halt:` line applies, and the `verdict:` line applies identically since #420, so one marker
+	# speaks one asking clause through every reader of it. Only the guard's line may claim it asked
+	# THIS pass (`probed`).
 	local reason mtime now asked
 	asked='and not re-probed since'
 	case "${1:-}" in
@@ -1070,11 +1074,18 @@ EOF
 # It reads local state only -- a marker, a journal, one ledger line, one systemctl query -- because
 # the times it matters most are the times GitHub may not be reachable either.
 factory_verdict() {
-	local tick pass stale reason
+	local tick pass stale reason halt_asking
 	if factory_halted; then
-		# Zero-argument is the verdict's clause: it reports, never probes.
-		# shellcheck disable=SC2119
-		printf 'HALTED %s\n' "$(factory_halt_report)"
+		# The verdict never probes: like `--status`'s `halt:` line it chooses the asking clause from
+		# the marker itself, and the test is zero-write. A marker carrying a machine target is
+		# re-asked by the activation guard every pass (#341), so the default "and not re-probed
+		# since" would promise the opposite of what the harness does to it -- measured on #420: one
+		# `--status` on such a marker printed `not re-probed since` on the `verdict:` line and
+		# `re-probed on every activation without release` on the `halt:` line. A marker nobody
+		# stamped keeps the default: only the hand that wrote it may clear it, and nobody re-asked.
+		halt_asking=''
+		factory_halt_target >/dev/null 2>&1 && halt_asking=guarded
+		printf 'HALTED %s\n' "$(factory_halt_report "$halt_asking")"
 		return 0
 	fi
 	tick=$(factory_journal_age 'TICK-START ')
