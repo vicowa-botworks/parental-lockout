@@ -37,8 +37,8 @@
   anchor was the bare `baseline=tick-start` assignment, whose dash shellcheck reads as subtraction:
   the `if` wrapper does NOT dodge it (0.10.0, re-measured), the quoted value does. The snapshot
   guard is `[ -s "$snap" ]` now, not `-r`: an empty inventory is a failed read and belongs to the
-  verdict-less `none`, never to `tick-start`. Verdicts are quoted on the pull request, never here
-  (#1180).
+  verdict-less `none`, never to `tick-start`. Verdicts are quoted on the pull request, never here (#1180):
+  round-2 head `a918aaa2f45476671b0abbbf256c7c7dee0b65f8` pushed 20 Nov, read back as #493's `headRefOid`.
 
 ## What is still owed (unmeasured, outstanding)
 
