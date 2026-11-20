@@ -154,6 +154,15 @@ FACTORY_TICK_TIMEOUT=${FACTORY_TICK_TIMEOUT:-2700}
 # operator could not name it; a leg that shortens the ceiling (proc_run's FACTORY_TICK_TIMEOUT
 # pattern) must be able to shorten the grace with it, or the escalation leg waits a real minute.
 FACTORY_TICK_KILL_AFTER=${FACTORY_TICK_KILL_AFTER:-60}
+# H-0340 (#421): the slack a tree claim's deadline puts past its own ceiling. The claim is the
+# activation's signed statement "a writer is in this tree", and `deadline=` is when the statement
+# stops being evidence: minted as now + FACTORY_TICK_TIMEOUT + this slack, so at every moment the
+# session can still be running the file is still held, and only after the ceiling AND the grace
+# could a file be standing there with no writer behind it. The slack exists for the clock skew
+# between "mint read the time" and "reader reads the time"; a reader that found the deadline
+# passed deletes the file (the sweep inside `factory_claim_held`), which is safe exactly because
+# the mint bounded the writer's life.
+FACTORY_CLAIM_SLACK=${FACTORY_CLAIM_SLACK:-60}
 FACTORY_MAX_TICKS=${FACTORY_MAX_TICKS:-3}
 # Supervisor wall-clock budget for one invocation, so a systemd `oneshot` cannot overlap the
 # next activation of its own timer.
@@ -1813,6 +1822,239 @@ factory_worktree_busy() { # path -> 0 busy(unit stamp) | 1 free | 2 cannot answe
 	fi
 	[ -n "$out" ] || return 1
 	printf '%s\n' "$out"
+	return 0
+}
+
+# ------------------------------------------------------ the tree claim: who holds this tree RIGHT NOW
+#
+# #361's guard reads the journal, and the journal answers the retrospective question -- "did a
+# dispatch claim this tree and never release it" -- correctly forever after the fact. It cannot
+# answer the instant's question for a supervisor about to touch a tree, because the line that
+# would answer it (`TICK-START`) is written BY that same activation a breath later, and a second
+# writer does not consult the first one's intentions. #421 measured what that costs: a second
+# unit was dispatched into `wt/issue-341` 2m16s before a session began a merge in the same
+# resolution, and 8m05s passed with two writers on one index -- the second half of the #361 pair,
+# where the journal was true the whole time and nobody was reading it at the one moment it
+# mattered (#364 is the first half: the claim taken at the wrong time, not the guard read at the
+# wrong time).
+#
+# So the activation takes a claim that is not a journal line: a file under `$FACTORY_RUN/claim/`,
+# minted AFTER `factory_tree_stop` and BEFORE the first write -- `TICK-START` for a tick, the
+# `git merge` for the inline conflict arm -- and released when the activation's last touch of the
+# tree ends. Every later arrival asks the file, not its own memory: `factory_tree_claim_check`
+# refuses a tick before its `TICK-START` and refuses the inline merge before its `git merge`, in
+# words, journalled (`TREE-HELD`). That ordering is the whole mechanism -- the guard at 15:31:50
+# sees what the 15:31:50 dispatch is doing, because the 15:29:34 dispatch wrote it down at
+# 15:29:34.
+#
+# The file is evidence with an expiry, not a lock. `deadline=` is the minting activation's own
+# promise about when it can no longer be working here (its ceiling plus grace, `FACTORY_CLAIM_SLACK`),
+# so a reader that finds the deadline passed may delete the file and proceed: that is safe exactly
+# because the writer bounded its own life, which a lockfile without a deadline could never let
+# anyone do. A claim is keyed by the realpath of the tree inside the file (the filename is a
+# readable tail of the same path plus a `cksum`, decoration for `ls`); matching reads the `tree=`
+# field, so a hand-minted claim at any filename in the directory is honoured by the same read.
+#
+# There is deliberately NO self-exclusion: a claim held by the same unit that is asking is refused
+# like any other. A pass killed at its ceilings never reaches its release line, and the
+# only party that could prove that activation's session is also dead is the cgroup, which a shell
+# here cannot ask; the delay that costs is one retry past the deadline, the collision that would
+# cost is 8m05s of two writers corrupting one index. Fail toward held, the same direction #879
+# and `factory_worktree_busy` take on their questions.
+#
+# usage: factory_claim_norm TREE            -> 0 realpath | 1 empty path
+# usage: factory_claim_file TREE            -> 0 the claim path for this tree | 1 empty path
+# usage: factory_claim_write UNIT TREE      -> 0 the minted path on stdout (journals TREE-CLAIM)
+#                                              1 could not mint; nothing journalled, caller says
+# usage: factory_claim_held TREE [NOW]      -> stdout + exit, the probe:
+#          0 held   -- one line `<unit> <pid> <deadline> <dispatched>` of the newest live claim
+#          1 free   -- no claim file for this tree (missing or empty directory reads free, the
+#                      way `factory_worktree_busy` lets a journal that does not exist read free:
+#                      no supervisor has ever claimed anything here)
+#          2 unknown-- the directory or a file that could match is unreadable, or a file whose
+#                      fields cannot be parsed. NOT free; the corrupt file is tampering or fs rot
+#                      behind an atomic rename, and the refusing line names it.
+#          3 expired-- only expired claims matched; each was deleted (unless DRY_RUN) and the
+#                      stdout names the first one `<unit> <dispatched> <deadline>`.
+# usage: factory_tree_claim_check UNIT TREE -> 0 proceed (free, or expired and swept, both
+#                                              journalled here), 1 refuse (TREE-HELD journalled)
+# usage: factory_claim_release PATH UNIT    -> 0 always; removes the file when it names this
+#                                              unit and this pid, and journalls
+#                                              `TREE-CLAIM-FOREIGN` when it does not -- a release
+#                                              discovering someone else's claim is itself the
+#                                              double-dispatch evidence #421 asked to see in words
+# usage: factory_claim_release_active       -> releases whatever this process minted (globals
+#                                              below) and clears them; the dispatcher's one site
+factory_claim_dir() { printf '%s/claim\n' "${FACTORY_RUN%/}"; }
+
+factory_claim_norm() {
+	local p=${1%/}
+	[ -n "$p" ] || return 1
+	realpath -m -- "$p" 2>/dev/null
+}
+
+factory_claim_file() {
+	local norm
+	norm=$(factory_claim_norm "${1:-}") || return 1
+	printf '%s/%s.%s.claim\n' "$(factory_claim_dir)" \
+		"$(printf '%s' "$norm" | tr -c 'A-Za-z0-9._' '-' | sed 's/^-//')" \
+		"$(printf '%s' "$norm" | cksum | cut -d' ' -f1)"
+}
+
+factory_claim_write() {
+	local unit=$1 tree=$2 norm f tmp now deadline
+	norm=$(factory_claim_norm "$tree") || return 1
+	f=$(factory_claim_file "$tree") || return 1
+	now=$(date +%s) || return 1
+	deadline=$((now + FACTORY_TICK_TIMEOUT + FACTORY_CLAIM_SLACK))
+	mkdir -p -- "$(factory_claim_dir)" 2>/dev/null || return 1
+	tmp=$(mktemp "$(factory_claim_dir)/.mint.XXXXXX" 2>/dev/null) || return 1
+	if ! {
+		printf 'unit=%s\n' "$unit"
+		printf 'tree=%s\n' "$norm"
+		printf 'dispatched=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		printf 'pid=%s\n' "$$"
+		printf 'deadline=%s\n' "$deadline"
+	} >"$tmp" 2>/dev/null; then
+		rm -f -- "$tmp"
+		return 1
+	fi
+	# `ln`, not `mv`: a hard link refuses an existing target atomically, so a mint can never
+	# clobber a claim another writer put down between this pass's check and its write. The check
+	# above makes that a race the supervisor lock already serialises; this line means losing it
+	# costs a failed mint (the caller's TREE-CLAIM-FAILED arm) instead of someone else's evidence.
+	if ! ln -- "$tmp" "$f" 2>/dev/null; then
+		rm -f -- "$tmp"
+		return 1
+	fi
+	rm -f -- "$tmp"
+	# `log_event` echoes to stdout as well as the journal, and this function answers with a
+	# path on stdout -- the echo must not ride into the caller's capture.
+	log_event "TREE-CLAIM $unit $tree file=$f pid=$$ deadline=$deadline" >/dev/null
+	printf '%s\n' "$f"
+	return 0
+}
+
+# The awk pulls the five fields by exact prefix, so a value may itself carry `=`; a file with a
+# missing field prints empty ones and the parser below refuses it. Tab-joined so a path with
+# spaces survives one `read`.
+factory_claim_held() {
+	local dir now tn f parsed u pi d s ft hit_held='' hit_expired='' bad=0
+	dir=$(factory_claim_dir)
+	# Absence reads free: nothing has ever been claimed here. But a NON-directory where the claim
+	# directory belongs is shape tampering, not absence -- the busy family's unreadable-journal
+	# leg learned that shape judgements must hold for root as much as for uid 1000, because root
+	# walks past a chmod.
+	[ -d "$dir" ] || { [ -e "$dir" ] && return 2; return 1; }
+	[ -r "$dir" ] || return 2
+	tn=$(factory_claim_norm "${1:-}") || return 2
+	now=${2:-$(date +%s)}
+	for f in "$dir"/*.claim; do
+		[ -e "$f" ] || continue # an empty glob hands the pattern back whole
+		# A non-regular or unreadable member is `unknown` rather than skipped: it may be the
+		# matching claim, and a guard whose read failed must not answer free (#232's thesis).
+		{ [ -f "$f" ] && [ -r "$f" ]; } || { bad=1; continue; }
+		parsed=$(awk '
+			/^unit=/ { u = substr($0, 6) }
+			/^tree=/ { t = substr($0, 6) }
+			/^dispatched=/ { s = substr($0, 12) }
+			/^pid=/ { p = substr($0, 5) }
+			/^deadline=/ { d = substr($0, 10) }
+			END { printf "%s\t%s\t%s\t%s\t%s", u, p, d, s, t }
+		' "$f" 2>/dev/null) || { bad=1; continue; }
+		IFS=$'\t' read -r u pi d s ft <<EOF
+$parsed
+EOF
+		# Judge the identity BEFORE matching it: a file whose tree cannot be read could BE the
+		# matching claim, and answering free about it is the forbidden direction. A file whose
+		# tree reads cleanly and differs is simply another tree's claim, however odd its other
+		# fields. Matching widens the way `factory_worktree_busy` widens: a stale or oddly-shaped
+		# spelling that realpathes to the asked tree still holds it.
+		[ -n "$ft" ] || { bad=1; continue; }
+		if [ "${ft%/}" != "$tn" ] &&
+			[ "$(realpath -m -- "${ft%/}" 2>/dev/null)" != "$tn" ]; then
+			continue
+		fi
+		case $d in '' | [!0-9]* | *[!0-9]*) bad=1; continue ;; esac
+		[ -n "$u" ] || { bad=1; continue; }
+		if [ "$now" -ge "$d" ]; then
+			hit_expired="${hit_expired:+$hit_expired
+}$u $s $d $f"
+			continue
+		fi
+		hit_held="$u $pi $d $s"
+	done
+	if [ -n "$hit_held" ]; then
+		printf '%s\n' "$hit_held"
+		return 0
+	fi
+	if [ -n "$hit_expired" ]; then
+		# Sweeping is the expiry's other half: the deadline is proof nobody may still be
+		# working here, so the file has stopped being evidence and the next writer's check must
+		# not meet it again. A dry run reads and reports; it does not delete.
+		while IFS= read -r f; do
+			[ -n "$f" ] || continue
+			[ "${DRY_RUN:-0}" = 1 ] || rm -f -- "${f##* }"
+		done <<EOF
+$hit_expired
+EOF
+		printf '%s\n' "${hit_expired%%$'\n'*}" | cut -d' ' -f1-3
+		return 3
+	fi
+	[ "$bad" = 1 ] && return 2
+	return 1
+}
+
+factory_tree_claim_check() {
+	local out='' rc=0
+	out=$(factory_claim_held "$2") || rc=$?
+	case $rc in
+	0)
+		log_event "TREE-HELD $1 $2 held-by=$out -- a live claim holds this tree; nothing was touched"
+		return 1
+		;;
+	2)
+		log_event "TREE-HELD $1 $2 cause=claim-unreadable dir=$(factory_claim_dir) -- a claim this tree may carry could not be read; not free"
+		return 1
+		;;
+	3)
+		log_event "TREE-CLAIM-EXPIRED $1 $2 stale-unit=$out -- the deadline had passed; swept, the dispatch proceeds"
+		return 0
+		;;
+	*) return 0 ;;
+	esac
+}
+
+FACTORY_CLAIM_ACTIVE=''
+FACTORY_CLAIM_ACTIVE_UNIT=''
+
+factory_claim_release() {
+	local f=$1 unit=$2 parsed u pi
+	[ -n "$f" ] && [ -f "$f" ] || return 0
+	parsed=$(awk '
+		/^unit=/ { u = substr($0, 6) }
+		/^pid=/ { p = substr($0, 5) }
+		END { printf "%s\t%s", u, p }
+	' "$f" 2>/dev/null) || return 0
+	IFS=$'\t' read -r u pi <<EOF
+$parsed
+EOF
+	if [ "$u" = "$unit" ] && [ "$pi" = "$$" ]; then
+		rm -f -- "$f"
+		return 0
+	fi
+	# Our activation is done with the tree and this file is not ours. Whoever wrote it is still
+	# claiming the tree -- the exact state #421 was filed to see named. Leave it; the deadline
+	# and the sweep own it now.
+	log_event "TREE-CLAIM-FOREIGN $unit file=$f held-by=${u:-unreadable} pid=${pi:-unreadable} -- this dispatch released, but the file is not its claim; left in place"
+	return 0
+}
+
+factory_claim_release_active() {
+	[ -n "$FACTORY_CLAIM_ACTIVE" ] || return 0
+	factory_claim_release "$FACTORY_CLAIM_ACTIVE" "$FACTORY_CLAIM_ACTIVE_UNIT"
+	FACTORY_CLAIM_ACTIVE=''
+	FACTORY_CLAIM_ACTIVE_UNIT=''
 	return 0
 }
 

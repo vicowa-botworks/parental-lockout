@@ -94,3 +94,15 @@ journals `WORKTREE-ORPHAN <path> head=<sha> reason=…` for each tree that is pr
 ancestor of `origin/main`, content verdict clean, and not a tree an existing branch owns under
 `$FACTORY_TREES` — and prunes only rows git itself marks prunable. What the census reports it does
 not remove: a tree off the convention may be a person's working directory (#348, H-0200).
+
+The journal answers after the fact; #421 measured the instant it cannot see — 16 Nov, a second unit
+dispatched into `wt/issue-341` 2m16s before a session started a merge in the same resolution, 8m05s
+of two writers on one index. The instant guard is a claim file under `$FACTORY_RUN/claim/`: before
+ANY writer — session, person, or tool — writes into a harness tree (merge, resolve, edit), source
+`factory/common.sh` and run `factory_tree_claim_check human:<name> <path>`; it returns 0 exactly when
+no live claim holds the tree — mint your own with `factory_claim_write human:<name> <path>` (its deadline is
+your own bound on your own life) and release it with `factory_claim_release <file> human:<name>` as
+your last act there. An unreadable claim directory is not free, and a held tree means someone's
+claim is live: the refusal names holder, pid, and deadline. Both supervisor dispatch paths ask the
+same check; the journal vocabulary is `TREE-HELD`, `TREE-CLAIM`, `TREE-CLAIM-EXPIRED`,
+`TREE-CLAIM-FOREIGN` (H-0340, `docs/factory.md`).
