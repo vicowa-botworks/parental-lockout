@@ -16748,17 +16748,18 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `H-0325` is a hole this unit did not author and does not fill — the allocator answered `H-0326` on a
   `REFRESH 65s union` read before the checkpoint and repeated it on a `REFRESH 202s` re-read with no
   `PENDING` claimant, because `H-0325` lands on `refs/remotes/origin/issue-416`, off trunk. Zero-loss
-  census by digit-folded line multiset: ours 16532 lines, 81 absent from the merged log; trunk 16622,
+  census by digit-folded line multiset, every total read with `wc -l` on `git show` so a reader
+  reproduces it: ours 16531 lines, 81 absent from the merged log; trunk 16621,
   14 absent; every one of the 95 is the same sentence at a different digit and **0 rows are
   structurally absent from either parent**. 24 anchored pointers over 12 rows re-aimed (the nine
   conflict rows in `H-0252`, `H-0280`–`H-0284`, `H-0286` and `H-0313` twice, plus the three the
   auto-merge carried silently in `H-0320`, `H-0321` and trunk's own `H-0323`), each landing taken from
   the gate's own refusal and never from an offset — the two auto-merged rows are again the class no
-  human pass would have caught, since they merged clean while being false. `NEXT.md` is 3729 lines:
+  human pass would have caught, since they merged clean while being false. `NEXT.md` is 3728 lines:
   this round's head, `H-0324`'s head and trunk's `issue-415` head demoted to `## Record —` in place,
   the shared `issue-372` round-2 heading kept once in trunk's wording; the same census there finds 4
-  of our 3611 lines absent (the demoted head, our wording of the folded shared heading, and the two
-  stamped hazard-digit prose rows trunk carries) and 1 of trunk's 3517 (its demoted head), so the
+  of our 3610 lines absent (the demoted head, our wording of the folded shared heading, and the two
+  stamped hazard-digit prose rows trunk carries) and 1 of trunk's 3516 (its demoted head), so the
   union spends two heads and one duplicate heading and no body. `python3 scripts/check-decisions.py
   --citations NEXT.md` reports 0 drifted rows on the shipped bytes. No merge, no label, no reviewer
   ask, no issue write; the queue belongs to the supervisor.
