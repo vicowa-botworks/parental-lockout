@@ -16863,7 +16863,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   `git diff --numstat HEAD~1 HEAD` at this commit: factory/common.sh +1/-1 (the sentence),
   docs/factory.md +4/-3, factory/selftest.sh +57/-23 (the pin helper, and the three legs),
   factory/DECISIONS.md +171/-112 (this entry and the re-aimed rows together), NEXT.md +20/-1.
-- Follow-up: none open. The 117 log rows this commit's inserted lines slide are re-aimed to the
+- Follow-up: none open. The 111 log rows this commit's inserted lines slide are re-aimed to the
   lines their quoted fragments actually sit on, no fragment rewritten; two of them
   (`factory/selftest.sh:22948` "busy_guard_refuses_a_live_tree" and `docs/factory.md:1497` "what #351 called") carried ambiguity
   the first pass resolved to the wrong twin — a definition against its call-site, and #351's
