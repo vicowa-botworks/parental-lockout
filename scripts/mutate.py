@@ -264,9 +264,10 @@ def verdict(out, rc, note=None):
 # They used to be matched by basename at any depth, and that is a fail-open with a body:
 # a tracked `internal/platform/bin/runner.go` is source, the name says nothing about it, and
 # the copy would drop it in silence -- no error, nothing in `skipped`, and a battery that
-# reports every mutant caught against a tree missing a package. `.cortexkit/.gitignore` is
-# tracked here today and was already going missing. `__pycache__` is the one name that
-# legitimately appears at every depth.
+# reports every mutant caught against a tree missing a package. `.cortexkit/.gitignore` was
+# that going-missing tracked file until #416 untracked it (`H-0325`); the root exemption stays
+# because the directory is still tool state and never source. `__pycache__` is the one name
+# that legitimately appears at every depth.
 NEVER_COPIED_ROOT = (".git", "bin", ".cortexkit")
 NEVER_COPIED_ANYWHERE = ("__pycache__",)
 NEVER_COPIED = NEVER_COPIED_ROOT + NEVER_COPIED_ANYWHERE
@@ -2507,10 +2508,11 @@ def self_test():
                     fh.write("package web\n")
             git_run(["init", "-q"], src, bad)
             git_run(["add", "internal/server.go", "internal/keep.go"], src, bad)
-            # Tracked AND deliberately not copied: `.cortexkit/.gitignore` is exactly this shape
-            # in this repository, and it is the case that made the exemption necessary. Without
-            # an assertion both ways the exemption is unpinned -- too wide silently drops source,
-            # too narrow refuses a run that should have gone ahead.
+            # Tracked AND deliberately not copied: `.cortexkit/.gitignore` was exactly this
+            # shape in this repository until #416 untracked it (`H-0325`), and it is the case
+            # that made the exemption necessary. Without an assertion both ways the exemption
+            # is unpinned -- too wide silently drops source, too narrow refuses a run that
+            # should have gone ahead.
             os.makedirs(os.path.join(src, ".cortexkit"), exist_ok=True)
             with open(os.path.join(src, ".cortexkit", ".gitignore"), "w", encoding="utf-8") as fh:
                 fh.write("state\n")
