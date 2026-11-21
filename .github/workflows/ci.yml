@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -sSfL --retry 3 -o /tmp/sc.tar.xz "$url"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 180 -o /tmp/sc.tar.xz "$url"
           echo "${SHELLCHECK_SHA256}  /tmp/sc.tar.xz" | sha256sum --check --status || {
             echo "the downloaded shellcheck does not match the pinned digest" >&2
             echo "refusing to run an unverified binary" >&2
@@ -116,10 +116,47 @@ jobs:
           TZDATA_LEGACY_SHA256: 6fb2a6b78f428769023fdd55d576b80dc9199c176de225c49f0b54a5a8ff5908
         run: |
           set -euo pipefail
-          pool="http://archive.ubuntu.com/ubuntu/pool/main/t/tzdata"
+          # One hostname and `--retry 3` was the whole resilience of this fetch, and
+          # neither half could reach the failure that actually came (#469): on 19 Nov
+          # `tzdata_<version>_all.deb` served 0 bytes at 30 s from archive.ubuntu.com
+          # -- intermittently, per object: a HEAD of the same object returned 200
+          # minutes earlier, the sibling deb on the same host served normally the
+          # whole time, and both debs on us.archive.ubuntu.com served bytes matching
+          # the digests below -- while `--retry` spends nothing on a transport-level
+          # reset. Fixture (rows A/B, curl 8.18.0): this step's old flags took a
+          # mid-body RST at rc 56 on ONE connection, zero retries; adding
+          # --retry-all-errors made the same call spend FOUR; an HTTP 503 retried
+          # four ways under the old flags, so the retry machinery was live and the
+          # error class is the whole story. So each half is now tried through a host
+          # list behind the unchanged digest gate: the sha256 check is what decides a
+          # fetch, not the hostname, so a fallback can only ever re-deliver the
+          # pinned bytes. The step records which host served each half, so a future
+          # red run names the degraded host instead of guessing one. What this
+          # trades: if both hosts fully hang, the step burns its retries slowly
+          # (worst case ~12 capped attempts per half) instead of dying fast -- red
+          # for a real archive-wide outage is honest; red for one degraded hostname
+          # is not.
+          pool_hosts=(https://us.archive.ubuntu.com/ubuntu https://archive.ubuntu.com/ubuntu)
+          fetch_pinned() { # fetch_pinned <out> <pool filename> -- first host that delivers wins
+            local out=$1 name=$2 host rc=0
+            for host in "${pool_hosts[@]}"; do
+              if curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
+                   --connect-timeout 10 --max-time 180 \
+                   -o "$out" "$host/pool/main/t/tzdata/$name"; then
+                echo "pinned fetch: $name served by $host"
+                return 0
+              else
+                rc=$?
+                echo "pinned fetch: $host failed for $name (curl exit $rc), trying the next host" >&2
+                rm -f "$out"
+              fi
+            done
+            echo "pinned fetch: no host served $name (last curl exit $rc)" >&2
+            return 1
+          }
           mkdir -p /tmp/tzdata && cd /tmp/tzdata
-          curl -sSfL --retry 3 -o tzdata.deb "$pool/tzdata_${TZDATA_VERSION}_all.deb"
-          curl -sSfL --retry 3 -o tzdata-legacy.deb "$pool/tzdata-legacy_${TZDATA_VERSION}_all.deb"
+          fetch_pinned tzdata.deb "tzdata_${TZDATA_VERSION}_all.deb"
+          fetch_pinned tzdata-legacy.deb "tzdata-legacy_${TZDATA_VERSION}_all.deb"
           echo "${TZDATA_SHA256}  tzdata.deb" | sha256sum --check --status || {
             echo "the downloaded tzdata does not match the pinned digest" >&2
             echo "refusing to certify bounds against an unverified database" >&2
@@ -188,7 +225,7 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -sSfL --retry 3 -o /tmp/sc.tar.xz "$url"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 180 -o /tmp/sc.tar.xz "$url"
           echo "${SHELLCHECK_SHA256}  /tmp/sc.tar.xz" | sha256sum --check --status || {
             echo "the downloaded shellcheck does not match the pinned digest" >&2
             echo "refusing to run an unverified binary" >&2
