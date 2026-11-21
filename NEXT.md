@@ -1,5 +1,6 @@
-# NEXT — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor)
+# NEXT — issue-433 unit (branch `issue-433`; this round ships `H-0351`: a decision row glues a commit token to a `(PR #N` reference and NO gate opened either number — #433 measured `(PR #427, `H-0235`)` riding two review rounds beside `cf00b44`, every token false and each one command from checked. `scripts/check-decisions.py` now resolves every glued pair through git and holds it to the commit's own message (fail closed when git cannot be asked), the one genuinely mis-glued shipped row (11533) is repaired to what its own commit message supports, and the 63 anchored pointers this script's growth drifted were re-aimed by the shipped rule's own refusals; the ticket's exact specimen and a dead token both refuse rc 1 against the real log, with a byte-identical control restore. Merging belongs to the supervisor)
 
+## Record — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor) — head demoted by the issue-433 unit; the queue below is that round's plus this one's.
 ## What this branch shipped, and what it did not
 
 - Shipped: the tick-scoped baseline (snapshot at `TICK-START`, `DECISION-ID-BASELINE` journalled), the
@@ -4338,6 +4339,23 @@ contents are not one of those surfaces. Copy it into a body and it becomes a clo
    harness (one subprocess per rule, clean-tree baseline, word-shared candidate sweep,
    shipped-order re-score) was rebuilt for #378 from the issue's recipe and is not in the tree;
    the same instrument is what that labelling job would start from.
+61. **A glued `sha` (PR #N) pair is refused by the gate from #433 on — what that gate deliberately
+    does not reach, and the re-aim duty it adds to every base sync.** The rule holds each glued pair
+    to the commit's own message: drift refuses, a dead object refuses, and either git question being
+    unaskable fails closed rather than passing silently. What it does NOT reach: (i) class 2 — a row
+    numbering itself inside `factory/DECISIONS.md`, the `this entry at 12481` shape #433 measured rot
+    on the head that shipped it — because a row number has no artefact to open, and #433 refused to
+    invent one; the predicate shape is item 51's row-level sibling, the decision is still open;
+    (ii) a false claim phrased without the glue (`<sha>` — its landing is PR #N reads clean), because
+    the glue is what makes a row assert a pair, and a looser window re-aims at whatever `PR #N` the
+    sentence contains next. The duty it adds: a sync that rewrites a sentence holding a glued pair
+    moves the pair — the shipped logs bind thirteen as #433 delivers, all inherited, and the refusal
+    names the row,
+    so re-aim in the same commit and edit the pair only where the commit's own message proves the row
+    wrong. Measured at this unit: one shipped row was genuinely mis-glued (11533), 63 anchored rows
+    drifted from this script's growth and all were this unit's doing (the base re-measured rc 0), and
+    the ticket's own specimen plus a dead token both refused rc 1 against the real log with a
+    byte-identical control restore.
 ## Non-blocking review items carried forward (PR #402's review at 2026-11-15T21:57:01Z on head `5408b41`; the reviewer marked all three NOT merge blockers; #402 merged 06:32Z and none of the three has been taken)
 
 1. **A bare `-` bullet slips the empty-marker leg.** `scripts/check-next-md.sh` requires a space or tab

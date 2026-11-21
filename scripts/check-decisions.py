@@ -122,6 +122,13 @@ lands on the wrong sentence, which is the bug #318 was written about. A citation
 be checked, so it is counted, and the count is recorded in this file as POINTER_DEBT. That number may
 only fall: a new unanchored citation is refused, and so is a run that measured below it, because an
 unlowered number hides the next broken pointer in the slack.
+
+A provenance pair is a commit token glued to a parenthesised pull-request reference: `` `cf00b44`
+(PR #410) ``. #433 measured ``cf00b44`` (PR #427, `H-0235`) ride two review rounds while one `git
+log` refuted it, and neither number was openable by any rule. Each pair now resolves in this clone
+and is held to the commit's own message: the merge subject must name one of the asserted numbers,
+or an asserted number must appear in the message. A correction quoting a false pair binds nothing
+and is not refused; the sha has to sit on the parenthesis for the row to be making the claim.
 """
 
 FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
@@ -793,6 +800,149 @@ def checkpoint_problems(entries, resolve):
 
 def label_of(e):
     return "%s:%d" % (e["label"], e["line"])
+
+
+# ---------------------------------------------------------------------------------------------
+# `sha` (PR #N) provenance pairs (issue #433)
+# ---------------------------------------------------------------------------------------------
+
+# A backticked-or-bare commit token glued -- whitespace only, and it may wrap a line -- to a
+# parenthesised pull-request reference. The binding is the claim: "`<sha>` (PR #N)" says the named
+# commit IS the landing of the named pull request. Glued is deliberate: #433's own specimen of a
+# misleading attach (`620bcb1` (PR #403 merged: ...)` -- the base's landing was #402, #403 merged
+# PAST it) binds because it is glued, and a looser window would re-aim at whatever `PR #N` the
+# sentence happens to contain next, which is a guess about intent this file has refused to make
+# since `scan_citations` inherited within the sentence and no further. A bare run of hex has to
+# stand alone on both sides so no word tail (`issue-303`) or longer object name half-matches;
+# `(PR #341/#432)` asserts both numbers, and any one of them satisfying the commit satisfies the
+# row -- the multi-number spelling names one landing from two angles (the pull and the issue
+# branch it landed), and requiring all of them would refuse `H-0239`'s honest "`883b5e8`
+# (PR #341/#432)" on a technicality.
+PROV_PAIR = re.compile(
+    r"(?:`([0-9a-f]{7,40})`|(?<![0-9A-Za-z./_-])([0-9a-f]{7,40})(?![0-9A-Za-z_-]))"
+    r"\s*\(\s*PR\s+#(?P<nums>\d{1,5}(?:\s*[/,]\s*#\d{1,5})*)")
+PROV_MERGE = re.compile(r"^Merge pull request #(\d+)")
+
+
+def git_pair_message_reader(shas):
+    """The full commit message of each named commit, in one batch call.
+
+    `None` means the question could not be asked -- no git, a wedged `git cat-file`, a timeout --
+    and is distinguishable from `{}` exactly as in `git_checkpoint_resolver`: an unevaluated rule
+    is not a passed rule. Only shas the existence resolver already called commits are asked for, so
+    a bad object should be impossible here; one that vanishes between the two calls, or answers
+    with a type that is not commit, lands as `None` under its own key and is refused, not skipped.
+    The subcommand is `cat-file --batch` on purpose: `the gate reads no branch refs`
+    (`factory/selftest.sh`, #253) refuses any gate that asks git for anything but object lookups,
+    because a verdict that changes with the last fetch reads as flaky and gets re-run until it
+    agrees -- and `git log`, even `--no-walk`, is that first measurement's failure shape, caught
+    here by that leg on the first `make verify` of this rule.
+    """
+    if not shas:
+        return {}
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "cat-file", "--batch"],
+            input="\n".join(shas) + "\n",
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=ROOT, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    # Records arrive in request order -- `--batch` answers one per input line forever, so ordering
+    # is the only key that works here: the row asserts the ABBREVIATED token (`cf00b44`) and the
+    # header carries the full name, so a map keyed on the printed sha answers every abbreviated
+    # lookup with "unreadable". Measured on an earlier shape of this reader when it keyed on `%H`:
+    # all fourteen pairs in the shipped log refused "could not be read" at once. Each record is
+    # "<name> <type> <size>\n" then exactly size bytes then one newline; parsing by SIZE keeps the
+    # stream in sync even when message text looks like a header. A record that will not parse
+    # returns None for the whole batch -- a desynced stream cannot answer any later row either, and
+    # a silent short map would be a fail-open default one level down.
+    messages = {}
+    rest = out.stdout
+    for asked in shas:
+        nl, rest = rest.split("\n", 1) if "\n" in rest else ("", "")
+        fields = nl.split(" ")
+        if len(fields) == 2 and fields[1] == "missing":
+            messages[asked] = None
+            continue
+        if len(fields) != 3 or fields[1] != "commit" or not fields[2].isdigit():
+            return None
+        size = int(fields[2])
+        if len(rest) < size:
+            return None
+        content, rest = rest[:size], rest[size + 1:]
+        messages[asked] = content.split("\n\n", 1)[1] if "\n\n" in content else ""
+    return messages
+
+
+def provenance_pair_problems(text, entries, resolve, message_of):
+    """That every `` `sha` (PR #N) `` pair names a commit whose own message agrees it is PR #N's landing.
+
+    Neither class of number #433 measured entered any rule this script had: a pull-request number
+    is not a `path:line` citation and not a `Checkpoint:` field, so `H-0237` shipped
+    ``cf00b44`` (PR #427, `H-0235`) through two review rounds with rc 0 while `git log -1
+    --format='%s' cf00b44` -- one command, available at that same head -- answered `Merge pull
+    request #410`. Both injectables are the `checkpoint_problems` pattern, so the self-test asserts
+    the refusal, the pass and both blind answers without git: `resolve` maps sha to "is a commit"
+    (mapping or callable), `message_of` maps sha to the full message; either being `None` means git
+    could not be asked, and the rule reports that it did not run rather than passing silently.
+    """
+    pairs = list(PROV_PAIR.finditer(text))
+    if not pairs:
+        # Nothing to ask, so nothing to claim -- the same boundary `checkpoint_problems` draws:
+        # a log with no pairs must not be refused for a git problem it does not have.
+        return []
+    # `label_of` carries a line number; the pairs bring their own, so the label is the file half.
+    label = entries[0]["label"] if entries else "<log>"
+    if resolve is None:
+        return ["%s: git could not be asked whether the commits named in `(<PR #…` provenance pairs "
+                "exist, so nothing can be claimed about them -- the provenance rule did not run. "
+                "(A missing git, a wedged `git cat-file`, or a tree this is not a repository of.)"
+                % label]
+    if message_of is None:
+        return ["%s: the commits named in `(<PR #…` provenance pairs exist, but git could not be "
+                "asked for their messages, so nothing can be claimed about the pairs -- the "
+                "provenance rule did not run." % label]
+
+    def get(mapping, sha):
+        return mapping(sha) if callable(mapping) else mapping.get(sha)
+
+    problems = []
+    for m in pairs:
+        sha = m.group(1) or m.group(2)
+        nums = re.findall(r"\d+", m.group("nums"))
+        line = text.count("\n", 0, m.start()) + 1
+        where = "%s:%d" % (label, line)
+        entry = entry_of(entries, line)
+        if not get(resolve, sha):
+            problems.append(
+                "%s: entry %s asserts `%s` (PR #%s), but %s is not a commit in this repository -- "
+                "a provenance pair nobody can open is the claim with the receipt missing, which is "
+                "what #433 prices" % (where, entry, sha, "/".join(nums), sha))
+            continue
+        msg = get(message_of, sha)
+        if not msg:
+            problems.append(
+                "%s: entry %s asserts `%s` (PR #%s), but the commit's message could not be read, so "
+                "the pair is unverified and unverified is not passed"
+                % (where, entry, sha, "/".join(nums)))
+            continue
+        subject = msg.splitlines()[0] if msg else ""
+        mm = PROV_MERGE.match(subject)
+        if mm and mm.group(1) in nums:
+            continue
+        if any(re.search(r"(?<!\d)%s(?!\d)" % n, msg) for n in nums):
+            continue
+        problems.append(
+            "%s: entry %s asserts `%s` (PR #%s), but the commit's own message says otherwise: %r. "
+            "`git log -1 --format='%%s' %s` was one command at the head that shipped it and still "
+            "is -- #433 measured `(PR #427)` ride two review rounds for the merge that is PR #410's "
+            "landing; re-aim the number, or attach the parenthetical to what it really describes"
+            % (where, entry, sha, "/".join(nums), subject, sha))
+    return problems
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1986,6 +2136,86 @@ def self_test():
         fails.append("checkpoint-unknown-nothing-to-ask: a log with no named checkpoints was refused "
                      "for a git problem it does not have -- %s" % no_checkpoints)
 
+    # The `sha` (PR #N) provenance pairs (#433): the git token the citation rules never opened. The
+    # message table is a fixture, not git -- the rule has to be provable both ways without a history,
+    # the way `checkpoint_problems` is, and #433's shipped pair `cf00b44` (PR #427, `H-0235`) is
+    # recreated here rather than trusted to a probe: the drift case below IS that row.
+    PROV_FIXTURE = ("## H-0100 · Pair\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                    "- Why: the merge is `origin/main` `1111111` (PR #410, `H-0105`) into the branch.\n"
+                    "- Checkpoint: abc1234\n")
+    PROV_MSGS = {
+        "1111111": "Merge pull request #410 from vicowa-botworks/issue-348\n\nfeat: body text\n",
+        "2222222": "Merge pull request #432 from vicowa-botworks/issue-341\n\nfeat: x\n",
+        "3333333": "fix: a landing that was squashed, not merged\n\nmentions #499 in passing\n",
+    }
+
+    def pairs(text, resolve=lambda s: True, messages=PROV_MSGS):
+        return provenance_pair_problems(text, parse(text, "log"), resolve, messages)
+
+    counts[1] += 1
+    if pairs(PROV_FIXTURE):
+        fails.append("pair-agrees: a `sha` (PR #N) pair whose commit subject names PR #N was refused "
+                     "-- %s" % pairs(PROV_FIXTURE))
+    counts[0] += 1
+    drift = pairs(PROV_FIXTURE.replace("(PR #410,", "(PR #427,"))
+    if not any("PR #427" in p and "Merge pull request #410" in p for p in drift):
+        fails.append("pair-drift: #433's shipped shape -- PR #427 asserted beside the commit whose "
+                     "subject names #410 -- passed the provenance rule; the refusal must name both "
+                     "numbers -- %s" % drift)
+    counts[0] += 1
+    dead = pairs(PROV_FIXTURE, resolve=lambda s: False)
+    if not any("not a commit in this repository" in p for p in dead):
+        fails.append("pair-dead-object: an asserted commit that resolves to nothing passed the "
+                     "provenance rule -- %s" % dead)
+    counts[1] += 1
+    if pairs(PROV_FIXTURE.replace("`1111111` (PR #410", "`2222222` (PR #341/#432")):
+        fails.append("pair-multi-number: `sha` (PR #341/#432) beside the commit that is #432's "
+                     "landing was refused -- any one asserted number agreeing is the multi-number "
+                     "spelling's meaning")
+    counts[1] += 1
+    if pairs(PROV_FIXTURE.replace("`1111111` (PR #410", "`3333333` (PR #499")):
+        fails.append("pair-nonmerge-in-message: a non-merge commit whose message carries the "
+                     "asserted number was refused -- that is the rule's own second clause")
+    counts[0] += 1
+    noNum = pairs(PROV_FIXTURE.replace("`1111111` (PR #410", "`3333333` (PR #500"))
+    if not any("PR #500" in p for p in noNum):
+        fails.append("pair-nonmerge-absent: a non-merge commit whose message carries none of the "
+                     "asserted numbers passed -- %s" % noNum)
+    counts[1] += 1
+    # The correction shape H-0237's bullet actually ships: a quoted `(PR #427, `H-0235`)` with the
+    # sha NOT glued to it. A gate that refused a correction would be refused back, and the row
+    # would be edited into a lie to make the gate go quiet.
+    quoted = ("## H-0237 · Correction\n\n- Why: it read `(PR #427, `H-0235`)` beside `origin/main` "
+              "`cf00b44`, and both tokens were recalled rather than read.\n")
+    if pairs(quoted):
+        fails.append("pair-quote-unbound: a correction quoting a false pair, with the sha not glued "
+                     "to the reference, was refused -- the binding is the claim, and a quotation "
+                     "makes none -- %s" % pairs(quoted))
+    counts[0] += 1
+    wrapped = pairs(PROV_FIXTURE.replace("`1111111` (PR #410", "`1111111`\n  (PR #427"))
+    if not any("PR #427" in p for p in wrapped):
+        fails.append("pair-line-wrap: an entry wrapped at ~110 columns is how these logs ship, and "
+                     "a pair split across the wrap escaped the rule -- %s" % wrapped)
+    counts[0] += 1
+    blind = pairs(PROV_FIXTURE, resolve=None)
+    if not any("did not run" in p for p in blind):
+        fails.append("pair-git-blind-existence: no resolver answer produced no refusal -- %s" % blind)
+    counts[0] += 1
+    blind2 = pairs(PROV_FIXTURE, messages=None)
+    if not any("did not run" in p for p in blind2):
+        fails.append("pair-git-blind-message: an unreadable message batch produced no refusal -- %s"
+                     % blind2)
+    counts[0] += 1
+    halfblind = pairs(PROV_FIXTURE, messages={})
+    if not any("could not be read" in p for p in halfblind):
+        fails.append("pair-message-missing: a mapping that omits an existing commit answered the "
+                     "message rule with a pass -- the fail-open default one level down -- %s"
+                     % halfblind)
+    counts[1] += 1
+    if pairs("## H-0100 · No pair\n\n- Why: nothing git here.\n", resolve=None, messages=None):
+        fails.append("pair-nothing-to-ask: a log with no pairs was refused for a git problem it "
+                     "does not have -- the same boundary `checkpoint_problems` draws")
+
     counts[1] += 1
     separated = cross_log_problems({"D-0012": ["DECISIONS.md"], "H-0012": ["factory/DECISIONS.md"]})
     if separated:
@@ -2721,8 +2951,11 @@ def self_test():
         return 1
     print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
           "invocations in `verify`, seven Makefiles each owing a named sentence, the cross-log id rule, "
-          "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, and "
-          "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
+          "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, the "
+          "`sha` (PR #N) provenance pair (agreement and drift, the multi-number landing, the non-merge "
+          "whose message carries the number and the one that does not, the dead object, the unreadable "
+          "message, the correction quotation that binds nothing, the pair a line-wrap splits, and both "
+          "git-blind answers), the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
           "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
           "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
           "pointer cannot be opened, and the refusal that names which anchor floor it applied), the "
@@ -2812,6 +3045,17 @@ def main(argv):
         shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
                        if SHA.match(e["fields"].get("Checkpoint", "").strip())})
         problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+        # #433: the same git question the checkpoint rule asks, aimed at the OTHER git token the
+        # rules used to skip -- a commit glued to a `(PR #N` reference inside prose. The existence
+        # resolver is reused whole (it answers "is a commit", which is exactly the pair's first
+        # demand, including the fail-closed `None`); the message reader is then asked only for
+        # shas that resolved, so a dead one is refused by the resolver's sentence and never
+        # reaches a `git log` that would fail the whole batch for it.
+        pair_shas = sorted({(pm.group(1) or pm.group(2)) for pm in PROV_PAIR.finditer(text)})
+        pair_exist = git_checkpoint_resolver(pair_shas)
+        pair_live = sorted(s for s in pair_shas if pair_exist and pair_exist.get(s))
+        problems += provenance_pair_problems(text, entries, pair_exist,
+                                             git_pair_message_reader(pair_live))
         # Everything above this line judges the list `parse` returned, so the first rule that has to
         # look at the raw bytes is the one that asks whether that list is the whole log.
         problems += invisible_heading_problems(text, label)
