@@ -1,4 +1,49 @@
-# NEXT — issue-442 (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+# NEXT — issue-448 (branch `issue-448`, PR open against `main`; this unit ships `H-0367`: the two remaining `$TMPDIR`-inside-a-repository FAIL rows #371's audit left — the stale-entry `proc_leg` and the blind-activation `gen_leg` in `factory/selftest.sh` — take the one-condition SKIP #371 already worded, asked of the planted fixture path itself (`git -C "$r342_work" rev-parse --git-dir`) rather than of `$TMPDIR`, because the condition the legs verify is the fixture's unreadability and discovery can escape to an enclosing repository even from a `$TMPDIR` no work tree contains (measured in this tick's six-run matrix: a plain repo with no origin leaves the activation leg green for the wrong reason — SKIPping on discovery, not on `$TMPDIR`, is what catches that topology too); 137 anchored decision-log pointers the +22 insertions slid were re-aimed in the effect commit and the shipped gate reads green at this head; the bare-pointer census this diff owes and the gate cannot read: 32 bare `factory/selftest.sh` pointers in the shipped log, zero naming a row this diff moved, 29 revision-pinned rows untouched; the disclosure comment on #448 names the sibling issue #503 — a colon inside a scratch directory name silently splits every `PATH` prepend that carries it, so stubs go unfound and a suite run under such a `TMPDIR` prints ~29 FAILs and a crash for the shape of the scratch, and THIS tick's dispatch scratch path is exactly such a colon path, so no suite run touched it; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped: the two guards at their claim sites (checkpoint `face774`, effect `b781445` carries
+  `Decision: H-0367`), the 137 anchored re-aims in the same commit, the `H-0367` entry in
+  `factory/DECISIONS.md`, and the disclosure comment on #448 naming #503.
+- Did not ship: no standing precondition for the whole suite — whether a repository-resident
+  `$TMPDIR` should sanitize or SKIP every leg is the same decision #371 declined and #448's repair
+  left open, and it is still owed; #503's colon-scratch poison is named, not repaired, here.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges; this unit merged nothing and asked nobody. If the PR sits
+   `REVIEW_REQUIRED` with an empty `/requested_reviewers`, the ask is the supervisor's
+   `factory_request_review` poke (`AGENTS.md`), not this unit's.
+2. Carried from the `issue-442` head, unrenumbered: the #482 fence leg and the #489 service-unit
+   leak — run the suite as CI runs it, `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH
+   make verify`, plus `env -u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT` inside a live tick.
+3. Carried from the `issue-442` head: a remote-only leg for the `refs/remotes/origin/<branch>`
+   liveness arm of the allocator's claim read.
+4. The open standing-precondition question named above, with this tick's matrix as its evidence: a
+   per-leg guard makes the two #448 verdicts honest, but the suite's remaining host-shape
+   dependence (green-for-the-wrong-reason legs included) is what a suite-wide precondition would
+   be for.
+
+## Constraints a stranger would break here
+
+- The two new guards ask `rev-parse --git-dir` of the planted fixture path, never of `$TMPDIR` —
+  that IS the leg's own premise (#371's one-condition, one-message rule). Move the fixture, ask
+  the guard from its new path; "tidying" the question back to `$TMPDIR` un-detects the
+  enclosing-repository escape this whole ticket is about.
+- Carried from the `issue-442` head: the journalled `DECISION-ID` line's positional fields are read
+  by two consumers — never insert a field before `unit=`/`branch=`; claim expiry keys on branch
+  existence by design (the #365 leak plugged); H-0296's citation anchor is the string
+  `${FACTORY_TICK_UNIT:-}` kept unique by `factory/next-decision-id.sh` spelling its own comparison
+  `${FACTORY_TICK_UNIT-}` — one character of tidying re-orphans it and the ratchet refuses.
+- Running the suite with `TMPDIR` under a scratch path containing a colon fails ~29 legs and
+  crashes for the shape of the scratch, not the diff — the colon splits every `PATH` prepend
+  below it, so stub binaries are never found (#503). Use a colon-free scratch before blaming a
+  branch, and re-derive #448's rows inside a planted repository (the shipped `r342_fixture`
+  works), not the bare `.sttmp` recipe, which cannot reach a SKIP by the guard's own condition.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-442 unit (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 
