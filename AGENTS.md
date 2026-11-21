@@ -70,6 +70,9 @@ rule that exists because of a measured failure, and the measurement is cited.
   file's name is a rule now, not a convenience (`layout_problems`: the filename id and the heading id are
   one claim), and an id used in both layouts is refused with both locations named (`cross_log_problems`).
   The sequence rule stays inside a file — a directory read in sorted order has no order a merge honours.
+  Phase 2 (#456) changed the writer half only: **new** entries are files — the allocator names the one to
+  create on stderr, `EMITS`, and counts filed entries into its union — while existing entries stay put,
+  because hand-filing an old entry is the hazard above, not something phase 2 reverses.
 
 ## Worktrees
 
