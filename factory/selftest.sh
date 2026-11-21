@@ -3134,7 +3134,22 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 		# The opposite polarity, measured off the same stash rather than argued: the rendering without
 		# `--binary` is non-empty AND unusable, which is the pair the size guard cannot tell apart. An
 		# assertion that cannot say "refused" here is an assertion that never applied anything.
-		if [ -n "$s" ] && git -C "$d" stash show -p --include-untracked "$s" >"$work/nobin-$where.patch" 2>/dev/null; then
+		# The re-render's stderr is CAPTURED, not discarded. `2>/dev/null` here silenced the one read
+		# that could name why a runner declines, and #500's verify job proved it: the leg refused with
+		# this sentence and nothing else (job 136780953955, 21 Nov, "control: the stash could not be
+		# re-rendered"), while every shipped arm above had passed on that same machine -- the only
+		# answer available was git's own words, and they were pointed at /dev/null. The refusal quotes
+		# rc, the journal's `stash=` field, `git --version`, and stderr, because the three earlier
+		# guards each answer a different question ($m usable, $s resolved, rc) and the FAIL has to
+		# separate them without a second run.
+		nobin_err="" nobin_rc=0
+		if [ -n "$s" ]; then
+			nobin_err=$(git -C "$d" stash show -p --include-untracked "$s" 2>&1 >"$work/nobin-$where.patch") || nobin_rc=$?
+		else
+			nobin_rc=skip
+			nobin_err='git never ran: the journal named no stash'
+		fi
+		if [ "$nobin_rc" = 0 ] && [ -n "$s" ]; then
 			[ -s "$work/nobin-$where.patch" ] || bad="${bad:+$bad; }control: the flagless rendering was empty, so nothing here isolates the flag"
 			clone="$work/binclone2-$where"
 			if git clone -q "$d" "$clone" 2>/dev/null && (cd "$clone" && git apply "$work/nobin-$where.patch" 2>/dev/null); then
@@ -3144,7 +3159,7 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 				printf '        `git apply` refuses outright -- which is what the size guard could not see.\n'
 			fi
 		else
-			bad="${bad:+$bad; }control: the stash could not be re-rendered, so the flagless arm never ran"
+			bad="${bad:+$bad; }control: the stash could not be re-rendered (rc $nobin_rc, stash=${s:-<empty>}, $(git --version), $(printf '%s' "${nobin_err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-200)), so the flagless arm never ran"
 		fi
 	fi
 
