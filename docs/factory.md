@@ -3042,3 +3042,44 @@ line prints, so a mutation of trunk still owes the claim check (`factory_tree_cl
 AGENTS.md) and a worktree still owes `factory_worktree_busy`. And the unit-state signal reads the
 user manager of the machine it runs on: an idle answer says nothing about the installed service on
 some other host.
+
+## The allocator reads its own journal: an id already journalled is taken while its branch lives
+
+`factory/next-decision-id.sh` numbers from a union of log headings, and the heading lands only when a
+unit commits its entry -- up to a whole tick (`FACTORY_TICK_TIMEOUT`) after the allocator handed out
+the id. Issue #442 measured what that gap costs: one id, three units, 53 minutes, one read of it made
+`REFRESH 0s union` four minutes after another unit had been told the same id was its next one. The
+journal line written at the moment of the claim was read only by the earned-set check; the allocator
+itself asked it of nothing.
+
+Now the answer is asked of the journal before it is handed out, in the same offline read as the
+headings. From the ceiling upward, the LAST `DECISION-ID` line naming a candidate is that id's claim.
+A claim of a *different* unit whose branch still exists as a ref here -- local, or `refs/remotes/` --
+is taken: the answer steps up, `next-decision-id: STEPPED-OVER ...` says so on stderr, and the
+journalled line carries the trail as a trailing note, `H-0251 (H-0250 taken: journalled ... by ...
+on branch ...)`, so a unit that sees a surprising id sees whose it skipped. A claim belonging to the
+unit being answered keeps its own id: an allocation is not a consumption, and #320's re-read after
+writing an entry must still answer the number earned -- that polarity is a leg, because a repair that
+loses it eats every retry-after-conflict path.
+
+A claim lives no longer than its branch. `issue-365` is the case: five allocations of an id, a tick
+killed at the ceiling, and no branch that ever acquired a ref -- the entry the claim would have
+committed was never written, so the claim expired and the id is free again. Without that expiry the
+allocator walks the id space upward on every dead tick, which is #427's inflation complaint wearing
+a different hat.
+
+Two honesty bounds, both stated by the code path itself. This is a read, not the claim-time lease
+#345 refused: no reservation is minted, nothing is written early, and a claim journalled by a tick on
+another machine is invisible to a local read exactly as a heading on another machine is. And the read
+is failure-blind like every other arm here -- an unreadable journal answers with no claims rather
+than refusing the answer. What moved is where the collision is caught: `check-decisions` still
+refuses a duplicate id, but its refusal fires on the second *entry*, after a unit has allocated,
+written the full entry, re-aimed its displaced coordinates and committed; the claim read moves the
+refusal back to the allocator's read, before any of that is spent. The merge remains the arbiter of
+what a local read cannot see.
+
+The polarities are pinned in `factory/selftest.d/442-journal-claims.sh`: two units one journal answer
+different ids and say whose was stepped over; one unit two reads keep their id; a claim whose branch
+never gets a ref stops being taken; the claim map is a read of the journal *file* -- planted
+well-formed lines claim and shapeless or foreign-prefix lines do not; and a control neuters the call
+and reproduces the collision verbatim, so the legs measure the mechanism and not the fixture.
