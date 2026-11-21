@@ -807,7 +807,11 @@ def label_of(e):
 # ---------------------------------------------------------------------------------------------
 
 # A backticked-or-bare commit token glued -- whitespace only, and it may wrap a line -- to a
-# parenthesised pull-request reference. The binding is the claim: "`<sha>` (PR #N)" says the named
+# parenthesised pull-request reference. The window is literally `\s*`, so it spans a blank line as
+# well as a wrap: a sha at the foot of one paragraph and a `(PR #N` at the head of the next ARE bound.
+# That is the wide edge of "glue is the claim", stated here rather than discovered later -- #498's
+# review noted `H-0351` described it as "wraps", which under-states it by a paragraph. Narrowing it to
+# `[ \t]*\n?[ \t]*` would refuse nothing today and buy nothing; the corpus answer is in `H-0355`. The binding is the claim: "`<sha>` (PR #N)" says the named
 # commit IS the landing of the named pull request. Glued is deliberate: #433's own specimen of a
 # misleading attach (`620bcb1` (PR #403 merged: ...)` -- the base's landing was #402, #403 merged
 # PAST it) binds because it is glued, and a looser window would re-aim at whatever `PR #N` the
@@ -824,6 +828,60 @@ PROV_PAIR = re.compile(
 PROV_MERGE = re.compile(r"^Merge pull request #(\d+)")
 
 
+def parse_pair_batch(shas, raw):
+    """The records of one `git cat-file --batch` reply, framed in BYTES, keyed by the sha asked for.
+
+    Split out of `git_pair_message_reader` so both of its arms are pinned by `--self-test` on
+    synthetic batch bytes -- toolchain-free, git-free, the same fixture pattern the rule already uses
+    -- which leaves the subprocess call as the only line of the reader a self-test cannot reach.
+
+    `None` means the stream cannot be trusted and the whole batch goes unanswered with it, exactly as
+    in the reader: a desynced stream cannot answer any later row either, and a silent short map would
+    be a fail-open default one level down.
+
+    The framing is done in bytes because the number a header announces IS a byte count, and a
+    character-decoded body is shorter than that whenever the message is not ASCII: measured on this
+    repository's own history, `1c385b7` announces 1364 and delivers 1360 characters -- its quoted
+    pull-request title carries an en dash and an em dash, three bytes and one character each, so a
+    parser that slices characters by that number comes up four short and answers `None` for a batch
+    git replied to perfectly (H-0355, the review of #498, which
+    ran the *true* pair `1c385b7` (PR #411) through the shipped gate and got rc 1, "the provenance
+    rule did not run", about a merge whose subject reads `Merge pull request #411`). The header's name
+    field is checked against the token that was asked for for the same reason in the other direction:
+    without it, a stream that desynced re-parses three bytes into the next header and the row gets
+    graded on bytes belonging to its neighbour with no signal at all. Records arrive in request order
+    -- `--batch` answers one per input line forever, and ordering is the only key that works: the row
+    asserts the ABBREVIATED token (`cf00b44`) while the header carries the full name, so a map keyed
+    on the printed sha answers every abbreviated lookup with "unreadable" (measured on an earlier
+    shape of this reader when it keyed on `%H`: all fourteen pairs in the shipped log refused "could
+    not be read" at once). Parsing by SIZE rather than by scanning for a terminator keeps the stream
+    in sync even when message text looks like a header.
+    """
+    messages = {}
+    rest = raw
+    for asked in shas:
+        nl, sep, rest = rest.partition(b"\n")
+        if not sep:
+            return None
+        fields = nl.split(b" ")
+        if len(fields) == 2 and fields[1] == b"missing":
+            messages[asked] = None
+            continue
+        if len(fields) != 3 or fields[1] != b"commit" or not fields[2].isdigit():
+            return None
+        if not fields[0].decode("ascii", "replace").lower().startswith(asked.lower()):
+            return None
+        size = int(fields[2])
+        # `+ 1` and the trailing 0x0A: git puts a newline after each record's bytes, and a record that
+        # does not end where its own header said it would is a desync, not a short read to ignore.
+        if len(rest) < size + 1 or rest[size] != 0x0A:
+            return None
+        content, rest = rest[:size], rest[size + 1:]
+        messages[asked] = (content.split(b"\n\n", 1)[1].decode("utf-8", "replace")
+                           if b"\n\n" in content else "")
+    return messages
+
+
 def git_pair_message_reader(shas):
     """The full commit message of each named commit, in one batch call.
 
@@ -837,6 +895,13 @@ def git_pair_message_reader(shas):
     because a verdict that changes with the last fetch reads as flaky and gets re-run until it
     agrees -- and `git log`, even `--no-walk`, is that first measurement's failure shape, caught
     here by that leg on the first `make verify` of this rule.
+
+    The reply is read as BYTES, not text: `text=True, errors="replace"` would hand the framer a
+    string whose length is a character count while every header it must trust counts bytes, and that
+    is the desync `parse_pair_batch` exists to refuse. Byte mode also keeps
+    `scripts/check-mutations.py`'s `unencoded_opens` leg quiet, which grades opens without an
+    encoding -- binary is exempt there, and a `text=True` open is a claim about an encoding this
+    reader deliberately does not make.
     """
     if not shas:
         return {}
@@ -844,38 +909,13 @@ def git_pair_message_reader(shas):
     try:
         out = subprocess.run(
             ["git", "cat-file", "--batch"],
-            input="\n".join(shas) + "\n",
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            cwd=ROOT, timeout=30)
+            input=("\n".join(shas) + "\n").encode("utf-8"),
+            capture_output=True, cwd=ROOT, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if out.returncode != 0:
         return None
-    # Records arrive in request order -- `--batch` answers one per input line forever, so ordering
-    # is the only key that works here: the row asserts the ABBREVIATED token (`cf00b44`) and the
-    # header carries the full name, so a map keyed on the printed sha answers every abbreviated
-    # lookup with "unreadable". Measured on an earlier shape of this reader when it keyed on `%H`:
-    # all fourteen pairs in the shipped log refused "could not be read" at once. Each record is
-    # "<name> <type> <size>\n" then exactly size bytes then one newline; parsing by SIZE keeps the
-    # stream in sync even when message text looks like a header. A record that will not parse
-    # returns None for the whole batch -- a desynced stream cannot answer any later row either, and
-    # a silent short map would be a fail-open default one level down.
-    messages = {}
-    rest = out.stdout
-    for asked in shas:
-        nl, rest = rest.split("\n", 1) if "\n" in rest else ("", "")
-        fields = nl.split(" ")
-        if len(fields) == 2 and fields[1] == "missing":
-            messages[asked] = None
-            continue
-        if len(fields) != 3 or fields[1] != "commit" or not fields[2].isdigit():
-            return None
-        size = int(fields[2])
-        if len(rest) < size:
-            return None
-        content, rest = rest[:size], rest[size + 1:]
-        messages[asked] = content.split("\n\n", 1)[1] if "\n\n" in content else ""
-    return messages
+    return parse_pair_batch(shas, out.stdout)
 
 
 def provenance_pair_problems(text, entries, resolve, message_of):
@@ -2212,6 +2252,67 @@ def self_test():
                      "message rule with a pass -- the fail-open default one level down -- %s"
                      % halfblind)
     counts[1] += 1
+    # The reader's own bytes (H-0355, the review of #498). The rows above inject a message TABLE, so
+    # none of them ever reaches the framer; the framer is where the shipped defect lived -- it framed
+    # a char-decoded stream by the byte counts a `cat-file --batch` header announces, and so answered
+    # `None` for a batch git had answered perfectly, on any message that is not ASCII. Pinned here on
+    # synthetic records: toolchain-free, git-free, the subprocess leg the seam leaves behind is the
+    # only line of the reader `--self-test` cannot reach.
+    def batch(sha, message, announce=None, name=None):
+        body = message.encode("utf-8")
+        head = "%s commit %d\n" % (name or sha, len(body) if announce is None else announce)
+        return head.encode("ascii") + body + b"\n"
+
+    EM = "Merge pull request #411 from x\n\na merge body carrying an em dash — inside it\n"
+    ASCII_MSG = "Merge pull request #410 from x\n\nplain ascii body\n"
+    # The control the fix is owed before anything is believed about it: a fixture that is ASCII in
+    # both units pins nothing about byte framing, so assert the differential the defect needs.
+    if len(EM) == len(EM.encode("utf-8")):
+        fails.append("pair-batch-control: the em-dash fixture is ASCII, so it cannot distinguish a "
+                     "byte-framed parser from a char-framed one -- the plant has no effect and the "
+                     "rows beside it prove nothing")
+    counts[0] += 1
+    # …and the differential aimed the other way: the char-framed shape has to be REFUTED on these
+    # bytes, or the row below passes for a reason that has nothing to do with the fix.
+    char_body = batch("1111111", EM).decode("utf-8").split("\n", 1)[1]
+    if len(char_body) >= int(batch("1111111", EM).split(b"\n", 1)[0].split(b" ")[2]):
+        fails.append("pair-batch-control-char: the fixture's char-decoded body is not shorter than "
+                     "its announced byte size, so the char-framed reader would have parsed it and "
+                     "the multibyte row below is not a regression test -- %d chars" % len(char_body))
+    counts[1] += 1
+    got = parse_pair_batch(["1111111"], batch("1111111", EM))
+    if not isinstance(got, dict) or got.get("1111111") != EM.split("\n\n", 1)[1]:
+        fails.append("pair-batch-multibyte: a commit message whose bytes outnumber its characters was "
+                     "not decoded -- that is the shape `1c385b7` measures 1364 bytes against 1361 "
+                     "characters, which the shipped char-framed reader answered None for -- %r" % (got,))
+    counts[1] += 1
+    # Position independence: the shipped reader only reddened when the multibyte record sorted LAST.
+    two = batch("1111111", ASCII_MSG) + batch("2222222", EM)
+    both = parse_pair_batch(["1111111", "2222222"], two)
+    if not isinstance(both, dict) or both.get("2222222") != EM.split("\n\n", 1)[1]:
+        fails.append("pair-batch-order: a multibyte record last in the batch desynced the framer -- "
+                     "the position arithmetic that made `make verify` red on one corpus order and "
+                     "green on the reverse -- %r" % (both,))
+    counts[0] += 1
+    if parse_pair_batch(["1111111"], batch("1111111", EM, announce=len(EM.encode()) - 2)) is not None:
+        fails.append("pair-batch-short-record: a record whose bytes do not end where its own header "
+                     "said they would was answered with a message instead of a refusal")
+    counts[0] += 1
+    if parse_pair_batch(["1111111"], batch("1111111", EM, name="9999999f")) is not None:
+        fails.append("pair-batch-desync-name: a header naming an object other than the one asked for "
+                     "was answered with its message -- a desynced stream re-aligning three bytes into "
+                     "the next header and grading a row on its neighbour's bytes, silently")
+    counts[1] += 1
+    gone = parse_pair_batch(["1111111"], b"1111111 missing\n")
+    # Keyed AND `None`, not merely absent: a framer that skips the record hands the row map a missing
+    # key, which the rule below the reader also refuses -- but then this row would pass on the skip,
+    # and the shape it names (the object is unreadable, and the reader says so under its own key)
+    # would be unpinned. Measured: the skip is invisible to `.get(k) is not None`.
+    if not isinstance(gone, dict) or "1111111" not in gone or gone["1111111"] is not None:
+        fails.append("pair-batch-missing-record: `<sha> missing` was not read as that commit being "
+                     "unreadable under its own key, which is how a vanished object stops being a "
+                     "refusal -- %r" % (gone,))
+    counts[1] += 1
     if pairs("## H-0100 · No pair\n\n- Why: nothing git here.\n", resolve=None, messages=None):
         fails.append("pair-nothing-to-ask: a log with no pairs was refused for a git problem it "
                      "does not have -- the same boundary `checkpoint_problems` draws")
@@ -2954,8 +3055,11 @@ def self_test():
           "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, the "
           "`sha` (PR #N) provenance pair (agreement and drift, the multi-number landing, the non-merge "
           "whose message carries the number and the one that does not, the dead object, the unreadable "
-          "message, the correction quotation that binds nothing, the pair a line-wrap splits, and both "
-          "git-blind answers), the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
+          "message, the correction quotation that binds nothing, the pair a line-wrap splits, both "
+          "git-blind answers, and the reader's own batch framing on synthetic bytes (the fixture's "
+          "byte-versus-character differential in both directions, a multibyte record, that record last "
+          "in the batch, a record that does not end where its header said, a header naming somebody "
+          "else's object, and `<sha> missing`)), the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
           "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
           "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
           "pointer cannot be opened, and the refusal that names which anchor floor it applied), the "
