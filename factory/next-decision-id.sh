@@ -346,10 +346,10 @@ log_is_here() { # -> 0 when the named path IS a decision log; sets $why to the r
 	# this function by its call site, so a test written outside it is invisible to every plant.
 	if [ "$layout" = filed ]; then
 		other_rel=$stem.md
-		other_kind=file
+		other_kind="file"
 	else
 		other_rel=$stem
-		other_kind=dir
+		other_kind="dir"
 	fi
 	other_here=no
 	if face_here "$other_rel" "$other_kind"; then

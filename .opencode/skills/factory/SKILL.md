@@ -157,7 +157,7 @@ When you reach a decision point, do this instead, in this order:
    ```
 
    Use exactly what it prints — and write the entry into the file its stderr `EMITS` line names
-   (`EMITS factory/DECISIONS/H-00NN.md -- create that file...`), not into a monolith: new entries are
+   (`EMITS factory/DECISIONS/H-0369.md -- create that file...`), not into a monolith: new entries are
    files in either log (#456), while existing entries stay where they are — never hand-convert one.
    It takes the union of the current checkout, `HEAD`, `refs/heads` and
    `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
