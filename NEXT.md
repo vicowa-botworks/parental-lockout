@@ -1,4 +1,38 @@
-# NEXT — issue-433 conflict tick, round 3 for PR #498 (branch `issue-433`, PR #498 open; this round ships `H-0360`: the third base sync of this branch — `origin/main` moved `fbb7764` → `cd2fa79` (the #499 merge, carrying `H-0352` and `H-0356`) and both append tails collided again: twenty-one hunks in `factory/DECISIONS.md`, twenty of them ONE carried sentence holding each parent's digits into its own copy of `NEXT.md` (proved digit-fold identical by an abort-on-first-difference assertion before either side was trusted, taken as alignment only), the twenty-first the tail junction seated ascending by id — `H-0351`, `H-0352`, `H-0354`, `H-0355`, `H-0356` — each entry byte-kept from its parent with a blank-clean splice; this hand-off conflicted in two regions because both parents re-headed the same base head, so this head sits on top, the issue-433 round head is demoted in place to a `## Record —` with its body byte-kept, trunk's issue-437 head is demoted to a Record beneath it with its three sections carried whole and `PR #499 MERGED 2026-11-21T08:13:24Z` read back from the API at this re-heading, trunk's API-annotated `issue-430` Record line is kept over ours, and the `issue-427` Record line carries both parents' notes — trunk's `PR #493 MERGED` API stamp and this branch's demotion sentence; `docs/factory.md` auto-merged, taking trunk's line-count-neutral `H-0352` paragraphs untouched; every drifted coordinate in the log lands where the shipped gate's own refusal prints it, onto the `issue-417` `Carried forward` copy of the hazard pair per the convention `H-0334`, `H-0338` and `H-0346` each settled; the gate ran to silence after this file was final — no head edit follows the re-aim; the zero-absence census is recorded in `H-0360`; checkpoint `fde7a6a`; merging belongs to the supervisor)
+# NEXT — issue-433 conflict tick, round 4 for PR #498 (branch `issue-433`, PR #498 open; this round ships `H-0363`: the fourth base sync of this branch — `origin/main` moved `cd2fa79` → `7ebb4fa` (the #494 merge `2293e98`, MERGED 2026-11-21T10:24:22Z, carrying `H-0348`/`H-0350`/`H-0353`, then the #500 merge, MERGED 2026-11-21T11:20:20Z, carrying `H-0357`/`H-0359`/`H-0361`/`H-0362`; both stamps read back from the API at this re-heading) and both append tails collided again: sixty-four hunks in `factory/DECISIONS.md`, adjudicated as an id-keyed three-way union (seven ids trunk-only, four this branch's alone, 234 byte-identical, 61 edited by one side alone), and inside the forty-eight entries BOTH sides had edited, thirty-nine spans diverged — every one a single carried sentence holding each parent's digits, or its own revision-pin, or a wider anchor cut, into the same pointer; adjudication: trunk's spelling is kept wherever one side carried a revision-pin (a pinned coordinate survives any future re-heading; `git show <pin>:<file>` opens it), and every bare coordinate lands where the shipped gate's own refusal prints it, onto the `issue-417` `Carried forward` copy of the hazard pair per the convention `H-0334`, `H-0338` and `H-0346` each settled; this hand-off conflicted in its head region because both parents re-headed the same base head, so this head sits on top, this branch's round-3 head and trunk's `issue-440` round-2 head are demoted in place to `## Record —` with every body byte-kept, and trunk's `issue-428` Record stack is carried beneath it whole; the zero-absence census ran against both parents with the pin-stripped + digits-folded shape over every merged path, every absent row accounted as an intentional replacement, no unmarked swallow; checkpoint `e23b11a`; gate numbers ride the pull body, never here (#1180); merging belongs to the supervisor)
+
+## What this round shipped, and what it did not
+
+- Shipped: the merge commit of `origin/main` `7ebb4fa` into `issue-433` carrying `Decision: H-0363`,
+  the id-keyed union above with its pinned-side rule and gate-driven re-aims, the `H-0363` entry in
+  `factory/DECISIONS.md`, and this hand-off.
+- Not shipped: no code changed — the branch's shipped artefacts stay `H-0351`, `H-0355` and `H-0360`;
+  nothing here re-aims a coordinate by arithmetic, and no pointer was written before its row was opened.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges; this pass merged nothing and asked nobody. The push spends whatever review
+   state the API reads at the new head (the #269 class); nobody has been re-asked — the ask is the
+   supervisor's `factory_request_review` poke, not this unit's.
+2. Carried from the Records below, unrenumbered: the merge-census leg (#428), the two-word hazard-row
+   repair (#428, #440), the #482 fence leg — run the suite as CI runs it, `env -u FACTORY_LOG
+   -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, plus `env -u OPENCODE_CONFIG_CONTENT
+   -u FACTORY_SERVICE_UNIT` inside a live tick — and the `SUPERVISOR-FF`/`SUPERVISOR-RERUN` watch:
+   read those journal lines before blaming the branch.
+
+## Constraints a stranger would break here
+
+- After ANY merge whose trunk side rewrote this file, run the both-parents multiset census (every line
+  of `git show <parent>:NEXT.md`, pins stripped and digits folded, contained in the merged file) before
+  trusting the auto-merged middle — `H-0330` carries the measurement, and this round ran it again.
+- The hazard fragments answer on several Record rows; a bare re-aim lands on the `issue-417`
+  `Carried forward` copy (the newest Record copy by position), and `python3 scripts/check-decisions.py
+  --citations NEXT.md` is re-run after every head edit, never inherited — head edits come BEFORE
+  pointer re-aims. The trunk-pinned copies (`088826b3:NEXT.md:720/723`, `cd2fa79:NEXT.md:763/766`)
+  need no re-aim: open them with `git show <pin>:NEXT.md`.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-433 conflict tick, round 3 for PR #498 (branch `issue-433`, PR #498 open; this round ships `H-0360`: the third base sync of this branch — `origin/main` moved `fbb7764` → `cd2fa79` (the #499 merge, carrying `H-0352` and `H-0356`) and both append tails collided again: twenty-one hunks in `factory/DECISIONS.md`, twenty of them ONE carried sentence holding each parent's digits into its own copy of `NEXT.md` (proved digit-fold identical by an abort-on-first-difference assertion before either side was trusted, taken as alignment only), the twenty-first the tail junction seated ascending by id — `H-0351`, `H-0352`, `H-0354`, `H-0355`, `H-0356` — each entry byte-kept from its parent with a blank-clean splice; this hand-off conflicted in two regions because both parents re-headed the same base head, so this head sits on top, the issue-433 round head is demoted in place to a `## Record —` with its body byte-kept, trunk's issue-437 head is demoted to a Record beneath it with its three sections carried whole and `PR #499 MERGED 2026-11-21T08:13:24Z` read back from the API at this re-heading, trunk's API-annotated `issue-430` Record line is kept over ours, and the `issue-427` Record line carries both parents' notes — trunk's `PR #493 MERGED` API stamp and this branch's demotion sentence; `docs/factory.md` auto-merged, taking trunk's line-count-neutral `H-0352` paragraphs untouched; every drifted coordinate in the log lands where the shipped gate's own refusal prints it, onto the `issue-417` `Carried forward` copy of the hazard pair per the convention `H-0334`, `H-0338` and `H-0346` each settled; the gate ran to silence after this file was final — no head edit follows the re-aim; the zero-absence census is recorded in `H-0360`; checkpoint `fde7a6a`; merging belongs to the supervisor)
 
 ## What this round shipped, and what it did not
 
@@ -32,6 +66,17 @@
   approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
 
 ## Record — issue-433 unit (branch `issue-433`, PR #498 open; this round ships `H-0351`: a decision row glues a commit token to a `(PR #N` reference and NO gate opened either number — #433 measured `(PR #427, `H-0235`)` riding two review rounds beside `cf00b44`, every token false and each one command from checked. `scripts/check-decisions.py` now resolves every glued pair through git and holds it to the commit's own message (fail closed when git cannot be asked; messages read through `git cat-file --batch` because the ref-blind leg #253 refused the first draft's `git log`), the one genuinely mis-glued shipped row (11533) is repaired to what its own commit message supports, and the 101 anchored pointers this script's growth drifted (63, then 38 after the rewrite) were re-aimed by the shipped rule's own refusals; the ticket's exact specimen and a dead token both refuse rc 1 against the real log with byte-identical control restores, and `make verify` was rc 0 — 958 passed, 0 failed — under the recorded `env -u OPENCODE_CONFIG_CONTENT` scrub for `fc88aa8`'s bytes. `H-0355`, this round's second decision, is #498's review turned into the repair it asked for: that reader framed a byte-counted `cat-file --batch` reply in characters, so a TRUE pair on a merge whose body is not pure ASCII — `1c385b7`, 1364 bytes against 1360 characters, the merge quoting a pull-request title carrying an en dash and an em dash — was refused as "the provenance rule did not run" about a row whose claim holds; the framing is in bytes now, the header's own name is held against the token that was asked for, and seven rows of `--self-test` pin the arms and the two controls on synthetic batch bytes with no git, repository or locale consulted. `make verify` re-run on those bytes in a scrubbed tick env (`env -u FACTORY_SERVICE_UNIT -u OPENCODE_CONFIG_CONTENT`) is rc 0 -- its own last line `verify: OK`, `factory/selftest.sh: 972 passed, 0 failed`, `merge-decisions --self-test: 45 ok, 0 failed`, all twelve packages `ok` under `-race`; `python3 scripts/check-decisions.py` rc 0 with 1360 citations, 583 owing an anchor and 0 refused outright, and `--self-test` 93 must-fail / 63 must-pass; `check-mutations` applies all 853 mutants. Head `d977ccc`, pushed and read back as #498's `headRefOid`, with the same read naming `headRefName issue-433` and `state OPEN`; the verdict quote rides the pull-request thread as well as this line, and the re-measure of `mergeable` after a push is the API's to return, not this file's to assert. Merging belongs to the supervisor)
+
+## Record — issue-440 conflict tick, round 2 for PR #500 (branch `issue-440`: the review of #500 demanded the sync as the deliverable — merge of `origin/main` `2293e98` taken with our side for all 20 coordinate hunks, main's `H-0353` (#494) kept at its original seat, our entries seated ascending `H-0352` → `H-0353` → `H-0356` → `H-0357` → `H-0359`, and the cross-branch id collision closed by the yield rule: our unmerged anchor-uniqueness decision moves `H-0353` → `H-0361` (erratum row in the entry; `H-0362` reconciles the `Decision: H-0353` trailer at `5540d10`), main's merged `H-0353` untouched; main's four fresh hazard-pair rows re-pinned at `2293e98`, where rivals are four byte-identical copies and lengthening is impossible; the allocator answered `H-0361` from an expired journal entry and `H-0362` only after a REFRESH, so the two allocations are 3 minutes apart and both journalled; the zero-deletion census on the five merged paths ran against both parents with the pin-stripped + digits-folded shape — every absent row accounted as an intentional replacement, no unmarked swallow; `NEXT.md` is re-headed by convention — this round on top, the `issue-428` round-4 head demoted in place to `## Record —`, every body byte-kept. Gate on these bytes: the numbers ship in the pull body, never here (#1180). Hazard rows: the pair moved with this head +2; the next sync must re-aim by the gate's refusals, not by offset.)
+
+## Record — issue-428 conflict tick, round 4 for PR #494 (branch `issue-428`: the base sync landed a **fifth** time inside one ticket — `origin/main` moved `fbb7764` → `cd2fa79` (the #499 merge, carrying `H-0352` and `H-0356`) while this tick ran, and `git merge` met 22 content hunks of which 20 were one carried sentence holding each parent's digits into its own copy of the hazard pair, plus a head collision whose trunk side is `issue-430`'s re-delivered record head. The adjudication is `H-0359` (checkpoint `1dd1a22`): 46 seam citations re-aimed digits-only onto this tree's rows 771 and 774, every destination opened on the quote before its digit was written; the allocator answered `H-0358` blind twice while `origin/issue-440` carries a live `^## H-0357` heading its union never enumerated, so this unit took `H-0359` — the #442 collision, live. Gate on the shipped bytes: rc 0, 1373 citations read, 583 owing, 0 refused; `make verify` verdicts go in the pull body, never here (#1180). Hazard rows: the pair is at 771/774 on THIS tree — inserting a line above them moves every seam pointer again, and the next sync must re-aim by the gate's refusals, not by offset.)
+
+## Record — issue-428 conflict tick, round 3 for PR #494 (branch `issue-428`: the base sync is in again — `origin/main` moved `eef3210` → `fbb7764` (the #496 merge, carrying `H-0349`) and the same append tails collided a third time: twenty-one hunks in `factory/DECISIONS.md`, twenty of them one carried sentence holding each parent’s digits into its own copy of this file (trunk’s `H-0349` round had re-aimed the hazard pair to 720/723, this branch still said 657/660), the twenty-first the tail junction, now seated ascending `H-0348`, `H-0349`, `H-0350` by id; in `factory/selftest.sh` trunk’s fourteen fresh legs went inline ahead of this branch’s leg-file runner and the tally, and every live pointer into this hand-off and into the runner line was re-aimed at the rows it names on the merged tree, each destination opened before its digit was written; this file is re-headed by convention — this round on top, both parents’ heads demoted in place to `## Record —`, every body byte-kept; the adjudication is `H-0353`, carried by the merge commit itself; the pull Refs #428 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## Record — issue-428 conflict tick, round 2 for PR #494 (branch `issue-428`: the base sync is in — `origin/main` moved `b195a5e` → `eef3210` (the #493 merge, carrying `H-0347`) and all three append tails conflicted: the `factory/DECISIONS.md` tail junction is a union in ascending id order (`H-0347` under `H-0346`, `H-0348` under `H-0347`), the `factory/selftest.sh` tail keeps trunk's three baseline legs inline and seats this branch's leg-file runner behind them before the tally, and this hand-off kept its shape — this head replaced the round-1 head line-for-line and both parents' heads were demoted in place to `## Record —` with every body byte-kept, so the hazard-pair pointers into this file stayed exactly where they were read; the adjudication is `H-0350`, carried by the merge commit itself (the interrupted tick checkpointed pre-`H-0349`, which `issue-430` has since taken, so this entry yields and says so); the pull Refs #428 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## Record — issue-428 unit (branch `issue-428`, PR open; the shared append tail on `factory/selftest.sh` — 3 of 8 open branches measured conflicting on it by #428 — got its phase 1 repair: the suite now sources `factory/selftest.d/*.sh` in `LC_ALL=C` order via `run_selftest_d_legs`, the first leg family ships as a file there, and it opens with the falsification leg #428 demanded: two appended monolith tails MUST still conflict; merging belongs to the supervisor)
+
 
 ## Record — issue-437 unit (branch `issue-437`, PR #499 MERGED 2026-11-21T08:13:24Z read back from the API at re-heading; this round ships `H-0352`: #437 measured the escalation park dead because the queue read a label name no repository has, and both premises died on trunk — `factory/common.sh` now defaults to `question`, a label every repository is created with (H-0250), and #313 made `parked` a real class that starts no tick (live pass parks #334, #393, #476; 134 `PARKED` journal lines). What still shipped is the residue the ticket's item 2 named: two paragraphs of `docs/factory.md` that denied, in the present tense, that the queue reads the escalation marker, and a zero-count journal claim the live supervisor has refuted — re-aimed with line-count-neutral edits so none of the 89 decision-log citations aimed at that page moved. Items 1 and the `--status` parked count are retired by measurement, recorded in H-0352 and in the evidence comment on #437; merging belongs to the supervisor)
 
@@ -4770,3 +4815,103 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
    this append sits below all of them. Whoever rewrites the head re-aims them, and
    `python3 scripts/check-close-verb.py NEXT.md` is still rc 1 on those two rows — carried
    unchanged, disclosed, owed.
+
+## Record — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
+
+## What this round shipped (issue-428)
+
+- `factory/selftest.sh`: a `run_selftest_d_legs` runner appended at the last append-safe junction (it
+  runs before the tally, so leg files can never touch the summary), sourcing `factory/selftest.d/*.sh`
+  at maxdepth one in `LC_ALL=C` byte order; absent or empty directory is silent-and-green. The old body
+  stays inline and untouched — phase 1 only seats the runner and the first file.
+- `factory/selftest.d/000-split-merge-clean.sh`: the first leg family as a file, eight legs: the
+  fixture, its premise and null variants (one-sided merges clean), the #428 falsification control
+  (two appended monolith tails must still CONFLICT — if this leg ever goes green the ticket's premise
+  is dead), the repair sentence (two distinct leg files merge CLEAN and both land with distinct
+  blobs), the kept hazard (same filename stays a visible `add/add` — no `merge=union`, per #381),
+  the runner's own discovery pinned from the shipped text (sorted byte order, `*.sh`, maxdepth one,
+  both quiet arms), a real merged-worktree end-to-end (both units' legs run, sorted), and the scan
+  half of the migration hazard: `pos_unconfigured_repos` now also reads every leg file, with its
+  control planted on a copy of the leg file itself.
+- `.opencode/skills/factory/SKILL.md`: the new-leg procedure appended at EOF — a leg is a file,
+  sourced mid-run, linted standalone, and a unit never migrates an existing leg.
+- Decision `H-0348` over checkpoint `bd7d309`. `NEXT.md` kept its shape: this H1 replaced the
+  `issue-424` head line-for-line and the demoted head rides at the foot as a Record, so the 40
+  hazard-pair pointers into this file stayed exactly where they were read on 20 Nov.
+
+## What is still owed by this round (issue-428)
+
+- **Phase 2, un-ticketed as of 20 Nov**: move the inline legs into `factory/selftest.d/` in batches,
+  each batch green in `make verify`, never rewriting an open branch. The five self-reading sites to
+  carry `$BASH_SOURCE` with them were listed in `factory/selftest.sh` on 20 Nov at `:1538`, `:1718`,
+  `:14923` (plus its control at `:14933`), `:14954`, and `:26603`–`:26612` — re-read them with
+  `grep -n 'HERE/selftest.sh' factory/selftest.sh` before moving anything; they slide with every
+  merge. In-flight branches keep appending to the old body until they merge, then move in a batch.
+- **`NEXT.d/` split with its gate** (#428's second artifact): one file per claim plus pointing
+  `scripts/check-next-md.sh` at the directory — deliberately not shipped here, because shipping the
+  home without moving the gate would put claims where nothing reads them.
+- The runner's discovery is pinned, but a leg file that prints to stdout would still land in the
+  suite's verdict stream; nobody has planted one to see what the tally does with it.
+
+## Record — #494's checks-failing round (issue-428, 2026-11-20; merging belongs to the supervisor)
+
+- CI at head `45154ca` read `verify` and `shellcheck` FAILURE (run 44838665451), one root cause:
+  the leg file this branch ships carried six shellcheck findings — 4 SC1091 (the leg sources a
+  `runner.sh` it extracts into its scratch directory at runtime; no static path to follow) and
+  2 SC2015 (the two quiet-arm rows inside `s000_runner_legs`). The phase-1 receipt
+  `check-shell: rc 0, 33 scripts` did not hold on the pushed bytes: measured on the clean tree at
+  `45154ca` the step prints `check-shell: 0.10.0 over 34 scripts` and exits 1 — a receipt that
+  predates the thing it certifies; the correction is on the pull body.
+- Fixed in one commit: `# shellcheck disable=SC1091` with its reason at each of the four call
+  sites (the convention `factory/factory.sh`, `factory/install-timer.sh` and
+  `factory/retention-census.sh` already ship), and a De Morgan rewrite of the two SC2015 arms —
+  SC2015 has zero disable precedent in the repository, and the rewrite keeps both arms'
+  semantics exactly (`s000_runner_legs` and `s000_merged_both_run` pass on the fixed bytes).
+  Mechanical under tie-break 6, so no `H-` entry and no allocator call.
+- Gate on the fixed tree with the tick env vars cleared: `make verify` ended `verify: OK`, rc 0
+  (measured 20 Nov on the fixed tree; an independent second run at the same bytes printed the
+  same last line).
+  `./scripts/check-shell.sh` rc 0 over 34 scripts; `bash factory/selftest.sh`
+  `964 passed, 0 failed`. #482 re-confirmed live this tick: with the tick env set, the suite reads
+  `963 passed, 1 failed` and the single FAIL is the fence leg `and nothing else does`.
+- This tick wrote nothing on GitHub beyond its own branch push and the #494 pull body; the
+  post-push review state is read back raw and quoted there. Round read after the fix push:
+  `CHANGES_REQUESTED` at `45154cac` (hermesvicowa, 2026-11-21T00:10:31Z, before that push) —
+  blocking 1 was the six lint findings, answered by `ba92d75`; blocking 2 was the `check-shell
+  rc 0 over 33 scripts` receipt in the body and in `H-0348`'s Effect, answered by the corrected
+  sentences in this same round's second commit and the pull body. The re-review and the reviewer
+  re-ask belong to the supervisor's poke.
+
+## What this round shipped (issue-428 round 2, conflict tick for PR #494)
+
+- The base sync: `origin/main` `eef3210` (the #493 merge, carrying `H-0347`) merged into `issue-428`
+  as one merge commit — the only shape available here (squash and rebase merge are off, force-push
+  is denied to a tick). The adjudication is `H-0350` over checkpoint `3a91850`; the interrupted tick
+  had taken `H-0349` before its checkpoint and `issue-430` has since pushed that id, so this round
+  yields and its entry says so (`H-0297` precedent).
+- The three hunks, all unions: the `factory/DECISIONS.md` tail junction seats `H-0347` under `H-0346`
+  and `H-0348` under `H-0347` in ascending id order (the gate's heading rule enforces it); the
+  `factory/selftest.sh` tail keeps trunk's three baseline legs inline and seats this branch's
+  `run_selftest_d_legs` runner behind them, still the last block before the tally; `NEXT.md` swapped
+  its head line-for-line and both parents' heads demote in place to `## Record —`, bodies byte-kept,
+  so the hazard pair moved four lines and the forty log pointers re-aimed by the gate's own refusals,
+  digits only, landing on the `issue-417` Record copy; `H-0348`'s runner citation re-aimed `+108`.
+- Zero-deletion census (digit-folded multiset, both parent blobs): zero absent rows both directions
+  on both `factory/` files; `NEXT.md` one absent row per parent, each the spent raw head line the
+  demotion re-wrote. Marker census 0 all three shapes; `bash -n` clean; `check-decisions` rc 0 with
+  `POINTER_DEBT` 583 unmoved. The suite tally and `make verify` verdicts ride the pull body only
+  (#1180), and the post-push review state is read back there, never here.
+- This push spends the `APPROVED` read taken at `0ab46ae` — the #269/`H-0010` class; nobody has been
+  re-asked: the ask is the supervisor's poke, not this unit's.
+
+## What is still owed by this round (issue-428 round 2)
+
+- Re-review of PR #494 after this push — the poke owns the ask; this unit asked nobody and merged
+  nothing, and wrote no closing verb anywhere but `Refs` in the pull body.
+- Round-1's owed items stand unchanged in the sections above: phase 2 (move inline legs into
+  `factory/selftest.d/` in green batches, re-reading the self-reading sites first), the `NEXT.d/`
+  split shipped only together with its gate, and the un-planted stdout-leg probe.
+- Fleet carries still live: the two-word hazard-row repair (#428, #440 — the fragments still answer
+  on four rows of this file), and the #482 fence poison — run the suite as CI runs it,
+  `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, and inside a live
+  tick add `-u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT`.

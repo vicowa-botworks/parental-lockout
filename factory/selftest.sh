@@ -3134,7 +3134,22 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 		# The opposite polarity, measured off the same stash rather than argued: the rendering without
 		# `--binary` is non-empty AND unusable, which is the pair the size guard cannot tell apart. An
 		# assertion that cannot say "refused" here is an assertion that never applied anything.
-		if [ -n "$s" ] && git -C "$d" stash show -p --include-untracked "$s" >"$work/nobin-$where.patch" 2>/dev/null; then
+		# The re-render's stderr is CAPTURED, not discarded. `2>/dev/null` here silenced the one read
+		# that could name why a runner declines, and #500's verify job proved it: the leg refused with
+		# this sentence and nothing else (job 136780953955, 21 Nov, "control: the stash could not be
+		# re-rendered"), while every shipped arm above had passed on that same machine -- the only
+		# answer available was git's own words, and they were pointed at /dev/null. The refusal quotes
+		# rc, the journal's `stash=` field, `git --version`, and stderr, because the three earlier
+		# guards each answer a different question ($m usable, $s resolved, rc) and the FAIL has to
+		# separate them without a second run.
+		nobin_err="" nobin_rc=0
+		if [ -n "$s" ]; then
+			nobin_err=$(git -C "$d" stash show -p --include-untracked "$s" 2>&1 >"$work/nobin-$where.patch") || nobin_rc=$?
+		else
+			nobin_rc=skip
+			nobin_err='git never ran: the journal named no stash'
+		fi
+		if [ "$nobin_rc" = 0 ] && [ -n "$s" ]; then
 			[ -s "$work/nobin-$where.patch" ] || bad="${bad:+$bad; }control: the flagless rendering was empty, so nothing here isolates the flag"
 			clone="$work/binclone2-$where"
 			if git clone -q "$d" "$clone" 2>/dev/null && (cd "$clone" && git apply "$work/nobin-$where.patch" 2>/dev/null); then
@@ -3144,7 +3159,7 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 				printf '        `git apply` refuses outright -- which is what the size guard could not see.\n'
 			fi
 		else
-			bad="${bad:+$bad; }control: the stash could not be re-rendered, so the flagless arm never ran"
+			bad="${bad:+$bad; }control: the stash could not be re-rendered (rc $nobin_rc, stash=${s:-<empty>}, $(git --version), $(printf '%s' "${nobin_err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-200)), so the flagless arm never ran"
 		fi
 	fi
 
@@ -29339,6 +29354,50 @@ dpn_p4b_leg() {
 }
 dpn_leg 'each word dedupes alone' \
 	'two baselined passes cost one UNEARNED and one UNJOURNALABLE line, not a wave' dpn_p4b_leg
+
+# --------------------------------------------------------------------------- leg files (#428 phase 1)
+#
+# The last block of this file is where every leg used to be appended, and that shared append tail was
+# measured as the largest source of re-conflicts between branches of this repository: a branch that
+# appends here conflicts with every other branch that appends here, and a merge resolution that drops
+# one unit's hand-off has already been measured once (#337). #428 moves the append target out of this
+# file: new legs arrive as files under `factory/selftest.d/`, one file per leg family, and nothing a
+# second branch writes can collide with them unless both chose the same filename -- and a same-name
+# collision stays a visible conflict, because #381 weighed a `merge=union` driver that would merge a
+# same-name append silently and this repository chose the visible shape.
+#
+# The contract of a leg file, in the order it matters:
+#   * it is SOURCED by the loop below inside the running suite, never executed standalone -- the
+#     fixture root `$work`, `$HERE`, `$pass`/`$fail` and `claim_leg` exist by the time it runs, and
+#     files are read at max-depth one, `*.sh`, sorted by byte order under `LC_ALL=C`;
+#   * it makes its assertions with `claim_leg` and writes every detail to stderr -- `set -e` is on,
+#     so a bare failing command inside a sourced file aborts the whole suite;
+#   * it is linted standalone by `make check-shell` (`scripts/check-shell.sh` scans every tracked
+#     `*.sh`), so a file names the harness variables it inherits with a `# shellcheck disable=SC2154`
+#     header rather than redefining them.
+#
+# Sorted order is part of the contract, not a detail: it is `LC_ALL=C` byte order of the filename,
+# so `010-` sorts before `1-` and the numbering convention is zero-padded. The fixtures that pin this
+# loop's behaviour -- the two-file clean merge, the same-name collision, the byte-order sourcing --
+# are the leg files under `factory/selftest.d/`, witness for themselves; the hazard is in the loop's
+# text and the loop ships here (a leg file cannot witness its own discovery).
+run_selftest_d_legs() { # source every leg file, sorted; silent and green when the directory is empty
+	local _leg_dir=${SELFTEST_LEG_DIR:-$HERE/selftest.d} _leg_file
+	# SELFTEST_LEG_DIR is the seam the fixture legs use to point the loop at a planted directory;
+	# the `:-` form keeps the unset case `set -u`-quiet. Finding nothing is green, not a refusal:
+	# an absent directory is `main` before the first leg file lands, and a unit whose branch has
+	# not added one must not be reddened by the loop.
+	if [ -d "$_leg_dir" ]; then
+		while IFS= read -r -d '' _leg_file; do
+			# The only guard a sourced file needs: find prints only files, and a `*.sh` whose bytes
+			# were renamed out from under the glob is a race with a person, not with a leg.
+			# shellcheck disable=SC1090
+			source "$_leg_file"
+		done < <(find "$_leg_dir" -maxdepth 1 -type f -name '*.sh' -print0 | LC_ALL=C sort -z)
+	fi
+	return 0
+}
+run_selftest_d_legs
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

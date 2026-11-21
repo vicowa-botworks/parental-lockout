@@ -617,7 +617,7 @@ catches.
 - A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
   the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
   it, and the entry reads as though it is still re-runnable. Write the text you measured after the
-  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop. Adding" ``, at least 16 quoted characters, and
   `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
   `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
   files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
@@ -631,3 +631,31 @@ catches.
   Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.
+
+## New harness legs are files under `factory/selftest.d/`, not a tail on `factory/selftest.sh`
+
+#428 measured the shared append tail: every unit that adds a leg appends to the end of
+`factory/selftest.sh`, two tails in one window conflict by construction (3 of 8 open branches measured),
+and every merge slides the line numbers the logs cite inside that file. The repair landed in phase 1:
+the suite now ends by sourcing every `*.sh` under `factory/selftest.d/` in `LC_ALL=C` byte order via
+`run_selftest_d_legs`, whose contract block sits directly above it in the same file.
+
+- **A new leg is a new file**: `factory/selftest.d/<n>-<slug>.sh`. The `<n>-` prefix is the run order and
+  the runner sorts byte order, so pad it (three digits sorts predictably). The file is *sourced* mid-run
+  by the parent suite: `$work`, `$HERE`, `$pass`/`$fail` and `claim_leg` already exist there. Assert with
+  `claim_leg`; keep `set -e` in mind — a bare failing command inside a sourced file aborts the whole
+  suite, so detail goes to stderr and verdicts go through `claim_leg`.
+- **The file is linted standalone** by `scripts/check-shell.sh` even though it only runs sourced, so
+  naming the inherited harness variables needs a `# shellcheck disable=SC2154` header, and `make
+  check-shell` is the leg that tells you so before CI does.
+- **Do not migrate an existing leg to a file in your unit's branch.** Batches are phase 2 (see
+  `NEXT.md`); in-flight branches keep appending to the old body until they merge. A leg that reads its own
+  file — extracting a function body, scanning itself, building a control from its own bytes — must carry
+  that self-read with it (`$BASH_SOURCE`), and the list of such sites is kept in `NEXT.md`'s owed section.
+  A leg that moves and loses its self-read passes vacuously, which is the failure #428 names.
+- **Cite a leg file by name, not by line.** The point of the split is that adding a leg cannot shift a
+  coordinate inside another file; a pointer into `factory/selftest.sh` still slides. Prefer the function
+  name; a `path:line` still needs its quoted fragment like anywhere else.
+- **`NEXT.md` is unchanged by phase 1** — the hand-off stays one gated file. #428 proposes splitting it
+  into `NEXT.d/` with `scripts/check-next-md.sh` reading the directory; until that lands, write the
+  hand-off exactly as the section above says.
