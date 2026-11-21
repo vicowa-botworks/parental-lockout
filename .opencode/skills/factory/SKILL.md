@@ -617,7 +617,7 @@ catches.
 - A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
   the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
   it, and the entry reads as though it is still re-runnable. Write the text you measured after the
-  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop. Adding" ``, at least 16 quoted characters, and
   `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
   `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
   files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
