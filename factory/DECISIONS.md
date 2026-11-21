@@ -18493,4 +18493,5 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   family: a single line added above a quoted row moves every published coordinate under it,
   which is why each round re-conflicts on the same digits and why the destination is opened
   by quote, never computed by offset.
+- What lost: the checkpoint subject reads `pre-H-0358` — the id the allocator handed before the `origin/issue-440` collision was found — and a commit message cannot be reworded here, so this entry is the reconciliation between that subject and this heading, the `ed1954e` shape row 43 names. Disclosed further: this tick's control worktree at trunk `cd2fa79` could not be retired — the worktree-remove and worktree-move verbs are both refused by this session's harness permission layer (three refusals measured) — leaving a clean detached tree the supervisor's census will report `WORKTREE-ORPHAN` and reap.
 - Checkpoint: 1dd1a22
