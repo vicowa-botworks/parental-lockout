@@ -103,8 +103,9 @@ one file -- because in this layout the sequence is a filename, and filenames hav
 respects.
 
 --citations prints what the citation rule found instead of refusing on it: the unanchored
-count by the file pointed at, the citations a reader cannot open, and the anchored ones whose
-text has moved. It reads and changes nothing, and it is how the debt number is re-derived.
+count by the file pointed at, the citations a reader cannot open, the anchored ones whose
+text has moved, and since #440 the ones whose anchor is satisfied by more rows than the
+citation promised. It reads and changes nothing, and it is how the debt number is re-derived.
 
 --citations PATH lists every citation pointing at that path instead, with the log line that cites
 it. Ask before editing a file that other people's decisions quote: a merge that moves a line has to
@@ -881,7 +882,7 @@ def label_of(e):
 # digit (H-0171 x2, H-0172, quotes verified at the new lines) and two by revision pin (H-0176, H-0177
 # re-read as `35cd0ea:scripts/check-decisions.py:586`, because the 539 they measured no longer exists
 # in the file and a pin, unlike a re-date, states which tree they measured).
-POINTER_DEBT = 583  # citations that owe an anchor; may only fall (H-0308 (issue-389 review round 1) pays back the 4 that H-0307 booked as a rise, 587 -> 583, because that rise was recorded against an enforcement the shipped gate did not provide: the review of #471 at 2026-11-19T14:57:56Z ran `--citations` at 83a428e and found all four of H-0307's coordinates in the UNANCHORED bucket -- log rows 15489, 15490, 15531 and 15614, pointing at 2907, 2908, factory/selftest.sh 16162 and 15255 -- while H-0307's `Effect:` and this comment both called them anchored on the text they quote. Cause: `ANCHOR_AFTER` reads a double-quoted fragment flush against the coordinate's closing backtick, up to three spaces or apostrophes of gap, and `(`H-0093`) says` was sitting in that gap. Measured both directions on probe copies before anything was repaired: editing 2907's 54 to 55 on the shipped bytes answered rc 0 and silent -- the refusal the entry promised did not fire -- and the same edit beside one flush anchor answered rc 1 naming the row. The four now carry flush fragments on their own physical lines, so the ratcheted number is 583 on the tree that ships this line and the histogram `--citations` prints is `factory/selftest.sh` 49 and `factory/DECISIONS.md` 19: the 50 and 22 of the 587 reading, less the four. What that 587 clause itself claimed for the pair was `factory/selftest.sh` 50 and `factory/DECISIONS.md` 21, and 0 rows in the unanchored shape -- 22 is what the tree at 83a428e prints, and 4 rows had arrived in exactly the shape it denied, so both numbers are corrected here rather than inherited; the rise H-0307 recorded was legal beside its entry, and the word `anchored` in that clause was not true of the tree it was written on; H-0284's third base sync onto `b433f01` re-measured 583 on the merged pair with this entry out of the log and 583 again with it in -- 1141 citations before, 1147 after, the entry's six all anchored on their own physical line -- so the number trunk composed for trunk's corpus is verified true of the merged corpus, which is the claim the auto-merge of this file made without being asked; H-0282's second base sync onto `feb3b16` re-measured 583 on the merged corpus and the fall from 584 is row-composed, not inferred: the --citations histograms of the HEAD pair and the merged pair differ by exactly one open row -- `factory/DECISIONS.md:8469` (H-0169) `docs/factory.md:205` UNANCHORED here, re-aimed by trunk to `docs/factory.md:204` anchored there -- so the merged corpus counts that row exempt, and 584 - 1 = 583 with no other row moving across the boundary; the revision-qualified bucket grew 85 -> 89 by the union's four new revision-naming rows, none of which was ever open; H-0279's sync re-measured 584 on the merged pair and the fall from 586 is composed, not inferred: 582 open rows carried in, +2 from the rows H-0139 and H-0146 became when the #374 class refused their trunk-re-quoted present tense and they were past-tensed with the date -- the first refusals the shipped gate filed against this repository's own oldest entry; the 27 anchored drifts that merge re-aimed by the gate's named line moved no debt because they were anchored throughout; H-0268's union merge re-measured 586 on the merged pair, and the fall from this branch's 588 is composed, not inferred: this branch's logs run through the merged scanner answer 586 unanchored + 2 wrapped, and the 2 are the newline-cut anchors #369's bucket separates from the ratchet -- both live rows trunk fixed, so the merged corpus answers wrapped=0 and the 2 stop being debt without any promise being unmade; the open-row multiset diff of the same two corpora, re-measured at 12ddbc4 by H-0270 with this head's own scanner over both pairs of logs, holds 32 pure citing-line renames (14 at +2, 18 at +123) and 1 addition -- open rows 175 -> 176, the added row is main's own H-0256 Follow-up citing a bare :12339, 0 open rows lost -- and the unanchored-debt diff of the same pair is 74 rows each side over 586 on each: 5 pure renames all +2 (H-0200's :3187 row 10695->10697 and its two factory.sh rows 10697->10699, H-0210's selftest.sh:263/265 rows 11325->11327) plus 69 rows whose coordinates this merge re-aimed, entry-balanced, 0 lost 0 gained; two of the four pairs this comment formerly named, 10643->10645 and 10656->10658, name no open row in either corpus -- they are two of those re-aims, H-0200's rows at factory/common.sh 1435->1468 and 1554->1587; H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
+POINTER_DEBT = 589  # citations that owe an anchor; may only fall (H-0353 (issue #440) re-measured 583 -> 589 beside the entry that records it, a legal +6 adoption measured at the head that ships this line: the #440 continuation repair -- a revision-qualified coordinate now fills its file into the continuation store when the path half resolves uniquely, where before a pinned row handed nothing to the bare `:NNN` rows after it and left them `not-a-path`, checked by nothing -- adopted 6 rows, all named: rows 8404 (the `factory/factory.sh` `:919` of `H-0167`), 8405 (`:632` and `:665`, same entry) and 13800 (`factory/selftest.sh` `:402`, `:725` and `:1304`, `H-0253`). No claim is new: each row already wrote the coordinate, `factory/factory.sh` and `factory/selftest.sh` are untouched at this head, and a row that was invisible is now guarded. The 123-indeterminate repair itself moved no debt: lengthened rows stayed anchored and pinned rows were never in the debt number -- the indeterminate bucket was a refused list, not the counted one; H-0308 (issue-389 review round 1) pays back the 4 that H-0307 booked as a rise, 587 -> 583, because that rise was recorded against an enforcement the shipped gate did not provide: the review of #471 at 2026-11-19T14:57:56Z ran `--citations` at 83a428e and found all four of H-0307's coordinates in the UNANCHORED bucket -- log rows 15489, 15490, 15531 and 15614, pointing at 2907, 2908, factory/selftest.sh 16162 and 15255 -- while H-0307's `Effect:` and this comment both called them anchored on the text they quote. Cause: `ANCHOR_AFTER` reads a double-quoted fragment flush against the coordinate's closing backtick, up to three spaces or apostrophes of gap, and `(`H-0093`) says` was sitting in that gap. Measured both directions on probe copies before anything was repaired: editing 2907's 54 to 55 on the shipped bytes answered rc 0 and silent -- the refusal the entry promised did not fire -- and the same edit beside one flush anchor answered rc 1 naming the row. The four now carry flush fragments on their own physical lines, so the ratcheted number is 583 on the tree that ships this line and the histogram `--citations` prints is `factory/selftest.sh` 49 and `factory/DECISIONS.md` 19: the 50 and 22 of the 587 reading, less the four. What that 587 clause itself claimed for the pair was `factory/selftest.sh` 50 and `factory/DECISIONS.md` 21, and 0 rows in the unanchored shape -- 22 is what the tree at 83a428e prints, and 4 rows had arrived in exactly the shape it denied, so both numbers are corrected here rather than inherited; the rise H-0307 recorded was legal beside its entry, and the word `anchored` in that clause was not true of the tree it was written on; H-0284's third base sync onto `b433f01` re-measured 583 on the merged pair with this entry out of the log and 583 again with it in -- 1141 citations before, 1147 after, the entry's six all anchored on their own physical line -- so the number trunk composed for trunk's corpus is verified true of the merged corpus, which is the claim the auto-merge of this file made without being asked; H-0282's second base sync onto `feb3b16` re-measured 583 on the merged corpus and the fall from 584 is row-composed, not inferred: the --citations histograms of the HEAD pair and the merged pair differ by exactly one open row -- `factory/DECISIONS.md:8469` (H-0169) `docs/factory.md:205` UNANCHORED here, re-aimed by trunk to `docs/factory.md:204` anchored there -- so the merged corpus counts that row exempt, and 584 - 1 = 583 with no other row moving across the boundary; the revision-qualified bucket grew 85 -> 89 by the union's four new revision-naming rows, none of which was ever open; H-0279's sync re-measured 584 on the merged pair and the fall from 586 is composed, not inferred: 582 open rows carried in, +2 from the rows H-0139 and H-0146 became when the #374 class refused their trunk-re-quoted present tense and they were past-tensed with the date -- the first refusals the shipped gate filed against this repository's own oldest entry; the 27 anchored drifts that merge re-aimed by the gate's named line moved no debt because they were anchored throughout; H-0268's union merge re-measured 586 on the merged pair, and the fall from this branch's 588 is composed, not inferred: this branch's logs run through the merged scanner answer 586 unanchored + 2 wrapped, and the 2 are the newline-cut anchors #369's bucket separates from the ratchet -- both live rows trunk fixed, so the merged corpus answers wrapped=0 and the 2 stop being debt without any promise being unmade; the open-row multiset diff of the same two corpora, re-measured at 12ddbc4 by H-0270 with this head's own scanner over both pairs of logs, holds 32 pure citing-line renames (14 at +2, 18 at +123) and 1 addition -- open rows 175 -> 176, the added row is main's own H-0256 Follow-up citing a bare :12339, 0 open rows lost -- and the unanchored-debt diff of the same pair is 74 rows each side over 586 on each: 5 pure renames all +2 (H-0200's :3187 row 10695->10697 and its two factory.sh rows 10697->10699, H-0210's selftest.sh:263/265 rows 11325->11327) plus 69 rows whose coordinates this merge re-aimed, entry-balanced, 0 lost 0 gained; two of the four pairs this comment formerly named, 10643->10645 and 10656->10658, name no open row in either corpus -- they are two of those re-aims, H-0200's rows at factory/common.sh 1435->1468 and 1554->1587; H-0254's row-by-row read of the review corrections of H-0253 said +11 citations and NO debt move; H-0255's multiset diff of the same two trees answers +12 -- the missed row was H-0254's own quotation of this constant: 2 self-qualify (1 revision-qualified, 1 anchored on its own quoted line), 10 land in the open shape the classifier does not count; H-0250: 546 -> 588, the 52 newly-aimed continuation rows this rule adopts, measured +52 at 3d8ff711 and every one listed in factory/DECISIONS.md)
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -1225,6 +1226,19 @@ def scan_citations(text, entries, index):
             # pinned spelling is a sha; a branch name is the loose one, and `--citations` counts
             # them so the loose half stays visible.
             kind, resolved, cand = "revision-qualified", None, []
+            # (#440) The left half still NAMES a file, and a bare `:NNN` later in the same sentence
+            # must inherit it. Before a pin the same coordinate supplied that inheritance as a
+            # `file` row; orphaning it is measured, not theorized -- the row that pinned
+            # `factory/selftest.sh:10466` turned the `:263` and `:265` continuations on the next
+            # row into `not-a-path`, checked by nothing. Fill the store when the path half resolves
+            # uniquely; never guess a continuation's file any more than this rule guesses anywhere
+            # else, so an ambiguous or missing half leaves the store as it was.
+            parts = written.split(":", 1)
+            half = parts[1] if len(parts) > 1 else ""
+            if "/" in half or FILENAME_SHAPE.match(half):
+                rc_ = resolve_citation(half, index)
+                if rc_ and len(rc_) == 1:
+                    store[sid] = rc_[0]
         elif written and ("/" in written or FILENAME_SHAPE.match(written)):
             # A path with a directory in it is a path even when nothing answers to it: the file was
             # renamed, or the entry misremembered where it lived. So is a bare name that carries an
@@ -1339,6 +1353,20 @@ def classify(found, read):
     the entry measured stays as measured, and "was at `:46` on 11 Nov" keeps that promise while
     "is at `:52`" silently rewrites the record every merge.
 
+    `indeterminate` is the #440 bucket and it refuses the accept branch's blind spot. The accept
+    test asks whether the fragment is at the cited row -- a true answer, and no longer enough: a
+    fragment that also sits on other rows cannot distinguish the promised row from them, so the
+    entry says "one row" while the anchor answers several, and a scripted re-aim has no guard left
+    (#440 measured 284 coordinates re-aimed green with three landed in the wrong entry, two of
+    them 8,763 rows off inside a different heading's `Effect:` row). It must be zero like the
+    others and it is not folded into `unanchored` either way -- the row carries a quotation and a
+    lengthening is the whole repair, so it must refuse, not ratchet. Two matches are excluded from
+    the rival count: rows inside the cited range, because the promise covers the range, and the
+    citing row when the citation points from a file into that same file, because a row quotes its
+    own anchor by construction -- counting that match makes every same-file cross-row pointer
+    indeterminate with no repair that removes it (measured: 155 rows naive, 127 after the two
+    exclusions; the naive count would have refused the gate's own corpus with nothing to fix).
+
     Only `unanchored` feeds the ratchet. A pointer to a file that is absent, or to a name five files
     answer to, is not an unverified promise, it is a pointer that does not work today, and that is
     refused on its own and must be zero -- folding it into the number would have hidden the 17 pointers
@@ -1358,6 +1386,7 @@ def classify(found, read):
     broken = []
     wrapped = []
     nowstate = []
+    indeterminate = []
     cache = {}
 
     def lines_of(path):
@@ -1440,6 +1469,30 @@ def classify(found, read):
                              else "it is nowhere in the file"))
             continue
         if want in norm(" ".join(body[c["low"] - 1:c["high"]])):
+            # #440: "the fragment is at the cited row" answers *is it there*, never *is it only
+            # there*, and a fragment that also sits elsewhere cannot single out the row the entry
+            # promised -- that is how a scripted re-aim aimed three pointers into another entry's
+            # `Effect:` row over 8,000 rows away and the gate read green. The match set is already
+            # computed above; the accept branch used to discard it. Two kinds of match are not
+            # rivals: the cited range, whose promise covers every row inside it, and the citing
+            # row of a same-file citation -- a log row quotes its own anchor by construction, so
+            # counting that self-match would grade every cross-row same-file pointer in the logs
+            # indeterminate with no repair available, one sentence or not (H-0353).
+            rivals = [n for n in now
+                      if not (c["low"] <= n <= c["high"])
+                      and not (c.get("label") == c["path"] and n == c["line"])]
+            if rivals:
+                more = " and %d further rows" % (len(rivals) - 6) if len(rivals) > 6 else ""
+                indeterminate.append(
+                    "%s %s -> %s is anchored to %r and the fragment IS at the cited row, but it "
+                    "also sits on %s%s -- this check cannot tell the row the entry promised from "
+                    "those, so the pointer says one row while the anchor answers %d. Lengthen the "
+                    "quotation to a fragment only the promised row carries: the fix is one "
+                    "sentence, and an anchor that answers several rows is refused here at any "
+                    "size, because a citation a mover cannot tell apart from its lookalikes is "
+                    "the defect #440 was filed on"
+                    % (at, cite, c["path"], c["anchor"][:48],
+                       ", ".join(str(x) for x in rivals[:6]), more, len(rivals) + 1))
             continue
         where = ("it is at line %s now, not %d -- the lines above it moved, and a pointer that is "
                  "wrong by one line still lands on the wrong sentence"
@@ -1449,7 +1502,7 @@ def classify(found, read):
                  % (c["path"], c["low"], norm(body[c["low"] - 1])[:96]))
         broken.append("%s %s in %s is anchored to %r and %s"
                       % (at, cite, c["path"], c["anchor"][:48], where))
-    return unanchored, unresolvable, broken, wrapped, nowstate
+    return unanchored, unresolvable, broken, wrapped, nowstate, indeterminate
 
 
 CitationVerdict = collections.namedtuple(
@@ -1461,8 +1514,11 @@ CitationVerdict = collections.namedtuple(
     # so the headline cannot disagree with the refusal list above it. `wrapped` (#369) is on the verdict
     # for the same reason: the headline and `--citations` must read the same four buckets. `nowstate`
     # (#374) joins them for the same reason again: a fifth bucket that only the report knew about would
-    # let the headline count as debt exactly the rows the report refuses.
-    "problems measured unanchored unresolvable broken wrapped nowstate judged unjudged_because")
+    # let the headline count as debt exactly the rows the report refuses. `indeterminate` (#440) joins
+    # for the third time on the same argument: the refusal list, the `--citations` report and the
+    # headline must be three reads of one verdict, not three chances to disagree.
+    "problems measured unanchored unresolvable broken wrapped nowstate indeterminate judged "
+    "unjudged_because")
 
 
 def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
@@ -1471,8 +1527,10 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
     `read(path)` is injected so `--self-test` can assert every arm without a filesystem: the moved
     anchor, the deleted one, the path that is two files, the range written backwards, a missing file
     anchored and unanchored, a citation that names its own revision, the ratchet in both directions, and
-    the ratchet NOT running when a pointer cannot be opened, and both newline-cut anchors (#369: the
-    fragment on the next line, the quotation unclosed on this one) refused rather than counted.
+    the ratchet NOT running when a pointer cannot be opened, both newline-cut anchors (#369: the
+    fragment on the next line, the quotation unclosed on this one) refused rather than counted, and the
+    #440 anchor that answers more rows than the citation promised (both polarities, the same-file
+    self-match exclusion, the cited range, and the ratchet held while one exists).
     `judge_debt=False` is the `--log` case, where the corpus the number describes is not the corpus
     being read.
     """
@@ -1483,7 +1541,7 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                             "before the first line of the file, so there is nothing for a reader to "
                             "open" % (c.get("label", "?"), c["line"], c["entry"], c["written"],
                                       c["low"], c["high"]))
-    unanchored, unresolvable, broken, wrapped, nowstate = classify(found, read)
+    unanchored, unresolvable, broken, wrapped, nowstate, indeterminate = classify(found, read)
     for group, head in ((broken, "anchored citation(s) in the decision logs point at text that is not "
                                  "there"),
                         (unresolvable, "citation(s) in the decision logs a reader cannot open at all"),
@@ -1492,7 +1550,11 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                                   "it, which #369 refuses instead of counting as debt"),
                         (nowstate, "citation(s) in the decision logs whose sentence says the text IS at "
                                    "the coordinate in the tree being gated -- a claim the next merge "
-                                   "silently falsifies, which #374 refuses instead of counting as debt")):
+                                   "silently falsifies, which #374 refuses instead of counting as debt"),
+                        (indeterminate, "citation(s) in the decision logs whose anchor is satisfied by "
+                                        "more rows than the citation promised -- the text is at the "
+                                        "row, and elsewhere too, which #440 refuses instead of "
+                                        "accepting as checked")):
         if not group:
             continue
         problems.append("%d %s:" % (len(group), head))
@@ -1501,14 +1563,16 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
             problems.append("    ... and %d more; `python3 scripts/check-decisions.py --citations` "
                             "lists all of them" % (len(group) - MAX_LISTED))
     measured = len(unanchored)
-    unopenable = len(unresolvable) + len(broken) + len(wrapped) + len(nowstate)
+    unopenable = (len(unresolvable) + len(broken) + len(wrapped) + len(nowstate)
+                  + len(indeterminate))
     if not judge_debt:
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, nowstate,
-                               False, "--log narrows the corpus the number is a count of")
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
+                               nowstate, indeterminate, False,
+                               "--log narrows the corpus the number is a count of")
     if debt is None:
         problems.append("the citation-debt number could not be read, so the rule did not run")
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, nowstate,
-                               False, "the recorded debt could not be read")
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
+                               nowstate, indeterminate, False, "the recorded debt could not be read")
     if unopenable:
         # The ratchet is a statement about the logs, and this number is not one: every pointer in the two
         # lists above left `unanchored` without the logs changing, and a stray directory can do it to a
@@ -1517,7 +1581,9 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
         # issued to a reader under a green-gate deadline (#367 review #1). The must-be-zero refusals above
         # still stand on their own; only the comparison with the constant waits.
         problems.append("%d citation(s) above are not in the %d the ratchet guards: a pointer a reader "
-                        "cannot open, or one #374 refuses as a current-state claim, is a defect, not a "
+                        "cannot open, one #374 refuses as a current-state claim, or one #440 refuses "
+                        "because its anchor answers more rows than the citation promised, is a defect, "
+                        "not a "
                         "grandfathered promise -- and while rows sit in those lists this number is not "
                         "the number the constant is a statement about. The number is therefore "
                         "NOT judged this run, and that is not an invitation to edit POINTER_DEBT -- an "
@@ -1526,8 +1592,9 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "about the logs. Fix the list, make `git status --short --ignored` empty of "
                         "anything the logs did not write, and the comparison comes back on the next run."
                         % (unopenable, measured))
-        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, nowstate,
-                               False, "%d citation(s) in a must-be-zero bucket" % unopenable)
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
+                               nowstate, indeterminate, False,
+                               "%d citation(s) in a must-be-zero bucket" % unopenable)
     if measured > debt:
         problems.append("the decision logs hold %d `path:line` citations that owe an anchor, and the "
                         "recorded debt is %d: the count went UP. A citation you add today has to carry "
@@ -1545,8 +1612,8 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "debt of %d -- pay it down by lowering POINTER_DEBT to %d in this same commit. "
                         "An unlowered number is a ratchet with the pawl filed off: the next unanchored "
                         "citation hides in the slack." % (measured, debt, measured))
-    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped, nowstate,
-                           True, None)
+    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
+                           nowstate, indeterminate, True, None)
 
 
 TallyVerdict = collections.namedtuple(
@@ -1654,7 +1721,12 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
     copy resolves today, and an unanchored one is not a defect. That is why `unanchored` is dropped here
     and the two must-be-zero lists are not -- plus, since #369, `wrapped`: a guide that demonstrates the
     anchor rule with a quotation the newline cut in half demonstrates the very exit the rule now refuses,
-    and every unit that copies it writes debt it was never told about. `docs/factory.md` is NOT in
+    and every unit that copies it writes debt it was never told about. And since #440, `indeterminate`
+    is refused here too, deliberately inherited rather than filtered: the guide is where an ambiguous
+    anchor does the most damage, because it is the shape every unit copies -- #440 itself traced the
+    boilerplate `Effect:` anchors that matched dozens of rows to pointers re-aimed by script under a
+    gate that graded them as good, and the sharpest specimen was a guide line quoting the very row the
+    rule uses as its example. `docs/factory.md` is NOT in
     `TEACHES_RULE` and that is a measured choice, not an oversight: it is the reference, and it carries
     the shapes the rule refuses on purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line
     EOF) inside the table that explains them, so pointing this pass at it refuses the guide's own
@@ -1668,9 +1740,9 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
         for c in scan_citations(text, [], index):
             c["label"], c["entry"] = path, "the guide"
             found.append(c)
-    _, unresolvable, broken, wrapped, _nowstate = classify(found, read)
+    _, unresolvable, broken, wrapped, _nowstate, indeterminate = classify(found, read)
     return ["the file that teaches this rule has a pointer a reader cannot follow: " + r
-            for r in unresolvable + broken + wrapped]
+            for r in unresolvable + broken + wrapped + indeterminate]
 
 
 def citation_report(found, read, only=None, verdict=None):
@@ -1715,12 +1787,13 @@ def citation_report(found, read, only=None, verdict=None):
     if verdict is None:
         # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
         # rule, not a second implementation of it.
-        unanchored, unresolvable, broken, wrapped, nowstate = classify(found, read)
+        unanchored, unresolvable, broken, wrapped, nowstate, indeterminate = classify(found, read)
         note = ""
     else:
         unanchored, unresolvable, broken = verdict.unanchored, verdict.unresolvable, verdict.broken
         wrapped = verdict.wrapped
         nowstate = verdict.nowstate
+        indeterminate = verdict.indeterminate
         note = "" if verdict.judged else " (NOT judged this run: %s)" % verdict.unjudged_because
     counts = {}
     for c in found:
@@ -1739,6 +1812,9 @@ def citation_report(found, read, only=None, verdict=None):
     out.append("current-state citations (#374): sentence says the text IS there today (%d):"
                % len(nowstate))
     out.extend("  " + s for s in nowstate)
+    out.append("citations whose anchor answers more rows than the citation promised (#440) (%d):"
+               % len(indeterminate))
+    out.extend("  " + i for i in indeterminate)
     out.append("citations that name their own revision, exempt from both (%d):"
                % len([c for c in found if c["kind"] == "revision-qualified"]))
     out.append("debt this gate ratchets on: %d%s" % (len(unanchored), note))
@@ -2007,6 +2083,21 @@ def self_test():
         "skills/a/SKILL.md": "aaa\n",
         "skills/b/SKILL.md": "the second skill file's first line is long enough\n",
         "notes.md": "first\nsecond\nthe third line is long enough to anchor a citation to\n",
+        # #440: one fragment on two rows; the same shape pointed at from the target file's OWN row
+        # (the self-match a log citation carries by construction), with and without a third
+        # lookalike -- the exclusion has a control leg, and the control is the shape #440 died on.
+        "dupes.md": "line one\n"
+                    "the anchor appears on two rows of this file\n"
+                    "the anchor appears on two rows of this file, once here and again below\n"
+                    "last line\n",
+        "selfcite.md": "lockout is re-asserted on every open window of the tick\n"
+                       'see `selfcite.md:1` "lockout is re-asserted on every open window" quotes '
+                       "its own anchor\n"
+                       "nothing here repeats that fragment\n",
+        "selfcite-dup.md": "lockout is re-asserted on every open window of the tick\n"
+                           'see `selfcite-dup.md:1` "lockout is re-asserted on every open window" '
+                           "but a third row repeats it\n"
+                           "lockout is re-asserted on every open window shows up here too\n",
     }
     CITES_INDEX = tree_index(sorted(CITES_TREE))
     read_fixture = CITES_TREE.get
@@ -2049,6 +2140,49 @@ def self_test():
               "anchor-absent", "nowhere in docs/factory.md")
     cite_case('`docs/factory.md:2-3` "a sentence nothing in this file ever wrote".\n',
               "anchor-outside-range", "nowhere in docs/factory.md")
+    # #440: the anchor must SINGLE OUT the cited row, and it must be told apart from the matches
+    # that are not rivals -- the cited range (the promise covers every row in it) and the
+    # citing row of a same-file citation (a row quotes its own anchor by construction; counting it
+    # makes every cross-row pointer in the logs indeterminate with no repair that removes it).
+    cite_case('`dupes.md:2` "the anchor appears on two rows of this file".\n',
+              "anchor-duplicated-refused", "also sits on 3")
+    cite_ok('`dupes.md:3` "anchor appears on two rows of this file, once here and again below".\n',
+            "anchor-unique-ok")
+    cite_ok('Lines `dupes.md:2-3` "the anchor appears on two rows of this file".\n',
+            "anchor-dupes-inside-range")
+    # the self-match exclusion, constructed rather than body-wrapped so the citation's label IS
+    # the target file -- every other leg cites across files, where the exclusion must NOT apply
+    # (the `anchor-duplicated-refused` leg above is that control).
+    counts[1] += 1
+    self_f = scan_citations(read_fixture("selfcite.md"), [], CITES_INDEX)
+    for c in self_f:
+        c["label"] = "selfcite.md"
+    self_v = citation_problems(self_f, read_fixture, debt=0)
+    if len(self_f) != 1 or self_v.problems:
+        fails.append("self-row-is-not-a-rival: a same-file citation quoting its own anchor from "
+                     "inside the target %s -- the exclusion or the scan broke"
+                     % ("was refused" if self_v.problems else "was not scanned"))
+    counts[0] += 1
+    selfd_f = scan_citations(read_fixture("selfcite-dup.md"), [], CITES_INDEX)
+    for c in selfd_f:
+        c["label"] = "selfcite-dup.md"
+    selfd_v = citation_problems(selfd_f, read_fixture, debt=0)
+    if not selfd_v.indeterminate:
+        fails.append("self-row-exclusion-does-not-swallow-rivals: a same-file citation whose "
+                     "fragment also sits on a third row passed as checked -- the one exclusion "
+                     "ate the rule it lives inside")
+    # and the bucket refuses, it does not ratchet: no new debt, and the ratchet stays shut while
+    # one exists, the #367-review-#1 discipline every must-be-zero bucket obeys.
+    counts[0] += 1
+    held = citation_problems(cites('`dupes.md:2` "the anchor appears on two rows of this file".\n'),
+                             read_fixture, debt=0)
+    if held.judged or not any("NOT judged this run" in p for p in held.problems):
+        fails.append("indeterminate-holds-ratchet: with one indeterminate the run still compared "
+                     "the debt -- %s" % held.problems)
+    if held.measured:
+        fails.append("indeterminate-is-not-debt: an ambiguous anchor entered the debt (%d) instead "
+                     "of the refusal list -- ratcheting it would teach lowering the constant to "
+                     "hide ambiguity" % held.measured)
     cite_case('`notes.md:9` "the third line is long enough to anchor a citation to".\n',
               "anchor-past-eof", "which has 3 lines")
     cite_case('`notes.md:1-0` is not a range a reader can open.\n', "range-backwards", "cites no lines")
@@ -2075,6 +2209,19 @@ def self_test():
     # sentence in a docstring rather than a property of the rule.
     cite_ok('`origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` both name a revision.\n',
             "revision-qualified-exempt")
+    # #440: the pinned half still NAMES the file, so a bare `:NNN` later in the sentence must
+    # inherit it. Before the pin, `notes.md:2` passed its file to a `:3` continuation; pin it to
+    # `deadbeef:notes.md:2` and the continuation silently became `not-a-path`, checked by nothing
+    # -- measured on the repaired corpus, where the row pinning `factory/selftest.sh:10466`
+    # orphaned the `:263`/`:265` pair on the next row. Both polarities: the right anchor passes,
+    # and a wrong one is STILL refused (proving the continuation inherited a file and was checked;
+    # `not-a-path` would pass either way, which is the hole).
+    cite_ok('`deadbeef:notes.md:2` names that row at its revision; its `:3` '
+            '"the third line is long enough to anchor a citation to" inherits the file.\n',
+            "pinned-half-carries-the-file")
+    cite_case('`deadbeef:notes.md:2` names that row at its revision; its `:1` "the third line is '
+              'long enough to anchor a citation to" lands off it.\n',
+              "pinned-half-continuation-checked", "it is at line 3 now, not 1")
     # #369: a newline-cut anchor is a stated refusal, not silent debt. The rule reads only the
     # coordinate's physical line, and these logs wrap at ~110 columns, so a faithful fragment most often
     # lands past a newline -- and until this entry the row left the rule as unanchored debt with nothing
@@ -2349,10 +2496,10 @@ def self_test():
                      % verdict.problems)
     # ---------------------------------------------------------------------------------------------
     # #367 review #3: the files that teach the rule were the one place a false pointer could not be seen,
-    # because the rule read only the two logs. Three legs refuse a bad pointer in a guide, four hold the
+    # because the rule read only the two logs. Five legs refuse a bad pointer in a guide, four hold the
     # exemptions open -- the one that matters is the unanchored coordinate, which is a debt in a log and
     # is NOT a defect in a guide.
-    counts[0] += 4
+    counts[0] += 5
     counts[1] += 3
 
     def teach(body):
@@ -2365,6 +2512,11 @@ def self_test():
             ('read `docs/factory.md:2` "the escalation label is printed by exactly one script".\n',
              "guide-anchor-moved", "it is at line 3 now, not 2"),
             ('read `gonee.md:3` for it.\n', "guide-gone-file", "not in the tree being gated"),
+            # #440: the guide is where an ambiguous anchor does the most damage -- it is the shape
+            # every unit copies, and the boilerplate anchors #440 traces were copied exactly that
+            # way under a gate that graded them good. Inherited, not filtered.
+            ('read `dupes.md:2` "the anchor appears on two rows of this file".\n',
+             "guide-ambiguous-anchor", "also sits on 3"),
             # #369: a guide that shows the anchor rule with a quotation the newline cut demonstrates
             # the very exit the rule now refuses, and every unit copying it writes silent debt.
             ('read `docs/factory.md:3` and quote it on the line below instead:\n'
@@ -2714,6 +2866,47 @@ def self_test():
                      "`none re-measured`, or the two issue numbers that make it a count and not a "
                      "verdict about diffs this file never looked at -- %r" % (said,))
 
+    # ---------------------------------------------------------------------------------------------
+    # #440 rule legs over the REAL corpus: walk the logs that exist and re-derive the invariant the
+    # bucket is supposed to hold -- no anchored citation is accepted while its fragment answers a row
+    # outside the cited range and outside the citing row of a same-file pointer. The module's own
+    # scan_citations/parse/norm do the work, so the verdict is the gate's read, not a second
+    # implementation that can drift from it (the `check-scripts.py` import argument). The tally is
+    # deliberately NOT pinned: the corpus grows ~27 citations every four hours, and a leg naming
+    # today's number is red before the branch merges. In the two-entry fixture repo selftest.sh runs
+    # `--self-test` in, these loops simply find little or nothing, and an empty corpus is an empty
+    # truth, not a failure.
+    counts[1] += 1
+    real_paths, real_walk = log_paths(ROOT)
+    real_tree = tree_files(ROOT)[0]
+    if real_walk is None and real_tree is not None:
+        real_index = tree_index(real_tree)
+        for real_log in real_paths:
+            real_text, text_problem = read(real_log)
+            if text_problem or real_text is None:
+                continue
+            real_rel = os.path.relpath(real_log, ROOT)
+            for c in scan_citations(real_text, parse(real_text, real_rel), real_index):
+                if c["kind"] in ("not-a-path", "revision-qualified", "ambiguous") or c.get("wrapped"):
+                    continue
+                c["label"] = real_rel
+                if c["anchor"] is None:
+                    continue
+                body = read_tree(c["path"])
+                if body is None:
+                    continue
+                rows = body.splitlines()
+                want = norm(c["anchor"])
+                if c["low"] > len(rows) or want not in norm(" ".join(rows[c["low"] - 1:c["high"]])):
+                    continue  # the gate refuses these under other buckets; they are not accepts
+                for i, row in enumerate(rows):
+                    if want in norm(row) and not (c["low"] <= i + 1 <= c["high"]) \
+                            and not (c.get("label") == c["path"] and c["line"] == i + 1):
+                        fails.append(
+                            "real-corpus-anchor-singular: `%s:%s` in %s matched row %d outside the "
+                            "cited range -- the accept branch let an ambiguous anchor through again "
+                            "(#440)" % (c["written"], c["low"], real_rel, i + 1))
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
@@ -2829,7 +3022,7 @@ def main(argv):
         # passed rule.
         problems.append("citations: %s" % walk_problem)
         judged, debt_note, measured = False, None, 0
-        verdict = CitationVerdict([], 0, [], [], [], [], [], False, "the tree cannot be walked")
+        verdict = CitationVerdict([], 0, [], [], [], [], [], [], False, "the tree cannot be walked")
     else:
         # `POINTER_DEBT` counts the citations in THIS pair of logs. A tree whose logs are smaller than
         # the corpus that number was measured on is a different repository -- a fixture, a fork, an old
@@ -2883,10 +3076,11 @@ def main(argv):
               "%s" % (len([c for c in found if c["kind"] != "not-a-path"]), debt_note))
     elif judge_debt:
         print("check-decisions: %d `path:line` citations read out of the two logs, %d of them owing "
-              "an anchor and %d refused outright -- a reader cannot open them or the newline cut their "
-              "anchor -- %s"
+              "an anchor and %d refused outright -- a reader cannot open them, the newline cut their "
+              "anchor, or #440's rule says an anchor answering several rows verifies nothing -- %s"
               % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
-                 len(verdict.unresolvable) + len(verdict.broken) + len(verdict.wrapped),
+                 len(verdict.unresolvable) + len(verdict.broken) + len(verdict.wrapped)
+                 + len(verdict.nowstate) + len(verdict.indeterminate),
                  "the first number is the recorded debt, which may only fall" if verdict.judged
                  else "the ratchet was NOT judged this run: %s" % verdict.unjudged_because))
     else:
@@ -2917,7 +3111,7 @@ def main(argv):
 # gate can see an entry it has no power to read. Kept beside the rule it serves, below `main`, because
 # the two logs quote this file by line: `--citations scripts/check-decisions.py` lists every one, and
 # the three anchored rows nearest this end of the file -- the `--log` rationale comment and
-# `problems += layout_problems(label, entries)` -- sit ABOVE the seam where a per-file rule can still be
+# the `layout_problems` call row -- sit ABOVE the seam where a per-file rule can still be
 # called from, so the call went below them and this definition goes below all of them. Anything inserted
 # above a quoted row moves a published coordinate; this seam moves the two lines of the `__main__`
 # guard, which nothing quotes.

@@ -2543,6 +2543,28 @@ because the clause names selftest.sh bare and the store inherits the last coordi
 boundary narrows the mis-aim; it does not eliminate it. The line rule also saw 9 — four mis-aimed
 continuations in `H-0110` and `H-0111`, which fell to the open shape, and the same five `README.md` rows.
 
+**An anchor that answers more rows than the citation promised verifies nothing (#440).** The accept
+branch used to ask *is the fragment on the promised row* and never *is it only on that row*, so a
+boilerplate fragment — copied from the guide's own worked example — passed on any row of boilerplate:
+70 of 343 anchors answered more than one row when the issue was filed, and #440 traces what that
+shape cost (284 coordinates re-aimed green with three landing in the wrong entry). A citation whose
+fragment is satisfied outside its promised span now classifies as a fourth must-be-zero bucket,
+`indeterminate`, and it rides the same discipline as `broken`: new ones are refused on sight, the
+corpus's existing ones get repaired, and `--citations` names every one. Rivalry is counted after two
+exclusions, both measured rather than reasoned: rows inside the cited range — the promise covers every
+row of a span — and the citing row of a same-file citation, because such a row quotes its own anchor by
+construction, and counting it makes every cross-row pointer in the logs indeterminate with no repair
+that removes them. The repair has two shapes and the target decides which: lengthen the fragment until
+only the promised row answers it, or, when no such fragment exists because the rows are byte-identical
+(the class the `POINTER_DEBT` ledger row itself belongs to), pin the revision the citation was read at
+— a `sha:file:row` whose quoted text is verified against that revision, never against faith. The repair
+pass took 123 indeterminate rows to 0, 114 of them by pin. And it found the one silent byproduct:
+pinning makes a row revision-qualified, and a revision-qualified row did not hand its file to the bare
+`:NNN` continuations later in the same sentence — the `:263`/`:265` pair in `H-0210` turned into
+`not-a-path`, checked by nothing, when the row before theirs was pinned. `scan_citations` now fills the
+continuation store from a pinned row when its path half resolves uniquely, and the self-test asserts
+both polarities so the exemption cannot silently orphan a continuation again.
+
 **The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
 decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
 construction: the worked example sat in `.opencode/skills/factory/SKILL.md` six lines away from the sentence
