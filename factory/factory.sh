@@ -444,7 +444,8 @@ factory_request_review() {
 	age=$(factory_age "pr:$pr" last-poke)
 	if [ -n "$last" ] && [ "$age" -lt "$FACTORY_REVIEW_POKES" ]; then
 		log_event "POKE-SKIPPED pr:$pr asked ${age}s ago (< ${FACTORY_REVIEW_POKES}s)"
-		factory_maybe_notice "pr:$pr" awaiting_review
+		factory_maybe_notice "pr:$pr" awaiting_review "$(factory_ledger_get "pr:$pr" stuck-since)" \
+			"the re-ask is throttled: $label was asked ${age}s ago, bound ${FACTORY_REVIEW_POKES}s"
 		return 0
 	fi
 	# `gh pr edit --add-reviewer` does not work on this account, and the failure is silent unless the
@@ -483,7 +484,8 @@ factory_request_review() {
 		--jq "$JQ_REQUESTED_HOLDS" --raw-field who="$who" 2>/dev/null | grep -q true; then
 		factory_ledger_now "pr:$pr" last-poke
 		log_event "POKE-ALREADY pr:$pr $label already holds a request"
-		factory_maybe_notice "pr:$pr" awaiting_review
+		factory_maybe_notice "pr:$pr" awaiting_review "$(factory_ledger_get "pr:$pr" stuck-since)" \
+			"$label already holds a review request"
 		factory_poke_ask_note "$pr"
 		return 0
 	fi
@@ -590,7 +592,8 @@ factory_merge() {
 	if [ "$decision" != "APPROVED" ] || [ "$mergeable" != "MERGEABLE" ] ||
 		[ "$merge_state" != "CLEAN" ] || [ "$checks" != "pass" ]; then
 		log_event "MERGE-REFUSED pr:$pr decision=$decision mergeable=$mergeable state=$merge_state checks=$checks"
-		factory_maybe_notice "pr:$pr" awaiting_merge
+		factory_maybe_notice "pr:$pr" awaiting_merge "$(factory_ledger_get "pr:$pr" stuck-since)" \
+			"the merge re-read refused: decision=$decision mergeable=$mergeable mergeStateStatus=$merge_state checks=$checks"
 		return 0
 	fi
 
@@ -1198,29 +1201,69 @@ factory_resolve_conflict() {
 # is what loses it. The notice is what makes waiting forever safe -- a human hears about it once a
 # day, and the unit never leaves the queue.
 factory_wait() {
-	local unit=$1 key=$2 class=$3
-	local id
+	local unit=$1 key=$2 class=$3 detail=${4:-}
+	local id stuck
 	id="$unit:$(factory_slug "$key")"
 	[ -n "$(factory_ledger_get "$id" first-seen)" ] || factory_ledger_now "$id" first-seen
 	[ -n "$(factory_ledger_get "$id" stuck-since)" ] || factory_ledger_now "$id" stuck-since
+	stuck=$(factory_ledger_get "$id" stuck-since)
+	# A wait is a statement about ONE state, and `last-class` is the proof of what changed. A unit
+	# that leaves the wait and comes back -- `mergeability_pending` while GitHub computes, then
+	# `awaiting_review` when the read lands, then back -- used to carry the first stamp through both
+	# trips, and `factory_maybe_notice` aged that single clock: the escalations of several distinct
+	# waits compounded into one, and the comment posted under the newest class named whatever
+	# verdict the FIRST wait had. Resetting the clock on a class change is honest twice over -- the
+	# new wait is young even when the old one was old, and each notice stays within one class of
+	# the state it describes. `#430` is the measured shape: an early quiet `mergeability_pending`
+	# stamp made the first human-facing sentence possible at the first wait of a later state.
+	if [ -n "$(factory_ledger_get "$id" last-class)" ] &&
+		[ "$(factory_ledger_get "$id" last-class)" != "$class" ]; then
+		log_event "WAIT-RESET $id $(factory_ledger_get "$id" last-class) -> $class stuck-since cleared with the class"
+		factory_ledger_clear "$id" stuck-since
+		factory_ledger_clear "$id" last-notice
+		# The new clock is the value computed HERE and passed onward, not a re-read of the ledger:
+		# `--dry-run` no-ops every ledger write (H-0017), and a re-read under a dry run would hand
+		# `factory_maybe_notice` the pre-reset stamp and post a notice the real pass would never
+		# write -- a rehearsal that behaves differently from the action it rehearses is the exact
+		# defect #430's shared clock was, wearing the dry-run's clothes.
+		stuck=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+		factory_ledger_set "$id" stuck-since "$stuck"
+	fi
 	factory_ledger_set "$id" last-class "$class"
 	log_event "WAIT $id $class"
-	factory_maybe_notice "$id" "$class"
+	factory_maybe_notice "$id" "$class" "$stuck" "$detail"
 }
 
 # One comment per FACTORY_ESCALATE_AFTER per unit, saying what is blocking and that nothing was
-# parked. This is the only place the supervisor speaks to a human.
+# parked. This is the only place the supervisor speaks to a human, which is exactly why its two
+# facts have to be true: the clock it quotes is the current wait's own (the caller read it before
+# any reset, and passed it, so a re-read cannot report the reset stamp as the age it just cleared),
+# and who it blames is read from the API in the same breath, not copied from the class name.
+# `mergeability_pending` is blocked on GitHub's computation; `awaiting_review` on a named reviewer;
+# `awaiting_merge` on a state neither the harness nor a reviewer controls. Telling a maintainer
+# "a maintainer decision is what is missing" when no review request is outstanding is the defect
+# #430 measured, and it is what the evidence line below is for: the sentence about a person may
+# only name a person the live read actually finds holding a request.
 factory_maybe_notice() {
-	local id=$1 class=$2 pr=${1#pr:}
+	local id=$1 class=$2 pr=${1#pr:} stuck=${3:-} detail=${4:-}
+	local requested evidence stuck_ts now_ts age_stuck
 	[ "$pr" != "$id" ] || return 0
-	[ -n "$(factory_ledger_get "$id" stuck-since)" ] || return 0
-	[ "$(factory_age "$id" stuck-since)" -ge "$FACTORY_ESCALATE_AFTER" ] || return 0
+	[ -n "$stuck" ] || return 0
+	stuck_ts=$(date -u -d "$stuck" +%s 2>/dev/null || printf '0')
+	now_ts=$(date -u +%s)
+	age_stuck=$((now_ts > stuck_ts ? now_ts - stuck_ts : 0))
+	[ "$age_stuck" -ge "$FACTORY_ESCALATE_AFTER" ] || return 0
 	[ "$(factory_age "$id" last-notice)" -ge "$FACTORY_ESCALATE_AFTER" ] || return 0
-
-	run_action gh pr comment "$pr" --body "**Still waiting, and still polling.** The delivery supervisor has watched this pull request since $(factory_ledger_get "$id" stuck-since) and it is still in \`$class\`. Nothing has been parked. If a maintainer decision is what is missing, say so here and the supervisor will stop asking for the same thing again." ||
+	requested=$(api_get "pulls/$pr/requested_reviewers" "$JQ_REQUESTED_LIST" '')
+	if [ -n "$requested" ]; then
+		evidence="A review request is outstanding with $requested. If a maintainer decision is what is missing, say so here and the supervisor will stop asking for the same thing again."
+	else
+		evidence="No review request is outstanding on this pull request, so this is not a wait on a person: the harness is waiting for the state named above and will act the moment a re-read shows it changed."
+	fi
+	run_action gh pr comment "$pr" --body "**Still waiting, and still polling.** The delivery supervisor has watched this pull request since $stuck in \`$class\` and it has not left that state. Nothing has been parked. What the queue last read: ${detail:-$class}. $evidence" ||
 		return 0
 	factory_ledger_now "$id" last-notice
-	log_event "NOTICED $id $class after $(factory_age "$id" stuck-since)s"
+	log_event "NOTICED $id $class after ${age_stuck}s"
 }
 
 # --------------------------------------------------------------------------- the tick
@@ -2166,14 +2209,19 @@ factory_body() {
 		# helpful would put a second, weaker opinion in the path of a reviewer's missing bytes.
 		review_unreadable)
 			factory_review_note "$key" "$detail" || rc=4
-			factory_wait "$unit" "$key" "$class"
+			factory_wait "$unit" "$key" "$class" "$detail"
 			;;
 		checks_failing | address_review | unclaimed | branch_without_pr)
 			workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s\037%s' "$class" "$key" "$detail" "$branch" "$issue" "$ask" "$unit")"$'\n'
 
 			;;
-		awaiting_merge | awaiting_review | checks_pending | draft)
-			factory_wait "$unit" "$key" "$class"
+		# `mergeability_pending` waits like the others and must never join `workable`: the row says
+		# the mergeability read has not returned, so a tick dispatched here would burn a ceiling on
+		# a row the queue cannot yet locate -- and worse, the wait's ONE human-facing notice would
+		# age into a sentence blaming a maintainer for a state GitHub had not produced (#430's
+		# live comment). Quiet here is the whole fix: no session, no comment, one re-read later.
+		awaiting_merge | awaiting_review | checks_pending | draft | mergeability_pending)
+			factory_wait "$unit" "$key" "$class" "$detail"
 			;;
 		# A merged pull request already claims this issue, so the work is on the trunk and the ticket
 		# is the only thing left. It is the first class with no work for it, and the shape of the arm

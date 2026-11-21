@@ -1,4 +1,65 @@
-# NEXT — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor)
+# NEXT — issue-430 unit (branch `issue-430`; this round ships `H-0349`: the one human-facing notice the factory writes blamed a maintainer on a pull request whose `mergeable` and `mergeStateStatus` were both `UNKNOWN` — GitHub's spelling of *not computed yet* — because the classifier fell through a vacuous read into the review arms and one shared `stuck-since` aged a `mergeability_pending` wait into an `awaiting_review` comment; a vacuous read is now its own quiet class ahead of the checks and review arms, the wait clock resets when the class changes, and a notice reads `/requested_reviewers` at the moment it writes and may name only a requester that live read actually finds; merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped: the `mergeability_pending` class in both classifiers (`factory/triage.sh` and the
+  `factory.sh` classification, ahead of the checks and review arms, with the row's detail naming the
+  READ as absent — `the mergeability read has not returned` — and carrying any `checks fail` it sits
+  under); the dispatcher's wait arm carrying it under the existing throttle; the per-wait clock —
+  `factory_wait` resets `stuck-since` and `last-notice` when the class changes and passes the new
+  stamp down rather than re-reading it, because a dry run no-ops every ledger write and a re-read
+  rehearses a notice the real pass would never post; the notice's evidence line — it quotes the
+  read and its detail, and the sentence about a person may only name a person the live
+  `/requested_reviewers` read names, else it plainly names no one; the guide's table row and the
+  measured paragraph in `docs/factory.md`; eleven legs, four of them controls: the fall-through
+  mutant (blind the arm and the same fixture answers `awaiting_merge` — the class the live comment
+  was posted under), the wait-list mutant (must answer `UNKNOWN-CLASS`), the reset-disabled mutant
+  (must post the live bug from the same ledger), and the evidence-read inverter (must produce the
+  wrong sentence at both ends).
+- Not shipped: the reset only answers forward — a unit that oscillates between two wait classes can
+  never age a notice at all, and a wait that leaves and returns re-ages from zero each trip. That
+  is disclosed in `H-0349` (`What lost`), not papered over.
+- Gate state on the shipped bytes, as measured: `python3 scripts/check-decisions.py` rc 0 with the
+  recorded citation debt unchanged from base (1352 read / 583 owing anchors / 0 refused — base
+  `38bbab3`'s worktree answers the same, and this branch's own 280 drifted rows were re-aimed by
+  the gate's printed homes plus one difflib mapping for the three whose anchor the tool lists
+  truncated at six); `bash factory/selftest.sh` 972 passed, 0 failed; `make check-shell` clean
+  (shellcheck 0.10.0, 33 scripts); `check-scripts`, `check-next-md`, `check-doc-labels`,
+  `check-fixture-window`, `merge-decisions --self-test`, gofmt, `go vet`, `go build` all green on
+  this tree. One earlier selftest run answered 971/1: the red leg is `and nothing else does`, the
+  `OPENCODE_CONFIG_CONTENT` environment leg, red identically at the checkpoint commit with this
+  branch's changes absent; the post-restart shell lacks that injected variable and the leg goes
+  green — both measurements reported, neither smoothed.
+
+## What is still owed (unmeasured, outstanding)
+
+1. Nothing keeps the class list in step across `factory/triage.sh`, the `factory.sh` classifier,
+   the dispatcher's wait arms and the `docs/factory.md` table — this round updated all four by
+   hand and the H-0349 entry names that as the class's real cost. A leg that derives the set from
+   one source and refuses drift against the others is not written.
+2. GitHub's own re-computation bound for a vacuous `mergeable` read is assumed ("minutes") and was
+   never measured from this harness; if it can sit at `UNKNOWN` for hours, the quiet wait needs a
+   ceiling of its own, not the generic escalation clock.
+3. `checks_pending` and `awaiting_review` still share nothing but the throttle; whether they should
+   share an age the way `mergeability_pending` now refuses to is open — the reset made the sharing
+   visible as a defect instead of a convenience.
+
+## Constraints a stranger would break
+
+- The selftest fixture welds `mergeable: "UNKNOWN"` into every planted row; that weld is the bug's
+  shape, and a "clean-up" that gives fixtures real verdicts re-blinds the classifier legs. Per-row
+  field overrides exist (`claim_rows` payloads) — use them; do not touch the weld.
+- A new wait class must land in both classifiers, the dispatcher's wait arm and the guide table in
+  one commit; a class the dispatcher does not carry exits the tick as `UNKNOWN-CLASS`, which is the
+  refusal leg's exact assertion.
+- The notice must never name a human without the live `/requested_reviewers` read naming them —
+  the ticket's rule is pinned by asserted words in the legs, not by the comment merely existing.
+- The `stuck-since` passed into `factory_maybe_notice` must be the computed value, never a ledger
+  re-read: under `--dry-run` every ledger write is a no-op and a re-read quotes the pre-reset stamp.
+- This scratch tree's hazard, measured: a PATH-separator colon inside a scratch directory name
+  (`plock-unclaimed:430-…`) breaks PATH composition for anything exporting it; quote or rename.
+
+## Record — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 
