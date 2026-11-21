@@ -1,4 +1,75 @@
-# NEXT — issue-428 unit (branch `issue-428`, PR open; the shared append tail on `factory/selftest.sh` — 3 of 8 open branches measured conflicting on it by #428 — got its phase 1 repair: the suite now sources `factory/selftest.d/*.sh` in `LC_ALL=C` order via `run_selftest_d_legs`, the first leg family ships as a file there, and it opens with the falsification leg #428 demanded: two appended monolith tails MUST still conflict; merging belongs to the supervisor)
+# NEXT — issue-428 conflict tick, round 2 for PR #494 (branch `issue-428`: the base sync is in — `origin/main` moved `b195a5e` → `eef3210` (the #493 merge, carrying `H-0347`) and all three append tails conflicted: the `factory/DECISIONS.md` tail junction is a union in ascending id order (`H-0347` under `H-0346`, `H-0348` under `H-0347`), the `factory/selftest.sh` tail keeps trunk's three baseline legs inline and seats this branch's leg-file runner behind them before the tally, and this hand-off kept its shape — this head replaced the round-1 head line-for-line and both parents' heads were demoted in place to `## Record —` with every body byte-kept, so the hazard-pair pointers into this file stayed exactly where they were read; the adjudication is `H-0350`, carried by the merge commit itself (the interrupted tick checkpointed pre-`H-0349`, which `issue-430` has since taken, so this entry yields and says so); the pull Refs #428 and the issue keeps its own terms, never this file; merging belongs to the supervisor)
+
+## Record — issue-428 unit (branch `issue-428`, PR open; the shared append tail on `factory/selftest.sh` — 3 of 8 open branches measured conflicting on it by #428 — got its phase 1 repair: the suite now sources `factory/selftest.d/*.sh` in `LC_ALL=C` order via `run_selftest_d_legs`, the first leg family ships as a file there, and it opens with the falsification leg #428 demanded: two appended monolith tails MUST still conflict; merging belongs to the supervisor)
+
+## Record — issue-427 unit (branch `issue-427`; this round ships `H-0347`: `DECISION-ID-UNEARNED` had one word for two opposite states, so the first tick after #345's check reached trunk printed five "unearned" lines and seventeen more were queued on eight of nine open branches, for headings committed before the journalling existed (`148a7e8`, 15 Nov 08:18) and therefore unjournalable by construction. `factory_decision_provenance_snapshot` now inventories the tree's decision headings at `TICK-START` and journals `DECISION-ID-BASELINE n=…`; the end-of-tick pass reports `DECISION-ID-UNJOURNALABLE n … ids=…` once per unit per log for headings the branch already carried (own ledger key, so the backlog cannot spend each real claim's single `unearned-reported` report) and keeps `DECISION-ID-UNEARNED … baseline=tick-start|none` for ids the unit itself introduced. Three legs added at the tail of `factory/selftest.sh`; the six pre-#427 legs are deliberately left with no baseline file, because they are what exercises the `baseline=none` arm; merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped: the tick-scoped baseline (snapshot at `TICK-START`, `DECISION-ID-BASELINE` journalled), the
+  second word `DECISION-ID-UNJOURNALABLE` with its own dedupe key, `baseline=tick-start|none` on the
+  UNEARNED line, and the control #427 asked for — a heading committed before the tick began must NOT
+  read UNEARNED while a mid-tick by-eye id still does (`inherited is not unearned`,
+  `each word dedupes alone`).
+- Not shipped: the exemption's other half. `earned` still exempts an id outright, so the one id the
+  journal has ever journalled (`H-0219`) is still the one id that cannot be flagged when re-issued,
+  and whether the allocator's union contains the calling branch's own log under a dispatch is still
+  unanswered. That is the open question filed in #427's blast-radius item 5; it is not closed here.
+- Pushed at 2026-11-20T23:09Z as `eb8c61441fe9d9c882e470cf43b111fd64ae20cc`, checkpoint
+  `416388e96c9ba7dcd99a0eff9a3f5d18eee0e2b0`, base `401dbdcec0776672f5069ca3ee6eba338225e01e`, PR
+  #493 open at that sha (read back: `headRefName=issue-427`, body md5
+  `e8cbfb28fdadc0a777315d1252ee36d4` identical on both sides). Nobody was asked for review: the ask is
+  the supervisor's poke, not this unit's, and `gh pr edit --add-reviewer` writes nothing here
+  (`H-0010`).
+- Gate state at push, as measured, not as expected: `bash -n` clean on `factory/common.sh`,
+  `factory/factory.sh`, `factory/selftest.sh`; `make verify` did NOT complete before the tick
+  ceiling. The other two claims in this bullet were inverted and the review measured it:
+  `python3 scripts/check-decisions.py` exits 1 at that head with 250 refused citations (this file
+  said 210), and it is THIS branch, not trunk — base `401dbdc` answers rc 0 with 0 refused, re-run
+  `git show 401dbdc:factory/selftest.sh | sed -n '20607p'` and the anchor
+  `the names git does not hold at 100755` is on 20607 at the base commit, exactly where `H-0168`
+  cites it; the branch moved it to 20608. The drift was this branch's own stray blank line at
+  `factory/selftest.sh:18409` (+1 below it), plus +5 in `factory/factory.sh`, the new functions in
+  `factory/common.sh`, and the +53 this file's re-head moved the Record stack.
+- Round 2 (20 Nov review repair) drove the gate green for the right reasons: the selftest insertion
+  reshaped (stray blank line removed, the stranded tally comment re-seated under the new legs, the
+  diff against trunk is one tail hunk, so every drifted selftest row landed again without a digit
+  moved), the remaining drifted rows in `factory/factory.sh`, `factory/common.sh` and the `NEXT.md`
+  pointers this file's re-head moved re-aimed by the shipped gate's own refusals, `H-0347`'s
+  `Options:`/`Chose:` re-shaped into the pipe form the checker splits (the numbered prose drew its
+  own two refusals), and both shellcheck findings cleared — SC2015 to an `if`, and SC2100's real
+  anchor was the bare `baseline=tick-start` assignment, whose dash shellcheck reads as subtraction:
+  the `if` wrapper does NOT dodge it (0.10.0, re-measured), the quoted value does. The snapshot
+  guard is `[ -s "$snap" ]` now, not `-r`: an empty inventory is a failed read and belongs to the
+  verdict-less `none`, never to `tick-start`. Verdicts are quoted on the pull request, never here (#1180):
+  round-2 head `a918aaa2f45476671b0abbbf256c7c7dee0b65f8` pushed 20 Nov, read back as #493's `headRefOid`.
+
+## What is still owed (unmeasured, outstanding)
+
+- `make verify` completed green 20 Nov in a sanitized tick env (`env -u FACTORY_SERVICE_UNIT
+  -u OPENCODE_CONFIG_CONTENT`; both vars are live in a real tick env, measured here — #489's FF of
+  the REAL tree and #482's red fence control are why): `958 passed, 0 failed`, `verify: OK` rc 0,
+  `inherited is not unearned` and `each word dedupes alone` both ok. Keep the `-u` pair for every
+  verify run from a tick tree; the verdict quote rides the round-2 push and its record lands here.
+- The citation re-aim DID fold into this branch: the review's control, re-measured by this unit,
+  found base `401dbdc` at rc 0 with 0 refused, so the "trunk debt / do not fold" advice this bullet
+  used to carry was aimed at debt that does not exist. Whoever reads this next: treat a fresh
+  refusal as your own insertion drift — measure the base before calling anything pre-existing.
+- #427 stays OPEN after this merge: the re-issued-id half of its title is unshipped (above), so the
+  body deliberately says `Refs #427` and carries no closing verb.
+
+## Constraints a stranger would break
+
+- The two new functions in `factory/common.sh` are called from `TICK-START` and the end-of-tick pass
+  respectively; the snapshot must stay at `TICK-START` and nowhere later, because the instant the
+  session writes a byte the distinction between "inherited" and "taken by this unit" is gone.
+- Do not add headings to `factory/selftest.sh` mid-file on a whim: MUTANT-345's anchors in that file
+  are quoted by rows in `factory/DECISIONS.md`, and inserting above them re-aims 200+ citations. The
+  new legs went to the tail for exactly that reason; `factory_decision_headings` spells its own loop
+  quoted (`for rel in 'DECISIONS.md' …`) so the single unquoted anchor stays unique for `dpn_mut`.
+
+
+## Record — issue-424 unit (branch `issue-424`, PR open; the post-merge close check had never printed a verdict in seven measured merges — REST answers `state` lowercase while the four comparisons and every close-verb fixture carried GraphQL casing — repaired by normalising once inside `factory_close_read` (`H-0343`), re-planting the sixteen fixtures in the bytes the API sends, and dropping the merge belt's always-true `state != MERGED` clause (`H-0344`); merging belongs to the supervisor)
 
 State at push: two decision commits (`885e0e9`/`H-0343` over `bef7403`, `1687f18`/`H-0344` over `25b0066`), then the base sync `e17db5a`→ this merge carrying `H-0346` over checkpoint `1a0bee6` — `NEXT.md` headed with the `issue-423` head demoted to a Record byte-kept, the `DECISIONS.md` tail junction unioned ascending (H-0342 before H-0343/H-0344), 36 hazard-pair pointers re-aimed `+51` to `NEXT.md:587`/`590` by the gate's own refusals. Both code edits stay line-count-neutral.
 
@@ -4607,3 +4678,37 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   rc 0 over 33 scripts` receipt in the body and in `H-0348`'s Effect, answered by the corrected
   sentences in this same round's second commit and the pull body. The re-review and the reviewer
   re-ask belong to the supervisor's poke.
+
+## What this round shipped (issue-428 round 2, conflict tick for PR #494)
+
+- The base sync: `origin/main` `eef3210` (the #493 merge, carrying `H-0347`) merged into `issue-428`
+  as one merge commit — the only shape available here (squash and rebase merge are off, force-push
+  is denied to a tick). The adjudication is `H-0350` over checkpoint `3a91850`; the interrupted tick
+  had taken `H-0349` before its checkpoint and `issue-430` has since pushed that id, so this round
+  yields and its entry says so (`H-0297` precedent).
+- The three hunks, all unions: the `factory/DECISIONS.md` tail junction seats `H-0347` under `H-0346`
+  and `H-0348` under `H-0347` in ascending id order (the gate's heading rule enforces it); the
+  `factory/selftest.sh` tail keeps trunk's three baseline legs inline and seats this branch's
+  `run_selftest_d_legs` runner behind them, still the last block before the tally; `NEXT.md` swapped
+  its head line-for-line and both parents' heads demote in place to `## Record —`, bodies byte-kept,
+  so the hazard pair moved four lines and the forty log pointers re-aimed by the gate's own refusals,
+  digits only, landing on the `issue-417` Record copy; `H-0348`'s runner citation re-aimed `+108`.
+- Zero-deletion census (digit-folded multiset, both parent blobs): zero absent rows both directions
+  on both `factory/` files; `NEXT.md` one absent row per parent, each the spent raw head line the
+  demotion re-wrote. Marker census 0 all three shapes; `bash -n` clean; `check-decisions` rc 0 with
+  `POINTER_DEBT` 583 unmoved. The suite tally and `make verify` verdicts ride the pull body only
+  (#1180), and the post-push review state is read back there, never here.
+- This push spends the `APPROVED` read taken at `0ab46ae` — the #269/`H-0010` class; nobody has been
+  re-asked: the ask is the supervisor's poke, not this unit's.
+
+## What is still owed by this round (issue-428 round 2)
+
+- Re-review of PR #494 after this push — the poke owns the ask; this unit asked nobody and merged
+  nothing, and wrote no closing verb anywhere but `Refs` in the pull body.
+- Round-1's owed items stand unchanged in the sections above: phase 2 (move inline legs into
+  `factory/selftest.d/` in green batches, re-reading the self-reading sites first), the `NEXT.d/`
+  split shipped only together with its gate, and the un-planted stdout-leg probe.
+- Fleet carries still live: the two-word hazard-row repair (#428, #440 — the fragments still answer
+  on four rows of this file), and the #482 fence poison — run the suite as CI runs it,
+  `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, and inside a live
+  tick add `-u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT`.
