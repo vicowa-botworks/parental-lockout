@@ -102,8 +102,8 @@ Two things about that read are said on stderr rather than left implicit. The con
 label the repository actually carries, so a pass that parks nothing says so in words, naming the name it
 looked for; the alternative is a queue that quietly agrees with itself that nobody ever escalated
 anything. For six days that sentence was true of the shipped default, and it was the only evidence that
-the park arm was inert -- `PARKED` appears zero times in every journal this harness has kept, while units
-had been escalating honestly since #301. #311 settled the name on 18 Nov (H-0250), so the finding is now
+the park arm was inert -- `PARKED` appeared zero times in every journal kept up to H-0250's merge, when
+units had been escalating honestly since #301. #311 settled the name on 18 Nov (H-0250), so the finding is now
 about a rename or a deletion rather than a default that could never fire. Where it goes changed in the same
 change, because a finding nobody keeps is a finding nobody reads: `triage.sh` runs inside a command
 substitution, so its stderr went to the service's stderr -- journald -- while `supervisor.log`, the file
@@ -796,11 +796,11 @@ stopped unit runs -- the write with the issue verb, the read with `gh pr view` -
 with a label flag.
 
 What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
-no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
-label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two
-issue classes stay `unclaimed` and `delivered`, and the marker is a signal for a person and nothing
-else. Changing that later means moving the queue's decisions into configuration no gate reads, which is
-why a leg in `factory/selftest.sh` refuses the word appearing anywhere in the classifier.
+no reader may conclude from it is that the unit is parked or released: the ticket's dispatch stops, the
+decision stays owed, and a person releases it by taking the label off. The marker's machine half is
+#313's -- before it `triage.sh` read no label at all; since it, an issue carrying the configured name
+reads `parked`, the class that starts no tick -- and a leg in `factory/selftest.sh` refuses a
+classifier label line that can name any other class (H-0140): stop, and nothing else.
 
 ## Installing it
 

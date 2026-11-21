@@ -18177,3 +18177,50 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   still open on #427: the exemption's other half — `earned` exempts an id outright, so the one id the
   journal has ever journalled, `H-0219`, is also the one id that cannot be flagged when re-issued, and
   whether the allocator's union contains the calling branch's own log under a dispatch is unanswered.
+
+## H-0352 · #437 re-measured: the park is alive on trunk, so what is left of the ticket is the two sentences that still deny it
+
+- Question: with H-0250 having replaced the name the park reads with one every repository is created
+  with, and #313 having made `parked` a real class, which parts of #437's three-part proposed repair
+  remain owed, and how does the residue land on a page 89 decision-log citations point at?
+- Options: ship item 1 (an escalation-record column in `triage.sh`'s detail plus a prompt carry in
+  `factory.sh`) and item 3's `--status` parked count as written; costs: two surfaces no reader reads
+  since H-0250 -- a `parked` row starts no tick for a column to inform, and "the park has been dead
+  for N days" is already a journal read (`PARKED` and `TRIAGE-STDERR` lines; measured 20 Nov: 134
+  `PARKED` lines since H-0250 merged, and the pass in flight parks #334, #393 and #476) | close #437
+  as satisfied by main and ship nothing; costs: `docs/factory.md` still carries, in the present tense,
+  that the classifier "reads no label at all" and that the marker "is a signal for a person and
+  nothing else" -- the live pass contradicts both (three `parked` rows emitted, and the supervisor's
+  `parked` arm is a class that starts no tick), and that sentence is the false purpose #437's item 2
+  asked to retire | re-aim the two stale sentences inside `docs/factory.md` with an edit that holds
+  the page's line count and record items 1 and the `--status` count as retired by measurement beside
+  this entry and in #437's close evidence; costs: nothing new ships, and a retired proposal is
+  recoverable -- the reopen verb is named on the issue
+- Chose: re-aim the two stale sentences inside `docs/factory.md` with an edit that holds the page's
+  line count and record items 1 and the `--status` count as retired by measurement beside this entry
+  and in #437's close evidence; costs: nothing new ships, and a retired proposal is recoverable --
+  the reopen verb is named on the issue
+- Why: the ticket's own finding is measured dead on `origin/main`, and that measurement is what
+  decides -- a live `bash factory/triage.sh` parks #334, #393 and #476 under `question` and prints no
+  missing-label sentence, `gh issue list --state open --label blocked` answers 0, and the parked arm
+  in `factory/factory.sh` writes one journal line and dispatches nothing. The proposals that aimed at
+  a live burn (a cheap dispatch for an escalated ticket; a count of parked rows) aim today at a queue
+  that dispatches neither and journals the latter already, and shipping them anyway would reproduce
+  the ticket's own pathology -- a unit spending its ceiling on a premise that is false. Tie-break 4
+  then picks the one-file prose edit: no flag, no column, no leg, reversible by one `git revert`. The
+  line-count condition is that page's own hazard (#373: a line added there moves citations below it):
+  the census answers 89 pointers aimed at the page, none at either edited paragraph, so both edits
+  replace equal line counts and no digit under the log moves. Tie-break 6: the surrounding page
+  already repairs stale measurements by dating them and past-tensing them, and the replacement copies
+  that form for the zero-count sentence and the #313 one.
+- Checkpoint: adb4ab7233803c17991a339d91675b4f094e056f
+- Effect: measured on the bytes this entry ships -- `docs/factory.md` stands at the same line count
+  it held before the edits, `python3 scripts/check-decisions.py --citations docs/factory.md` answers
+  the same 89 pointers with nothing newly refused, and the `make verify` verdict and the read-backs
+  of #437 are quoted in the pull-request body, never here (#1180).
+- What lost: the replaced paragraphs carried two claims this entry retires without deleting the
+  history they were measured in -- the grep the page quoted (`grep -c label factory/triage.sh`
+  answered 0 on 12 Nov, and 39 on 20 Nov), and the blanket refusal of the word in the classifier
+  H-0140 shipped, of which what survives is the window rule the replacement names. The retired items
+  are recorded here rather than re-filed as tickets: a filed proposal whose premise is measured dead
+  is exactly the re-dispatch cost #437 was filed against.
