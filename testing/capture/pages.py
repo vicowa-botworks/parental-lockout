@@ -616,6 +616,14 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     cdp.require_nav_marked(got, page, spec.nav)
     cdp.require_nav_in_palette(got, page)
     cdp.require_nav_distinguishable(got, page, spec.nav)
+    # The transcription, measured against the render (#468), at the artifact viewport ONLY:
+    # `_NAV_ROWS` transcribes 360 px and says nothing about 1024 px, where the row is one line
+    # and every box in it is a different number -- a leg there would refuse every page for a
+    # claim nobody made. Under `--self-test`'s fake browser this comparison passes by
+    # construction (the fake row IS the transcription); that tautology is exactly why the leg
+    # lives here, in the driver, where a real Chrome answers it independently.
+    if width == ARTIFACT_WIDTH:
+        cdp.require_nav_transcribed(got, page, transcribed_nav(spec.nav), NAV_HEADER)
     # The state vocabulary (#199), at both viewports and on every page, for the same two reasons as
     # the six guards above: the words are rendered by four of the five templates out of one
     # stylesheet, and a page that overflows reports its width first.
@@ -1208,7 +1216,7 @@ def main(shoot_fn=None, record_fn=None):
 # an entry naming the thing it claims to guard, and the pass breaks it and requires THAT rule to go
 # red. A rule added without an entry reddens the run rather than passing unexamined, so the number
 # here and the table there are the two halves of one claim.
-EXPECTED_RULES = 85
+EXPECTED_RULES = 88  # +3 from #468: the leg, its drift refusal, its absence refusal
 
 
 # The bytes `_FakeSession.screenshot()` hands `cdp.capture_refused`, spelled a SECOND time inside
@@ -1575,60 +1583,115 @@ def _nav_current(text, href, **over):
     return _nav_link(text, href, cur=CUR, color=NAV_INK, weight="600", bc=NAV_MARK, **over)
 
 
-# The dashboard's own row at 360 px, re-measured on #388's tree: three entries on the first line,
-# two on the second, the sign-out form on a third line of its own, and the header's box spanning all
-# three -- measured `x=24 y=24 w=312 h=192`, with the nav itself at `y=93 h=123`.
+# The header box, measured `x=24 y=24 w=312 h=192` at 360 px and IDENTICAL on all five
+# sections -- `/`, `/users`, `/audit`, `/profiles`, `/settings` -- on the pages fixture on
+# 21 Nov (the row entries transcribed below are NOT identical, which is why they are per-page).
 #
-# Before this branch the transcription said `h=131` with the nav at `y=72 h=82`, and those were
-# honest boxes for a different page: 8db322a measured them, and D-0016 (`9ccbe46`) landed the same
-# day on another branch with the masthead's new `<h1>` above the row, so the merge took boxes that
-# described a masthead without it. Measured at this branch's checkpoint (83f88c7) the `<h1>` sits at
-# `y=45 h=32` and the row starts at `y=93`, where the transcription said `y=72` -- the 21 px the box
-# was short is that heading. Nothing re-measures a transcription: see the issue filed beside #388,
-# which is the finding that a transcription here can be a generation behind the page and every guard
-# stays green, because these numbers are only ever fed to fakes. It is stated here rather than
-# silently fixed because the same drift is why the words below were still `Status`: the file has
-# been `dashboard.tmpl`, and its frame `dashboard.png`, since the commit that added it (d9cd943,
-# 15 Oct), and the word that commit put in its `title` block has been the shell's row's word for it
-# ever since.
+# Before #388 the transcription said `h=131` with the nav at `y=72 h=82`, and those were honest
+# boxes for a different page: 8db322a measured them, and D-0016 (`9ccbe46`) landed the same day
+# on another branch with the masthead's new `<h1>` above the row, so the merge took boxes that
+# described a masthead without it; the 21 px the box was short is that heading. Nothing
+# re-measured a transcription then -- #468 is the finding that a transcription here could sit a
+# generation behind the page while every guard stayed green, because these numbers were only ever
+# fed to fakes. They now have a witness: `shoot()` calls `cdp.require_nav_transcribed` on every
+# artifact-viewport page, per fact with both sides quoted. It is stated here rather than silently
+# fixed because the same drift is why the words were still `Status`: the file has been
+# `dashboard.tmpl`, and its frame `dashboard.png`, since the commit that added it (d9cd943,
+# 15 Oct), and the word that commit put in its `title` block has been the shell's row's word for
+# it ever since.
 NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 192}
-# The five entries as the shell writes them, at the boxes Chrome reported on the dashboard -- none
-# of them marked. Each word is that page's own name, which is what #388 decided and what
+
+# The five entries per section, as Chrome reported them on that section's own frame at 360 px
+# on 21 Nov, measured with `cdp.NAV_JS` against the pages fixture and witnessed on every capture
+# run since by `cdp.require_nav_transcribed`. Per-page and not one canonical row because the
+# widths ARE per-page: the marked entry carries `font-weight: 600` against a link's `500`, so
+# `Dashboard` measures 96 px on `/` and 92 px everywhere else, and an entry's own width moves
+# whatever shares its line -- on `/users`, `Accounts` marked is `x=131 w=83` and pushes
+# `Audit trail` to x=228; on `/audit` it is the `Audit trail` that grows (w=91) and `Accounts`
+# that shrinks back to its link width. None of this says anything about WHICH entry is marked --
+# that stays a fact about the page the rule is faking, which `clean_nav` still takes from the
+# spec. The sign-out `form` is on a third line of its own at 360 px (`x=24 y=179 w=90 h=37`) and
+# is invisible to `NAV_JS`, which censuses `<a>`; its line is inside `NAV_HEADER`'s height, and
+# `require_nav_transcribed`'s docstring says which facts this table does and does not claim.
+# Each word is that page's own name, which is what #388 decided and what
 # `TestEachNavEntryNamesThePageItLinksTo` in the Go suite now refuses the shell to get wrong; the
 # words here are a transcription of that rule, not a second place that gets to choose.
-_NAV_ITEMS = [_nav_link("Dashboard", "/", x=24, y=93, w=96),
-              _nav_link("Accounts", "/users", x=135, y=93, w=78),
-              _nav_link("Audit trail", "/audit", x=227, y=93, w=83),
-              _nav_link("Lockout profiles", "/profiles", x=24, y=136, w=130),
-              _nav_link("Settings", "/settings", x=168, y=136, w=70)]
+_NAV_ROWS = {
+    "/": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 96, "h": 40},
+          {"text": "Accounts", "href": "/users", "x": 135, "y": 93, "w": 78, "h": 40},
+          {"text": "Audit trail", "href": "/audit", "x": 227, "y": 93, "w": 83, "h": 40},
+          {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130, "h": 40},
+          {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/users": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+               {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 83, "h": 40},
+               {"text": "Audit trail", "href": "/audit", "x": 228, "y": 93, "w": 83, "h": 40},
+               {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                "h": 40},
+               {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/audit": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+               {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+               {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 91, "h": 40},
+               {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                "h": 40},
+               {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/profiles": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+                  {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+                  {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 83, "h": 40},
+                  {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 139,
+                   "h": 40},
+                  {"text": "Settings", "href": "/settings", "x": 177, "y": 136, "w": 70, "h": 40}],
+    "/settings": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+                  {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+                  {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 83, "h": 40},
+                  {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                   "h": 40},
+                  {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 75, "h": 40}],
+}
+
+
+def transcribed_nav(nav):
+    """The transcribed row for `nav`, or a refusal that says the comparison cannot be made.
+
+    Refusing an untranscribed section rather than skipping it is the file's standing tie-break
+    for missing input: a sixth section whose `Page` arrived before its numbers did must not
+    photograph itself unmeasured and be believed, because "never compared" and "compared and
+    matched" print the same line otherwise (#468 is a whole issue about exactly that pair).
+    """
+    row = _NAV_ROWS.get(nav)
+    if row is None:
+        raise SystemExit(
+            f"the {nav!r} section has no transcribed navigation row in `_NAV_ROWS`, so its "
+            "frame cannot be asked whether it still renders what this file claims it renders. "
+            "Measure the row on the fixture (cdp.NAV_JS at the artifact viewport), transcribe "
+            "it with its date, and run the capture again (#468).")
+    return row
 
 
 def clean_nav(href):
-    """A navigation row, in the measured geometry, with `href` as the current entry.
+    """A navigation row, in the geometry transcribed for `href`'s page, with `href` current.
 
     Why a function and not a constant: a canned "the current entry is Dashboard" would make every
     rule that runs `shoot()` against a page other than the dashboard fail on a #204 guard it knows
     nothing about -- and the tempting repair for that failure is the one this file refuses
-    everywhere, which is to weaken the guard. The geometry is transcribed once, from the dashboard;
-    which of the five is marked is a fact about the page a rule is faking, and `_fake_browser`
-    takes it from the spec the way the real driver takes it from the fixture.
+    everywhere, which is to weaken the guard. The geometry is transcribed per page (#468: the
+    marked entry's `font-weight: 600` makes the widths a fact about the frame, so one canonical
+    row would refuse four of the five pages for arithmetic that is true of the page they render);
+    which of the five is marked, and the styling that follows from it, is a fact about the page a
+    rule is faking, and `_fake_browser` takes it from the spec the way the real driver takes it
+    from the fixture.
 
-    The href has to be one of the five. Asserting that here rather than defaulting to "mark nothing"
-    is the same reasoning as the `Page(nav=...)` field being keyword-only and undeclarable-by-
-    omission: a fixture that names a section the shell does not offer is a finding, not a default.
+    The href has to be one of the five sections. Asserting that here rather than defaulting to
+    "mark nothing" is the same reasoning as the `Page(nav=...)` field being keyword-only and
+    undeclarable-by-omission: a fixture that names a section the shell does not offer is a
+    finding, not a default.
     """
-    items = [dict(i) for i in _NAV_ITEMS]
-    hit = False
-    for item in items:
-        cur = item["href"] == href
-        hit = hit or cur
-        item.update(cur=CUR if cur else None,
-                    color=NAV_INK if cur else NAV_MUTED,
-                    weight="600" if cur else "500",
-                    bc=NAV_MARK if cur else NAV_CLEAR)
-    if not hit:
+    if href not in _NAV_ROWS:
         raise AssertionError(f"clean_nav asked for {href!r} and the shell offers "
-                             f"{[i['href'] for i in _NAV_ITEMS]}")
+                             f"{sorted(_NAV_ROWS)}")
+    items = []
+    for box in _NAV_ROWS[href]:
+        over = dict(box)
+        items.append(_nav_current(**over) if box["href"] == href else _nav_link(**over))
     return [{"display": "flex", "overflow": False, "items": items}]
 
 
@@ -2480,6 +2543,7 @@ CAPTURE_PATH_GUARDS = {
         "require_nav_marked": 1,
         "require_nav_in_palette": 1,
         "require_nav_distinguishable": 1,
+        "require_nav_transcribed": 1,
         "require_state_legible": 1,
         "require_skip_link": 1,
     },
@@ -2698,6 +2762,17 @@ RULE_PROBES = {
      ("returns", "cdp.require_nav_marked", None),
     "a navigation census that was never taken refuses":
      ("hollow", "cdp.require_nav_distinguishable"),
+    # #468: the transcription leg. The first two entries share one break on purpose -- both
+    # rules read `cdp.require_nav_transcribed`, one driving the guard and one driving the
+    # driver -- so an emptied guard reddens both, while a deleted CALL SITE reddens only the
+    # second. That asymmetry is the point: #396 measured that every per-guard rule calls its
+    # guard itself, so the driver-shaped rule is the only one that can see this leg deleted.
+    "a drifted transcription refuses naming both sides":
+     ("hollow", "cdp.require_nav_transcribed"),
+    "shoot measures the transcription it owes":
+     ("hollow", "cdp.require_nav_transcribed"),
+    "a section without a transcribed row refuses":
+     ("returns", "pages.transcribed_nav", []),
     "the accepted mark is printed":
      ("returns", "pages.shoot", None),
     "the state census is asked for, at both viewports":
@@ -4622,15 +4697,16 @@ def self_test():
         the fifth is read, and why the second arm has to pass or the guard is refusing the fix.
         """
         quiet = _nav_users()
-        quiet["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR)
+        quiet["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=131, y=93, w=83,
+                                                cur=CUR)
         _log, refusal = _run_shoot(quiet, ARTIFACT_WIDTH)
         if refusal is None or "looks exactly like" not in refusal:
             problems.append(f"a mark no property can see was accepted: {refusal!r}")
         elif "border-bottom" not in refusal:
             problems.append(f"the refusal does not name the properties it compared: {refusal!r}")
         border_only = _nav_users()
-        border_only["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR,
-                                                      bc=NAV_MARK)
+        border_only["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=131, y=93, w=83,
+                                                      cur=CUR, bc=NAV_MARK)
         _log, refusal = _run_shoot(border_only, ARTIFACT_WIDTH)
         if refusal is not None:
             problems.append(f"a mark drawn only in the reserved border was refused: {refusal!r}")
@@ -4656,9 +4732,14 @@ def self_test():
         hittable = _nav_users()
         for item in hittable["nav"][0]["items"][1:]:
             item["h"] = 26
-        _log, refusal = _run_shoot(hittable, ARTIFACT_WIDTH)
-        if refusal is not None:
-            problems.append(f"a page was refused for the height of entries nobody marks: {refusal!r}")
+        # Driven straight rather than through `shoot()` (#468): with the transcription leg in
+        # the driver, this row's SIBLINGS at 26 px are transcription drift too, and the leg --
+        # which runs after the floor -- would refuse the row for the wrong reason. The arm is
+        # about the floor's bound on the marked entry, so the floor is what gets asked.
+        try:
+            cdp.require_nav_marked(hittable, "/users", "/users")
+        except SystemExit as exc:
+            problems.append(f"a page was refused for the height of entries nobody marks: {exc}")
 
     def a_mark_the_browser_never_draws_refuses(problems):
         """The reserved border the mark is painted on, measured rather than assumed (#204's fifth).
@@ -4751,6 +4832,113 @@ def self_test():
             except Exception as exc:
                 problems.append(f"the {what} guard raised {type(exc).__name__} instead of refusing; "
                                 "a traceback is not an answer")
+
+    def a_drifted_transcription_refuses_naming_both_sides(problems):
+        """The transcription leg refuses per fact, and quotes the transcription AND the render.
+
+        #468's whole failure mode was a transcription a page had moved past while every guard
+        stayed green, because the transcription was only ever compared with itself. So the guard
+        is driven here with rows DERIVED from `_NAV_ROWS["/users"]` -- the fake browser's row
+        would be the transcription itself, the tautology the issue filed -- and each arm moves
+        exactly one fact: one y, one word, a missing entry, an extra one, the header's box.
+        Every arm requires BOTH values in the refusal, because the useful sentence after a
+        #388-shaped drift is "which of the two moved", and a refusal quoting one side cannot
+        answer it. The control keeps the guard honest: a transcription refused against itself
+        would refuse every capture run that asks it a true thing.
+        """
+        row = _NAV_ROWS["/users"]
+
+        def rendered(**edits):
+            items = []
+            for box in row:
+                item = dict(box)
+                item.update(edits.pop(box["href"], {}))
+                items.append(item)
+            if edits:
+                raise AssertionError(f"no transcribed entry has href {sorted(edits)}")
+            return {"nav": [{"display": "flex", "overflow": False, "items": items}],
+                    "header": dict(NAV_HEADER)}
+
+        def refusal(got, header=None):
+            try:
+                cdp.require_nav_transcribed(got, "/users", row,
+                                            dict(NAV_HEADER) if header is None else header)
+            except SystemExit as exc:
+                return str(exc)
+            return None
+
+        if refusal(rendered()) is not None:
+            problems.append(f"the transcription refused itself: {refusal(rendered())}")
+        arms = (
+            (rendered(**{"/": {"y": 72}}), None, ("y=93", "y=72")),
+            (rendered(**{"/audit": {"text": "Status"}}), None, ("'Audit trail'", "'Status'")),
+            ({"nav": [{"display": "flex", "overflow": False,
+                       "items": [i for i in rendered()["nav"][0]["items"]
+                                 if i["href"] != "/settings"]}],
+              "header": dict(NAV_HEADER)}, None, ("'Settings'", "no such link")),
+            ({"nav": [{"display": "flex", "overflow": False,
+                       "items": rendered()["nav"][0]["items"]
+                                + [{"text": "Support", "href": "/support", "x": 24, "y": 179,
+                                    "w": 70, "h": 40}]}],
+              "header": dict(NAV_HEADER)}, None, ("'/support'", "no entry")),
+            (rendered(), {"x": 24, "y": 24, "w": 312, "h": 131}, ("h=192", "h=131")),
+        )
+        for got, header, needles in arms:
+            text = refusal(got, header)
+            if text is None:
+                problems.append(f"a drifted transcription was accepted (needles {needles})")
+                continue
+            missing = [w for w in needles if w not in text]
+            if missing or "transcription" not in text:
+                problems.append(f"the refusal does not name both sides {missing}: {text!r}")
+
+    def shoot_measures_the_transcription_it_owes(problems):
+        """shoot() runs the leg where the transcription claims and only there (#468).
+
+        These rows are otherwise clean -- marked, in palette, distinguishable, inside the header
+        -- so the leg is the ONLY guard that can see them, which is what makes the arms answer
+        about this call site and not an earlier guard: #396 measured that every per-guard rule
+        calls its guard itself, so nothing but a leg-shaped row through the real driver can see
+        this call deleted. The shift moves every entry by the 21 px the masthead heading is
+        worth -- a page that grew or lost that line is exactly the drift #388 shipped blind and
+        #468 was filed for. The second arm pins the width gate: the transcription is 360 px
+        arithmetic, and a leg at 1024 px would refuse every page for a claim nobody made.
+        """
+        shifted = _nav_users()
+        for item in shifted["nav"][0]["items"]:
+            item["y"] = 114
+        _log, refusal = _run_shoot(shifted, ARTIFACT_WIDTH)
+        if refusal is None or "transcription" not in refusal:
+            problems.append(f"a row 21 px below its transcription was photographed without a "
+                            f"refusal naming the leg: {refusal!r}")
+        elif "y=93" not in refusal or "y=114" not in refusal:
+            problems.append(f"the refusal does not name both sides: {refusal!r}")
+        _log, refusal = _run_shoot(dict(shifted, inner=DESKTOP_WIDTH), DESKTOP_WIDTH)
+        if refusal is not None:
+            problems.append(f"the {DESKTOP_WIDTH} px pass was refused by a leg that transcribes "
+                            f"only {ARTIFACT_WIDTH} px: {refusal!r}")
+
+    def a_section_without_a_transcribed_row_refuses(problems):
+        """A section nobody transcribed is refused, not silently unmeasured (#468).
+
+        The failure this exists for is the new page: someone adds a sixth entry point to the
+        shell and its `Page` to PAGES, and every transcription-shaped guard skips it for want of
+        a row -- "never compared" printing the same line as "compared and matched" is the pair
+        #468 is a whole issue about. Refusing is this file's standing tie-break for missing
+        input; the canary is every declared section answering with a row, so the refusal cannot
+        become unconditional.
+        """
+        for nav in sorted({spec.nav for spec in PAGES}):
+            if not transcribed_nav(nav):
+                problems.append(f"the {nav!r} transcription is empty, so that section's frames "
+                                "are compared against nothing")
+        try:
+            transcribed_nav("/support")
+            problems.append("an untranscribed section was accepted, so a sixth entry point "
+                            "silently skips the transcription leg")
+        except SystemExit as exc:
+            if "/support" not in str(exc):
+                problems.append(f"the refusal does not name the section it has no row for: {exc}")
 
     def the_mark_is_printed_for_every_page(problems):
         """The transcript names which entry it accepted, so a wrong mark is visible after the fact.
@@ -5597,6 +5785,14 @@ def self_test():
     rule("a navigation row of one link refuses", a_navigation_row_of_one_link_refuses)
     rule("a navigation census that was never taken refuses",
          a_navigation_that_was_never_censused_refuses)
+    # #468: a transcription and the witness it never had. Three faces of one guard -- the
+    # comparison itself, the driver that must run it, and the refusal an untranscribed section
+    # owes -- because the issue was numbers copied off a page that nothing ever re-measured.
+    rule("a drifted transcription refuses naming both sides",
+         a_drifted_transcription_refuses_naming_both_sides)
+    rule("shoot measures the transcription it owes", shoot_measures_the_transcription_it_owes)
+    rule("a section without a transcribed row refuses",
+         a_section_without_a_transcribed_row_refuses)
     rule("the accepted mark is printed", the_mark_is_printed_for_every_page)
 
     # #199: the state vocabulary.
