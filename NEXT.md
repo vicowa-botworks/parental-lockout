@@ -1,4 +1,52 @@
-# NEXT — issue-456 (branch `issue-456`, PR #505 open; this unit is the answer-round for the review of #505: the review (hermesvicowa, `CHANGES_REQUESTED`, submitted 2026-11-21T16:48:26Z against head `2aa3517`) named two red legs — SC2209 at `factory/next-decision-id.sh:349` and `check-next-md` refusing the skill line that named a placeholder entry file no layout ships — and both were already repaired by `3dc8148`, which was pushed at 16:38:33Z, nine minutes before the review was filed against the older head; this unit re-measured both at `3dc8148` with controls (bare `shellcheck` 0.10.0 reproduces SC2209 twice, rc 1, on `git show 2aa3517:factory/next-decision-id.sh` and answers rc 0 on the head copy; `bash scripts/check-next-md.sh` OK, the old line's path absent from the tree and the new line's `factory/DECISIONS/H-0369.md` present), re-ran the full gate on the pushed bytes, and re-headed this hand-off, which the two code ticks had left at issue-442; merging belongs to the supervisor)
+# NEXT — issue-464 (branch `issue-464`, PR open against `main`; this unit is phase 2 of the decision-log layout: the allocator's journalled answer and the provenance journal now name the ENTRY FILE (`path=` as the line's sixth field, the same string the stderr `EMITS` line hands the writer), the end-of-tick comparison and its TICK-START `DECISION-ID-BASELINE` count the two filed faces keyed by entry path, and the filed verdicts name the file (`log=DECISIONS/<id>.md`, inherited bundles `log=DECISIONS/ ids=…`) — stacking on #456/#505's allocator half, which this branch carries by merging `origin/issue-456` at `7f771a1`; the allocator answered `H-0371` through its own tick context after the REFRESH-BLIND read, the entry is `factory/DECISIONS/H-0371.md` and the pre-effect rollback target is `17f895c` (its `pre-H-0372` label is stale, disclosed in the entry); this hand-off demotes the `issue-456` head in place to the Record beneath with every body byte-kept; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped (`factory/DECISIONS/H-0371.md`, trailer `Decision: H-0371`, checkpoint `17f895c`): the
+  journalled `DECISION-ID` line carries `path=` sixth, from one variable with `EMITS` so the two
+  cannot drift, ahead of the step-over note which stays the variable tail; pre-#464 five-field lines
+  certify ids unchanged. `factory_decision_headings` and the baseline read iterate all four faces
+  (`DECISIONS.md`, `factory/DECISIONS.md`, `DECISIONS/`, `factory/DECISIONS/`), key rows by entry
+  path, and the reports name the file; the dedupe that keeps an inherited filed bundle to one
+  `UNJOURNALABLE` line spans BOTH face loops (a plant proved one-loop dedupe emitted the ids twice).
+- Shipped: selftest legs f1-f4 with controls f1/f2 identity and planted-divergence, f3 filed-UNEARNED
+  shape + earned-by-old-shape control + face-list blinding, f4 #427-in-filed-layout + empty-filed
+  polarity; the MUTANT-345 anchor retargeted; the #303 leg `a unit answer journals itself` re-aimed
+  to the shipped six-field line (a green gate on the old literal would have meant `path=` never
+  shipped). f4's repair is recorded in the constraints below — its sixth argument is the STATEDIR.
+- Shipped: every drifted `path:line` citation in the logs re-aimed by the checker's own rule (anchor
+  opened, digits edited, line counts untouched, verified twice by an independent pass); net
+  160 rows of `factory/DECISIONS.md`, `DECISIONS.md` untouched; `POINTER_DEBT` re-measured at this
+  head: 589, unchanged — the ratchet is judged again.
+- Did not ship: phase 3 (batched split, waits for this), phase 4 (removing monoliths, not an agent's
+  call), hand-filed conversions (H-0263 still stands), and the #506 cost work (unchanged here).
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor reviews and merges; this unit asked nobody and merged nothing. #505's open review
+   round does not gate this branch: the allocator half here is identical bytes, and whatever that
+   review changes re-aims onto this branch at merge time.
+2. `H-0372` is named in the logs only as the stale checkpoint label (the gate's id-coverage report
+   lists it as a hole, report-only); whoever allocates it retires the hole by existing.
+3. Carried from the `issue-456` Record beneath: its owed items 1-4 and constraints stay true there;
+   nothing in this unit retired them.
+
+## Constraints a stranger would break here
+
+- stdout of `factory/next-decision-id.sh` must stay the id alone; `EMITS` is stderr, beside the
+  refresh and pending notes.
+- The journalled line's field order is a parse contract: `$4` tree, `$5` then `path=` at `$6`, the
+  step-over note after it, the parenthetical as tail — a reader that REQUIRES `path=` calls every
+  pre-#464 allocation unearned.
+- `$FACTORY_RUN/provenance/<unit>.headings` is keyed ENTRY-PATH-first (`DECISIONS/D-0011.md D-0011`);
+  a reader matching the old log-name key exempts nothing.
+- `dpn_prove`'s sixth positional argument is the STATEDIR (run/ledger derive from it); passing a
+  ledger dir there renders `baseline=none` and UNEARNED where UNJOURNALABLE is owed — that is exactly
+  how f4 failed before its repair.
+- Re-aim citations only by opening the file and locating the anchor text, and edit digits, never
+  whole rows; `make verify` green per commit; `POINTER_DEBT` may only fall.
+
+## Record — issue-456 (branch `issue-456`, PR #505 open; this unit is the answer-round for the review of #505: the review (hermesvicowa, `CHANGES_REQUESTED`, submitted 2026-11-21T16:48:26Z against head `2aa3517`) named two red legs — SC2209 at `factory/next-decision-id.sh:349` and `check-next-md` refusing the skill line that named a placeholder entry file no layout ships — and both were already repaired by `3dc8148`, which was pushed at 16:38:33Z, nine minutes before the review was filed against the older head; this unit re-measured both at `3dc8148` with controls (bare `shellcheck` 0.10.0 reproduces SC2209 twice, rc 1, on `git show 2aa3517:factory/next-decision-id.sh` and answers rc 0 on the head copy; `bash scripts/check-next-md.sh` OK, the old line's path absent from the tree and the new line's `factory/DECISIONS/H-0369.md` present), re-ran the full gate on the pushed bytes, and re-headed this hand-off, which the two code ticks had left at issue-442; merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 

@@ -1710,7 +1710,10 @@ while a unit that reads it stops appending to a monolith. Two files once carryin
 re-conflicts every open branch on every merge (#381 measured six different shifts of one
 `factory/selftest.sh` on one re-aim pass); the allocator naming the entry file is the writer half of
 ending that, and `H-0263` stands: *existing* entries are not hand-converted, because hand-filing a
-merged entry makes it a file no writer will ever produce again.
+merged entry makes it a file no writer will ever produce again. The journalled answer carries the
+same path now (`path=`, the sixth field, #464): `EMITS` and the journal are one destination read two
+ways, and the end-of-tick comparison reports filed headings by that path -- a unit that wrote its
+entry somewhere else than `EMITS` named is visible on its own branch, once, attributed.
 
 What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
 what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your
@@ -1885,12 +1888,24 @@ moment it printed. A number taken by eye was indistinguishable from a number han
 So the allocator's answer now leaves a witness, and every tick audits for its absence. Whenever the
 allocator runs inside a tick context -- `factory_tick` exports `FACTORY_TICK_UNIT` and
 `FACTORY_TICK_BRANCH`, and the allocator refuses to guess: a bare terminal run journals nothing -- its
-answer is journalled in `supervisor.log` as `DECISION-ID <id> unit=<row> branch=<branch> (allocator,
-<log>, <read>)`, failure-blind like the tree verdicts, because a write that cannot land must never eat
-the id it is meant to accompany. At the end of every activation `factory_decision_provenance`
-(`factory/common.sh`) compares each decision log's headings against that record: every id the branch
-newly carries, with no allocation journalled for it on *that branch*, gets
-`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- attributed, once per unit,
+answer is journalled in `supervisor.log` as
+`DECISION-ID <id> unit=<row> branch=<branch> path=<entry-file> (allocator, <log>, <read>)`,
+failure-blind like the tree verdicts, because a write that cannot land must never eat
+the id it is meant to accompany. `path=` arrived with #464, because since #456 an answer's
+destination is a file: the stderr `EMITS` line names the file to create, and the journal line names
+that same file as its sixth positional field -- ahead of the step-over note (#442), which remains the
+variable tail that says *parse no fixed field past me*. `id` and `path` are one answer, and the point
+of journalling the path is the audit below it: provenance is judged against the destination the
+writer was handed, not against a log name nobody was told to append to. Lines written before #464
+carry no `path=` and certify their ids exactly as before -- the field is additive, and a reader that
+required it would call every pre-#464 allocation unearned. At the end of every activation
+`factory_decision_provenance` (`factory/common.sh`) compares the headings of all four faces -- both
+monoliths and both filed directories, which is where every new entry arrives since #456 -- against
+that record: every id the branch newly carries, with no allocation journalled for it on *that
+branch*, gets
+`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- for a filed heading the `log=`
+field names the ENTRY FILE itself (`log=DECISIONS/D-0042.md`), the path `EMITS` handed its writer --
+attributed, once per unit,
 recorded and never fatal. The report is deliberately about attribution, not behavior: an unearned id
 is often harmless prose, and the human's verb is the yield procedure above, which a clean report would
 have made a coin flip. An id earned on a sibling branch reports too -- that is the #345 shape, a
