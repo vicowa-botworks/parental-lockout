@@ -17,11 +17,11 @@
   the wait-list mutant (must answer `UNKNOWN-CLASS`), the reset-disabled mutant (must post the live
   bug from the same ledger), and the evidence-read inverter (must produce the wrong sentence at
   both ends).
-- Push receipt: the effect commit `783666b7920acd1794a37c3e8724fabdcd3c3714` read back from
-  `git ls-remote origin refs/heads/issue-430`, not from the push's exit status (#1180); PR #496
-  read back `OPEN`, `headRefName issue-430`, base `main`, body byte-identical to its source
-  (md5 `70769cad2fe0…`, 5710 B). This receipt travels in the commit after the effect commit, so
-  the PR head is this hand-off commit, not `783666b`.
+- Push receipt, each coordinate read back live, never from an exit status (#1180): effect commit
+  `783666b`; this hand-off receipt rode as `2844b1f`; the 40-pointer re-aim that the receipt's own
+  six lines required rides as `088826b` — at that push `ls-remote` and PR #496 read back that sha,
+  `OPEN`, `headRefName issue-430`, base `main`; the pull body was corrected for the leg count and
+  read back byte-identical (md5 `4c6d94c00f54…`); `git ls-remote` answers whatever is head now.
 - Not shipped: the reset only answers forward — a unit that oscillates between two wait classes can
   never age a notice at all, and a wait that leaves and returns re-ages from zero each trip. That
   is disclosed in `H-0349` (`What lost`), not papered over.
