@@ -205,6 +205,10 @@ s000_runner_legs() {
 	# Byte order, not collation: '0' < '1', and '-' (0x2d) < '0' -- `LC_ALL=C` is the contract.
 	printf '010-a\n1-c\n10-b\n' >"$s000_work/want.log" || return 1
 	local rc=0
+	# runner.sh is the loop this leg extracted into its scratch directory above -- a fixture
+	# that exists only while the leg runs, so there is no static path for shellcheck to
+	# follow. The same refusal factory/factory.sh carries for sourcing common.sh blind.
+	# shellcheck disable=SC1091
 	( SPLIT000_LOG=$s000_work/order.log; SELFTEST_LEG_DIR=$d; . "$s000_work/runner.sh"; run_selftest_d_legs ) \
 		|| rc=$?
 	[ "$rc" -eq 0 ] || { s000_say "the extracted loop exited $rc on a planted directory"; return 1; }
@@ -214,12 +218,16 @@ s000_runner_legs() {
 	# The two quiet arms: an empty directory and an absent one are green with nothing sourced.
 	local rc2=0 rc3=0
 	mkdir -p "$s000_work/empty"
+	# shellcheck disable=SC1091
 	( SPLIT000_LOG=$s000_work/empty.log; SELFTEST_LEG_DIR=$s000_work/empty; . "$s000_work/runner.sh"; run_selftest_d_legs ) || rc2=$?
-	[ "$rc2" -eq 0 ] && [ ! -e "$s000_work/empty.log" ] || {
-		s000_say "an empty leg directory is not silent-and-green (rc=$rc2)"; return 1; }
+	if [ "$rc2" -ne 0 ] || [ -e "$s000_work/empty.log" ]; then
+		s000_say "an empty leg directory is not silent-and-green (rc=$rc2)"; return 1
+	fi
+	# shellcheck disable=SC1091
 	( SPLIT000_LOG=$s000_work/absent.log; SELFTEST_LEG_DIR=$s000_work/no-such-dir; . "$s000_work/runner.sh"; run_selftest_d_legs ) || rc3=$?
-	[ "$rc3" -eq 0 ] && [ ! -e "$s000_work/absent.log" ] || {
-		s000_say "an absent leg directory is not silent-and-green (rc=$rc3)"; return 1; }
+	if [ "$rc3" -ne 0 ] || [ -e "$s000_work/absent.log" ]; then
+		s000_say "an absent leg directory is not silent-and-green (rc=$rc3)"; return 1
+	fi
 	return 0
 }
 claim_leg 'the runner sources every .sh once, in LC_ALL=C order' s000_runner_legs
@@ -241,6 +249,7 @@ s000_merged_both_run() {
 	fn=$(s000_runner_extract) || return 1
 	printf '%s\n' "$fn" >"$s000_work/runner.sh" || return 1
 	local rc2=0
+	# shellcheck disable=SC1091
 	( SPLIT000_LOG=$s000_work/merged.log
 	  SELFTEST_LEG_DIR=$s000_repo/factory/selftest.d
 	  . "$s000_work/runner.sh"; run_selftest_d_legs ) || rc2=$?

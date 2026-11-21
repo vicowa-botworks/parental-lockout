@@ -4578,3 +4578,28 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   home without moving the gate would put claims where nothing reads them.
 - The runner's discovery is pinned, but a leg file that prints to stdout would still land in the
   suite's verdict stream; nobody has planted one to see what the tally does with it.
+
+## Record — #494's checks-failing round (issue-428, 2026-11-20; merging belongs to the supervisor)
+
+- CI at head `45154ca` read `verify` and `shellcheck` FAILURE (run 44838665451), one root cause:
+  the leg file this branch ships carried six shellcheck findings — 4 SC1091 (the leg sources a
+  `runner.sh` it extracts into its scratch directory at runtime; no static path to follow) and
+  2 SC2015 (the two quiet-arm rows inside `s000_runner_legs`). The phase-1 receipt
+  `check-shell: rc 0, 33 scripts` did not hold on the pushed bytes: measured on the clean tree at
+  `45154ca` the step prints `check-shell: 0.10.0 over 34 scripts` and exits 1 — a receipt that
+  predates the thing it certifies; the correction is on the pull body.
+- Fixed in one commit: `# shellcheck disable=SC1091` with its reason at each of the four call
+  sites (the convention `factory/factory.sh`, `factory/install-timer.sh` and
+  `factory/retention-census.sh` already ship), and a De Morgan rewrite of the two SC2015 arms —
+  SC2015 has zero disable precedent in the repository, and the rewrite keeps both arms'
+  semantics exactly (`s000_runner_legs` and `s000_merged_both_run` pass on the fixed bytes).
+  Mechanical under tie-break 6, so no `H-` entry and no allocator call.
+- Gate on the fixed tree with the tick env vars cleared: `make verify` ended `verify: OK`, rc 0
+  (measured 20 Nov on the fixed tree; an independent second run at the same bytes printed the
+  same last line).
+  `./scripts/check-shell.sh` rc 0 over 34 scripts; `bash factory/selftest.sh`
+  `964 passed, 0 failed`. #482 re-confirmed live this tick: with the tick env set, the suite reads
+  `963 passed, 1 failed` and the single FAIL is the fence leg `and nothing else does`.
+- This tick wrote nothing on GitHub beyond its own branch push and the #494 pull body; the
+  post-push review state is read back raw and quoted there, and no approval existed to spend
+  (`reviewDecision` was empty at `45154ca`).
