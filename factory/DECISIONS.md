@@ -11746,7 +11746,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   line (#1180: an `Effect:` written before the gate runs is a prophecy). Rollback is `git revert` of
   this merge alone onto `cb561b7`. No id yielded -- the allocator ran before the checkpoint and on
   the merged tree before the entry, both answering `H-0216`, and
-  `factory/next-decision-id.sh:556` "DECISION-ID %s unit=%s branch=%s" journalled both answers for
+  `factory/next-decision-id.sh:645` "DECISION-ID %s unit=%s branch=%s" journalled both answers for
   this branch. Refs #345 for the ticket this branch was cut to deliver; merging stays the
   supervisor's action.
 
@@ -12064,7 +12064,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   checkpoint, then again on the merged tree once blind (`REFRESH-BLIND 352s`) and once clean (`REFRESH
   0s`) immediately before this entry -- the re-read is what the blind line commands, not a courtesy --
   and main's own feature journalled both merged-tree answers at
-  `factory/next-decision-id.sh:556` "DECISION-ID %s unit=%s branch=%s", so the tick-end comparison has
+  `factory/next-decision-id.sh:645` "DECISION-ID %s unit=%s branch=%s", so the tick-end comparison has
   the provenance for this heading.
   Gates on the merged tree with this entry in the file, read back after they finished and never written
   here before the run (GATELINE). This push spends the `APPROVED` read back at `20ee66d` (measured on
@@ -14059,7 +14059,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   gated tree and so gets a timestamp, not a path:line), 7m39s older than this unit's own journalled
   line for the same number at 08:06:50Z. The allocator cannot return that
   reservation: the union it reads is working file, HEAD, refs/heads and refs/remotes -- reservations
-  are journal output the end-of-tick pass consumes, never union input (`factory/next-decision-id.sh:542` "checking, a selftest leg, any off-dispatch call"),
+  are journal output the end-of-tick pass consumes, never union input (`factory/next-decision-id.sh:625` "checking, a selftest leg, any off-dispatch call"),
   which is the shape #345 measured for `D-0058`.
   The sibling's file holds `## H-0259` on a pushed ref and its next entry is `H-0260`.
 - Question: the allocator's answer is contested by an older journalled reservation it structurally
@@ -14937,7 +14937,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 
 ## H-0296 · `make verify` inside a dispatched tick reddened the allocator-journal legs on every branch and the same inheritance had been journalling 28 fixture rows into the operator's live supervisor journal since 16 Nov: pin each fixture arm, clear the door once, or narrow the allocator's guard?
 
-- Question: the tick dispatch exports `FACTORY_LOG`, `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` so journalled allocations carry attribution (`factory/factory.sh`, `factory/common.sh`), and this suite runs inside that environment whenever the timer ships a unit. The journalling guard at `factory/next-decision-id.sh:546` "${FACTORY_TICK_UNIT:-}" -- then fires for fixtures whose entire question is the bare run: `a bare run journals nothing` reads its own fixture log holding a `DECISION-ID` line, and `control: one note can suppress the other` reads its planted script as blind-keeping because the journal ack sentence `next-decision-id: journalled DECISION-ID D-0003 (REFRESH-BLIND 0s union)` contains the very `REFRESH-BLIND` string the leg greps in stderr. Both legs are green in CI and red for exactly the actor that has to ship against them -- measured at `b6b8a55` in a dispatch shell, 866 passed / 2 failed, and red identically in a serial rerun on an otherwise idle machine, which retired the contention theory I first tried. The second cost is visible in the operator's live journal: 28 rows for id `D-0086` sit in `factory/log/supervisor.log` from the ticks of 16-18 Nov beside the lines the end-of-tick `DECISION-ID-UNEARNED` comparison reads, while trunk's real ceiling is `D-0085` and no `## D-0086` entry was ever committed -- rows journalled as if a unit had filed them, for allocation answers no unit ever filed, written by unit-attributed bare runs under the same exported environment. The suite's own fixture writes mostly stay in the fixture box, because line 362 re-points the inherited `FACTORY_LOG` at `$work/halt` before the allocator legs run: inside the suite the inheritance corrupts verdicts, outside it the same fooled guard corrupts the record.
+- Question: the tick dispatch exports `FACTORY_LOG`, `FACTORY_TICK_UNIT` and `FACTORY_TICK_BRANCH` so journalled allocations carry attribution (`factory/factory.sh`, `factory/common.sh`), and this suite runs inside that environment whenever the timer ships a unit. The journalling guard at `factory/next-decision-id.sh:629` "${FACTORY_TICK_UNIT:-}" -- then fires for fixtures whose entire question is the bare run: `a bare run journals nothing` reads its own fixture log holding a `DECISION-ID` line, and `control: one note can suppress the other` reads its planted script as blind-keeping because the journal ack sentence `next-decision-id: journalled DECISION-ID D-0003 (REFRESH-BLIND 0s union)` contains the very `REFRESH-BLIND` string the leg greps in stderr. Both legs are green in CI and red for exactly the actor that has to ship against them -- measured at `b6b8a55` in a dispatch shell, 866 passed / 2 failed, and red identically in a serial rerun on an otherwise idle machine, which retired the contention theory I first tried. The second cost is visible in the operator's live journal: 28 rows for id `D-0086` sit in `factory/log/supervisor.log` from the ticks of 16-18 Nov beside the lines the end-of-tick `DECISION-ID-UNEARNED` comparison reads, while trunk's real ceiling is `D-0085` and no `## D-0086` entry was ever committed -- rows journalled as if a unit had filed them, for allocation answers no unit ever filed, written by unit-attributed bare runs under the same exported environment. The suite's own fixture writes mostly stay in the fixture box, because line 362 re-points the inherited `FACTORY_LOG` at `$work/halt` before the allocator legs run: inside the suite the inheritance corrupts verdicts, outside it the same fooled guard corrupts the record.
 - Options: pin both arms of `dpn_alloc_run` with `env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH` before setting each arm's own values (the shape the ticket prescribed) | clear the attribution variables once in the suite preamble, at the door every fixture passes through | the two together: the ticket's pins in the fixture AND the door scrub for every other call site | teach `next-decision-id.sh` to distrust ambient attribution (refused before choice: the guard IS H-0195's attribution mechanism, and an allocator that second-guesses its caller would undo the exact mechanism #345 needed)
 - Chose: the two together: the ticket's pins in the fixture AND the door scrub for every other call site
 - Why: the two guards are independent and the suite now proves each one bites, by mutant. Deleting only the door unset leaves every dpn leg green -- the arms' `-u` pins break the guard's conjunction on their own -- while `control: one note can suppress the other` goes red again, because its runner `alloc_run_one` is one of those unpinned call sites and the ack sentence re-enters its grep; deleting the door unset AND the bare arm's pins brings `a bare run journals nothing` down as well, reproducing the ticket's exact two FAIL rows. That pairing is also the answer to why one guard is not enough: the door covers call sites the suite grows, the pins cover the fixture whose arms must not depend on where they were called from. Three false leads to own: the first cut of the door guard sat ABOVE `. common.sh`, which re-defaults `FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}` at load, and the suite's own new probe caught that half-closed door on its first dirty run -- a guard placed by reflex, caught by the leg written for it; the `dpn_mut` engine takes anchor-plus-whole-line, not a substring replace, and the first count-leg mutant was written in sed syntax it cannot accept; and the missing leg I added on the way (`a unit answer journals exactly one line`, with a duplicated-write mutant control `the count leg can bite` requiring the count to move to 2) exists because #425's own repair lesson says a leg satisfied by shape rather than number certifies the environment -- `a unit answer journals itself` greps for existence and would have passed happily on a double write. The witness runners needed two isolations, and the suite itself authored the second one: the first runner exported `FACTORY_DIR` at the primary checkout and both mutants came back with 19 label/halt failures no plant wrote; removing that export left 3, and the FAIL bodies named the cause -- the halt/negation/porcelain scanner legs grep the repository for `*.sh`, which matches the mutant copy sitting in `factory/` (dot does not spare a grep `--include` glob), and their `grep -v 'factory/selftest\.sh:'` exclusion does not spare a copy under another name, so the suite correctly refused the unguarded mutant as a second shipped script. The plants were re-cut with the mutant named `*.txt` and run under scratch journals, and the deltas are the claim: the door mutant fails exactly `probe: the tick attribution is scrubbed at the door` and `control: one note can suppress the other` (876 passed / 2 failed, rc 1); the both-arms mutant adds exactly `a bare run journals nothing` (875 / 3, rc 1). One witness on that run was invalid and re-run: my runner's mutB `sed` lacked `-i`, so it printed the mutated source to stdout instead of writing it, the suite ran unmutated, and the log read 876/0 -- a green mutant. The re-cut run prints its own preflight before executing (`door-lines-left=0 env-arms-left=0 diff-lines=5`), so an unmutated witness now fails at the plant step instead of passing as a verdict. What lost: narrowing the allocator guard (the refused option), pinning only the two dpn arms (leaves the journal-writable call sites open, which is where the 28 rows came from), and trusting placement -- the first guard placement was wrong and only the probe's red said so.
@@ -16163,7 +16163,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
 - Why: (c) is the state that produced the defect: the row is repaired by hand and the next one arrives
   the same way, and #393 was filed precisely because a reader found a hole where a decision should be.
   (a) splits the definition of a heading across three readers that already disagree. The allocator
-  counts one without testing any separator at all -- `factory/next-decision-id.sh:292` "id = substr(line, 4, 6)", taken off a line whose whole test, one line above, is that it begins with `## ` -- which
+  counts one without testing any separator at all -- `factory/next-decision-id.sh:309` "id = substr(line, 4, 6)", taken off a line whose whole test, one line above, is that it begins with `## ` -- which
   is why `H-0243` exists although the gate never saw `H-0242`: the allocator allocated past it while
   the gate refused to read it. Adding a second legal separator to `ENTRY` would leave the allocator
   right and the gate's example rule, whose self-test refuses an example heading `ENTRY` cannot parse,
@@ -19057,3 +19057,38 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   trunk's, carried, disclosed and owed, not this merge's. `make verify` and `make check-mutations`
   verdicts ride the pull-request body as receipts with their read-backs, never here (#1180); the
   post-push review-state read rides there too (#269); merging stays the supervisor's.
+
+## H-0364 · The allocator consumes its own journal: an id already journalled is taken while its branch lives, a claim expires with its branch, and the answer names what it stepped over and whose it was · issue #442
+
+- Question: #442 measured the allocator writing a `DECISION-ID` claim line and then consulting
+  nothing of the sort: the taken-set was log headings, a heading lands only when the unit commits,
+  and the window between -- up to a whole `FACTORY_TICK_TIMEOUT` -- let one id reach three units in
+  53 minutes, once on a `REFRESH 0s union` read. What does a journalled allocation cost the next
+  reader, and for how long?
+- Options: a journalled id is taken while its branch exists as a ref, expiring on branch existence |
+  a claim is bounded by a clock window on the journal (`FACTORY_LOG_TAIL`-shaped) | dispensing ids
+  at claim time, a lease the unit must redeem | staying blind and only reporting step-overs after
+  the answer
+- Chose: a journalled id is taken while its branch exists as a ref, expiring on branch existence
+- Why: the clock loses to the ref on both edges, and the clock was the issue's own alternative: a
+  live unit may legitimately outlast any fixed window, so the window either eats a working unit's
+  id or outlives the dead -- while `issue-365`, the ticket's expiry case, is exactly a claim whose
+  branch never existed, dead by the only signal the claim itself emits. Claim-time dispensing is
+  not reopened: #345 refused it and measured why (`H-0195` "claim-time dispensing loses to
+  measurement, not taste"), and this repair stays a read -- no reservation is minted, nothing is
+  written early, and a claim journalled on another machine stays invisible exactly as a heading
+  there does. Report-only loses because the collision still spends a full unit before
+  `check-decisions` refuses the second entry -- the loser re-aimed 284 citation coordinates on the
+  branch that found this. Same-unit idempotence is not a cost here: `unit=` is the key the line
+  already carried, equality with `FACTORY_TICK_UNIT` keeps the owner its id, and #320's re-read is
+  a leg, not a hope.
+- Checkpoint: 3bcc9b7
+- Effect: one commit carrying the claim read in `factory/next-decision-id.sh`
+  (`factory/next-decision-id.sh:402` "claim_scan # the call is the read: the journal is asked before the answer is handed out"),
+  the five polarities #442 asked for in
+  `factory/selftest.d/442-journal-claims.sh` -- (a) two units one journal answer different ids,
+  (b) one unit two reads keep their id, (c) a claim with no branch stops being taken, (d) the map
+  reads the journal file, (control) the neutered call reproduces the collision verbatim -- and a
+  `docs/factory.md` section appended at EOF so no existing citation pointer moved. Gate verdicts
+  ride the pull-request body as receipts with their read-backs, never here (#1180); merging stays
+  the supervisor's.
