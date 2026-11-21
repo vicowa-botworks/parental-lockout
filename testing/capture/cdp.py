@@ -1508,6 +1508,98 @@ def require_nav_distinguishable(got, what, nav):
                 "(#229, D-0035).")
 
 
+def require_nav_transcribed(got, what, transcribed, header):
+    """The transcribed row, compared against the row the frame actually rendered (#468).
+
+    Every other guard in this family asks the page a question it can answer afresh. This one asks
+    whether the page still matches a NUMBER COPY-PASTED INTO `pages.py`: `_NAV_ROWS` and
+    `NAV_HEADER` are transcriptions of what Chrome reported, and a transcription is a claim about
+    the page until the page is measured against it. #468 is the finding that no such measurement
+    existed -- #388 renamed the root's entry and the masthead grew a line, and the committed
+    transcription described a one-line row at `h=131` on a page that had been rendering a two-line
+    row at `h=152` for a month, in a comment that began "measured". The word "measured" was the
+    promise with no witness, and every guard stayed green because the numbers were only ever fed
+    to fakes: the fake row IS the transcription, so a self-test can only ever compare a
+    transcription with itself.
+
+    That is why this refusal names both sides of every mismatched fact -- "the transcription
+    boxes '/' at y=72 and the page renders y=93" -- and why its home is the capture run: a run
+    with a real Chrome is the only place the two sides of the comparison are independent. Under
+    the fake browser the transcription passes by construction, and that tautology is exactly why
+    the leg matters.
+
+    What is compared, per #468: each entry's TEXT and BOX against the transcription of THE PAGE
+    BEING SHOT, and the HEADER box. Per-page because the widths are per-page: the marked entry
+    computes `font-weight: 600` against a link's `500`, so `Dashboard` measures 96 px on `/` and
+    92 px on `/users` (measured 21 Nov: 96/92, and the entry's own width moves Audit trail by a
+    pixel downstream of it). A comparison against one canonical row would therefore refuse four
+    of the five pages for arithmetic that is true of the page they render.
+
+    What is NOT compared, each exclusion a decision #468 names rather than a silence:
+
+      * the sign-out `form`. `NAV_JS` censuses `<a>` elements, and at 360 px the form sits on a
+        third line of its own (`x=24 y=179 w=90 h=37`, measured) that no `<a>` occupies. The
+        form's line IS part of the row a reader sees, and it enters this comparison through the
+        header box, which spans it: if the form leaves the row, `h` shrinks and the header clause
+        says so. A leg that pretended the census saw the form would be a transcription with a
+        second unmeasured promise on it.
+      * the mark's COLOURS, WEIGHT and BORDER. `require_nav_in_palette` and
+        `require_nav_distinguishable` already refuse those against the page, and the styling in
+        the fake row is derived from which entry is marked, not transcribed per page -- sweeping
+        it in here would make this file a second place that gets to choose the mark's design.
+      * `NAV_MIN_TARGET`. It is a floor a thumb imposes on the page, not a fact copied off one
+        (its own comment: "the two agree on the number while doing different jobs"), and every
+        per-rule fake box that exists to be wrong in exactly one way for one guard is likewise
+        not a transcription. This leg compares `_NAV_ROWS` and nothing else, and the fakes that
+        are wrong on purpose pass it because their refusal comes from the guard they target,
+        which runs first.
+
+    Like the rest of the family, it refuses per fact with both sides quoted, because the useful
+    sentence after a refusal is "which of the two moved".
+    """
+    rows = _nav_rows(got, what)
+    items = [i for row in rows for i in row["items"]]
+    by_href = {}
+    for item in items:
+        by_href.setdefault(item["href"], []).append(item)
+    drift = []
+    for t in transcribed:
+        rendered = by_href.get(t["href"]) or []
+        if not rendered:
+            drift.append(f"the transcription records {t['text']!r} at href={t['href']!r} and the "
+                         "rendered row offers no such link")
+            continue
+        live = rendered[0]
+        if live["text"] != t["text"]:
+            drift.append(f"the transcription names href={t['href']!r} {t['text']!r} and the page "
+                         f"renders {live['text']!r}")
+        for key in ("x", "y", "w", "h"):
+            if live[key] != t[key]:
+                drift.append(f"the transcription boxes the {t['href']!r} entry at {key}={t[key]} "
+                             f"and the page renders it at {key}={live[key]}")
+    for item in items:
+        if not any(t["href"] == item["href"] for t in transcribed):
+            drift.append(f"the rendered row carries {item['text']!r} at href={item['href']!r} and "
+                         "the transcription records no entry for it")
+    live_header = (got or {}).get("header")
+    if live_header != header:
+        drift.append(f"the transcription boxes the header at "
+                     f"x={header['x']} y={header['y']} w={header['w']} h={header['h']} and the "
+                     f"page renders "
+                     + ("no <header> at all" if live_header is None else
+                        f"it at x={live_header['x']} y={live_header['y']} "
+                        f"w={live_header['w']} h={live_header['h']}"))
+    if drift:
+        raise SystemExit(
+            f"{what}'s navigation row no longer matches its transcription: "
+            + "; ".join(drift)
+            + ". A transcription is a claim about the page until the page is measured against it, "
+              "and this is the one place in the repository where the two meet (#468). One of the "
+              "two is stale: if the page moved, re-measure it and update `_NAV_ROWS`/`NAV_HEADER` "
+              "in testing/capture/pages.py with the date and the tree the numbers came from; if "
+              "it did not, this frame is the finding.")
+
+
 # The words the pages use to report a state the daemon reached (#199).
 #
 # This is a census of the templates, not a wish list: every name here is one a `.tmpl` file puts on
