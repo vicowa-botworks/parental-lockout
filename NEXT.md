@@ -4957,3 +4957,24 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   on four rows of this file), and the #482 fence poison — run the suite as CI runs it,
   `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, and inside a live
   tick add `-u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT`.
+
+## What #457 shipped, and what is still owed (#457, 21 Nov)
+
+- Shipped on `issue-457`: `scripts/check-close-verb.py` gained the branch leg -- a body on an
+  `issue-<N>` branch that names `#N` with nothing now exits 1. A documented keyword, a
+  `Refs`/`Part of` line, or any class the checker already reports counts as naming it; a bare `#N`
+  does not, because a link registers with no queue. The branch is read from HEAD, `--branch NAME`
+  overrides, `--branch ''` silences, and `--span-blind` reads stay branch-blind so
+  `scripts/check-commit-verbs.sh` is unaffected. `factory/selftest.d/457-branch-body-claims.sh`
+  runs six legs: the fixture premise (rev-parse answers 128 on an unborn HEAD, measured, so the
+  fixture commits), silence refused, bare link refused, `Refs #12` on a branch claiming `#777`
+  refused -- #454's specimen -- three controls green, and the override both ways. Falsified against
+  a scratch copy with the refusal removed from the exit code: the four refusal legs went red while
+  the prose still printed, the controls stayed green.
+- Still owed, outside this unit's fence, both named in the ticket itself:
+  - The supervisor-side row: triage reporting an OPEN pull whose head branch is `issue-<N>` and
+    whose body names N with nothing. It touches the supervisor, which no unit owns, and #457's own
+    text assigns that surface to whoever installed the timer.
+  - Post-create body edits: a body that passed the checker at `gh pr create` and is edited
+    afterwards to drop the reference is re-checked by nothing. The supervisor-side row is the only
+    arm that catches it; H-0370 records shipping the unit-side arm alone and names these losses.
