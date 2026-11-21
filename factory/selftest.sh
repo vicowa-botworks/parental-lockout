@@ -9364,9 +9364,23 @@ claim_open() { # claim_open <json array of {number,title,body,claims,reviewDecis
 	# that can never resolve itself -- and a head branch of its own, because the sentence that names the
 	# suppression prints it. Defaults kept identical to the constants, so all the existing callers answer
 	# exactly what they answered.
+	# `mergeable`/`mergeStateStatus` joined the pass-throughs for #430, and the default flip is the
+	# load-bearing half: they were WELDED to `UNKNOWN`/`UNKNOWN`, the GitHub spelling for "not
+	# computed yet", so every planted row was the vacuous read and the class that exists to quiet it
+	# was unreachable -- while the rows themselves still classified through the review arms, because
+	# nothing there reads `mergeable` unless it is CONFLICTING. A constant weld is the same door
+	# this helper's own header calls "a door that cannot be opened", now proven twice: no leg could
+	# plant a MERGEABLE row, and no leg could plant the vacuous row as anything but every row.
+	# Default `MERGEABLE` keeps every existing caller's verdict byte-identical (the merge_now arm
+	# still refuses on the welded `UNKNOWN` state; the conflict arm still sees non-CONFLICTING),
+	# and a leg that wants the #430 state says `"mergeable":"UNKNOWN"` the way it says `isDraft`.
+	# `statusCheckRollup` flipped with them for the polarity leg that must show a CONCLUDED failure
+	# outranking a vacuous read -- weld it to `[]` and no leg can plant red checks at all.
 	jq -c '[.[] | {number, title, headRefName: (.headRefName // "fix/planted"), isDraft: (.isDraft // false),
-		reviewDecision: (.reviewDecision // ""), mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
-		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000", statusCheckRollup: []}]' \
+		reviewDecision: (.reviewDecision // ""), mergeable: (.mergeable // "MERGEABLE"),
+		mergeStateStatus: (.mergeStateStatus // "UNKNOWN"),
+		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000",
+		statusCheckRollup: (.statusCheckRollup // [])}]' \
 		"$claim_fix/open-claims.json" >"$claim_fix/pr-open.json"
 	jq -c '[.[] | {number, body}]' "$claim_fix/open-claims.json" >"$claim_fix/pr-bodies.json"
 	claim_graphql
@@ -11176,7 +11190,7 @@ esc_not_a_park() { # esc_not_a_park [triage.sh to read] -- the marker may stop a
 		END {
 			n = split("merge_now conflict checks_failing checks_pending address_review" \
 				" review_unreadable needs_reviewer awaiting_review awaiting_merge draft" \
-				" branch_without_pr unclaimed delivered", c, " ")
+				" mergeability_pending branch_without_pr unclaimed delivered", c, " ")
 			for (i = 1; i <= NR; i++) {
 				l = all[i]
 				if (iscomment(l) || l !~ /label/) continue
@@ -13682,6 +13696,451 @@ else
 fi
 claim_script=''
 claim_reviewers '{"users":[],"teams":[]}'
+claim_reset
+
+# ----------------------------------------- the mergeability read that answered nothing (#430)
+#
+# GitHub computes mergeability asynchronously: after a head lands, `mergeable` and `mergeStateStatus`
+# answer `UNKNOWN` -- "not computed yet" -- for seconds to minutes. The shipped classifier treated
+# anything that is not CONFLICTING as "not conflicting" and let the row fall through to the checks and
+# review arms, and it kept ONE `stuck-since` clock per unit across every class that unit ever waited
+# in. Measured 19 Nov on #430's pull request, about two hours after it opened with every check green:
+# both fields `UNKNOWN`, and the row still reached a review arm. The cost landed on the harness's one
+# human-facing surface: the `awaiting_merge` notice, aged by a clock several distinct waits had been
+# sharing, told a maintainer "If a maintainer decision is what is missing, say so here" on a pull
+# request where no review request existed and nothing was blocked on anybody. The notice is the most
+# expensive surface precisely because it is the only place the machine speaks to a person.
+#
+# Three claims, pinned in order, each with a control that reddens when the mechanism it names is
+# blinded: a vacuous mergeability read is its own quiet wait class, ahead of the checks and review
+# arms; a wait that changes class starts a new clock, so an old silent stamp can never age into a
+# notice about a state that has just begun; and a notice says who actually holds a request -- read
+# from the API at the moment the comment is written -- and never blames a person the read does not
+# name.
+
+# The specimen row is the live state of #430's pull request as read off GitHub on 19 Nov: `UNKNOWN`
+# in both fields. The classifier legs plant it three ways -- APPROVED (the bug's worst spelling,
+# `awaiting_merge` before the fix), REVIEW_REQUIRED (the spelling that reached the shipped comment,
+# via `awaiting_review`), and with a concluded check failure (the polarity: a read that RETURNED a
+# verdict still owns the row).
+q430_row() { # q430_row <extra-jq-fragments> -- the specimen with leg-specific fields appended
+	printf '[{"number":431,"title":"The awaiting_merge notice fires on a mergeability read that returned nothing","body":"Refs #212.\\n","claims":[212]%s}]' "${1:-}"
+}
+claim_reset
+claim_open "$(q430_row ',"reviewDecision":"APPROVED","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN"')"
+claim_issues '[]'
+claim_rows >/dev/null
+claim_leg 'a vacuous mergeability read is its own wait' claim_class_is 431 mergeability_pending
+claim_leg '…and the row says the READ is absent, not the branch' \
+	claim_detail_has 431 'the mergeability read has not returned'
+claim_leg '…and names both vacuous fields' claim_detail_has 431 'mergeable=UNKNOWN, mergeStateStatus=UNKNOWN'
+
+# And the reverse: a red check under a vacuous read is STILL the quiet class -- the ticket's own
+# sentence is "a row whose mergeability read is empty gets no notice, no tick", and the row does not
+# hide the red: its detail carries `checks fail`, so the queue says plainly that real work is waiting
+# under a field GitHub has not finished computing. One re-read later the row is `checks_failing` and
+# a tick goes.
+claim_reset
+claim_open "$(q430_row ',"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","statusCheckRollup":[{"status":"COMPLETED","conclusion":"FAILURE"}]')"
+claim_issues '[]'
+claim_rows >/dev/null
+claim_leg 'a red check under a vacuous read waits, and says so' claim_class_is 431 mergeability_pending
+claim_leg '…and the row carries the red it is sitting on' claim_detail_has 431 'checks fail'
+
+# And the reverse: `CONFLICTING` IS a returned read, and `UNKNOWN` state beside a returned `MERGEABLE`
+# with a standing approval is the old `awaiting_merge` wait -- the new class must swallow neither.
+claim_reset
+claim_open "$(q430_row ',"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"')"
+claim_issues '[]'
+claim_rows >/dev/null
+claim_leg 'a returned CONFLICTING is still the conflict it names' claim_class_is 431 conflict
+claim_reset
+claim_open "$(q430_row ',"reviewDecision":"APPROVED","mergeable":"MERGEABLE","mergeStateStatus":"UNKNOWN"')"
+claim_issues '[]'
+claim_rows >/dev/null
+claim_leg '…a returned verdict with a returned state is still awaiting_merge' claim_class_is 431 awaiting_merge
+
+# Control: the shipped fallthrough, aimed back at the fixture. One token in the classifier's new case
+# (`MERGEABLE) : ;;` to `*) : ;;`) sends every non-conflict row -- including the vacuous one -- down
+# the review arms, which is the pre-#430 behavior itself. It must answer `awaiting_merge` for the
+# APPROVED specimen, or the ok above was the fixture forgetting to be ambiguous rather than the arm
+# firing.
+mkdir -p "$claim_work/mut-q430"
+python3 - "$HERE/triage.sh" "$claim_work/mut-q430/triage.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding='utf-8').read()
+old = "\tMERGEABLE) : ;;"
+if text.count(old) != 1:
+    print('the vacuous-read arm in triage.sh is not the single line this control knows')
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, "\t*) : ;;", 1))
+PY
+cp "$HERE/common.sh" "$claim_work/mut-q430/common.sh"
+chmod +x "$claim_work/mut-q430/triage.sh"
+claim_reset
+claim_open "$(q430_row ',"reviewDecision":"APPROVED","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN"')"
+claim_issues '[]'
+claim_script="$claim_work/mut-q430/triage.sh" claim_rows >/dev/null
+if claim_class_is 431 awaiting_merge; then
+	printf '        control: the same row through a classifier without the vacuous-read arm answers\n'
+	printf '        awaiting_merge -- the class the live #430 comment was posted under. So the ok\n'
+	printf '        above is the new arm firing, not the row being unclassifiable either way.\n'
+else
+	claim_script='' claim_rows >/dev/null
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the blinded classifier did NOT answer awaiting_merge,\n' "control: the shipped fallthrough"
+	printf '          so the leg above is not aimed at the arm it names. It said: %s\n' "$(row_for 431)"
+fi
+claim_script=''
+claim_reset
+
+# ------------------------------------------------- the supervisor's half: quiet, and honest when it speaks
+#
+# `ask_dispatch` runs the shipped supervisor dry over `$claim_harness`, whose factory.sh is a copy made
+# at section setup -- the mutant controls below need the same copy in a directory of their own, so
+# `quiet_run` takes the harness directory as an argument. The journals and the ledger are cleared by
+# `quiet_plant`, NEVER by `quiet_run`: a leg plants `stuck-since` between the two, and a run that
+# wiped the ledger would delete the very stamps the leg is about (measured 20 Nov: the first draft
+# wiped in quiet_run and all five notice legs went red on an empty ledger).
+# `FACTORY_ESCALATE_AFTER` is exported `local` so the shortened notice bound reaches the dry
+# supervisor's environment and nothing outside the function.
+quiet_run() { # quiet_run [harness-dir] -- dry supervisor over the planted specimen
+	local dir=${1:-$claim_harness}
+	mkdir -p "$claim_work/dlog" "$claim_work/dledger" "$claim_work/dtrees"
+	PATH="$claim_bin:$PATH" CLAIM_FIXTURE="$claim_fix" \
+		FACTORY_DIR="$dir" FACTORY_ROOT="$claim_repo" \
+		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_REVIEWER_TEAM=workers \
+		FACTORY_OPENCODE=opencode FACTORY_SERVICE_UNIT="$claim_unit" \
+		FACTORY_LOG="$claim_work/dlog" FACTORY_LEDGER="$claim_work/dledger" \
+		FACTORY_RUN="$claim_work/drun" FACTORY_TREES="$claim_work/dtrees" \
+		"$dir/factory.sh" --dry-run >"$claim_work/dry.out" 2>&1 || true
+	cat "$claim_work/dry.out"
+}
+quiet_plant() { # quiet_plant -- the specimen row, no issue rows, fresh fixture, journals and ledger
+	claim_reset
+	claim_open "$(q430_row ',"reviewDecision":"REVIEW_REQUIRED","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN"')"
+	claim_issues '[]'
+	rm -rf "$claim_work/dlog" "$claim_work/dledger"
+	mkdir -p "$claim_work/dlog" "$claim_work/dledger" "$claim_work/dtrees"
+}
+stamp() { # stamp <id> <field> <value>
+	mkdir -p "$claim_work/dledger"
+	printf '%s\n' "$3" >"$claim_work/dledger/$1.$2"
+}
+
+quiet_is_a_wait() {
+	local FACTORY_ESCALATE_AFTER=3600
+	export FACTORY_ESCALATE_AFTER
+	quiet_plant
+	quiet_run >/dev/null
+	case "$(ask_journal)" in
+	*'WAIT pr:431 mergeability_pending'*) : ;;
+	*) printf '            the quiet row never entered a wait; the journal:\n' >&2
+		ask_journal | sed 's/^/              /' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'unit=mergeability_pending'*)
+		printf '            a tick was dispatched at a row whose central field is vacuous:\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")$(ask_journal)" in
+	*'Still waiting'* | *'NOTICED pr:431'*)
+		printf '            the pass spoke to a human about a wait one cycle old, with the\n' >&2
+		printf '            notice bound a full hour below its default and no clock planted.\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2; return 1 ;;
+	esac
+	return 0
+}
+quiet_plant
+quiet_run >/dev/null
+claim_leg 'the vacuous row waits quietly: journal, no tick, no notice' quiet_is_a_wait
+
+# Control: the wait list with the class dropped out of it. The row must arrive as UNKNOWN-CLASS --
+# the dispatcher's own "no handler" line -- and NOT as the wait, or the ok above is being printed by
+# something other than the arm.
+mkdir -p "$claim_work/mut-q430-wait"
+python3 - "$claim_harness/factory.sh" "$claim_work/mut-q430-wait/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding='utf-8').read()
+old = "awaiting_merge | awaiting_review | checks_pending | draft | mergeability_pending)"
+if text.count(old) != 1:
+    print('the quiet-wait arm in factory.sh is not the single line this control knows')
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old,
+	"awaiting_merge | awaiting_review | checks_pending | draft)", 1))
+PY
+cp "$claim_harness/common.sh" "$claim_work/mut-q430-wait/common.sh"
+cp "$claim_harness/triage.sh" "$claim_work/mut-q430-wait/triage.sh"
+chmod +x "$claim_work/mut-q430-wait/factory.sh"
+quiet_plant
+quiet_run "$claim_work/mut-q430-wait" >/dev/null
+case "$(ask_journal)" in
+*'WAIT pr:431 mergeability_pending'*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a supervisor without the wait arm still waited,\n' "control: the wait arm"
+	printf '          so the ok above names an arm that is not load-bearing.\n' ;;
+*'UNKNOWN-CLASS'*)
+	printf '        control: with the class dropped from the wait list the same row is an\n'
+	printf '        UNKNOWN-CLASS -- no handler, nothing done. The wait is the arm.\n' ;;
+*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the blinded pass journalled neither the wait nor\n' "control: the wait arm"
+	printf '          UNKNOWN-CLASS, so this control does not know what it blinded either.\n' ;;
+esac
+claim_reset
+
+# --------------------------------------------------------- one clock per wait, and the notice it feeds
+#
+# The shared `stuck-since` was half of the live defect: an early, SILENT wait aged the clock, and the
+# next state's first activation crossed the notice bound. The plant below is that history in a
+# ledger: first-seen and stuck-since six days old from a previous class, last-class naming it, and
+# the specimen arriving as the new class. The shipped code must journal WAIT-RESET and stay quiet;
+# the same plant through a copy with the reset disabled must post the comment -- the live bug,
+# reproduced from the ledger rather than narrated.
+q430_six_days() { date -u -d '6 days ago' +%Y-%m-%dT%H:%M:%SZ; }
+q430_stamps() {
+	local old
+	old=$(q430_six_days)
+	stamp 'pr:431' first-seen "$old"
+	stamp 'pr:431' stuck-since "$old"
+	stamp 'pr:431' last-class 'awaiting_review'
+	printf '%s' "$old"
+}
+reset_quiets_the_first_wait() {
+	local FACTORY_ESCALATE_AFTER=3600
+	export FACTORY_ESCALATE_AFTER
+	quiet_plant
+	q430_stamps >/dev/null
+	quiet_run >/dev/null
+	case "$(ask_journal)" in
+	*'WAIT-RESET pr:431 awaiting_review -> mergeability_pending'*) : ;;
+	*) printf '            the class change journalled no reset; the journal:\n' >&2
+		ask_journal | sed 's/^/              /' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")$(ask_journal)" in
+	*'Still waiting'* | *'NOTICED pr:431'*)
+		printf '            a six-day-old stamp from ANOTHER wait posted a notice about a state\n' >&2
+		printf '            that started this activation -- the shared-clock bug, live again.\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2; return 1 ;;
+	esac
+	return 0
+}
+quiet_plant
+q430_stamps >/dev/null
+quiet_run >/dev/null
+claim_leg 'a wait that changes class takes a new clock, and the new clock stays quiet' reset_quiets_the_first_wait
+
+mkdir -p "$claim_work/mut-q430-reset"
+python3 - "$claim_harness/factory.sh" "$claim_work/mut-q430-reset/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding='utf-8').read()
+old = '\tif [ -n "$(factory_ledger_get "$id" last-class)" ] &&\n\t\t[ "$(factory_ledger_get "$id" last-class)" != "$class" ]; then'
+if text.count(old) != 1:
+    print('the reset guard in factory.sh is not the two lines this control knows')
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old,
+	'\tif [ "reset-disabled-by-control" = "$class" ] &&\n\t\t[ "$(factory_ledger_get "$id" last-class)" != "$class" ]; then', 1))
+PY
+cp "$claim_harness/common.sh" "$claim_work/mut-q430-reset/common.sh"
+cp "$claim_harness/triage.sh" "$claim_work/mut-q430-reset/triage.sh"
+chmod +x "$claim_work/mut-q430-reset/factory.sh"
+shared_clock_blamed_a_maintainer() {
+	local FACTORY_ESCALATE_AFTER=3600
+	export FACTORY_ESCALATE_AFTER
+	quiet_plant
+	q430_stamps >/dev/null
+	quiet_run "$claim_work/mut-q430-reset" >/dev/null
+	case "$(cat "$claim_work/dry.out")" in
+	*'Still waiting'*) : ;;
+	*) printf '            the shared-clock copy stayed quiet, so the leg above was never\n' >&2
+		printf '            aimed at a clock the old stamp could poison. Journal:\n' >&2
+		ask_journal | sed 's/^/              /' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'mergeability_pending'*) : ;;
+	*) printf '            it posted, but not about the new class -- the compound age did not\n' >&2
+		printf '            reach the notice, so it is not the bug this control claims.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+quiet_plant
+q430_stamps >/dev/null
+quiet_run "$claim_work/mut-q430-reset" >/dev/null
+claim_leg 'control: the same ledger without the reset posts exactly the live bug' shared_clock_blamed_a_maintainer
+
+# Polarity: the reset must not become a mute button. The same six-day-old clock inside the SAME
+# class has genuinely aged and must post -- and the comment is read here for what it says, not just
+# for existing: it quotes the wait's own stamp and the row's own detail, and it does NOT contain the
+# maintainer sentence, because the fixture's `/requested_reviewers` is empty.
+notice_ages_inside_one_wait() {
+	local FACTORY_ESCALATE_AFTER=3600 old
+	export FACTORY_ESCALATE_AFTER
+	old=$(q430_six_days)
+	quiet_plant
+	stamp 'pr:431' first-seen "$old"
+	stamp 'pr:431' stuck-since "$old"
+	stamp 'pr:431' last-class 'mergeability_pending'
+	quiet_run >/dev/null
+	case "$(ask_journal)" in
+	*'NOTICED pr:431 mergeability_pending'*) : ;;
+	*) printf '            a six-day-old wait in one and the same class never noticed;\n' >&2
+		printf '            the journal:\n' >&2
+		ask_journal | sed 's/^/              /' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*"since $old"*) : ;;
+	*) printf '            the comment does not quote this wait'"'"'s own stamp.\n' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'What the queue last read: mergeable=UNKNOWN'*) : ;;
+	*) printf '            the comment does not say what the queue actually read -- it is\n' >&2
+		printf '            supposed to be evidence, not sympathy.\n' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'No review request is outstanding'*) : ;;
+	*) printf '            with nobody on /requested_reviewers the comment still failed to say\n' >&2
+		printf '            that no person is being waited on -- #430'"'"'s actual sentence.\n' >&2
+		return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'a maintainer decision is what is missing'*)
+		printf '            the comment blames a maintainer while naming no maintainer.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+quiet_plant
+q430_stamps >/dev/null
+quiet_run >/dev/null
+claim_leg 'an aged wait inside ONE wait still posts, and says what it read' notice_ages_inside_one_wait
+
+# The other half of the evidence line: when a person IS asked, the comment names them, read live at
+# the moment the comment writes. Same six-day clock, but the row is now `awaiting_review` with the
+# team holding the request -- and the comment must carry `team:workers` and the queue's last read.
+notice_names_the_whoever_it_read() {
+	local FACTORY_ESCALATE_AFTER=3600 old
+	export FACTORY_ESCALATE_AFTER
+	old=$(q430_six_days)
+	claim_reset
+	claim_open '[{"number":431,"title":"The awaiting_merge notice fires on a mergeability read that returned nothing","body":"Refs #212.\n","claims":[212],"reviewDecision":"REVIEW_REQUIRED"}]'
+	claim_issues '[]'
+	rm -rf "$claim_work/dlog" "$claim_work/dledger"
+	mkdir -p "$claim_work/dlog" "$claim_work/dledger" "$claim_work/dtrees"
+	claim_reviewers '{"users":[],"teams":[{"slug":"workers"}]}'
+	stamp 'pr:431' first-seen "$old"
+	stamp 'pr:431' stuck-since "$old"
+	stamp 'pr:431' last-class 'awaiting_review'
+	quiet_run >/dev/null
+	case "$(ask_journal)" in
+	*'NOTICED pr:431 awaiting_review'*) : ;;
+	*) printf '            the aged awaiting_review wait never noticed; the journal:\n' >&2
+		ask_journal | sed 's/^/              /' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'A review request is outstanding with team:workers'*) : ;;
+	*) printf '            the comment did not name the team the live read finds holding the\n' >&2
+		printf '            request -- so it is still the unaimed sentence, just in the other\n' >&2
+		printf '            direction.\n' >&2
+		return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'No review request is outstanding'*)
+		printf '            it says nobody was asked while the fixture has asked a team.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+claim_reset
+claim_open '[{"number":431,"title":"The awaiting_merge notice fires on a mergeability read that returned nothing","body":"Refs #212.\n","claims":[212],"reviewDecision":"REVIEW_REQUIRED"}]'
+claim_issues '[]'
+claim_reviewers '{"users":[],"teams":[{"slug":"workers"}]}'
+claim_leg '…and names the reviewer a live read actually finds' notice_names_the_whoever_it_read
+
+# Control: the evidence line's condition inverted. It must produce the wrong sentence at BOTH
+# ends -- the blame-the-maintainer text for the empty fixture and the no-person text for the
+# asked-team fixture -- or the two legs above are satisfied by the fixture rather than by the read.
+mkdir -p "$claim_work/mut-q430-evid"
+python3 - "$claim_harness/factory.sh" "$claim_work/mut-q430-evid/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+text = open(src, encoding='utf-8').read()
+old = '\tif [ -n "$requested" ]; then\n\t\tevidence="A review request is outstanding with'
+if text.count(old) != 1:
+    print('the evidence branch in factory.sh is not the line this control knows')
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old,
+	'\tif [ -z "$requested" ]; then\n\t\tevidence="A review request is outstanding with', 1))
+PY
+cp "$claim_harness/common.sh" "$claim_work/mut-q430-evid/common.sh"
+cp "$claim_harness/triage.sh" "$claim_work/mut-q430-evid/triage.sh"
+chmod +x "$claim_work/mut-q430-evid/factory.sh"
+evidence_blinds_test() {
+	local FACTORY_ESCALATE_AFTER=3600 old
+	export FACTORY_ESCALATE_AFTER
+	old=$(q430_six_days)
+	quiet_plant
+	stamp 'pr:431' first-seen "$old"
+	stamp 'pr:431' stuck-since "$old"
+	stamp 'pr:431' last-class 'mergeability_pending'
+	quiet_run "$claim_work/mut-q430-evid" >/dev/null
+	case "$(cat "$claim_work/dry.out")" in
+	*'Still waiting'*) : ;;
+	*) printf '            the inverted-evidence copy never posted over the empty fixture, so\n' >&2
+		printf '            there is nothing for the assertions below to bite.\n' >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*'A review request is outstanding with'*) : ;;
+	*) printf '            the inverted condition did NOT blame a nobody -- the evidence read\n' >&2
+		printf '            is not what this control says it is.\n' >&2; return 1 ;;
+	esac
+	return 0
+}
+quiet_plant
+stamp 'pr:431' first-seen "$(q430_six_days)"
+stamp 'pr:431' stuck-since "$(q430_six_days)"
+stamp 'pr:431' last-class 'mergeability_pending'
+quiet_run "$claim_work/mut-q430-evid" >/dev/null
+claim_leg 'control: inverting the evidence read blames a person nobody asked' evidence_blinds_test
+claim_reset
+
+# ------------------------------------------------------------- both documents keep saying it
+#
+# Same shape as `voided_docs_say_it`: the guide must carry the class table row AND the paragraph that
+# says why the notice may never blame a person over this class; a table row alone reads as just
+# another wait, and the paragraph is the sentence a future reader needs before deleting the arm.
+q430_docs_say_it() { # [root] -> 0 when the guide names the class and names the notice rule
+	local root=$HERE/.. guide
+	[ -z "${1:-}" ] || root=$1
+	guide=$root/docs/factory.md
+	[ -f "$guide" ] || return 2
+	grep -qF 'a fact about the read and not about the branch' "$guide" &&
+		grep -qF 'a notice names who is blocked, and here nobody is' "$guide"
+}
+claim_leg 'the guide says the read is not the branch, and the notice stays quiet' q430_docs_say_it
+q430_docs_control() {
+	local ctrl=$claim_work/q430-docs
+	mkdir -p "$ctrl/row/docs" "$ctrl/rule/docs" || {
+		printf '            the control trees could not be written\n' >&2; return 1
+	}
+	grep -vF 'a fact about the read and not about the branch' "$HERE/../docs/factory.md" >"$ctrl/row/docs/factory.md" || {
+		printf '            the control copy could not be written\n' >&2; return 1
+	}
+	grep -vF 'a notice names who is blocked, and here nobody is' "$HERE/../docs/factory.md" >"$ctrl/rule/docs/factory.md" || {
+		printf '            the control copy could not be written\n' >&2; return 1
+	}
+	if q430_docs_say_it "$ctrl/row" || q430_docs_say_it "$ctrl/rule"; then
+		printf '            the leg above also passed with one of the two sentences deleted,\n' >&2
+		printf '            so it was not aimed at them.\n' >&2
+		return 1
+	fi
+	return 0
+}
+q430_docs_control
 claim_reset
 
 # ------------------------------------------- the code the loop is running (#249)

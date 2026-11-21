@@ -60,7 +60,23 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
 | `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here; it **must be a label this repository carries**, because a name it does not have parks nothing (#311, settled 18 Nov as H-0250 after six days of a default that could never fire). It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
+| `mergeability_pending` | `mergeable` answered neither `MERGEABLE` nor `CONFLICTING` -- GitHub's `UNKNOWN` means *not computed yet*, which is a fact about the read and not about the branch, and the detail says so on purpose | nothing, and above all no notice: a notice names who is blocked, and here nobody is |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
+
+`mergeability_pending` is the quiet wait (#430), and it exists because the harness's one human-facing
+sentence once lied about a person over it. GitHub computes mergeability asynchronously: after a head
+lands, `mergeable` and `mergeStateStatus` answer `UNKNOWN` until the computation finishes. Measured
+19 Nov on #430's pull request, roughly two hours after it opened with every check green: both fields
+`UNKNOWN`, which the shipped classifier read as "not CONFLICTING" and let fall through to the review
+arms -- and because `stuck-since` was one clock per unit shared across every class that unit ever
+waited in, a silent `mergeability_pending` stretch aged the next state's notice into existence at the
+first moment of it. The comment that posted said *"If a maintainer decision is what is missing, say
+so here"* on a pull request where no review request existed and nothing was blocked on anybody. So
+three rules now hold together: a vacuous mergeability read is its own wait class ahead of the checks
+and review arms; a wait that changes class resets its own clock, because a notice must stay within
+one class of the state it describes; and a notice, when it ages, reads `/requested_reviewers` at the
+moment it writes and says either who actually holds a request or plainly that no person is
+being waited on -- it may not blame a maintainer the live read does not name.
 
 `delivered` is the fourth class the queue could not see, and it was measured twice in one day before
 it was written (#235). Both claim channels read *open* pull requests only, so a merged one claims
