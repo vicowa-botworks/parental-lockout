@@ -4601,5 +4601,9 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   `964 passed, 0 failed`. #482 re-confirmed live this tick: with the tick env set, the suite reads
   `963 passed, 1 failed` and the single FAIL is the fence leg `and nothing else does`.
 - This tick wrote nothing on GitHub beyond its own branch push and the #494 pull body; the
-  post-push review state is read back raw and quoted there, and no approval existed to spend
-  (`reviewDecision` was empty at `45154ca`).
+  post-push review state is read back raw and quoted there. Round read after the fix push:
+  `CHANGES_REQUESTED` at `45154cac` (hermesvicowa, 2026-11-21T00:10:31Z, before that push) —
+  blocking 1 was the six lint findings, answered by `ba92d75`; blocking 2 was the `check-shell
+  rc 0 over 33 scripts` receipt in the body and in `H-0348`'s Effect, answered by the corrected
+  sentences in this same round's second commit and the pull body. The re-review and the reviewer
+  re-ask belong to the supervisor's poke.
