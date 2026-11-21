@@ -11,11 +11,17 @@
   rehearses a notice the real pass would never post; the notice's evidence line — it quotes the
   read and its detail, and the sentence about a person may only name a person the live
   `/requested_reviewers` read names, else it plainly names no one; the guide's table row and the
-  measured paragraph in `docs/factory.md`; eleven legs, four of them controls: the fall-through
-  mutant (blind the arm and the same fixture answers `awaiting_merge` — the class the live comment
-  was posted under), the wait-list mutant (must answer `UNKNOWN-CLASS`), the reset-disabled mutant
-  (must post the live bug from the same ledger), and the evidence-read inverter (must produce the
-  wrong sentence at both ends).
+  measured paragraph in `docs/factory.md`; sixteen assertions — fourteen printed legs plus two
+  controls adjudicated as commentary — four of them controls: the fall-through mutant (blind the
+  arm and the same fixture answers `awaiting_merge` — the class the live comment was posted under),
+  the wait-list mutant (must answer `UNKNOWN-CLASS`), the reset-disabled mutant (must post the live
+  bug from the same ledger), and the evidence-read inverter (must produce the wrong sentence at
+  both ends).
+- Push receipt: the effect commit `783666b7920acd1794a37c3e8724fabdcd3c3714` read back from
+  `git ls-remote origin refs/heads/issue-430`, not from the push's exit status (#1180); PR #496
+  read back `OPEN`, `headRefName issue-430`, base `main`, body byte-identical to its source
+  (md5 `70769cad2fe0…`, 5710 B). This receipt travels in the commit after the effect commit, so
+  the PR head is this hand-off commit, not `783666b`.
 - Not shipped: the reset only answers forward — a unit that oscillates between two wait classes can
   never age a notice at all, and a wait that leaves and returns re-ages from zero each trip. That
   is disclosed in `H-0349` (`What lost`), not papered over.
