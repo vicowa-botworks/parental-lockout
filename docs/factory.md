@@ -1598,13 +1598,21 @@ factory/next-decision-id.sh DECISIONS.md
 factory/next-decision-id.sh factory/DECISIONS.md
 ```
 
-The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref. Its
-answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
+The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref — on
+the face the named path selects, and since #456 a filed aim (`DECISIONS/`, `factory/DECISIONS/`)
+enumerates every `*.md` under the directory instead of one file: `git ls-tree -r --name-only` per ref,
+`git show` per path, a ref git cannot open skipped silently for the reason `H-0071` gives. An entry
+filed as `factory/DECISIONS/H-0277.md` on a sibling's ref raises the ceiling exactly as the same
+heading inside the monolith does, which is what makes a filed entry a *claim* rather than a file —
+before #456 the union never asked for that path, and `#442` tallied 7 of 31 ids handed to two or more
+branches with two units crossing over `H-0259`/`H-0260` one second apart.
+Its answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
 ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
 so "first free" is not "smallest missing number".
 
-It answers only for the decision log itself. The named path has to be named `DECISIONS.md` and be a
-regular file in the working tree or a blob in `HEAD`, because a union with no headings in it has
+It answers only for the decision log itself. The named path has to be named `DECISIONS.md` — a
+regular file in the working tree or a blob in `HEAD` — or, since #456, `DECISIONS` — the filed
+directory, a directory in the working tree or a tree in `HEAD` — because a union with no headings in it has
 exactly one answer available -- `<prefix>-0001`, the first heading both logs have carried since entry
 one -- so an empty union is a mistyped path, and answering it is the collision this command exists to
 refuse. Measured on the version #255 shipped, on three calls a session really makes:
@@ -1640,7 +1648,11 @@ visible. The guard now asks whether the path *is* the log: the basename must be 
 what is behind it must be a regular file or a blob in `HEAD`. A guide, a README, a directory, and a
 directory named `DECISIONS.md` are each refused and each is told why (`H-0076`); three more legs and two
 more controls join the six and two above, one plant per arm of the predicate, so neither test can be
-retired without a leg going red.
+retired without a leg going red. #456 added the filed twin to the accepted names — `DECISIONS`, a
+directory in the tree or a tree in `HEAD` — and kept the decoy refused in the same breath: the two
+names are three characters apart and the bug class this paragraph is written about *is* exactly that
+pair, so `DECISIONS/` answers while `DECISIONS.md/` is refused as a name no layout writes, one leg per
+direction and one plant per arm.
 
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
@@ -1686,8 +1698,19 @@ is no answer that leaves stderr empty. Measured at `487d572` on one fixture (git
 allocator writes 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, and 460
 one commit later -- never zero, so emptiness is not a reading anything can take. (A byte count carries
 the fixture's path in the refresh line, so it moves a byte or two between fixtures; the claim is that
-none of the three is zero.) A moved ceiling with
+none of the three is zero. #456 added a third stderr line to every answer, so the counts at `487d572`
+are that head's, not this one's.) A moved ceiling with
 **no PENDING line** is therefore the collision, and the four steps below are what to do with it.
+
+Every answer also says where the entry goes: `EMITS <repo-relative>/<id>.md -- create that file...`,
+on stderr beside the refresh and pending notes, because stdout is promised to be the id alone and
+legs pin its bytes. The line names the file for the layout the allocator is writing going forward —
+new entries are files, in either log — and a unit that ignores stderr loses nothing it had before,
+while a unit that reads it stops appending to a monolith. Two files once carrying 343 entries is what
+re-conflicts every open branch on every merge (#381 measured six different shifts of one
+`factory/selftest.sh` on one re-aim pass); the allocator naming the entry file is the writer half of
+ending that, and `H-0263` stands: *existing* entries are not hand-converted, because hand-filing a
+merged entry makes it a file no writer will ever produce again.
 
 What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
 what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your

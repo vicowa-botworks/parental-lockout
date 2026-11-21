@@ -1,4 +1,54 @@
-# NEXT — issue-442 (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+# NEXT — issue-456 (branch `issue-456`, PR #505 open; this unit is the answer-round for the review of #505: the review (hermesvicowa, `CHANGES_REQUESTED`, submitted 2026-11-21T16:48:26Z against head `2aa3517`) named two red legs — SC2209 at `factory/next-decision-id.sh:349` and `check-next-md` refusing the skill line that named a placeholder entry file no layout ships — and both were already repaired by `3dc8148`, which was pushed at 16:38:33Z, nine minutes before the review was filed against the older head; this unit re-measured both at `3dc8148` with controls (bare `shellcheck` 0.10.0 reproduces SC2209 twice, rc 1, on `git show 2aa3517:factory/next-decision-id.sh` and answers rc 0 on the head copy; `bash scripts/check-next-md.sh` OK, the old line's path absent from the tree and the new line's `factory/DECISIONS/H-0369.md` present), re-ran the full gate on the pushed bytes, and re-headed this hand-off, which the two code ticks had left at issue-442; merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped (`2aa3517`, entry `factory/DECISIONS/H-0369.md`, trailer `Decision: H-0369`, checkpoint
+  `1595e33`): the allocator answers both faces of a log (monolith name `DECISIONS.md`, filed name
+  `DECISIONS`), counts filed entries into the union walk across working tree/`HEAD`/`refs/heads`/
+  `refs/remotes`, names the destination file on stderr (`EMITS …`) while stdout stays the id alone,
+  and carries the first filed entry; plus the env-scrub addition to the suite (#482-class leak of
+  `OPENCODE_CONFIG_CONTENT`/`FACTORY_MCP_FENCE`).
+- Shipped (`3dc8148`, review answer): `other_kind="file"`/`"dir"` quoted (SC2209, the gate's own
+  bare-`shellcheck` invocation at the pinned 0.10.0), and the skill's `EMITS` example now names
+  `factory/DECISIONS/H-0369.md`, a path the branch actually writes, instead of the placeholder
+  number the tool-path guard (#337) refuses.
+- Did not ship: nothing was changed for the review's three NON-BLOCKING observations (kept out to
+  hold the diff minimal while `CHANGES_REQUESTED` stands) — their disposition is owed below.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor re-asks the reviewer (the `CHANGES_REQUESTED` row stands against `2aa3517`; the
+   verdict does not clear itself on `3dc8148` without a re-review) and merges; this unit asked
+   nobody and merged nothing.
+2. Filed as issue #506 by this unit, per the review's own recommendation ("Worth an issue before
+   phase 3, not inside this PR"): the union walk's per-ref cost — the filed arm adds one `git show`
+   per entry per ref per answer once phase 3 (#488) files entries on every ref (measured by the
+   review at `2aa3517`: 6.7 s → 10.6 s for the union read on a 1372-ref accumulated clone with the
+   filed dir on no ref but the branch); `ls-tree --name-only` basenames could source the taken-set
+   with no per-file content read, since the gate already refuses filename≠heading.
+3. Deferred with evidence, not silently: the `PENDING` note names the caller's `$rel` path, not the
+   file that raised the ceiling (the `printf` that raises the `PENDING` note interpolates `$rel`; the
+   review's one-word fix: `is in this tree`); and the decoy header sentence ("a directory called
+   `DECISIONS.md` is still refused") now reads stronger than the code, which refuses the decoy
+   *face* yet accepts the call via the filed twin — safe behavior, a clause of honesty is owed in
+   that comment. Both belong in a phase-3 touch or the cost issue's fix, not in a green-awaiting-review PR.
+4. Carried from the issue-442 record beneath: its three owed items and constraints stay true there;
+   nothing in this round retired them.
+
+## Constraints a stranger would break here
+
+- stdout of `factory/next-decision-id.sh` must stay the id alone (every existing `$(…)` capture and
+  #442's taken-set read parse it byte-exactly); stderr is the only channel for `EMITS`/`REFRESH`/
+  `PENDING` — the stdout-diff leg against `9ba61e7` pins this and degrades to ok-with-note on
+  shallow checkouts.
+- The never-hand-file-an-existing-entry rule stands (phase 2 reverses the append *default*, not the
+  hazard): entries keep being produced by the allocator; a hand-filed entry file is a file
+  nothing will ever produce again.
+- The selftest env-scrub block now names `FACTORY_MCP_FENCE` and `OPENCODE_CONFIG_CONTENT` because
+  the `and nothing else does` leg mutates the dispatch line that carries the fence; a "tidy" unset
+  block that drops them reddens the leg on a live tick tree (#482's class).
+
+## Record — issue-442 (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 
