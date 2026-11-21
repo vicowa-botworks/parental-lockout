@@ -69,6 +69,23 @@
 set -euo pipefail
 
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+# The suite owns the unit environment. A session dispatched by the supervisor runs with
+# FACTORY_TICK_UNIT, FACTORY_LOG and FACTORY_TICK_BRANCH exported (this suite was run at 16:07Z on
+# 21 Nov inside such a session, and the bare allocator runs in `decision_ids` journalled
+# `unit=unclaimed:456` into the supervisor's real journal: the journalled stderr line carries the
+# word REFRESH-BLIND, so `one note can suppress the other` read blind=yes through a plant that had
+# correctly silenced the real note, and `a bare run journals nothing` found a line in a journal a
+# bare run was supposed to leave empty). The same session also carries the tick's OWN dispatch line
+# in its environment -- `OPENCODE_CONFIG_CONTENT` holding the MCP fence, exported by the tick that
+# launched it -- and #447's leg `and nothing else does` mutates that line OUT of the dispatch to
+# prove the fence travels only through it, so the leak alone restored the mutated-away fact and the
+# leg failed on a shipped tree, measured at 16:40Z on 21 Nov in this very session. Legs that want a
+# unit, a journal, a branch or a fence set them explicitly on the call -- `dpn_alloc_run`, `proc_run`
+# and the fence legs all do -- so nothing here needs them inherited, and `FACTORY_ID_MAX_AGE`
+# ambient would silently retune every reach arm.
+unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_ID_MAX_AGE \
+	FACTORY_MCP_FENCE OPENCODE_CONFIG_CONTENT
 # shellcheck source=./common.sh
 # shellcheck disable=SC1091
 . "$HERE/common.sh"
@@ -16440,6 +16457,41 @@ alloc_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <wrong answe
 	return 0
 }
 
+# The mirror of `alloc_note_leg`, and the only thing that proves that leg's grep can fail: plant the
+# sentence away and require it to be GONE from a run that still answers. A note leg with no control here
+# is a string match that passes for every mutant of the copy.
+alloc_note_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <phrase that must vanish> <proof>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 want=$7 fact=$8
+	local bad got rc=0
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the check has stopped pinning the sentence it names.\n'
+		return 0
+	fi
+	if [ -n "$prefix" ]; then
+		got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$bad" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if grep -qF -- "$want" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted copy still says\n' "control: $label"
+		printf '          %s, so the ok above matches nothing in particular.\n' "$want"
+		return 0
+	fi
+	if [ "$rc" -ne 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant took the answer with the sentence, rc %s\n' "control: $label" "$rc"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s it answers, the sentence is gone: %s\n' "control: $label" "$fact"
+	return 0
+}
+
 # A refusal has three parts, and the allocator shipped delivering none of them: a mistyped log path
 # exited 0 with `H-0001` on stdout, and the same path without `--prefix` exited 2 with stdout AND
 # stderr empty. So a refusal leg asserts all three at once -- that it refused, that it printed no id
@@ -16476,6 +16528,31 @@ alloc_refuse() { # <label> <repo> <path that is not a log> <prefix> <what an ok 
 	if ! grep -qF -- "${path##*/}" "$alloc_err"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s it refused without naming %s:\n' "$label" "$path"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# Does the answer say WHICH file to write, or WHY there is no answer? Both are stderr-only verdicts,
+# so one helper covers them: it passes when the stream contains the phrase, whatever the exit status.
+# EMITS (#456) is the destination -- the path to append to for a monolith, the file to create for a
+# filed log -- and it cannot ride on stdout, because stdout is what a caller captures as the id. The
+# refusal phrase is the other half: #456 makes a wrong name and an unfiled log two different sentences
+# three characters apart, and a unit that reads the wrong one creates the wrong file.
+alloc_note_leg() { # <label> <repo> <path> <prefix> <phrase on stderr> <what an ok proves>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 fact=$6 got='' rc=0
+	if [ -n "$prefix" ]; then
+		got=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if ! grep -qF -- "$want" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it exited %s answering %s without saying:\n' "$label" "$rc" "$got"
+		printf '          %s\n' "$want"
 		sed 's/^/          /' "$alloc_err"
 		return 0
 	fi
@@ -17945,6 +18022,275 @@ decision_ids() {
 	alloc_boundary 'an unfetched sibling push is invisible' "$multi/a" DECISIONS.md D \
 		D-0002 D-0008 'blind until fetched, so the refresh is the other half'
 
+	# --------------------------------- one-file-per-entry: the union has to open a directory (#456)
+	#
+	# #429 phase 1 taught the gate to READ `DECISIONS/<id>.md` while every writer kept appending to the
+	# monolith, and the allocator was left reading one blob. A blob read of a directory is not an empty
+	# log, it is nothing: measured on the tree before these legs, a clone whose refs provably carried
+	# `factory/DECISIONS/H-0007.md` was answered `H-0007` -- the sibling's own number, reissued by the
+	# tool whose whole job is to refuse it. #442 measured this read at 7 of 31 ids reaching two or more
+	# branches, and the cause there was a reservation only the journal had; this is the same shape with
+	# the second copy in a file the union never opens, which is why it needs legs of its own.
+	#
+	# The trunk carries BOTH faces of the harness log -- `H-0020` in the monolith, `H-0021` filed -- and a
+	# pushed-and-deleted branch files `H-0022`, so the ceiling above the trunk lives only in the tree of a
+	# remote-tracking ref. That is the shape #442 counts: a claim in the layout phase 2 will emit, on the
+	# ref shape a pushed sibling has.
+	frepo=$alloc_work/filed-repo
+	git init -q -- "$frepo" || return 0
+	git -C "$frepo" config user.email fixture@invalid || return 0
+	git -C "$frepo" config user.name fixture || return 0
+	git -C "$frepo" checkout -qb main || return 0
+	mkdir -p -- "$frepo/factory/DECISIONS" || return 0
+	printf '## H-0020 · the monolith trunk\n' >"$frepo/factory/DECISIONS.md" || return 0
+	printf '## H-0021 · an entry already filed\n' >"$frepo/factory/DECISIONS/H-0021.md" || return 0
+	git -C "$frepo" add -A || return 0
+	git -C "$frepo" commit -qm 'fixture: a log with both faces on the trunk' || return 0
+	git -C "$frepo" checkout -qb filed-sibling || return 0
+	printf '## H-0022 · a sibling entry filed on a branch\n' \
+		>"$frepo/factory/DECISIONS/H-0022.md" || return 0
+	git -C "$frepo" add -A || return 0
+	git -C "$frepo" commit -qm 'fixture: the sibling files the next id' || return 0
+	git -C "$frepo" update-ref refs/remotes/origin/filed-sibling HEAD || return 0
+	git -C "$frepo" checkout -q main || return 0
+	git -C "$frepo" branch -q -D filed-sibling || return 0
+
+	# The two spellings of one log must give one answer, because the gate's `cross_log_problems` already
+	# refuses an id used in both -- the allocator is the only thing that could hand one out. The second
+	# leg is the defect #456 reports: asking the OLD question of a log whose ceiling is filed.
+	alloc_leg 'a filed id on a ref is counted' "$frepo" factory/DECISIONS H H-0023 \
+		'H-0023, because H-0022 is filed on origin/filed-sibling'
+	alloc_leg 'a filed id is counted by the old path' "$frepo" factory/DECISIONS.md H H-0023 \
+		'the id space is the log, not one file of it'
+	# One control per spelling, because each has its own ok above to pin. The plant removes the directory
+	# half of the ref read and nothing else: both answers fall back to H-0022, which is the sibling's
+	# number -- so neither ok above is the fixture agreeing by accident.
+	alloc_control 'a filed id on a ref is counted' "$alloc_work/ctrl-no-filed-ref" \
+		's|face_ref "$ref" "$stem" dir|true #|' \
+		"$frepo" factory/DECISIONS H H-0022 'it reissued the number a sibling filed'
+	alloc_control 'a filed id is counted by the old path' "$alloc_work/ctrl-no-filed-ref-md" \
+		's|face_ref "$ref" "$stem" dir|true #|' \
+		"$frepo" factory/DECISIONS.md H H-0022 'it reissued the number a sibling filed'
+
+	# The slash is part of the ask, and it needs both directions because one line makes it two ways to be
+	# wrong. `factory/DECISIONS/` is what a shell completes when you mean the filed directory, and #456
+	# asks for it by name. `factory/DECISIONS.md/` asks for a directory BY THE MONOLITH'S NAME, a path no
+	# layout writes, and the review caught the first version of the strip answering it: with the guard
+	# deleted that call answers `H-0023` and exits 0 (measured on the fixture above), reaching the filed
+	# face through a path that named the file -- one character from the `DECISIONS.md` decoy `log_is_here`
+	# exists to refuse (H-0076).
+	alloc_leg 'the filed name with its slash is read' "$frepo" factory/DECISIONS/ H H-0023 \
+		'the completed slash is the same log, not a second path'
+	# No `alloc_control` can pin that ok: the only plant that takes the strip out makes the same call
+	# REFUSE (rc 2, measured), and `alloc_control` reads a refusal as a broken plant. So this pins the
+	# difference in the direction the helpers allow -- shipped answers the number, the stripless copy
+	# cannot answer at all -- which is the same fact: without the strip the slash is what breaks the read.
+	slash_bad=$(alloc_plant "$alloc_work/ctrl-no-slash-strip" 's|^log=${log%/}$|: #|' || true)
+	if [ -z "$slash_bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' \
+			'control: the filed name with its slash'
+		printf '          nothing change; the ok above pins nothing.\n'
+	elif slash_got=$(bash "$slash_bad" --repo "$frepo" --prefix H factory/DECISIONS/ 2>"$alloc_err"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stripless allocator still answered %s,\n' \
+			'control: the filed name with its slash' "$slash_got"
+		printf '          so the slash was never what made that path readable.\n'
+	else
+		slash_rc=$?
+		pass=$((pass + 1))
+		printf '  ok    %-40s it refuses that path outright (rc %s), so the ok\n' \
+			'control: the filed name with its slash' "$slash_rc"
+		printf '          above is the strip being applied and not the name arm alone.\n'
+	fi
+	# And the direction the guard exists for. Its control deletes the guard and nothing else, which is the
+	# review's defect running: the planted copy answers for a path that asked for a directory.
+	alloc_note_leg 'the monolith with its slash is refused' "$frepo" factory/DECISIONS.md/ H \
+		'the trailing slash asks for a directory' \
+		'the monolith is a file, and the refusal says which face was asked for'
+	alloc_note_control 'the monolith with its slash is refused' "$alloc_work/ctrl-slash-guard" \
+		's|if \[ "$name" = DECISIONS.md \] && \[ "$log_slash" = 1 \]; then|if false; then|' \
+		"$frepo" factory/DECISIONS.md/ H 'the trailing slash asks for a directory' \
+		'it answers an id for a directory asked for by the monolith name'
+
+	# The fixture's own precondition, in the direction that shows the ok above is not a coincidence. Take the
+	# filed copies off a clone that keeps the sibling ref and the ceiling falls back to the monolith's
+	# `H-0020`, so the answer is `H-0021` -- a number both legs above refuse. Same clone, same refs, one
+	# commit between the two answers: the filed files are what raised it, and `H-0021` is the pre-fix answer
+	# printed by the fixture that proves it. Three refs move, and each was measured needing to: `git rm` plus
+	# a commit, because HEAD's blob is in the union; `update-ref` of `refs/remotes/origin/main` to that
+	# commit, because the clone's remote-tracking tree still carried `factory/DECISIONS/H-0021.md` and the
+	# ceiling held at `H-0022` with only the first two done; and the sibling ref deleted. A remote-tracking
+	# ref is a ref: the union does not care which side of a fetch it came from.
+	fdrop=$alloc_work/filed-dropped
+	git clone -q "$frepo" "$fdrop" >/dev/null 2>&1 || return 0
+	git -C "$fdrop" config user.email fixture@invalid || return 0
+	git -C "$fdrop" config user.name fixture || return 0
+	git -C "$fdrop" update-ref refs/remotes/origin/filed-sibling \
+		"$(git -C "$frepo" rev-parse refs/remotes/origin/filed-sibling)" || return 0
+	alloc_leg 'the clone answers the filed ceiling' "$fdrop" factory/DECISIONS H H-0023 \
+		'the same answer as the tree it was cloned from, ref and all'
+	git -C "$fdrop" rm -q factory/DECISIONS/H-0021.md || return 0
+	git -C "$fdrop" commit -qm 'fixture: the filed entries are taken back' || return 0
+	git -C "$fdrop" update-ref refs/remotes/origin/main "$(git -C "$fdrop" rev-parse HEAD)" || return 0
+	git -C "$fdrop" update-ref -d refs/remotes/origin/filed-sibling || return 0
+	alloc_leg 'no filed copy left, the ceiling drops' "$fdrop" factory/DECISIONS H H-0021 \
+		'H-0021, which the leg above refuses, is all the monolith gives'
+	alloc_leg 'the old name drops with it' "$fdrop" factory/DECISIONS.md H H-0021 \
+		'both spellings fell together, so one id space was being read'
+	# Where the entry goes. The number was always the whole answer when there was one file; during the
+	# migration a unit that appends to the monolith while phase 2 emits files creates exactly the entry
+	# AGENTS.md says nothing will ever produce again, so the destination is said out loud -- and a unit
+	# that ignores stderr still gets a correct id, which is all it ever got.
+	alloc_note_leg 'a filed answer names the file to create' "$frepo" factory/DECISIONS H \
+		'EMITS factory/DECISIONS/H-0023.md -- create that file' \
+		'the destination is an entry file, not the directory'
+	# #456 part 3 verbatim: `EMITS <repo-relative>/<id>.md` -- the file to CREATE -- for BOTH aims. The
+	# monolith aim is the one the sentence buys: a unit still following the old brief and reading stderr
+	# stops appending to a monolith, which is the sentence the ticket says this line exists to say.
+	alloc_note_leg 'a monolith aim also emits the entry file' "$frepo" factory/DECISIONS.md H \
+		'EMITS factory/DECISIONS/H-0023.md -- create that file' \
+		'the redirect works on the aim that still points at the monolith'
+
+	# Each note leg is a grep for one sentence, so each gets the plant that removes exactly that sentence:
+	# an EMITS line that says something else must make its leg red, and the answer must still print, or the
+	# plant narrowed the arithmetic instead of the copy.
+	alloc_note_control 'a filed answer names the file to create' "$alloc_work/ctrl-emits-filed" \
+		's|-- create that file with your entry|-- write it wherever you like|' \
+		"$frepo" factory/DECISIONS H 'EMITS factory/DECISIONS/H-0023.md -- create that file' \
+		'the destination sentence is what that leg matches, not the id'
+	alloc_note_control 'a monolith aim also emits the entry file' "$alloc_work/ctrl-emits-monolith" \
+		's|-- create that file with your entry|-- write it wherever you like|' \
+		"$frepo" factory/DECISIONS.md H 'EMITS factory/DECISIONS/H-0023.md -- create that file' \
+		'the plant removes the one sentence both aims print, and the answer still lands'
+
+	# stdout is the machine surface and part 3 must not move it (#456's own leg): the id, a newline,
+	# nothing else, for every aim -- and byte-identical to the phase-1 allocator's answer on the same
+	# tree. Phase 1 is this command as it stood at `9ba61e7`, the checkpoint of the branch #456 was
+	# cut from; every merge here is a merge commit, so that object is a permanent ancestor of `main`
+	# once this lands. On a checkout shallow enough to lack it the diff leg degrades to the shipped
+	# byte asserts above, which a merge cannot falsify either.
+	aim_n=0
+	for aim in factory/DECISIONS factory/DECISIONS/ factory/DECISIONS.md; do
+		aim_n=$((aim_n + 1))
+		out=$alloc_work/stdout-$aim_n
+		bash "$alloc_script" --repo "$frepo" --prefix H "$aim" >"$out" 2>/dev/null || return 0
+		printf 'H-0023\n' >"$alloc_work/stdout-want"
+		if cmp -s "$out" "$alloc_work/stdout-want"; then
+			pass=$((pass + 1))
+			printf '  ok    %-40s stdout is the id, a newline, and nothing else\n' "stdout bytes: $aim"
+		else
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s stdout is not just the id:\n' "stdout bytes: $aim"
+			od -c "$out" | sed 's/^/          /'
+		fi
+	done
+	if git -C "$HERE/.." show 9ba61e7:factory/next-decision-id.sh >"$alloc_work/phase1" 2>/dev/null; then
+		mono=$alloc_work/monolith-only
+		git clone -q "$frepo" "$mono" >/dev/null 2>&1 || return 0
+		git -C "$mono" config user.email fixture@invalid || return 0
+		git -C "$mono" config user.name fixture || return 0
+		git -C "$mono" rm -q -r factory/DECISIONS >/dev/null 2>&1 || return 0
+		git -C "$mono" commit -qm 'fixture: back to one face' >/dev/null 2>&1 || return 0
+		# The clone's remote-tracking tree still carries the filed files until the ref moves --
+		# the union reads refs, not the checkout, and `filed-dropped` below re-learns this.
+		git -C "$mono" update-ref refs/remotes/origin/main HEAD || return 0
+		bash "$alloc_script" --repo "$mono" --prefix H factory/DECISIONS.md \
+			>"$alloc_work/out-new" 2>/dev/null || return 0
+		bash "$alloc_work/phase1" --repo "$mono" --prefix H factory/DECISIONS.md \
+			>"$alloc_work/out-old" 2>/dev/null || return 0
+		if cmp -s "$alloc_work/out-new" "$alloc_work/out-old"; then
+			pass=$((pass + 1))
+			printf '  ok    %-40s identical bytes; EMITS changed stderr only: %s\n' \
+				'stdout diff vs phase 1' "$(cat "$alloc_work/out-new")"
+		else
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s stdout moved between phase 1 and this\n' 'stdout diff vs phase 1'
+			diff "$alloc_work/out-old" "$alloc_work/out-new" | sed 's/^/          /'
+		fi
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-40s (skipped: the 9ba61e7 object is not in this checkout)\n' \
+			'stdout diff vs phase 1'
+	fi
+
+	# Phase 3's tree: the monolith is gone and only the entries are left. Naming the retired path must
+	# neither refuse the pass -- the id space belongs to the log -- nor advise recreating a file the
+	# migration deleted. `sibling=yes` is that one case where the caller's path and the log's layout come
+	# apart, which is why EMITS has three arms and not two.
+	fonly=$alloc_work/filed-only
+	git init -q -- "$fonly" || return 0
+	git -C "$fonly" config user.email fixture@invalid || return 0
+	git -C "$fonly" config user.name fixture || return 0
+	git -C "$fonly" checkout -qb main || return 0
+	mkdir -p -- "$fonly/factory/DECISIONS" || return 0
+	printf '## H-0030 · filed, with no monolith\n' >"$fonly/factory/DECISIONS/H-0030.md" || return 0
+	git -C "$fonly" add -A || return 0
+	git -C "$fonly" commit -qm 'fixture: the log after the split' || return 0
+	alloc_leg 'the retired path answers the filed log' "$fonly" factory/DECISIONS.md H H-0031 \
+		'a missing monolith is not a missing log'
+	alloc_leg 'the filed path answers the same id' "$fonly" factory/DECISIONS H H-0031 \
+		'one id space, whichever face you named'
+	alloc_note_leg 'the retired path emits an entry file' "$fonly" factory/DECISIONS.md H \
+		'EMITS factory/DECISIONS/H-0031.md -- create that file' \
+		'it names an entry file, not a recreation of the file the split removed'
+
+	# The control for both phase-3 legs at once. With both directory faces of the stem removed this tree has
+	# no blob left to read anywhere -- the monolith was `git rm`'d and committed, the filed entries are the
+	# only log it has -- so the union is empty and the mutant answers the prefix's first number. That the
+	# shipped one answers `H-0031` is therefore the filed face being read, not a monolith the fixture kept
+	# somewhere. Measured, not inferred: the plant prints `H-0001` on stdout and nothing but a REFRESH-BLIND
+	# warning on stderr, because this fixture has no origin remote to be blind about.
+	alloc_control 'the filed face is what answers phase 3' "$alloc_work/ctrl-no-filed-phase3" \
+		's|face_ref "$ref" "$stem" dir|true #|; s|face_work "$stem" dir|true #|' \
+		"$fonly" factory/DECISIONS.md H H-0001 \
+		'an emptied union reissues the prefix from one, it does not grieve the log it cannot find'
+
+	# The working-tree half, on the fixture where it is the ONLY ceiling: a unit's own uncommitted entry
+	# file. That is the ordinary state at the moment `SKILL.md` tells a session to re-read the allocator,
+	# and in this layout the heading sits in a file no ref has yet -- so without the directory read of the
+	# tree the answer silently drops back one. That is #320's phantom re-read with the collision made
+	# real instead of apparent. The PENDING note is the other half: it is what says the ceiling above the
+	# refs is yours and not a sibling's, and the existing pair for it is monolith-only.
+	funcomm=$alloc_work/filed-uncommitted
+	git clone -q "$fonly" "$funcomm" >/dev/null 2>&1 || return 0
+	git -C "$funcomm" config user.email fixture@invalid || return 0
+	git -C "$funcomm" config user.name fixture || return 0
+	printf '## H-0031 · my own entry, uncommitted\n' \
+		>"$funcomm/factory/DECISIONS/H-0031.md" || return 0
+	alloc_leg 'an uncommitted filed entry is counted' "$funcomm" factory/DECISIONS H H-0032 \
+		'H-0032, because the tree already carries H-0031'
+	alloc_control 'an uncommitted filed entry is counted' "$alloc_work/ctrl-no-filed-work" \
+		's|face_work "$stem" dir|true #|' \
+		"$funcomm" factory/DECISIONS H H-0031 \
+		'it answered over your own entry, which is the collision it exists to refuse'
+	alloc_note_leg 'an uncommitted filed entry says so' "$funcomm" factory/DECISIONS H \
+		'PENDING H-0031' 'and it names whose heading the ceiling walked past'
+
+	alloc_note_control 'an uncommitted filed entry says so' "$alloc_work/ctrl-pending-filed" \
+		's|PENDING %s is in %s and on no ref|Ceiling %s is in %s past ref|' \
+		"$funcomm" factory/DECISIONS H 'PENDING H-0031' \
+		'the attribution line is what that leg matches; the id still prints'
+
+	# The type test survives the second name, in the direction that a name check alone gets wrong: a
+	# DIRECTORY called `DECISIONS.md` is the decoy H-0076 was written for, and the filed acceptance above
+	# must not have swallowed it. Nothing is read from it, so answering would mean allocating from the
+	# ids in some other file.
+	fdecoy=$alloc_work/filed-decoy
+	git clone -q "$fonly" "$fdecoy" >/dev/null 2>&1 || return 0
+	git -C "$fdecoy" config user.email fixture@invalid || return 0
+	git -C "$fdecoy" config user.name fixture || return 0
+	mkdir -p -- "$fdecoy/DECISIONS.md" || return 0
+	alloc_refuse 'a directory named DECISIONS.md is refused' "$fdecoy" DECISIONS.md '' \
+		'the filed name does not make a directory legal under the old name'
+	# A wrong name now has two neighbours -- `DECISIONS.md` and `DECISIONS` are three characters apart --
+	# so the refusal has to teach both forms or it sends the unit to the wrong file with a clear
+	# conscience. This is the sentence a session reads, and it is the only difference between the two
+	# mistakes left.
+	alloc_note_leg 'a wrong name is refused with both forms' "$frepo" factory/DECISION.md D \
+		'filed directories DECISIONS and factory/DECISIONS' \
+		'the refusal names the layout the caller did not think of'
+
 	claim_leg 'the gate reads no branch refs' gate_reads_no_refs
 	gate_ref_blind_control
 	gen_leg 'a sibling id leaves the verdict alone' \
@@ -18131,7 +18477,7 @@ decision_ids() {
 		# plant writes back the predicate this branch replaced, `git cat-file -e`, which a directory
 		# named DECISIONS.md satisfies.
 		alloc_control 'a document that exists is not the log' "$alloc_work/ctrl-no-name-test" \
-			's|DECISIONS.md) ;;|*) ;;|' \
+			's@DECISIONS.md | DECISIONS) ;;@*) ;;@' \
 			"$alloc_notlog" docs/factory.md H H-0001 \
 			'without the name test a guide, a README and an AGENTS file are all decision logs'
 		alloc_control 'a DECISIONS.md directory is not the log' "$alloc_work/ctrl-any-type" \

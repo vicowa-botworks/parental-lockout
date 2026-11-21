@@ -156,10 +156,15 @@ When you reach a decision point, do this instead, in this order:
    factory/next-decision-id.sh factory/DECISIONS.md
    ```
 
-   Use exactly what it prints. It takes the union of the current checkout, `HEAD`, `refs/heads` and
+   Use exactly what it prints — and write the entry into the file its stderr `EMITS` line names
+   (`EMITS factory/DECISIONS/H-0369.md -- create that file...`), not into a monolith: new entries are
+   files in either log (#456), while existing entries stay where they are — never hand-convert one.
+   It takes the union of the current checkout, `HEAD`, `refs/heads` and
    `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
    wrong, not the tool**: it answers only for the decision log itself -- a path whose name is
-   `DECISIONS.md`, holding a regular file in the working tree or a blob in `HEAD` -- because
+   `DECISIONS.md` holding a regular file in the working tree or a blob in `HEAD`, or, since #456, the
+   filed name `DECISIONS` holding a directory in the tree or a tree in `HEAD` (`DECISIONS/` is
+   accepted; `DECISIONS.md/` is still refused) -- because
    an empty union has exactly one answer available -- `D-0001`/`H-0001`, the number both logs opened
    with -- and handing that out is the collision this command exists to refuse (`H-0073`). Read its
    message and name the log you mean; never fall back to numbering by eye. A relative path resolves
@@ -659,3 +664,20 @@ the suite now ends by sourcing every `*.sh` under `factory/selftest.d/` in `LC_A
 - **`NEXT.md` is unchanged by phase 1** — the hand-off stays one gated file. #428 proposes splitting it
   into `NEXT.d/` with `scripts/check-next-md.sh` reading the directory; until that lands, write the
   hand-off exactly as the section above says.
+
+## If the branch carries a number, the body must name it (#457)
+
+An `issue-<N>` branch states the ticket it delivers in its own name, and until #457 nothing read the
+name and the body together. #454 is the specimen, re-measured 21 Nov from its merged body: `#375`
+occurs zero times -- the substring `375` appears three times, twice as the branch string and once as
+a coincidental hit inside a quoted `factory/selftest.sh` line number -- no keyword names the ticket,
+the merge registered no closing reference, and the ticket was dispatched again eight minutes after
+it had been delivered. So Step 5's checker, `scripts/check-close-verb.py`, now refuses the second
+half too: on a branch whose name claims a number, a body that names that number with NOTHING exits
+1. A documented keyword, a `Refs`/`Part of` line, or anything else the checker reports counts as
+naming it; a bare `#N` does not, because a link registers with no queue. The branch is read with
+`git rev-parse --abbrev-ref HEAD` in the directory the checker runs -- another reason Step 5 says to
+run it in the worktree rather than over a pipe; `--branch NAME` overrides what it finds, and
+`--branch ''` or `--span-blind` silences the leg. Practical rule: name your own ticket in the body
+in the same breath as the body's first line -- not as a post-create edit, which nothing re-checks --
+and run the checker against the body file before `gh pr create`, not after.

@@ -67,7 +67,23 @@ sentence that was warning about them -- the #245 shape from #1256, one layer dow
 looked. Both of its numbers were already-closed artifacts that day, which is luck about two numbers and
 not a property of the shape.
 
-Exit status: 0 when nothing is inert, refused or negated, 1 when any of those is true, 2 when the body
+The same bytes answer a second question (#457, 21 Nov): does the body name the ticket the branch says it
+delivers. An `issue-<N>` branch states its ticket in its name, and until #457 nothing read the two
+together. The specimen is PR #454, re-measured 21 Nov from its merged body: `#375` occurs zero times --
+the substring `375` appears three times, twice as the branch string `issue-375` and once inside
+`selftest.sh:3756`, and no keyword names anything -- so GitHub registered no closing reference,
+`factory/triage.sh` counted the merged pull as claiming nothing (correctly, by its design), and the
+ticket was re-dispatched eight minutes after the merge landed. So on a branch whose name claims a
+number, naming that number with NOTHING is refused: a documented keyword, a `Refs`/`Part of` line, or
+any classification this file already reports counts as naming it, because a bare `#N` is a link and
+registers with no queue -- the fact the no-keyword report has always recorded for the writer, now made
+load-bearing. The branch is read from `git rev-parse --abbrev-ref HEAD` in the caller's directory
+(which is where the delivery contract says to run this check: in the worktree); `--branch NAME`
+overrides what it finds, `--branch ''` silences the leg, and the leg stays silent for `--span-blind`
+reads, because commit messages are a whole branch's bytes, not one body's delivery claim.
+
+Exit status: 0 when nothing is inert, refused or negated and a claiming branch is named back, 1 when
+any of those is true or the branch claims a number the body names with nothing, 2 when the body
 could not be read. `negated` is in the failing set because a verb on a line saying `not` fires anyway,
 which is the one class a reader is most likely to wave through. It is deliberately not an error for a
 body to carry a firing closer -- a finished unit is supposed to ship one. It is an error to ship one
@@ -75,15 +91,20 @@ the parser will never see, or one whose keyword the parser does not have.
 
 Usage:
     scripts/check-close-verb.py PATH [PATH...]     check bodies (`-` reads a body from stdin)
-    scripts/check-close-verb.py --self-test        the five classes and the strip order
+    scripts/check-close-verb.py --self-test        the five classes, the strip order, the branch leg
+    scripts/check-close-verb.py --branch NAME      what the branch leg reads instead of HEAD
     scripts/check-commit-verbs.sh [BASE]           every commit message between BASE and HEAD
 """
 
+import contextlib
+import io
 import re
+import subprocess
 import sys
 
-USAGE = ("usage: scripts/check-close-verb.py [--self-test] [--span-blind] PATH [PATH...]\n"
-         "       `-` as a PATH reads the body from stdin")
+USAGE = ("usage: scripts/check-close-verb.py [--self-test] [--span-blind] [--branch NAME] "
+         "PATH [PATH...]\n"
+         "       `-` as a PATH reads the body from stdin; `--branch ''` silences the branch leg")
 
 # GitHub's documented keyword set -- `close closes closed fix fixes fixed resolve resolves resolved`.
 # No `-ing` form exists in it, and the verb has to touch the reference: `[:, \t]*` is the separator
@@ -112,6 +133,46 @@ NEGATION = re.compile(r"\b(?:not|never|no|n't|without|cannot|neither)\b", re.IGN
 # the plain-text set and get reported as a closer that will never fire.
 FENCE = re.compile(r'```.*?(?:```|\Z)', re.S)
 INLINE = re.compile(r'`[^`\n]*`')
+# The number a branch name claims: `issue-<N>`, bounded on both sides. The left bound keeps
+# `issues-9` from claiming 9, which a substring-only match would take -- and `nonissue-5` besides;
+# the right one keeps `issue-4570` claiming 4570 and not 457. Measured 21 Nov over `git branch -a`
+# of this repository: `issue-<digits>` is the only shape carrying a bare issue number
+# (`backup/audit-page-pre-rebase`, `docs/roadmap-h-0109`, `rescue/pre-h0234-reword`, `main`,
+# `master` claim none -- the roadmap name holds a decision id, and the `issue-` prefix is what
+# keeps it from being read as an issue).
+BRANCH_ISSUE = re.compile(r'(?:^|[/._-])issue-([1-9][0-9]*)(?=$|[/.-])')
+
+
+def branch_numbers(branch):
+    """The issue numbers a branch name claims, ascending: `wip/issue-204-nav` claims 204."""
+    return sorted(set(BRANCH_ISSUE.findall(branch or "")), key=int)
+
+
+def unnamed_branch_numbers(c, branch):
+    """Every number the branch claims that the classification names with nothing. A number in ANY
+    class counts as named -- firing, negated (it fires anyway), inert, hazard: this leg refuses
+    silence about the branch's own number, not correctness about it, and a wrong claim is the other
+    legs' verdict."""
+    named = set()
+    for cls in c.values():
+        named.update(cls)
+    return [n for n in branch_numbers(branch) if n not in named]
+
+
+def current_branch():
+    """The caller's branch via `git rev-parse --abbrev-ref HEAD`; the empty string whenever that
+    question has no answer -- no git binary, no repository, detached HEAD, timeout. A leg that
+    cannot see a branch says nothing: the rule exists for a unit standing in its worktree running
+    the Step 5 check there, and refusing from a tarball or a detached HEAD would make a guard a
+    tax, and #353's history is what guards become when they are taxes."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                             encoding="utf-8", errors="replace", timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    name = out.stdout.strip() if out.returncode == 0 else ""
+    return "" if name == "HEAD" else name
 
 
 def classify(body, spans=True):
@@ -165,8 +226,9 @@ def classify(body, spans=True):
     return out
 
 
-def report(path, body, spans=True):
+def report(path, body, spans=True, branch=""):
     c = classify(body, spans)
+    missing = unnamed_branch_numbers(c, branch)
     parts = []
     if c["firing"]:
         parts.append("closes %s" % ", ".join("#" + n for n in sorted(c["firing"], key=int)))
@@ -179,6 +241,9 @@ def report(path, body, spans=True):
                      % ", ".join("#" + n for n in sorted(c["hazard"], key=int)))
     if c["neutral"]:
         parts.append("neutral %s" % ", ".join("#" + n for n in sorted(c["neutral"], key=int)))
+    if missing:
+        parts.append("REFUSED, branch %s claims %s, named with nothing"
+                     % (branch, ", ".join("#" + n for n in missing)))
     if not parts:
         # Accurate about its own reach. A bare `#123` with no keyword beside it is a real reference and
         # this tool does not see it: it reads keywords, not links, and a sentence that claimed to have
@@ -202,7 +267,13 @@ def report(path, body, spans=True):
         print("    #%s is named by %s, an inflection GitHub does not document: whether it fires is "
               "unmeasured here, so it is refused -- write the documented keyword, or write `Refs` and "
               "say what is unfinished" % (n, ("`%s`" % verb)[:56] if verb else "a bare verb"))
-    return 1 if c["inert"] or c["negated"] or c["hazard"] else 0
+    for n in missing:
+        print("    the branch claims #%s and this body names it with no keyword and no `Refs`/`Part "
+              "of` line; a bare `#N` is a link and registers with no queue. #454's body named #375 "
+              "with nothing and the ticket was worked again eight minutes after the merge -- write "
+              "`Refs #%s`, or the documented keyword touching the number when the ticket really is "
+              "finished" % (n, n))
+    return 1 if c["inert"] or c["negated"] or c["hazard"] or missing else 0
 
 
 GOOD = {
@@ -318,6 +389,69 @@ def self_test():
     # One number, both spellings: the firing report is the stronger verdict and is not doubled.
     expect("suppressed", HAZ["suppressed"], "firing", ["12"])
     expect("suppressed", HAZ["suppressed"], "hazard", [])
+    # The branch leg (#457): what a branch name claims.
+    def branch_expect(name, branch, want):
+        got = branch_numbers(branch)
+        if got != sorted(set(want), key=int):
+            fails.append("branch-%s: %r parses %s, expected %s"
+                         % (name, branch, got, sorted(set(want), key=int)))
+
+    branch_expect("bare", "issue-457", ["457"])
+    branch_expect("prefixed", "wip/issue-204-nav-preserved", ["204"])
+    branch_expect("remote-prefixed", "origin/issue-12", ["12"])
+    branch_expect("dotted", "issue-9.backport", ["9"])
+    branch_expect("two", "issue-12-plus-issue-345", ["12", "345"])
+    branch_expect("trunk", "main", [])
+    branch_expect("plural-trap", "issues-9", [])
+    branch_expect("non-issue-trap", "nonissue-5", [])
+    branch_expect("zero-trap", "issue-0", [])
+    branch_expect("long-number", "issue-4570", ["4570"])
+    branch_expect("decision-not-issue", "docs/roadmap-h-0109", [])
+    branch_expect("empty", "", [])
+
+    # And what counts as naming the claim back. Every class the parser reports counts -- the leg
+    # refuses silence about the branch's own number, not correctness about it -- while silence and
+    # a bare link do not, and a healthy body aimed at a DIFFERENT number still leaves the branch's
+    # number unnamed (the #454 shape exactly: a body that spoke a lot and named nothing).
+    def misses_expect(name, body, branch, want):
+        got = unnamed_branch_numbers(classify(body), branch)
+        if got != list(want):
+            fails.append("branch-%s: body against %r misses %s, expected %s"
+                         % (name, branch, got, list(want)))
+
+    misses_expect("firing", GOOD["firing"], "issue-313", [])
+    misses_expect("neutral", GOOD["neutral"], "issue-10", [])
+    misses_expect("negated-names", BAD["negated"], "issue-10", [])
+    misses_expect("inert-names", BAD["inert"], "issue-301", [])
+    misses_expect("hazard-names", HAZ["corpus-47"], "issue-46", [])
+    misses_expect("silent", "Nothing names any ticket here.\n", "issue-457", ["457"])
+    misses_expect("bare-link", "See #457 for the finding.\n", "issue-457", ["457"])
+    misses_expect("wrong-number", "Refs #457.\n", "issue-458", ["458"])
+    misses_expect("multi-branch", "Refs #12 and Refs #345.\n", "issue-12-plus-issue-345", [])
+    misses_expect("trunk-body", "Nothing names any ticket here.\n", "main", [])
+
+    # The refusal exists at the exit code, not only in the prose. `want_not` guards the verdict's own
+    # wording: #1256's rule applies to this file's stdout too -- no closer vocabulary adjacent to a
+    # number in text a scanning tool may one day read.
+    def report_expect(name, body, branch, want_rc, want_in="", want_not=""):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            got_rc = report(name, body, True, branch)
+        out = buf.getvalue()
+        if got_rc != want_rc:
+            fails.append("report-%s: rc %d, expected %d (first line: %r)"
+                         % (name, got_rc, want_rc, out.splitlines()[:1]))
+        if want_in and want_in not in out:
+            fails.append("report-%s: verdict lacks %r" % (name, want_in))
+        if want_not and want_not in out:
+            fails.append("report-%s: verdict carries %r it must not" % (name, want_not))
+
+    report_expect("silent-on-issue-branch", "Nothing names any ticket here.\n", "issue-457", 1,
+                  want_in="REFUSED, branch issue-457 claims #457", want_not="closes #")
+    report_expect("named-on-issue-branch", "Refs #457.\n", "issue-457", 0)
+    report_expect("silent-on-trunk", "Nothing names any ticket here.\n", "main", 0)
+    report_expect("bare-link-refused", "See #457 for the finding.\n", "issue-457", 1,
+                  want_in="REFUSED, branch issue-457 claims #457", want_not="closes #")
     if fails:
         for f in fails:
             print("check-close-verb --self-test: %s" % f)
@@ -333,10 +467,35 @@ def main(argv):
     # `--span-blind` is the commit-message reading; see `classify`. A flag on the tool rather than
     # a second entry point, so there stays one classifier and one place the two readings differ.
     spans = "--span-blind" not in argv
-    paths = [a for a in argv[1:] if a != "--span-blind"]
+    branch = None
+    paths = []
+    args = argv[1:]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--branch":
+            if i + 1 >= len(args):
+                print("check-close-verb: --branch needs a value (write `--branch ''` to silence "
+                      "the leg explicitly)")
+                return 2
+            branch = args[i + 1]
+            i += 2
+        elif a.startswith("--branch="):
+            branch = a.split("=", 1)[1]
+            i += 1
+        elif a == "--span-blind":
+            i += 1
+        else:
+            paths.append(a)
+            i += 1
     if not paths:
         print(USAGE)
         return 2
+    # The leg reads the caller's HEAD only in body mode and only when not told otherwise: a
+    # message pipe is a whole branch's bytes, not one delivery claim, and the caller over a pipe
+    # has already said what it means by choosing --span-blind.
+    if branch is None:
+        branch = current_branch() if spans else ""
     rc = 0
     for path in paths:
         try:
@@ -350,12 +509,14 @@ def main(argv):
         except OSError as exc:
             print("check-close-verb: %s could not be read: %s" % (path, exc))
             return 2
-        rc = max(rc, report(path, body, spans))
+        rc = max(rc, report(path, body, spans, branch))
     if rc == 1:
         print("check-close-verb: a keyword inside a code span closes nothing, plain text on a "
-              "line that says `not` fires anyway, and an inflection GitHub does not document is "
-              "refused because nobody has measured what it does. Write the documented keyword "
-              "where GitHub can see it, or write `Refs` and say what is unfinished.")
+              "line that says `not` fires anyway, an inflection GitHub does not document is "
+              "refused because nobody has measured what it does, and a branch named `issue-<N>` "
+              "whose body names N with nothing re-offers its ticket after the merge. Write the "
+              "documented keyword where GitHub can see it, or write `Refs` and say what is "
+              "unfinished.")
     return rc
 
 

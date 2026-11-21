@@ -1,4 +1,49 @@
-# NEXT — issue-448 (branch `issue-448`, PR open against `main`; this unit ships `H-0367`: the two remaining `$TMPDIR`-inside-a-repository FAIL rows #371's audit left — the stale-entry `proc_leg` and the blind-activation `gen_leg` in `factory/selftest.sh` — take the one-condition SKIP #371 already worded, asked of the planted fixture path itself (`git -C "$r342_work" rev-parse --git-dir`) rather than of `$TMPDIR`, because the condition the legs verify is the fixture's unreadability and discovery can escape to an enclosing repository even from a `$TMPDIR` no work tree contains (measured in this tick's six-run matrix: a plain repo with no origin leaves the activation leg green for the wrong reason — SKIPping on discovery, not on `$TMPDIR`, is what catches that topology too); 137 anchored decision-log pointers the +22 insertions slid were re-aimed in the effect commit and the shipped gate reads green at this head; the bare-pointer census this diff owes and the gate cannot read: 32 bare `factory/selftest.sh` pointers in the shipped log, zero naming a row this diff moved, 29 revision-pinned rows untouched; the disclosure comment on #448 names the sibling issue #503 — a colon inside a scratch directory name silently splits every `PATH` prepend that carries it, so stubs go unfound and a suite run under such a `TMPDIR` prints ~29 FAILs and a crash for the shape of the scratch, and THIS tick's dispatch scratch path is exactly such a colon path, so no suite run touched it; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+# NEXT — issue-448 (branch `issue-448`, PR #504 open against `main`; this unit ships `H-0376`: `main` moved twice under this pull and both append-magnet logs collided — 70 hunks in `factory/DECISIONS.md`, of which 68 are drifted `path:line` pointers and one is a seam row whose digits alone differed, so the resolution takes trunk's rows and re-aims every pointer at the merged bytes using the gate's own coordinates (141 moved, 140 digits-only, one anchor lengthened under #440), and the last hunk is the log's tail junction where this branch's `H-0367` and trunk's `H-0370` are both kept seated ascending; `NEXT.md`'s single hunk is two heads, so both bodies are byte-kept, this head is re-titled for the repair round, trunk's `issue-468` head is demoted to a `## Record` stamped with its merge (#509 at `78502fd`, 2026-11-21T21:44:56Z), and the shared `issue-442` Record line is kept once in trunk's wording; the base sync took `origin/main` `78502fd` (the #505, #507 and #509 merges); checkpoint `c997102` before the sync and the adjudication; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor and this unit merged nothing)
+
+## What this unit shipped, and what it did not
+
+- Shipped: the sync of `issue-448` onto `origin/main` `78502fd` and the adjudication above. No
+  shipped line of `factory/selftest.sh`, `scripts/check-scripts.py` or `scripts/check-close-verb.py`
+  was touched by this unit: trunk's 347 added selftest rows and this branch's 27 are both in the
+  merge, and the branch's own `H-0367` guards are the ones the round beneath delivered.
+- Shipped: `factory/DECISIONS/H-0376.md`, the entry for the class call (drifted pointer vs real
+  intent), with the one prose repair that was not digits-only recorded in it.
+- Did not ship: the standing-precondition question the round beneath names is still open, and
+  #503's colon-in-scratch poison is still only named.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor merges; this unit merged nothing and asked nobody. If the PR sits
+   `REVIEW_REQUIRED` with an empty `/requested_reviewers`, the ask is the supervisor's
+   `factory_request_review` poke (`AGENTS.md`), not this unit's.
+2. Everything the `Record — issue-448 unit` block beneath still owes, unrenumbered: the two #482
+   and #489 environment leaks, the remote-only leg for the allocator's liveness arm, the
+   suite-wide `$TMPDIR` precondition, and #503.
+3. Everything trunk's `Record — issue-468` block beneath owes, unrenumbered (#506's union-walk
+   cost, the two deferred honesty clauses). That pull merged as #509, so those rows are trunk's
+   now and this branch inherits them by content, not by re-derivation.
+
+## Constraints a stranger would break here
+
+- A `path:line` conflict inside a decision log is a drifted pointer, never a content dispute: fold
+  the digits out of both sides and 68 of 70 hunks come out identical. Take either side, then ask
+  the gate where each pointer really lives (`python3 scripts/check-decisions.py --citations` prints
+  "it is at line N now" per row) and move only digits. Hand-carrying either side's digits keeps the
+  defect the merge was supposed to settle.
+- The one real conflict a log merge can hide is an anchor whose text died with one side's edit:
+  when the gate answers with two line numbers for one citation, the anchor answers more rows than
+  the citation promised (#440) and the repair is a longer quotation, not a chosen number.
+- `NEXT.md` merges are head-vs-head, not content-vs-content: keep both records, keep exactly one
+  `#` head (a second one is a second status board the supervisor cannot tell apart from the live
+  one), demote a merged unit's head to `## Record` stamped with its merge, and say out loud which
+  duplicated line you dropped.
+- The two #448 guards still ask `rev-parse --git-dir` of the planted fixture path, never of
+  `$TMPDIR` (#371's one-condition, one-message rule); the rest of what a stranger could break is in
+  the `Constraints` block of the `Record — issue-448 unit` beneath, including H-0296's
+  `${FACTORY_TICK_UNIT:-}` anchor and the colon-scratch trap (#503).
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+## Record — issue-448 unit (branch `issue-448`, PR open against `main`; this unit ships `H-0367`: the two remaining `$TMPDIR`-inside-a-repository FAIL rows #371's audit left — the stale-entry `proc_leg` and the blind-activation `gen_leg` in `factory/selftest.sh` — take the one-condition SKIP #371 already worded, asked of the planted fixture path itself (`git -C "$r342_work" rev-parse --git-dir`) rather than of `$TMPDIR`, because the condition the legs verify is the fixture's unreadability and discovery can escape to an enclosing repository even from a `$TMPDIR` no work tree contains (measured in this tick's six-run matrix: a plain repo with no origin leaves the activation leg green for the wrong reason — SKIPping on discovery, not on `$TMPDIR`, is what catches that topology too); 137 anchored decision-log pointers the +22 insertions slid were re-aimed in the effect commit and the shipped gate reads green at this head; the bare-pointer census this diff owes and the gate cannot read: 32 bare `factory/selftest.sh` pointers in the shipped log, zero naming a row this diff moved, 29 revision-pinned rows untouched; the disclosure comment on #448 names the sibling issue #503 — a colon inside a scratch directory name silently splits every `PATH` prepend that carries it, so stubs go unfound and a suite run under such a `TMPDIR` prints ~29 FAILs and a crash for the shape of the scratch, and THIS tick's dispatch scratch path is exactly such a colon path, so no suite run touched it; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 
@@ -43,7 +88,59 @@
 - Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
   approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
 
-## Record — issue-442 unit (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+## Record — issue-468 (branch `issue-468`, PR #509 MERGED into `main` at `78502fd` 2026-11-21T21:44:56Z; that head demoted in place by this sync; every body byte-kept)
+
+## Record — issue-456 (demoted in place; every body byte-kept)
+
+## What this branch shipped, and what it did not
+
+- Shipped (`2aa3517`, entry `factory/DECISIONS/H-0369.md`, trailer `Decision: H-0369`, checkpoint
+  `1595e33`): the allocator answers both faces of a log (monolith name `DECISIONS.md`, filed name
+  `DECISIONS`), counts filed entries into the union walk across working tree/`HEAD`/`refs/heads`/
+  `refs/remotes`, names the destination file on stderr (`EMITS …`) while stdout stays the id alone,
+  and carries the first filed entry; plus the env-scrub addition to the suite (#482-class leak of
+  `OPENCODE_CONFIG_CONTENT`/`FACTORY_MCP_FENCE`).
+- Shipped (`3dc8148`, review answer): `other_kind="file"`/`"dir"` quoted (SC2209, the gate's own
+  bare-`shellcheck` invocation at the pinned 0.10.0), and the skill's `EMITS` example now names
+  `factory/DECISIONS/H-0369.md`, a path the branch actually writes, instead of the placeholder
+  number the tool-path guard (#337) refuses.
+- Did not ship: nothing was changed for the review's three NON-BLOCKING observations (kept out to
+  hold the diff minimal while `CHANGES_REQUESTED` stands) — their disposition is owed below.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor re-asks the reviewer (the `CHANGES_REQUESTED` row stands against `2aa3517`; the
+   verdict does not clear itself on `3dc8148` without a re-review) and merges; this unit asked
+   nobody and merged nothing.
+2. Filed as issue #506 by this unit, per the review's own recommendation ("Worth an issue before
+   phase 3, not inside this PR"): the union walk's per-ref cost — the filed arm adds one `git show`
+   per entry per ref per answer once phase 3 (#488) files entries on every ref (measured by the
+   review at `2aa3517`: 6.7 s → 10.6 s for the union read on a 1372-ref accumulated clone with the
+   filed dir on no ref but the branch); `ls-tree --name-only` basenames could source the taken-set
+   with no per-file content read, since the gate already refuses filename≠heading.
+3. Deferred with evidence, not silently: the `PENDING` note names the caller's `$rel` path, not the
+   file that raised the ceiling (the `printf` that raises the `PENDING` note interpolates `$rel`; the
+   review's one-word fix: `is in this tree`); and the decoy header sentence ("a directory called
+   `DECISIONS.md` is still refused") now reads stronger than the code, which refuses the decoy
+   *face* yet accepts the call via the filed twin — safe behavior, a clause of honesty is owed in
+   that comment. Both belong in a phase-3 touch or the cost issue's fix, not in a green-awaiting-review PR.
+4. Carried from the issue-442 record beneath: its three owed items and constraints stay true there;
+   nothing in this round retired them.
+
+## Constraints a stranger would break here
+
+- stdout of `factory/next-decision-id.sh` must stay the id alone (every existing `$(…)` capture and
+  #442's taken-set read parse it byte-exactly); stderr is the only channel for `EMITS`/`REFRESH`/
+  `PENDING` — the stdout-diff leg against `9ba61e7` pins this and degrades to ok-with-note on
+  shallow checkouts.
+- The never-hand-file-an-existing-entry rule stands (phase 2 reverses the append *default*, not the
+  hazard): entries keep being produced by the allocator; a hand-filed entry file is a file
+  nothing will ever produce again.
+- The selftest env-scrub block now names `FACTORY_MCP_FENCE` and `OPENCODE_CONFIG_CONTENT` because
+  the `and nothing else does` leg mutates the dispatch line that carries the fence; a "tidy" unset
+  block that drops them reddens the leg on a live tick tree (#482's class).
+
+## Record — issue-442 (branch `issue-442`, PR open against `main` at `ffb0c43`; this unit ships `H-0364`: the allocator now consumes its own journal — the LAST `DECISION-ID` line naming a candidate is its claim, another unit's claim on a branch that still exists as a ref here is taken and stepped over with the trail journalled and `STEPPED-OVER` on stderr, a claim whose branch exists nowhere is expired (`issue-365`), and the owning unit keeps its own id (#320's re-read); a read, not the claim-time lease `H-0195` refused, failure-blind and offline, the merge still the arbiter; five polarities ship in `factory/selftest.d/442-journal-claims.sh` with the control that reproduces the #442 collision verbatim when the read is neutered; the base sync took `origin/main` `ffb0c43` (the #498 merge, both entries of its tail collision byte-kept, seated ascending `H-0363` before `H-0364`, verified byte-identical against both parents by script); this hand-off demotes the `issue-433` round-4 head in place to the Record beneath with every body byte-kept; checkpoint `3bcc9b7` for the repair, `4100c41` for the sync; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 
@@ -5002,3 +5099,24 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   on four rows of this file), and the #482 fence poison — run the suite as CI runs it,
   `env -u FACTORY_LOG -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH make verify`, and inside a live
   tick add `-u OPENCODE_CONFIG_CONTENT -u FACTORY_SERVICE_UNIT`.
+
+## What #457 shipped, and what is still owed (#457, 21 Nov)
+
+- Shipped on `issue-457`: `scripts/check-close-verb.py` gained the branch leg -- a body on an
+  `issue-<N>` branch that names `#N` with nothing now exits 1. A documented keyword, a
+  `Refs`/`Part of` line, or any class the checker already reports counts as naming it; a bare `#N`
+  does not, because a link registers with no queue. The branch is read from HEAD, `--branch NAME`
+  overrides, `--branch ''` silences, and `--span-blind` reads stay branch-blind so
+  `scripts/check-commit-verbs.sh` is unaffected. `factory/selftest.d/457-branch-body-claims.sh`
+  runs six legs: the fixture premise (rev-parse answers 128 on an unborn HEAD, measured, so the
+  fixture commits), silence refused, bare link refused, `Refs #12` on a branch claiming `#777`
+  refused -- #454's specimen -- three controls green, and the override both ways. Falsified against
+  a scratch copy with the refusal removed from the exit code: the four refusal legs went red while
+  the prose still printed, the controls stayed green.
+- Still owed, outside this unit's fence, both named in the ticket itself:
+  - The supervisor-side row: triage reporting an OPEN pull whose head branch is `issue-<N>` and
+    whose body names N with nothing. It touches the supervisor, which no unit owns, and #457's own
+    text assigns that surface to whoever installed the timer.
+  - Post-create body edits: a body that passed the checker at `gh pr create` and is edited
+    afterwards to drop the reference is re-checked by nothing. The supervisor-side row is the only
+    arm that catches it; H-0370 records shipping the unit-side arm alone and names these losses.
