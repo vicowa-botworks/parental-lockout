@@ -29355,6 +29355,50 @@ dpn_p4b_leg() {
 dpn_leg 'each word dedupes alone' \
 	'two baselined passes cost one UNEARNED and one UNJOURNALABLE line, not a wave' dpn_p4b_leg
 
+# --------------------------------------------------------------------------- leg files (#428 phase 1)
+#
+# The last block of this file is where every leg used to be appended, and that shared append tail was
+# measured as the largest source of re-conflicts between branches of this repository: a branch that
+# appends here conflicts with every other branch that appends here, and a merge resolution that drops
+# one unit's hand-off has already been measured once (#337). #428 moves the append target out of this
+# file: new legs arrive as files under `factory/selftest.d/`, one file per leg family, and nothing a
+# second branch writes can collide with them unless both chose the same filename -- and a same-name
+# collision stays a visible conflict, because #381 weighed a `merge=union` driver that would merge a
+# same-name append silently and this repository chose the visible shape.
+#
+# The contract of a leg file, in the order it matters:
+#   * it is SOURCED by the loop below inside the running suite, never executed standalone -- the
+#     fixture root `$work`, `$HERE`, `$pass`/`$fail` and `claim_leg` exist by the time it runs, and
+#     files are read at max-depth one, `*.sh`, sorted by byte order under `LC_ALL=C`;
+#   * it makes its assertions with `claim_leg` and writes every detail to stderr -- `set -e` is on,
+#     so a bare failing command inside a sourced file aborts the whole suite;
+#   * it is linted standalone by `make check-shell` (`scripts/check-shell.sh` scans every tracked
+#     `*.sh`), so a file names the harness variables it inherits with a `# shellcheck disable=SC2154`
+#     header rather than redefining them.
+#
+# Sorted order is part of the contract, not a detail: it is `LC_ALL=C` byte order of the filename,
+# so `010-` sorts before `1-` and the numbering convention is zero-padded. The fixtures that pin this
+# loop's behaviour -- the two-file clean merge, the same-name collision, the byte-order sourcing --
+# are the leg files under `factory/selftest.d/`, witness for themselves; the hazard is in the loop's
+# text and the loop ships here (a leg file cannot witness its own discovery).
+run_selftest_d_legs() { # source every leg file, sorted; silent and green when the directory is empty
+	local _leg_dir=${SELFTEST_LEG_DIR:-$HERE/selftest.d} _leg_file
+	# SELFTEST_LEG_DIR is the seam the fixture legs use to point the loop at a planted directory;
+	# the `:-` form keeps the unset case `set -u`-quiet. Finding nothing is green, not a refusal:
+	# an absent directory is `main` before the first leg file lands, and a unit whose branch has
+	# not added one must not be reddened by the loop.
+	if [ -d "$_leg_dir" ]; then
+		while IFS= read -r -d '' _leg_file; do
+			# The only guard a sourced file needs: find prints only files, and a `*.sh` whose bytes
+			# were renamed out from under the glob is a race with a person, not with a leg.
+			# shellcheck disable=SC1090
+			source "$_leg_file"
+		done < <(find "$_leg_dir" -maxdepth 1 -type f -name '*.sh' -print0 | LC_ALL=C sort -z)
+	fi
+	return 0
+}
+run_selftest_d_legs
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
