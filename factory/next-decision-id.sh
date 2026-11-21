@@ -93,6 +93,20 @@
 # compares every newly present heading against it (`factory_decision_provenance`, common.sh). A bare
 # run -- a person, a test -- has no unit to journal for and writes nothing; a failed write is said on
 # stderr and changes neither the id nor the exit.
+#
+# The same journal is READ before an answer is handed out (#442). #345 made an issued id visible; it
+# did not make the allocator consume one: the taken-set is log headings only, so an id this command
+# had just journalled to one unit sat below the ceiling invisible to the next unit's read, and three
+# units were handed `H-0250` in 53 minutes. Every candidate from the ceiling up is now asked of that
+# journal: the LAST line naming the id is the claim, and a live one -- another unit's, on a branch
+# that still exists as a ref here -- steps the answer up and says whose id was skipped. A claim whose
+# branch exists nowhere is expired: the entry it would have committed was never written, and a claim
+# that never expires lets dead ticks walk the id space upward (issue-365 earned `H-0355` and
+# never acquired a branch). A claim belonging to the unit being answered keeps its own id -- the
+# cross-unit collision is what is refused, #320's same-unit re-read is what is preserved. This is a
+# READ, offline and failure-blind like every other arm here, not the claim-time lease `H-0195`
+# refused: a journal this run cannot read, or a claim taken on another machine, leaves the window
+# exactly as wide as `REFRESH-BLIND` says, and the merge stays the arbiter of what this cannot see.
 set -euo pipefail
 
 USAGE='usage: next-decision-id.sh [--repo DIR] [--prefix D|H] [DECISIONS.md]
@@ -102,7 +116,10 @@ factory/DECISIONS.md uses H-, any other DECISIONS.md uses D-; --prefix overrides
 
 The union read is the working file, HEAD, refs/heads and refs/remotes. Blobs that do not contain the
 named log, and refs git cannot read, are ignored. The result is the first free id ABOVE every id seen;
-gaps below the ceiling stay closed. No fetch is performed.
+gaps below the ceiling stay closed. No fetch is performed. The journal at FACTORY_LOG (default
+DIR/factory/log) is then asked for live claims: an id whose newest DECISION-ID line belongs to a
+different unit on a branch that still exists as a ref here is taken and stepped over, whatever the
+headings say, and the answer names on stderr what it stepped over and whose it was.
 
 stderr carries how far that union can see: REFRESH with the age of the read, or REFRESH-BLIND with
 the reason a sibling could be invisible here and the repair that would close it -- a fetch when the
@@ -317,6 +334,72 @@ fi
 fmt_id() { printf '%s-%04d' "$prefix" "$1"; }
 
 next=$(fmt_id "$((ceiling + 1))")
+
+# ------------------------------------------------------------- the journal's live claims (#442)
+#
+# The ceiling above counts log HEADINGS, so an id another unit was handed -- journalled, not yet
+# committed -- sits below it invisible, which is how 53 minutes delivered `H-0250` three times. Ask
+# the journal before answering: from the ceiling up, the LAST `DECISION-ID` line naming a candidate
+# is that id's claim; a claim of a DIFFERENT unit whose branch still exists as a ref here holds the
+# id -- step over it and say whose was skipped (`H-0251 (H-0250 taken: journalled ... by ...)`
+# travels in the journalled line, and a STEPPED-OVER line says it on stderr). A claim whose branch
+# exists nowhere is expired, because the entry it would have committed was never written:
+# issue-365 earned `H-0355`, died at the tick ceiling, and no branch ever followed. A claim of THIS
+# unit keeps its own id, so #320's re-read after writing an entry still answers the number earned.
+# Failure-blind and offline like every other arm: an unreadable journal answers with no claims, and
+# the merge stays the arbiter of what a local read cannot see.
+claims_dir=${FACTORY_LOG:-$root/factory/log}
+claims_note=''
+
+claim_branch_alive() { # -> 0 when a journalled claim's branch exists as a ref here; a claim lives no longer than its branch
+	case ${1:-} in
+	'' | unknown | HEAD) return 1 ;;
+	esac
+	git -C "$root" rev-parse -q --verify "refs/heads/$1" >/dev/null 2>&1 && return 0
+	git -C "$root" rev-parse -q --verify "refs/remotes/origin/$1" >/dev/null 2>&1
+}
+
+claim_scan() { # steps `next` over live journal claims; records the trail in claims_note; never fails the answer
+	local claims_map claim_n claim_row claim_id claim_unit claim_branch claim_ts
+	[ -r "$claims_dir/supervisor.log" ] || return 0
+	claims_map=$(awk -v want="$prefix" '
+		$2 == "DECISION-ID" && $4 ~ /^unit=/ && $5 ~ /^branch=/ && substr($3, 1, 1) == want {
+			last_u[$3] = substr($4, 6)
+			last_b[$3] = substr($5, 8)
+			last_t[$3] = $1
+		}
+		END {
+			for (claim_scan_id in last_u)
+				printf "%s\t%s\t%s\t%s\n", claim_scan_id, last_u[claim_scan_id], \
+					last_b[claim_scan_id], last_t[claim_scan_id]
+		}
+	' "$claims_dir/supervisor.log" 2>/dev/null) || claims_map=''
+	[ -n "$claims_map" ] || return 0
+	claim_n=$((ceiling + 1))
+	while :; do
+		claim_id=$(fmt_id "$claim_n")
+		claim_row=$(printf '%s\n' "$claims_map" | awk -F'\t' -v id="$claim_id" '$1 == id { print; exit }')
+		[ -n "$claim_row" ] || break
+		IFS=$'\t' read -r claim_id claim_unit claim_branch claim_ts <<<"$claim_row"
+		if [ "$claim_unit" = "${FACTORY_TICK_UNIT-}" ]; then
+			break
+		fi
+		claim_branch_alive "$claim_branch" || break
+		if [ -n "$claims_note" ]; then
+			claims_note="$claims_note; $claim_id taken: journalled $claim_ts by $claim_unit on branch $claim_branch"
+		else
+			claims_note="$claim_id taken: journalled $claim_ts by $claim_unit on branch $claim_branch"
+		fi
+		printf 'next-decision-id: STEPPED-OVER %s -- journalled %s by %s, whose branch %s still exists\n' \
+			"$claim_id" "$claim_ts" "$claim_unit" "$claim_branch" >&2
+		claim_n=$((claim_n + 1))
+	done
+	next=$(fmt_id "$claim_n")
+}
+
+# claim_scan ends 0 by construction -- it is failure-blind like every other arm -- so it needs no
+# `|| :` guard, and the trail it records must be set in this shell, beside the answer it describes.
+claim_scan # the call is the read: the journal is asked before the answer is handed out
 
 # Where the ceiling came from (issue #320). `work > refs` holds in exactly one window: the highest
 # heading in the repository is the one the caller is writing, so no ref carries it and the file being
@@ -553,9 +636,15 @@ if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]; then
 	fi
 	[ -z "$blind_age" ] || jrn_read="$jrn_read ${blind_age}s"
 	jrn_read="$jrn_read union"
-	if printf '%s DECISION-ID %s unit=%s branch=%s (allocator, %s, %s)\n' \
+	# The trail of a step-over travels in the answer's own line (#442): a unit that sees a
+	# surprising id must see whose id it skipped, not only which union read it came from. It is a
+	# trailing note after the fixed fields, because both readers of this line -- the earned-set
+	# read in common.sh and this command's own claim scan -- key on the positional fields.
+	jrn_note=''
+	[ -z "$claims_note" ] || jrn_note=" ($claims_note)"
+	if printf '%s DECISION-ID %s unit=%s branch=%s (allocator, %s, %s)%s\n' \
 		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$next" "$FACTORY_TICK_UNIT" \
-		"${jrn_branch:-unknown}" "$rel" "$jrn_read" \
+		"${jrn_branch:-unknown}" "$rel" "$jrn_read" "$jrn_note" \
 		>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then
 		printf 'next-decision-id: journalled DECISION-ID %s (%s)\n' "$next" "$jrn_read" >&2
 	else
