@@ -19184,3 +19184,60 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   unquoted segment of the shipped scripts: 0 sites of that family for any census name (the
   only grep hit is the English word `read` inside a quoted echo sentence).
 - Checkpoint: 8b3cf50
+
+## H-0370 · The branch carries a number and the body must name it back: `check-close-verb.py` refuses a body on an `issue-<N>` branch that names N with nothing, and a bare `#N` link is not a name-back · issue #457
+
+- Question: #457 measured the pull request that delivered #375 while its body named that ticket
+  with nothing. Re-derived 21 Nov from the live merged body: `#375` occurs zero times -- `375`
+  occurs three times, twice as the branch string `issue-375` and once as a coincidence inside a
+  quoted `factory/selftest.sh` line number -- GitHub registered no closing reference at the merge,
+  `factory/triage.sh` counted the merged pull as claiming nothing (correctly, by its design), and
+  a fresh unit was dispatched onto the ticket eight minutes after its delivery. Every reader of
+  claims in the loop asks at merge time; nothing at write time required a body to name the ticket
+  its own branch carries. What closes the window, and where?
+- Options: unit-side refusal in `scripts/check-close-verb.py`: the same call that scans a body for
+  forbidden closer derivations refuses, on a branch whose name claims a number, a body naming that
+  number with nothing -- and a bare `#N` is not a name-back | supervisor-side: `factory/triage.sh`
+  reports an OPEN pull whose head branch is `issue-<N>` and whose body names N with nothing, so a
+  body edited after create is still caught | both halves in one unit | prose only: the skill tells
+  writers to name their ticket and no code reads name and body together
+- Chose: unit-side refusal in `scripts/check-close-verb.py`: the same call that scans a body for
+  forbidden closer derivations refuses, on a branch whose name claims a number, a body naming that
+  number with nothing -- and a bare `#N` is not a name-back
+- Why: the checker is already the write-time gate the delivery contract makes every unit run
+  against the body file before `gh pr create`, so the refusal needs no new call site -- and the
+  Step 5 instruction to run it in the worktree is exactly where a HEAD read has an answer. The
+  bare-link exclusion is the fact the tool has always printed as its escape hatch ("a bare `#N`
+  here is a reference this tool does not look at"); #454 wore that shape, so the same fact now
+  refuses it. Losses, all named: a branch whose name lies about its ticket passes while the body
+  matches the lie, because the leg reads the name and not the intent; a body edited after create
+  to drop the reference is re-checked by nothing -- only the supervisor-side arm catches that, and
+  it loses because it touches the supervisor, which `AGENTS.md` "The queue belongs to the
+  supervisor" assigns to whoever installed the timer, outside any unit's fence; a branch not named
+  `issue-<N>` claims nothing, so triage-claimed deliveries on other branch spellings stay outside
+  this leg, which is why the hand-off keeps that row owed. Prose-only loses because #457 IS the
+  prose that did not hold.
+- Id: `bash factory/next-decision-id.sh factory/DECISIONS.md` answered `H-0370` after
+  `git fetch --prune origin` (the journalled line reads `REFRESH 1s union`), with stderr
+  `STEPPED-OVER H-0368 -- journalled 2026-11-21T15:20:30Z by unclaimed:448, whose branch
+  issue-448 still exists` and `STEPPED-OVER H-0369 -- journalled 2026-11-21T16:13:09Z by
+  unclaimed:456, whose branch issue-456 still exists`. The pre-commit re-read, taken after this
+  heading was written, answered the moved digits WITH the PENDING exculpation the contract
+  promises: `PENDING H-0370 is in factory/DECISIONS.md and on no ref this clone can see` …
+  `if H-0370 is the entry you are about to commit, H-0371 above it is what a SECOND entry would
+  take, not a claim on yours: keep the id you already took` -- so this commit keeps H-0370 and
+  H-0371 is nobody's claim here.
+- Checkpoint: 4051831
+- Effect: `scripts/check-close-verb.py` gained `BRANCH_ISSUE`, `branch_numbers`,
+  `unnamed_branch_numbers`, `current_branch`, a `branch` argument to `report` with the refusal
+  sentence and exit code, and `--branch NAME` parsing that `--branch ''` silences and
+  `--span-blind` never reads -- self-test now carries eleven branch-name rows, ten name-back
+  rows and four report rows; `factory/selftest.d/457-branch-body-claims.sh` is six new legs,
+  its fixture leg first pinning the premise that `rev-parse --abbrev-ref HEAD` answers on a
+  *committed* fixture branch (an unborn HEAD answers 128 with "HEAD" on stdout, measured 21 Nov,
+  and the checker refuses to guess a branch it cannot read), and falsified 21 Nov against a
+  scratch copy with `or missing` deleted from the verdict: the four refusal legs went red while
+  the prose still printed and the three controls stayed green. `NEXT.md` and
+  `.opencode/skills/factory/SKILL.md` gained EOF sections so no existing line moved. Gate
+  verdicts ride the pull-request body with their read-backs, never here (#1180); merging and
+  the supervisor-side row stay the timer owner's.
