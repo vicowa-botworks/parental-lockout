@@ -195,6 +195,7 @@ pfr_run_func() {
 	(
 		cd "$dir" || exit 1
 		( set -euo pipefail
+		  # shellcheck disable=SC2317  # invoked indirectly, through the sourced function
 		  curl() { command curl "$@" --retry 2 --retry-delay 1; }
 		  # shellcheck source=/dev/null
 		  source "$pfr_work/func.sh"
