@@ -18222,7 +18222,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   directory lint differently (a sourced file must name its inherited variables for the standalone
   `scripts/check-shell.sh:118` "git ls-files -z '*.sh' 'deploy/packaging/deb/*'" pass), and the self-reading
   legs keep scanning the monolith until they move — which is why the witness also runs
-  `pos_unconfigured_repos` over every file in the directory: `scripts/check-scripts.py:216` "def shell_files():"
+  `pos_unconfigured_repos` over every file in the directory: `scripts/check-scripts.py:408` "def shell_files():"
   walks `factory/` recursively for the shape gate and `check-shell.sh` takes the tracked `*.sh` set, so
   the new files enter every gate silently, and only this leg says the identity scan sees them too.
 - Checkpoint: bd7d309
@@ -19093,6 +19093,98 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   ride the pull-request body as receipts with their read-backs, never here (#1180); merging stays
   the supervisor's.
 
+## H-0365 · The flag census asserted a range it could not read and the position test called a continued argument a command: split at unquoted control operators, retire names that store `$?`, judge position on the folded command · issue #447
+
+- Id: `bash factory/next-decision-id.sh factory/DECISIONS.md` answered `H-0365` and journalled it
+  (`REFRESH 0s union`), asked after `git fetch --prune origin` and before the checkpoint this entry
+  names, and re-read immediately before this commit with the entry already in the working file —
+  same answer, `REFRESH 165s union`, no PENDING line, nothing taken above the number held.
+- Question: the shape guard printed `$X only ever holds 0 or 1 here` and appended the repair
+  `Say [ "$X" = "1" ]` from a census anchored at the line head, so the status-capture idiom —
+  `rc=0` opening a line where the anchored regex can see it, `cmd >out 2>&1 || rc=$?` hiding the
+  write that decides the range — made an assertion about a value out of the initialiser alone.
+  Measured 21 Nov against the shipped guard on this tree: 18 of the 55 names it called flags carry
+  a real exit status through a mid-line `|| name=$?` (`proc_rc`, `rc_tick`, `sup_repair_rc`,
+  `pos_rc`, `unit_rc`, `inst_rc`, `stop_rc` among them), and this repository's own suite compares
+  `proc_rc` against 3 and against 8 — the file contradicts the sentence the guard prints about that
+  name (the ticket measured 17 of 41 on `main` on 18 Nov; the tree has grown since). The same scan
+  read one physical line at a time: a continued row's head is its indentation, indentation strips
+  to nothing, the empty head is a member of the set that opens real commands, and the guard refused
+  the house `printf '… %s …' \` continued onto `"$flag" "x"` — bash runs that printf; the variable
+  is data (the ticket's leg A). How wide does the census read, what happens to a name whose range
+  cannot be read, and how does position wake up without silencing the continuation that really is
+  commanded?
+- Options: narrow the census and blunt the message: keep the head-anchored assignment read and
+  strike the 0-or-1 clause from the sentence; costs: the 18 status variables stay classed as flags
+  and keep receiving the appended repair, so `[ "$X" = "1" ]` still converts their real contracts
+  (`= 3`, `= 8`) into tests that are silently false — #440's wrong-advice-as-a-green-check with a
+  hedged lead-in | widen the anchored regex only, so an assignment may follow anything on the line,
+  and never cut the line; costs: the value then runs to end of line — `rc=$? ; echo hi` reads its
+  value as `$? ; echo hi` and `x=1; y=2` never says `1` — so every mid-line flag write
+  mis-classifies as other by accident and retires names the guard could have kept | read every
+  write the line holds and judge position on the whole command: split the line at the shell's
+  control operators that live outside quotes, match each segment head against the assignment
+  shapes, let any name whose writes store `$?` classify as other and drop out of the census, and
+  fold backslash continuations into one logical line joined with one space, carrying a
+  per-character owner map so a finding still names the physical row the use sits on | exempt the
+  empty head for rows that continue an open command and leave the rest of the position reading
+  alone; costs: measured 21 Nov, `test -f x && \` continued onto `"$flag"` runs the flag for real,
+  and an empty head cannot tell that continuation from an argument one, so the exemption silences
+  the commanded row as thoroughly as the false one | parse the shell with a third-party parser;
+  costs: a dependency is the user's (#856), `make verify` would carry it into every edit round,
+  and nothing in the deny-table witness set could install it.
+- Chose: read every write the line holds and judge position on the whole command: split the line at
+  the shell's control operators that live outside quotes, match each segment head against the
+  assignment shapes, let any name whose writes store `$?` classify as other and drop out of the
+  census, and fold backslash continuations into one logical line joined with one space, carrying a
+  per-character owner map so a finding still names the physical row the use sits on
+- Why: Tie-breaks: 1 separates only against the parser, which dies at that rule; 3 decides the
+  shape of both halves — a guard that cannot read a range goes SILENT (the name leaves the census
+  and no sentence is printed about it), which is the rule #440 asks for, and the fold keeps the
+  false shape red while accepting the true one: `continued-cmd.sh` (refused) and
+  `continued-arg.sh` (accepted) now ship in the guard's own `--self-test`, which `make verify`
+  already runs, beside the ticket's leg-B pair with its precondition asserted first — `pre.sh` must
+  keep its census bite before `hid.sh` may prove the change. The rivals lost on measured ground:
+  the struck-sentence option keeps shipping `[ "$X" = "1" ]` advice to 18 status variables; the
+  regex-widen option mis-reads values as just shown; the exempt-empty-head option drops the
+  `&&`-continued row leg A names. The census drift was audited both directions, not asserted: the
+  set moved 55 to 53 — 19 names retired, the 18 that carry `$?` plus `open`, which
+  `factory/selftest.sh:17838` "local open=$1 committed=$2 d" assigns to whatever a caller passes —
+  and 17 enlisted that the head-anchored read had never seen (`local`-prefixed writes, a case arm,
+  and the `cmd && X=1 || X=0` spelling). Every enlisted name was re-audited against a grep of all
+  textual `NAME=` writes in the tree and holds only 0/1 writes; the class the ticket measured —
+  names classed as flags while carrying a real exit status — is now 0, and the tree verdict is
+  unchanged at 0 problems before and after. The repair
+  measured its own first draft: the naive delimiter split enlisted a `skip` flag from a `skip=1`
+  inside the awk program at `factory/selftest.sh:23231` "/^factory_verify_closure\(\) \{/ {print"
+  — a write no shell performs, and the enlisting direction is the one "other-is-only-silence" cannot cover —
+  so the splitter tracks quoting, and both directions of that slip ship as `--self-test` controls.
+  Two blind spots stay disclosed rather than claimed away: a multi-assignment `local a=1 b=$?` line
+  still exposes only its first name to the assignment match, which is pre-existing behaviour of the
+  single-match reader, and a write inside `$(...)` counts for retirement even though the parent
+  never sees it — retirement is silence, the conservative side. The position machinery is the
+  house's own: this file already reads continuations for the #329 split-literal guard, and the
+  readers this repair adds, `scripts/check-scripts.py:114` "def _segments(cut):" and
+  `scripts/check-scripts.py:290` "def _logical_lines(text):", sit beside it. The repair also moved
+  a coordinate the log had pinned: `scripts/check-scripts.py` grew 192 lines before the shell-files
+  walker, so H-0348's pointer to it was re-aimed from line 216 to line 408 in the same commit, its
+  quote re-opened first. A local adversarial round before the push found four fail-open seams and
+  one false refusal in the first fold, each reproduced against `origin/main` and each now a
+  `--self-test` leg: rows bash does not continue — an even trailing backslash run, a backslash
+  escaping trailing whitespace, a backslash behind an unquoted `#` — folded as continuations and
+  silently blessed fresh commands the pre-#447 guard caught; `&` and `|&` were missing from
+  `COMMAND_WORD_BEFORE`, so the async operator's continued spelling went silent too; and a comment
+  behind a continued command was scanned as code. The fold now asks a quote-tracking walker
+  (`_continues`, `_comment_cut`) instead of `endswith`, and `NAME+=value` retires a name — it
+  stores a status or ARITHMETICALLY adds, so even `+=1` can carry a flag past 1. Blind spots stay
+  disclosed rather than claimed away: a multi-assignment `local a=1 b=$?` line still exposes only
+  its first name to the assignment match (pre-existing single-match behaviour), a write inside
+  `$(...)` counts for retirement even though the parent never sees it — retirement is silence, the
+  conservative side — and writes outside the `NAME=`/`NAME+=` family (`read -r NAME`,
+  `printf -v NAME`) are still invisible to the census; re-run at this commit over every
+  unquoted segment of the shipped scripts: 0 sites of that family for any census name (the
+  only grep hit is the English word `read` inside a quoted echo sentence).
+- Checkpoint: 8b3cf50
 ## H-0367 · A host-dependent fixture takes the guard that asks the shipped discovery itself, from the fixture's own path, and answers SKIP with #371's one condition and one message · issue #448
 
 - Question: #371's guarded in-repo matrix left two FAILs of one shape and one host condition (measured on `ffb0c43`, sanitized env, `TMPDIR` pointed inside a repository checkout: `975 passed, 2 failed`, git 2.53.0). Both fixtures are paths git must not read as a checkout -- a planted empty `.git` under `$FACTORY_TREES`, a plain `ghost` directory naming an install -- and both read THROUGH the enclosing repository the moment one exists: measured on git 2.53.0, from a planted empty `.git` inside a repository `rev-parse --git-dir` and `--abbrev-ref HEAD` answer the enclosing path at rc 0, while the same shape under no repository answers `fatal: not a git repository` at rc 128. So the tick's own read names a real tree, the `DELIVERED-TREE-UNREADABLE` row is never written, the unreadable arm counts, and the streak moves -- a FAIL about where the scratch sat, not about the shipped code. When does such a leg say SKIP, and against what condition?
