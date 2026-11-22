@@ -1,4 +1,28 @@
-# NEXT — issue-506 review round (branch `issue-506`, PR #518 open against `main`; this round answers the #518 review of 2026-11-22T12:34:04Z at head `d72deef` — `reviewDecision` read back `CHANGES_REQUESTED` from the API before any byte changed, review newer than the head commit — and ships one blocking control repair plus the review's two text corrections. The review's blocking finding, re-measured before believed: `rn_ctl_shape` grepped the whole `face_ref()` function, which always carries the monolith arm's legitimate `git show`, so the control's grep matched the shipped unmutated file (rc 0) and could never report its plant invisible — the drift simulation (leg scope narrowed from `/^\telse$/` to `/ls-tree -r/`) kept the pre-repair suite 8/8 GREEN with leg (d) blind to the planted read. The repair gives `rn_dir_arm` a file argument and extracts the mutant through the leg's own function, so control and leg share one awk scope: the repaired file goes 7/1 RED on the same drift and stays 8/8 green without it, and the review's literal one-liner (duplicated scope in the control) was measured too — it stays 8/8 green on the drift, which is why the shared extractor shipped over it (`H-0398`, checkpoint `84fc3e5`). Gate verdicts and the post-push review state ride the pull body (#1180); merging belongs to the supervisor and this round merged nothing. The `issue-503` head beneath this one is `H-0394`'s hand-off, superseded only as a heading: PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading, its section bodies byte-kept beneath. No `issue-506` row existed on this board before this head: `d72deef` shipped `H-0395` without re-heading `NEXT.md`, so the effect round's record is `factory/DECISIONS/H-0395.md` and the pull body, not this file)
+# NEXT — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`, PR #520 open against `main`; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+
+## What this round shipped
+
+- The sync, counted before anything was touched: `git merge-tree --write-tree --name-only HEAD origin/main` answered three paths — `NEXT.md`, `docs/factory.md`, `factory/selftest.sh` — and `git merge origin/main` met exactly those three; this branch's delta to each of them over the merge base is a single hunk (`git diff 95fb410 HEAD -- <path>` answers one `@@` each). Trunk moved from this branch's merge base `95fb410` to `55600cf` (PR #518, read back `MERGED 2026-11-22T14:54:22Z`).
+- `docs/factory.md` and `factory/selftest.sh` taken on trunk's bytes whole, on the measured ground that what this branch adds to them over `95fb410` is the pre-#431 rendering of the same journal-retention section and the same three legs: both merged files are byte-identical to `origin/main` (`git diff --quiet origin/main -- <path>`, each rc 0), so the merge delivers nothing trunk lacks and keeps everything trunk has. The 16 branch rows trunk does not carry — 7 in that docs section, 9 in those legs — are each one a row #431's review superseded (the "200 completed ticks / median 48" census #431 re-measured as 171 released of 199 starts; the `add && commit || refuse` chain `make check-shell` refuses as SC2015; the one-line `earned-tail` mutant that timed a SIGPIPE race instead of a window; the leg description without the two-line plant), or a re-wrap of a sentence trunk keeps. Row by row in `factory/DECISIONS/H-0400.md`.
+- `NEXT.md` re-headed by the junction rule: this round on top as the single `#`, because `gh pr list --state open` answered ONE row at this re-heading — #520, raw JSON counted in python rather than off a `-q` template (#1180) — with trunk's head demoted in place beneath it as the stamped `## Record — issue-506 review round` carrying that read-back `MERGED` fact, its whole stack byte-kept, and this branch's own round-1 head demoted in place at the foot with its three section bodies byte-kept. Zero-absence census over both parents' added rows against the merged file: ours 29 of 30 distinct rows, trunk 4,481 of 4,482 (excluded from the count: rows the merge base already carries, per the method H-0399 re-derived), and both absences are exactly the parent head line that adjudication re-titles into a `## Record —`.
+- One correction to the round this tick demotes, because its hand-off is what a later reader trusts: it states "a merge would conflict in both files and every possible resolution is a regression", and it instructs that this file "must never" merge over trunk's live hand-off. Measured, the first is false — the trunk-side resolution moves no content, which is exactly what the byte-identity above says. The second this round does not obey, and says so rather than hiding it: `scripts/check-next-md.sh` admits one `#`, the junction's live parent is the branch still owed a merge, and that is `H-0393`'s rule; so the warning survives where it can act, as owed item 1 and as a Constraint below, instead of as a shape this file is not allowed to have. The drop verdict itself is carried above as a `## Record —`, byte-kept, not argued with.
+- `factory/DECISIONS/H-0400.md`, whose trailer `Decision: H-0400` rides the merge commit itself, as `H-0334` and `H-0338` each did for a conflict tick.
+
+## What is still owed (all of it, none silent)
+
+- A human's hand on PR #520, and the carried verdict still says close it unmerged. This round changes whether the pull can merge, not whether it should: its content delta against trunk is now this hand-off and one decision entry, and merging it re-heads `main`'s live status board with a drop verdict while demoting whichever unit's head is live at the moment of the merge.
+- #334 itself stays open and escalated (`H-0188`): the number, the clock, the zone and which generations survive are still a person's to give. `factory/retention-census.sh` prices a candidate against the contract's clause 5 and chooses none, and nothing on this branch answers them either.
+- Whoever acts on the close should confirm the `branch_without_pr` row leaves the queue once the ref carries a closed pull request; the ref then names delivered history, not work.
+- Any further sync of this branch re-derives every count in this file. Since `95fb410` trunk has grown `factory/selftest.sh` by 8,708 lines and this file by 5,426, so no number written here survives a week, let alone a merge.
+
+## Constraints a stranger would break here
+
+- Do not mine this branch for content: `9847ca5` and `96e40c1` are the pre-reword pair of trunk's `4e19c12` and `6b7928c`, and the material a reader of #334 actually wants — clause 5's clock-and-zone refusal and `factory/retention-census.sh` — exists only on trunk, written after this branch was stranded.
+- Do not take `--theirs` for those two files from habit on a later sync. It is right here because the census says this branch adds no row trunk lacks; run the census first, then choose, or the next branch's real content is what gets swallowed.
+- The two demoted Records below are byte-kept trunk and byte-kept round 1. Re-titling one without the API stamp beside it is the #337 failure this file's own gate exists to catch, and a `## Record —` line is not a substitute for the read.
+- A compressed overwrite of this file is what makes a whole-file junction: this branch's round 1 shipped 34 lines over the 224-line stack it inherited, and git then aligned two heads against each other with nothing marked in the AUTO-MERGED middle (`H-0339` measured a 36-line body lost that way at rc 0). Carry the stack; do not compress it.
+
+## Record — issue-506 review round (branch `issue-506`, PR #518 MERGED 2026-11-22T14:54:22Z commit 55600cfce00a8afb9e4a467e895718c9084360ad, read back from the API at this re-heading; this round answers the #518 review of 2026-11-22T12:34:04Z at head `d72deef` — `reviewDecision` read back `CHANGES_REQUESTED` from the API before any byte changed, review newer than the head commit — and ships one blocking control repair plus the review's two text corrections. The review's blocking finding, re-measured before believed: `rn_ctl_shape` grepped the whole `face_ref()` function, which always carries the monolith arm's legitimate `git show`, so the control's grep matched the shipped unmutated file (rc 0) and could never report its plant invisible — the drift simulation (leg scope narrowed from `/^\telse$/` to `/ls-tree -r/`) kept the pre-repair suite 8/8 GREEN with leg (d) blind to the planted read. The repair gives `rn_dir_arm` a file argument and extracts the mutant through the leg's own function, so control and leg share one awk scope: the repaired file goes 7/1 RED on the same drift and stays 8/8 green without it, and the review's literal one-liner (duplicated scope in the control) was measured too — it stays 8/8 green on the drift, which is why the shared extractor shipped over it (`H-0398`, checkpoint `84fc3e5`). Gate verdicts and the post-push review state ride the pull body (#1180); merging belongs to the supervisor and this round merged nothing. The `issue-503` head beneath this one is `H-0394`'s hand-off, superseded only as a heading: PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading, its section bodies byte-kept beneath. No `issue-506` row existed on this board before this head: `d72deef` shipped `H-0395` without re-heading `NEXT.md`, so the effect round's record is `factory/DECISIONS/H-0395.md` and the pull body, not this file)
 
 ## What this unit shipped
 
@@ -5648,3 +5672,41 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   - Post-create body edits: a body that passed the checker at `gh pr create` and is edited
     afterwards to drop the reference is re-checked by nothing. The supervisor-side row is the only
     arm that catches it; H-0370 records shipping the unit-side arm alone and names these losses.
+
+## Record — rescue-pre-h0234-reword (branch `rescue/pre-h0234-reword`, PR #520 open against `main`, read back `OPEN`/`CONFLICTING`/`DIRTY`/`APPROVED` at this re-heading; this unit ships no code. It assesses the stranded branch the queue reported as `branch_without_pr` and files the verdict on a pull request, per the rule that a dropped branch still needs one — a drop recorded only in a local log is indistinguishable from a branch never attempted. Verdict: **drop**. The branch is the pre-reword rescue of #334's journal-retention work, and that work is already on `main`: the same two subjects shipped as `6b7928c` and `4e19c12` via PR #431 (merge `449d6e7`), carrying decision `H-0234` and the `H-0235` hardening of the same legs. Gate verdicts ride the pull-request body (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this unit shipped
+
+- The assessment, measured line-by-line rather than read off the commit subjects: of the 314
+  non-blank lines the branch adds over its merge base (`95fb410`, the `pre-H-0234` checkpoint),
+  299 are present verbatim on `origin/main` and the 15 that differ all have a named successor on
+  trunk — the coordinate re-stamps (`docs/factory.md:1229`→`:1238`, `:874`→`:883`), the tightened
+  tick census (171 released ticks of 199 starts, the 28 unreleased named), the `H-0203` incident
+  record replacing "the 13 Nov incident", and the `tail`-pasted `earned-tail` mutant replaced by
+  `H-0235`'s two-line plant with operand and shape guards. Nothing trunk lacks lives here.
+- This hand-off file. The two branch commits (`9847ca5`, `96e40c1`, both 16 Nov) are unmodified by
+  this unit — no production, docs or test byte was touched.
+
+## What is still owed
+
+- A human's hand on this pull request: the recommendation is to close it unmerged. The branch's
+  three-dot diff adds 342 lines trunk already holds in reworded form, while the branch tree lacks
+  9,905 lines trunk has grown in the two files since `95fb410`; a merge would conflict in both
+  files and every possible resolution is a regression.
+- #334 itself stays open and escalated (`H-0188`): the number, the clock, the zone, and which
+  generations survive are still a person's to give. Nothing on this branch answers them and
+  nothing in this assessment does either.
+- Whoever acts on the close should confirm the `branch_without_pr` row leaves the queue once the
+  ref carries a closed pull request; the ref itself is then a delivered-history name, not work.
+- Trunk's live hand-off (the `issue-511` `NEXT.md`, read at `d4b2c93`) is untouched by this branch
+  and stays authoritative — this file lives on a branch recommended for closing, so the one thing
+  it must never do is merge over that one.
+
+## Constraints a stranger would break
+
+- Do not mine this branch for anything "lost": its two commits are the pre-reword pair of trunk's
+  `4e19c12`/`6b7928c`. The content a reader of #334 actually wants — clause 5's clock-and-zone
+  refusal and the read-only retention-census tool trunk grew later — exists only on trunk, never
+  here, and was written after this branch was stranded.
+- Do not sync this branch with `main` to make it mergeable: that manufactures a PR whose diff would
+  be indistinguishable from trunk's own content and hides the drop verdict the body carries.
