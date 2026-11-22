@@ -1,3 +1,4 @@
+# shellcheck disable=SC2030,SC2031,SC2012  # every $( export … ) here is one activation's fixture scope, so "local to the subshell" is the shape under test, not a lost write; the two ls -A uses census a fixture directory the leg just refused to write into
 # shellcheck shell=bash
 # shellcheck disable=SC2016,SC2034,SC2154
 # 477-stop-window.sh -- the subject of `REAP-HELD … how=unexplained` (#477).
