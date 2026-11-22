@@ -63,6 +63,16 @@ rule that exists because of a measured failure, and the measurement is cited.
   That number is not judged at all while any citation cannot be opened, because a stray untracked
   directory moves pointers out of it, and no number measured against such a tree is a statement about
   the logs.
+- The decision log is migrating to one file per entry (#429, `H-0263`). The gate already reads both forms
+  — the two monoliths and `DECISIONS/<id>.md` beside `factory/DECISIONS/<id>.md` — and both stay valid
+  until phase 3 completes, so **do not convert an entry by hand**: the allocator and every writer still
+  append to the monolith, which makes a hand-filed entry a file nothing will ever produce again. A filed
+  file's name is a rule now, not a convenience (`layout_problems`: the filename id and the heading id are
+  one claim), and an id used in both layouts is refused with both locations named (`cross_log_problems`).
+  The sequence rule stays inside a file — a directory read in sorted order has no order a merge honours.
+  Phase 2 (#456) changed the writer half only: **new** entries are files — the allocator names the one to
+  create on stderr, `EMITS`, and counts filed entries into its union — while existing entries stay put,
+  because hand-filing an old entry is the hazard above, not something phase 2 reverses.
 
 ## Worktrees
 
@@ -81,3 +91,21 @@ a 2700 s budget, with `bash` cwd gone and the tick dying on a path that no longe
 home". A tree owned by a live *session* fails closed too: its work is dirty by construction until
 the push, so the dirty refusal is that guard. The rule covers `git worktree remove`, `prune` and
 `rm -rf` alike — the journal answers for the path whichever verb you reach for.
+
+The harness now also takes inventory: every supervisor pass censuses `git worktree list --porcelain`,
+journals `WORKTREE-ORPHAN <path> head=<sha> reason=…` for each tree that is provably dead — head an
+ancestor of `origin/main`, content verdict clean, and not a tree an existing branch owns under
+`$FACTORY_TREES` — and prunes only rows git itself marks prunable. What the census reports it does
+not remove: a tree off the convention may be a person's working directory (#348, H-0200).
+
+The journal answers after the fact; #421 measured the instant it cannot see — 16 Nov, a second unit
+dispatched into `wt/issue-341` 2m16s before a session started a merge in the same resolution, 8m05s
+of two writers on one index. The instant guard is a claim file under `$FACTORY_RUN/claim/`: before
+ANY writer — session, person, or tool — writes into a harness tree (merge, resolve, edit), source
+`factory/common.sh` and run `factory_tree_claim_check human:<name> <path>`; it returns 0 exactly when
+no live claim holds the tree — mint your own with `factory_claim_write human:<name> <path>` (its deadline is
+your own bound on your own life) and release it with `factory_claim_release <file> human:<name>` as
+your last act there. An unreadable claim directory is not free, and a held tree means someone's
+claim is live: the refusal names holder, pid, and deadline. Both supervisor dispatch paths ask the
+same check; the journal vocabulary is `TREE-HELD`, `TREE-CLAIM`, `TREE-CLAIM-EXPIRED`,
+`TREE-CLAIM-FOREIGN` (H-0340, `docs/factory.md`).

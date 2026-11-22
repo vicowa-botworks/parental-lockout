@@ -42,7 +42,7 @@ func installServeSelfLocation(t *testing.T, uid uint32, inside bool) {
 func TestServeSaysWhenItWillNotLockItsOwnSession(t *testing.T) {
 	installServeSelfLocation(t, 1001, true)
 
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	waitFor(t, errOut, "will NOT be locked", 10*time.Second)
 
 	got := errOut.String()
@@ -62,7 +62,7 @@ func TestServeStaysQuietAboutItsOwnSessionWhenItHasNone(t *testing.T) {
 	// What a systemd system unit resolves to: no user slice, so no session to skip.
 	installServeSelfLocation(t, 0, false)
 
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	// Prove stderr is live before asserting absence, or this passes on a daemon that
 	// wrote nothing anywhere.
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)

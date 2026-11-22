@@ -28,6 +28,9 @@
 # never arrived (#242) -- see the block in the CHANGES_REQUESTED arm. `parked` is the third, and it
 # is the one an agent writes: the label a unit applies when it reaches a decision that is not its own
 # is now read back out of the same payload every other verdict comes from (#313).
+# `mergeability_pending` is the fourth, and the one that must stay silent: a row whose mergeability
+# read has not returned says nothing about the branch, so it may not say anything about a person
+# either -- no tick, and above all no notice (#430).
 #
 # `ask` is the seventh column and the only one a reviewer writes. It is the reviewer's own words,
 # bounded, carried in the row so the tick dispatched to answer them is dispatched WITH its input
@@ -68,7 +71,7 @@ from the harness):
   key    the number, or the branch name
   class  merge_now | conflict | checks_failing | checks_pending | address_review |
          review_unreadable | needs_reviewer | awaiting_review | awaiting_merge | draft |
-         unclaimed | parked | delivered | branch_without_pr
+         mergeability_pending | unclaimed | parked | delivered | branch_without_pr
   detail why that class, with the timestamps the verdict was made from. One `unclaimed` row may open
          with `$FACTORY_MERGED_MARK` -- a merged pull request named the issue and the sole-claim or
          `Part of` arm refused it, so part of this ticket may already be on the trunk. The class and
@@ -513,9 +516,26 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 	requested=$(api_get "pulls/$number/requested_reviewers" "$JQ_REQUESTED_LIST" '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
+	# Two mergeability answers describe the world; anything else describes the read. `UNKNOWN` is
+	# GitHub's "not computed yet", and it was read as a fact on #430's pull request: measured
+	# 19 Nov, `mergeable` and `mergeStateStatus` both `UNKNOWN` roughly two hours after the branch
+	# opened with every check green. Down the fallback arm that made it a wait on a person's
+	# decision, and the one human-facing notice this harness emits blamed a maintainer for a state
+	# GitHub had not produced yet. So a row whose central field is vacuous stops here, BEFORE the
+	# checks and review arms, as its own quiet wait: the queue cannot classify what it cannot read,
+	# and the re-read next activation costs one cycle against a computation GitHub completes in
+	# seconds-to-minutes -- cheaper than any action taken on the absence of a fact, a tick included,
+	# because a tick would be aimed at a row the queue cannot yet locate. This class must never be
+	# workable and must never notice (#430): the notice's whole job is naming what is blocked, and
+	# what is blocked here is the read.
 	case "$mergeable" in
 	CONFLICTING)
 		rows+="$(emit pr "$number" conflict "$mergeable/$merge_state; checks $checks" "$branch" "$issue")"$'\n'
+		continue
+		;;
+	MERGEABLE) : ;;
+	*)
+		rows+="$(emit pr "$number" mergeability_pending "mergeable=$mergeable, mergeStateStatus=$merge_state; checks $checks -- the mergeability read has not returned, so this row is not evidence about the branch" "$branch" "$issue")"$'\n'
 		continue
 		;;
 	esac

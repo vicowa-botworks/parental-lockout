@@ -52,15 +52,31 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 |---|---|---|
 | `merge_now` | approved, `MERGEABLE`, `CLEAN`, every check passed | supervisor, in bash, after re-reading all four from the API |
 | `needs_reviewer` | no verdict that still stands -- no rows at all, or every `APPROVED`/`CHANGES_REQUESTED` row voided by a push, or comments only -- **and** `/requested_reviewers` has neither `users` nor `teams` | supervisor: ask the team, at most once per `FACTORY_REVIEW_POKES` |
-| `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
+| `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`, with the decision-log union tried first (#381: a both-logs conflict the shipped gate certifies is merged and pushed without a tick); a tick only if the merge still conflicts |
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
 | `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
-| `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here. It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
+| `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here; it **must be a label this repository carries**, because a name it does not have parks nothing (#311, settled 18 Nov as H-0250 after six days of a default that could never fire). It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
+| `mergeability_pending` | `mergeable` answered neither `MERGEABLE` nor `CONFLICTING` -- GitHub's `UNKNOWN` means *not computed yet*, which is a fact about the read and not about the branch, and the detail says so on purpose | nothing, and above all no notice: a notice names who is blocked, and here nobody is |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
+
+`mergeability_pending` is the quiet wait (#430), and it exists because the harness's one human-facing
+sentence once lied about a person over it. GitHub computes mergeability asynchronously: after a head
+lands, `mergeable` and `mergeStateStatus` answer `UNKNOWN` until the computation finishes. Measured
+19 Nov on #430's pull request, roughly two hours after it opened with every check green: both fields
+`UNKNOWN`, which the shipped classifier read as "not CONFLICTING" and let fall through to the review
+arms -- and because `stuck-since` was one clock per unit shared across every class that unit ever
+waited in, a silent `mergeability_pending` stretch aged the next state's notice into existence at the
+first moment of it. The comment that posted said *"If a maintainer decision is what is missing, say
+so here"* on a pull request where no review request existed and nothing was blocked on anybody. So
+three rules now hold together: a vacuous mergeability read is its own wait class ahead of the checks
+and review arms; a wait that changes class resets its own clock, because a notice must stay within
+one class of the state it describes; and a notice, when it ages, reads `/requested_reviewers` at the
+moment it writes and says either who actually holds a request or plainly that no person is
+being waited on -- it may not blame a maintainer the live read does not name.
 
 `delivered` is the fourth class the queue could not see, and it was measured twice in one day before
 it was written (#235). Both claim channels read *open* pull requests only, so a merged one claims
@@ -98,27 +114,34 @@ class is read exactly the way `delivered` is: `triage.sh` asks for `labels(first
 it was already making, and emits the row in the place `unclaimed` would have taken, which is why a real
 delivery still wins the row.
 
-Two things about that read are said on stderr rather than left implicit. The configured name is one the
-repository does not have -- #311 is that open decision, against eighteen labels none of them matching --
-so a pass that parks nothing says so, naming the name it looked for; the alternative is a queue that
-quietly agrees with itself that nobody ever escalated anything. And `labels(first:10)` is a bound that
+Two things about that read are said on stderr rather than left implicit. The configured name has to be a
+label the repository actually carries, so a pass that parks nothing says so in words, naming the name it
+looked for; the alternative is a queue that quietly agrees with itself that nobody ever escalated
+anything. For six days that sentence was true of the shipped default, and it was the only evidence that
+the park arm was inert -- `PARKED` appeared zero times in every journal kept up to H-0250's merge, when
+units had been escalating honestly since #301. #311 settled the name on 18 Nov (H-0250), so the finding is now
+about a rename or a deletion rather than a default that could never fire. Where it goes changed in the same
+change, because a finding nobody keeps is a finding nobody reads: `triage.sh` runs inside a command
+substitution, so its stderr went to the service's stderr -- journald -- while `supervisor.log`, the file
+the section above tells a person to read, recorded nothing. Every line of it now arrives as
+`TRIAGE-STDERR`, bounded at twenty-five lines. And `labels(first:10)` is a bound that
 fails one way only: a match at the tenth label is still a match, so the sentence names just the issues
 that filled the list without matching anything, whose park status is unknown and which therefore stay
 workable instead of being called parked. What the marker may not do is a leg rather than a sentence:
 every label-bearing line in `triage.sh` may name `parked` and no other class, so a unit's own marker can
 stop a dispatch and can neither pick its next assignment nor grade its own work as delivered.
 
-The release is the one write the read above never states, and it belongs in the guide because
-`delivered` states its override outright: take the label off the issue -- `gh issue edit <N>
---remove-label <the name the row printed>`, the name `factory/escalation-label.sh` prints and never a
-spelling of it here -- and the next pass reads that issue as workable again. Nothing is reopened and no
-marker is cleared, because a park wrote nothing but the label. What `delivered` gets from
-`FACTORY_DELIVERED_WINDOW`, a park does not have: a park has no expiry, so the label is the only release
-and a label nobody removes prints `PARKED` on every pass for as long as it sits. That repetition is the
-same choice the `delivered)` arm defends for itself -- a queue that reports a thing once and then goes
-quiet is a queue nobody can audit -- except `delivered` stops printing on its own when the window runs
-out and `parked` stops only when a person acts, which is why the row carries the name it read rather
-than making anyone guess it.
+The release is the one write the read above never states, and it belongs here because `delivered` states
+its override outright: take the label off the issue -- `gh issue edit <N> --remove-label <the name the
+row printed>`, the name `factory/escalation-label.sh` prints and never a spelling of it here -- and the
+next pass reads that issue as workable again. Nothing is reopened and no marker is cleared, but the queue
+reads only one of an escalation's two writes: `is_parked()` sees the label, never the thread, so the
+label alone stops and releases the row while the comment is what the next dispatched tick will read as
+the answer. What `delivered` gets from `FACTORY_DELIVERED_WINDOW`, a park does not have: a park has no
+expiry, so the label is the only release and a label nobody removes prints `PARKED` on every pass. That
+repetition is the `delivered)` arm's own choice -- a queue that reports a thing once and then goes quiet
+is a queue nobody can audit -- except `delivered` stops printing on its own when the window runs out and
+`parked` stops only when a person acts, which is why the row carries the name it read.
 
 Precedence is unchanged -- `delivered` is reached only where nothing open claims the issue -- and that
 has a consequence worth writing down before the class surprises anybody, because the open-claim channel
@@ -352,7 +375,7 @@ a merged pull request names is now reported by number. Thirty-seven is what #291
 (34 leftover refs, 33 silent, counted 11 Nov), and it is also the price: a supervisor pass wrote 13
 journal lines the day before this paragraph and writes 50 after it. Nothing in the harness bounds that
 file or the transcripts beside it -- `log()` appends to `$FACTORY_LOG/supervisor.log`
-(`factory/common.sh:340`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
+(`factory/common.sh:373`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
 transcripts one per tick (`factory/factory.sh:766`). Measured in the primary checkout at 22:05Z on
 12 Nov: **20 MB across 100 files** under `factory/log/`, oldest 10 Nov, individual transcripts up to
 480 KB, `supervisor.log` at 2,397 lines. With 19, 47 and 20 passes journalled on 10, 11 and 12 Nov,
@@ -762,9 +785,11 @@ only then the marker, applied with the name read out of `factory/common.sh` thro
 `factory/escalation-label.sh`, then read back from GitHub in the same breath as anyone claims it
 landed.
 
-The order is what lets the marker be wrong. It is wrong today: #311 asks whether to create the name the
-instruction used to carry, or point the instruction at a label this repository actually has -- it has
-eighteen, and that is not one of them -- so until a person answers, the write is refused. Measured 12 Nov
+The order is what lets the marker be wrong, and for six days it was wrong: the instruction carried a name
+this repository does not have -- eighteen labels, none of them matching -- so every escalation's write came
+back refused and nothing parked, while the refusal itself went only to the service's stderr. #311 settled
+that on 18 Nov (H-0250): the reader prints a label every repository is created with, so a stopped unit
+needs no administrator before its marker lands. Measured 12 Nov
 on gh 2.46.0, a probe of exactly that shape -- `gh issue edit 311 --add-label zzprobe-does-not-exist` --
 printed `'zzprobe-does-not-exist' not found` and `failed to update 1 issue` for exit 1, and the labels
 read back unchanged. With the record committed first, a refusal like that costs one sentence in
@@ -780,18 +805,18 @@ and after: `gh pr edit 314 --add-label zzprobe-…` died on
 call ends **before** it resolves the label name -- while `gh issue edit 314 --add-label zzprobe-…`
 reached the label step and answered `'zzprobe-…' not found`, also exit 1, and the labels read back
 unchanged both times. Two identical exit codes with two different meanings, and only one of them is a
-name a person can still supply; the other is a field GitHub has retired, so no answer to #311 makes
+name a person can still supply; the other is a field GitHub has retired, so no label name at all makes
 `gh pr edit` work. That is why the empty-ask branch of `factory/factory.sh` now carries the two calls a
 stopped unit runs -- the write with the issue verb, the read with `gh pr view` -- instead of the word
 `label` on its own, and why a leg in `factory/selftest.sh` refuses any live file pairing `gh pr edit`
 with a label flag.
 
 What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
-no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
-label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two
-issue classes stay `unclaimed` and `delivered`, and the marker is a signal for a person and nothing
-else. Changing that later means moving the queue's decisions into configuration no gate reads, which is
-why a leg in `factory/selftest.sh` refuses the word appearing anywhere in the classifier.
+no reader may conclude from it is that the unit is parked or released: the ticket's dispatch stops, the
+decision stays owed, and a person releases it by taking the label off. The marker's machine half is
+#313's -- before it `triage.sh` read no label at all; since it, an issue carrying the configured name
+reads `parked`, the class that starts no tick -- and a leg in `factory/selftest.sh` refuses a
+classifier label line that can name any other class (H-0140): stop, and nothing else.
 
 ## Installing it
 
@@ -871,11 +896,11 @@ than a smarter kill. Three things travel with that:
   renders the shipped generator and asserts the two values are *different* and that start still clears
   the budget (H-0066).
 - The only line in the whole system that recorded this failure is the unit's own substate, and nobody
-  reads it. Whatever watches the loop has to print it:
-  `systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState -p TasksCurrent`,
-  alongside the timer's `TriggerNextElapseUSecRealtime`. A timer that is `active` with no elapse is the
-  least suspicious thing a stalled queue can look like: H-0037 is the same shape -- 3h13m of nothing
-  after a boot, with the timer reporting `active`.
+  reads it: print it via `factory_unit_idle`, or `systemctl --user` explicitly and never bare --
+  scope is not decoration, and asked of the SYSTEM manager this unit reads `inactive`/`dead` at
+  exit 0 while a pass stands `activating` (#423); the guard reads `LoadState` first because
+  `not-found` is not idle. Beside the state read the timer's `TriggerNextElapseUSecRealtime`: a
+  timer `active` with no elapse is the least suspicious thing a stalled queue can look like (H-0037).
 - After an escalated kill the unit ends `failed` -- `Result=exit-code`, from whatever the pass returned
   -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
   after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
@@ -912,7 +937,13 @@ subtraction and the word beside it is not what most people reach for:
   writes nothing, so the start is the pass's own last stdout line, read by a second call *without*
   `-t systemd`: that filter excludes the unit's output entirely (0 of the 325 lines in a 400-line
   window carry it), which is why one call cannot answer both halves and why a read filtered to
-  systemd's identifier reports the 00:56 hold as 0 s.
+  systemd's identifier reports the 00:56 hold as 0 s. A KILLED activation writes the line too, and
+  there the stamp is the kill, not the moment work stopped: on the 16 Nov 04:43 activation systemd
+  wrote `Main process exited, code=killed` 194 microseconds before the terminal `Failed to start`,
+  so measuring from it times the hold by its own ending -- 88 frozen minutes on a hung `git fetch`
+  printed as `HELD 0s to the stop deadline` (#418). For `deadline` and `client` the start is
+  therefore always the pass's own last line, and a last line that does not beat the kill by a
+  whole rounded second leaves the hold unread, in arm 2 (H-0329).
 - The manager's own lines are dropped by the field the author occupies -- `<comm>[<pid>]:`, third in
   the rendering -- not by matching that text anywhere in the line. The harness's own sentences quote
   journal lines, and a line the unit wrote that quotes `systemd[4485]:` is still the unit's line.
@@ -937,7 +968,10 @@ subtraction and the word beside it is not what most people reach for:
 - When either end of the subtraction is missing the line says so and prints no number, in one of two
   sentences: nothing has finished inside the window, or something finished and the journal cannot say
   when its work stopped. The second one used to print `reaped in 0s`, the healthy case's own words
-  (H-0124).
+  (H-0124). A killed activation belongs to that second sentence whenever no line from its pass
+  beats the terminal stamp by a whole rounded second (#418), and the emitted reason says exactly
+  that: no such pass line exists, and a `Main process exited` in a killed tail is the stamp of
+  the ending itself, not of the work stopping.
 
 **The same read is in the supervisor's journal on every activation, and not only in `--status`** (H-0129).
 `--status` is a question to a timer and nobody asks a timer a question -- the argument that put
@@ -952,7 +986,7 @@ Three marks, one line, always exactly one (`<age>` is how long ago the terminal 
 
 ```
 REAP-CLEAN hold=0s how=clean ended=<age>s open=1
-REAP-HELD hold=60s how=deadline ended=<age>s open=1 -- parental-lockout-factory.service was still being torn down after the pass said its last line, and parental-lockout-factory.timer counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246)
+REAP-HELD hold=60s how=deadline ended=<age>s open=1 stop=1:1361554=bash -- parental-lockout-factory.service was still being torn down after the pass said its last line, and parental-lockout-factory.timer counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246). `stop=` is who else was in the unit's cgroup when systemd sent the stop, or one of the four ways there is no subject to name (`none`, `unwritten`, `unread`, `0`) -- #477, and the closing section of this file
 REAP-UNKNOWN rc=2 a pass finished and nothing in the journal says when its work stopped, so the hold is unread, not zero (#246)
 REAP-UNKNOWN rc=1 nothing in the journal window has finished, so this pass cannot say what the last one cost the queue (#246)
 ```
@@ -1132,6 +1166,15 @@ and `ahead = 0`. Every refusal is a named condition, printed and never acted on:
   is not its last line: measured against a locked index the last line is `Updating 568f92b..2fc8ebd`,
   and that distinction between *not safe* and *refused anyway* is the whole reason refusal is a token
   rather than a boolean).
+- `SUPERVISOR-FF-REFUSED not-this-pass tree=<installed> root=<FACTORY_ROOT>` -- the unit file names
+  a tree that is not the checkout this pass supervises (#489: a tick's exported
+  `FACTORY_SERVICE_UNIT` made fixture supervisors resolve the operator's checkout, and the
+  position arms read it honestly while the merge wrote a tree no reader of this log was
+  watching). The refusal sits after the position read -- a tree git cannot count stays the
+  unstreaked `SUPERVISOR-UNKNOWN` it was, because #342's contract says an unknown count is not
+  a refusal -- and an uncountable tree reaches no merge either way. It counts into the streak
+  like any unrepaired staleness, because passes aimed at a
+  foreign tree are an outage in the same shape.
 - The streak and the escalation: an activation that reported staleness and did not repair it appends
   its condition to a ledger line (`supervisor.stale-streak`); a current tree or a completed repair
   clears it. `factory.sh --status` then prints a fifth verdict word, `STALE`, once the streak reaches
@@ -1263,6 +1306,34 @@ when they suspect this; until #260 it described only the tree they were standing
 records its own name (`Environment=FACTORY_SERVICE_UNIT=<name>.service`) for the same reason: `--name`
 is chosen on a command line and is recorded nowhere else, so a pass reading the default name would be
 describing a unit that does not exist.
+
+The unit carries a second thing besides the tree it execs: the `Environment=` set is the environment a
+tick runs in, and #377 measured what never reading it costs. A live unit written 2026-11-10 carried
+three `Environment=` lines while the generator emitted five -- the missing pair was
+`FACTORY_REVIEWER_TEAM` (#241) and `FACTORY_SERVICE_UNIT` (#260) themselves -- and both components
+still behaved correctly by falling back to script defaults, so the install was stale in a way every
+component hid: the poke asked the team because a `${VAR-default}` said so, not because the install
+asked, and the unit name resolved by the repository-name guess instead of the recorded line. So every
+pass now compares the generator's `Environment=` **names** with the installed unit's and prints one
+`UNIT-ENV-STALE` line per missing name (`factory_unit_env_lines`, `factory/common.sh`):
+
+```
+2026-11-17T14:02:11Z UNIT-ENV-STALE unit=<the installed unit> name=FACTORY_REVIEWER_TEAM -- the installed unit carries no Environment=FACTORY_REVIEWER_TEAM line, so it predates the generator that writes it; re-running factory/install-timer.sh is the fix and that is whoever maintains the timer's act, and until it happens the script answers this name from its own default (#377)
+```
+
+A warning, not a halt -- the pass works, and the drift removes behaviour only where an operator wanted
+a lever the missing line carries: `Environment=FACTORY_REVIEWER_TEAM=` written *empty* is #241's
+documented "ask the individual" override, unreachable from an install that predates the line. The
+comparison reads names, never values, so the empty override counts as present and the verdict does
+not nag the lever it exists to protect. And the repair is an operator act, never the pass's:
+re-running the generator rewrites and reloads the unit that drives the queue while re-deriving `PATH`
+from the caller's environment -- `H-0287` carries that split. Silence from this read means exactly
+one thing, that the install carries every name the running generator writes; an unreadable generator
+answers `UNIT-ENV-UNKNOWN` instead of silence, because a failed read is not evidence of the clean
+state (#228's polarity, the same rule `UNIT-UNREADABLE` carries), and the uninstalled, foreign and
+unreadable arms print no set verdict at all -- their own sentence is the honest one, and comparing an
+expected set against a file that is absent, hand-written, or unreadable manufactures drift out of the
+inability to see.
 
 What the check deliberately does **not** do:
 
@@ -1404,14 +1475,19 @@ this was written on, which has no `factory/log`, and its `new=` is a scratch dir
 machine answered it because that case only exists where a real tree is missing its log directory.
 
 
-### The run directory holds a stream, not a verdict (#351)
+### The run directory holds a stream, not a verdict (#351, #311)
 
-`factory/run/` holds the pass's lock and, for each tick, one more file: `factory_worktree`'s stderr, under
-`worktree-stderr.<pid>`, so a refusal can be read back by name rather than folded into the tree path —
-`2>&1` on that command substitution splices an error sentence into the value assigned to `tree` and hands a
-later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after reading it into
-the journal line, the success path because a file left by a pass that got its tree asserts a verdict nobody
-reached. Until #351 only the failure arm deleted it, and the file was named `worktree-error.<pid>`.
+`factory/run/` holds the pass's lock and, for each stream, one more file. `factory_worktree`'s stderr goes
+to `worktree-stderr.<pid>`, one per tick, so a refusal can be read back by name rather than folded into the
+tree path — `2>&1` on that command substitution splices an error sentence into the value assigned to `tree`
+and hands a later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after
+reading it into the journal line, the success path because a file left by a pass that got its tree asserts a
+verdict nobody reached. Until #351 only the failure arm deleted it, and the file was named
+`worktree-error.<pid>`. Since H-0250 the queue read follows the same rule with `triage-stderr.<pid>`: the
+supervisor runs `triage.sh` inside a command substitution, so before that the classifier's own findings had
+no file at all and reached only the service's stderr — journald — while the journal that this harness tells
+a person to read stayed silent. Both streams are journalled and deleted on both paths; the sweep is the
+backstop for a pass killed between them.
 
 Measured at 00:54Z on 14 Nov: four of those files, all zero bytes, stamped 22:03, 22:59, 23:31 and 00:22Z —
 the last four ticks, every one of them a **success** — while `grep -c 'no worktree' factory/log/supervisor.log`
@@ -1432,6 +1508,93 @@ symptom: it leaves three hours of alarms standing in the directory at all times.
 `factory_journal_age`: a file that has to be maintained, and asserts something nobody confirmed, is itself the
 defect.
 
+### The conflict arm's stream lived outside that sweep (#364)
+
+The sweep searches `$FACTORY_RUN` and nothing else. That was one of two places the stream could be written,
+because the two call sites each named their own: `factory_tick` wrote `$FACTORY_RUN/worktree-stderr.$$`, and
+`factory_resolve_conflict` wrote `$(mktemp)`, which lands under `$TMPDIR` — a directory the sweep does not
+read, that is chosen per invocation by whatever `$TMPDIR` happens to say, and that on this machine is a
+tmpfs. The conflict arm is the one that most often dies with the reason unwritten — it is the arm that
+*blocks*, and `CONFLICT-BLOCKED` is the line that reads the file — so the pass that needed the backstop
+was the one standing outside it. There was no second copy either: `die` inside a command substitution dies the
+subshell, so the stream holds the reason once, and a pass SIGKILLed between the refusal and that line lost it
+in the directory nobody opens **and** in the journal. That is the same outage as never writing it: the sweep is
+what #351 called "the backstop for the one pass that cannot delete anything", and this pass could not delete
+anything while getting no backstop at all.
+
+Both arms now take the name from `factory_worktree_stream` (`factory/common.sh`), so there is one home and it
+is the swept one. The legs in `factory/selftest.sh` do not read the two arms; they run the supervisor as a
+process — a real conflict activation, `pr:900` with `mergeable: CONFLICTING` through the fixture's own `gh`
+and `issue-900` held by a tree the supervisor did not build, so `factory_worktree` must refuse for its own
+reason — and SIGKILL it at the `CONFLICT-BLOCKED` sentence through a `DEBUG` trap delivered by `BASH_ENV`. In
+shipped code the run directory then holds exactly one `worktree-stderr.<pid>` containing `branch issue-900 is
+checked out in …`, with no `CONFLICT-` line in the journal; the control puts the `mktemp` line back and the
+same kill at the same sentence leaves the swept directory empty. A third leg refuses the drift that would undo
+it: neither call site may spell the path out again, `factory/factory.sh` may not call `mktemp` on a code line
+again, and the helper must answer with the swept path and the matched pattern, both.
+
+`factory_worktree_lines` still writes its stderr with `mktemp`, on purpose and unchanged: it is not this
+stream, and its failure arm prints git's own sentence straight into `WORKTREE-CENSUS-FAILED`, so those bytes
+are not anybody's only copy of anything.
+
+### The trunk's own verdict is read once per activation (#370)
+
+`main` carried a push-workflow FAILURE for 1h49m04s while the loop journalled 36 `DELIVERED` rows and one
+`MERGED` on top of it (measured 16 Nov on the API: run `44110925937`, queued 17:06:06Z, completed
+18:55:10Z — the same 8274 s the ticket measures as "mergeable but held for 1h49m by a red check run").
+Nothing in the harness reads the trunk's CI, and no check that does exist could have caught it: every
+check read is aimed at a pull request — `factory_checks` asks `gh pr view --json statusCheckRollup`, and
+#274's re-check reads a rollup again — and a `pull_request` check runs on a merge of the head with the
+base tip. A pull request can therefore be green against a trunk that is red at the very commit its own
+rollup vouches for. That is the class: *a green pull request says nothing about the branch it lands on*.
+
+`factory_trunk_ci_lines` (`factory/common.sh`) is the repair — one read of the trunk's own runs, wired
+into `factory_body` after the preflight `EXIT`/`DIRTY`/`LOCK` early returns and the `LOG-AT`/`UNIT-AT`/
+`REFRESH`/`SUPERVISOR-AT` block, and once per activation rather than once per unit:
+
+```
+2026-11-18T06:12:03Z TRUNK-CI d4559fd5de2646e6ae4ad13755e81a50289c17d3 success run=44240957485 age=4021s since=2026-11-18T05:05:02Z
+```
+
+The command is `gh run list --branch "$FACTORY_BASE" --event push --limit 1 --json
+databaseId,headSha,conclusion,status,createdAt` — the shape #370 measured with `gh` 2.46.0. The field
+names in the ticket's *prose* (`workflowName`,`name`,`displayTitle`,`event`,`url`) are not the ones that
+work on this binary: measured, `name` and `displayTitle` are not valid fields for `run list --json` and
+the call dies. `createdAt` is the timestamp the line reports. One measured case splits the harness's
+precedents: `gh api` answers `status`/`conclusion` UPPERCASE and `run list --json` answers lowercase —
+the code compares `ascii_downcase` both sides.
+
+Every arm prints a line; no arm prints nothing (H-0045's rule, and #228's polarity rule, ported — before
+this read existed, an activation could not distinguish "the trunk is green" from "nobody asked"):
+
+| arm | line |
+|---|---|
+| green trunk | the `TRUNK-CI <sha> <verdict> run=<id> age=<n>s since=<ts>` line above |
+| red trunk | that line with `conclusion=failure`, plus `TRUNK-RED` naming the run id, the timestamp, the url-less pointer, and that the pass is reporting only |
+| queued or `status != completed` or a conclusion not yet written | verdict `pending` — the rollup rule's own unfinished-shape case: completion is `status == completed AND conclusion != ""` |
+| `gh` fails | `TRUNK-CI-UNKNOWN rc=2`, quoting gh's exit and gh's stderr — the `LOG-AT` rc convention (#359) |
+| fetch bound expires | `TRUNK-CI-UNKNOWN rc=1`, naming `FACTORY_FETCH_TIMEOUT` — `REFRESH-TIMEOUT`'s convention; `timeout --signal=TERM --kill-after=5`, `TERM` lands inside the call and never reaches the `EXIT` trap |
+| empty array | `TRUNK-CI-UNKNOWN rc=3` — the empty branch must be a *numbered sentence*, never an absence, so the polarity rule cannot be satisfied by silence |
+| body off contract | `TRUNK-CI-UNKNOWN rc=4`: not an array, missing field, or an unreadable timestamp — never guessed, never silent |
+| no `gh` | `TRUNK-CI-UNKNOWN rc=5` |
+| `DRY_RUN=1` | a `DRY-RUN` line stating exactly what would run, and no call |
+
+The bad-conclusion vocabulary is the shared `JQ_BAD_CONCLUSIONS` list in `factory/common.sh`, built from
+`factory_rollup_rules`' bad list plus `cancelled` and `error` — the same list `JQ_CHECKS` uses, so the
+two verdicts cannot drift apart by vocabulary. The trunk read is a verdict *reader*, not a third copy of
+the rollup rule: `run list` answers one array with one row per run, so the rollup's dedup-and-prefer-
+completed logic has nothing to do, and duplicating it would add an unexercised path. `cancelled` is red
+because the rollup calls `CANCELLED` a fail; `skipped` and `neutral` are not, because the rollup does not
+say they are. A `TRUNK-CI` line is the **trunk** verdict and a `CHECKS` line is a **pull request's**
+verdict; nothing compares the two.
+
+It is report-only. The read cannot halt the loop or refuse a merge on a red trunk, and that is the
+decision, not an omission: a red trunk is the same shape as a stale trunk — a fact about a branch, not a
+reason to stop delivering — and #341 measured what a standing halt with no escalation does to a queue.
+#370 item 3 — whether a red trunk should refuse a `MERGE` — is an open **question** whose subject is the
+merge gate, one of the classes the harness may not decide for itself; the boundary sentence is in "What
+it is not allowed to do" below.
+
 ## Decision ids are allocated against refs, not prose
 
 `DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
@@ -1444,13 +1607,27 @@ factory/next-decision-id.sh DECISIONS.md
 factory/next-decision-id.sh factory/DECISIONS.md
 ```
 
-The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref. Its
-answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
+The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref — on
+the face the named path selects, and since #456 a filed aim (`DECISIONS/`, `factory/DECISIONS/`)
+enumerates every `*.md` under the directory instead of one file: one `git ls-tree -r` per ref, a ref
+git cannot open skipped silently for the reason `H-0071` gives. The listing is read as the two claims
+a filed entry is (#506): the **name** claims its id on every ref that carries the file — EMITS names
+the file to create and `layout_problems` refuses a heading that differs from it, so an entry claims
+its name even as an empty file — and the bytes claim theirs too, but once per UNIQUE blob: the
+listing's shas pass `sort -u` into one `git cat-file` each. `git show` per path per ref was one
+spawn per entry per ref per answer (6.7 s → 10.6 s on a 1372-ref clone, #505's review), and phase 3
+multiplies it without bound; identical bytes claim identical ids, so the dedup moves cost, not ceiling. An entry
+filed as `factory/DECISIONS/H-0277.md` on a sibling's ref raises the ceiling exactly as the same
+heading inside the monolith does, which is what makes a filed entry a *claim* rather than a file —
+before #456 the union never asked for that path, and `#442` tallied 7 of 31 ids handed to two or more
+branches with two units crossing over `H-0259`/`H-0260` one second apart.
+Its answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
 ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
 so "first free" is not "smallest missing number".
 
-It answers only for the decision log itself. The named path has to be named `DECISIONS.md` and be a
-regular file in the working tree or a blob in `HEAD`, because a union with no headings in it has
+It answers only for the decision log itself. The named path has to be named `DECISIONS.md` — a
+regular file in the working tree or a blob in `HEAD` — or, since #456, `DECISIONS` — the filed
+directory, a directory in the working tree or a tree in `HEAD` — because a union with no headings in it has
 exactly one answer available -- `<prefix>-0001`, the first heading both logs have carried since entry
 one -- so an empty union is a mistyped path, and answering it is the collision this command exists to
 refuse. Measured on the version #255 shipped, on three calls a session really makes:
@@ -1486,7 +1663,11 @@ visible. The guard now asks whether the path *is* the log: the basename must be 
 what is behind it must be a regular file or a blob in `HEAD`. A guide, a README, a directory, and a
 directory named `DECISIONS.md` are each refused and each is told why (`H-0076`); three more legs and two
 more controls join the six and two above, one plant per arm of the predicate, so neither test can be
-retired without a leg going red.
+retired without a leg going red. #456 added the filed twin to the accepted names — `DECISIONS`, a
+directory in the tree or a tree in `HEAD` — and kept the decoy refused in the same breath: the two
+names are three characters apart and the bug class this paragraph is written about *is* exactly that
+pair, so `DECISIONS/` answers while `DECISIONS.md/` is refused as a name no layout writes, one leg per
+direction and one plant per arm.
 
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
@@ -1532,8 +1713,22 @@ is no answer that leaves stderr empty. Measured at `487d572` on one fixture (git
 allocator writes 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, and 460
 one commit later -- never zero, so emptiness is not a reading anything can take. (A byte count carries
 the fixture's path in the refresh line, so it moves a byte or two between fixtures; the claim is that
-none of the three is zero.) A moved ceiling with
+none of the three is zero. #456 added a third stderr line to every answer, so the counts at `487d572`
+are that head's, not this one's.) A moved ceiling with
 **no PENDING line** is therefore the collision, and the four steps below are what to do with it.
+
+Every answer also says where the entry goes: `EMITS <repo-relative>/<id>.md -- create that file...`,
+on stderr beside the refresh and pending notes, because stdout is promised to be the id alone and
+legs pin its bytes. The line names the file for the layout the allocator is writing going forward —
+new entries are files, in either log — and a unit that ignores stderr loses nothing it had before,
+while a unit that reads it stops appending to a monolith. Two files once carrying 343 entries is what
+re-conflicts every open branch on every merge (#381 measured six different shifts of one
+`factory/selftest.sh` on one re-aim pass); the allocator naming the entry file is the writer half of
+ending that, and `H-0263` stands: *existing* entries are not hand-converted, because hand-filing a
+merged entry makes it a file no writer will ever produce again. The journalled answer carries the
+same path now (`path=`, the sixth field, #464): `EMITS` and the journal are one destination read two
+ways, and the end-of-tick comparison reports filed headings by that path -- a unit that wrote its
+entry somewhere else than `EMITS` named is visible on its own branch, once, attributed.
 
 What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
 what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your
@@ -1658,6 +1853,16 @@ four steps, in this order:
    branch that kept it, and that the two decisions share nothing but the digit. A gap in a log is
    citable when an entry says why it is empty, and inexplicable when it does not.
 
+Since #381 the steps above are what a *human or a tick* still does when two decisions reached for the
+same number, because that collision is the case the code refuses on purpose. The routine shape -- each
+side added its own entries, no digit shared -- is now machine work: the conflict arm runs
+`scripts/merge-decisions.py` over the conflicted tree, the shipped gate arbitrates the union, and a
+certified merge is committed, pushed and read back with no conflict tick at all. Every seam is a
+refusal that leaves the old route intact: a shared digit, a pointer only one side drifted, a non-log
+conflict in the same merge, and the merge is aborted and the tick dispatched exactly as before #381.
+`factory/selftest.sh` pins both routes end to end through the real supervisor: a logs-only conflict
+that must not cost a tick, and a mixed conflict that must still cost one.
+
 ### Why there is no reservation
 
 The alternative to a rule at the merge is a reservation before the write -- a fourth ref each session
@@ -1698,12 +1903,24 @@ moment it printed. A number taken by eye was indistinguishable from a number han
 So the allocator's answer now leaves a witness, and every tick audits for its absence. Whenever the
 allocator runs inside a tick context -- `factory_tick` exports `FACTORY_TICK_UNIT` and
 `FACTORY_TICK_BRANCH`, and the allocator refuses to guess: a bare terminal run journals nothing -- its
-answer is journalled in `supervisor.log` as `DECISION-ID <id> unit=<row> branch=<branch> (allocator,
-<log>, <read>)`, failure-blind like the tree verdicts, because a write that cannot land must never eat
-the id it is meant to accompany. At the end of every activation `factory_decision_provenance`
-(`factory/common.sh`) compares each decision log's headings against that record: every id the branch
-newly carries, with no allocation journalled for it on *that branch*, gets
-`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- attributed, once per unit,
+answer is journalled in `supervisor.log` as
+`DECISION-ID <id> unit=<row> branch=<branch> path=<entry-file> (allocator, <log>, <read>)`,
+failure-blind like the tree verdicts, because a write that cannot land must never eat
+the id it is meant to accompany. `path=` arrived with #464, because since #456 an answer's
+destination is a file: the stderr `EMITS` line names the file to create, and the journal line names
+that same file as its sixth positional field -- ahead of the step-over note (#442), which remains the
+variable tail that says *parse no fixed field past me*. `id` and `path` are one answer, and the point
+of journalling the path is the audit below it: provenance is judged against the destination the
+writer was handed, not against a log name nobody was told to append to. Lines written before #464
+carry no `path=` and certify their ids exactly as before -- the field is additive, and a reader that
+required it would call every pre-#464 allocation unearned. At the end of every activation
+`factory_decision_provenance` (`factory/common.sh`) compares the headings of all four faces -- both
+monoliths and both filed directories, which is where every new entry arrives since #456 -- against
+that record: every id the branch newly carries, with no allocation journalled for it on *that
+branch*, gets
+`DECISION-ID-UNEARNED <id> … unit=<row> branch=<branch> log=<log>` -- for a filed heading the `log=`
+field names the ENTRY FILE itself (`log=DECISIONS/D-0042.md`), the path `EMITS` handed its writer --
+attributed, once per unit,
 recorded and never fatal. The report is deliberately about attribution, not behavior: an unearned id
 is often harmless prose, and the human's verb is the yield procedure above, which a clean report would
 have made a coin flip. An id earned on a sibling branch reports too -- that is the #345 shape, a
@@ -1713,6 +1930,28 @@ cannot be read journals `DECISION-ID-UNCHECKED` naming the failed read and rende
 happen. `H-0195` carries the option set, including the two refused for measurement: dispensing ids at
 claim time (a claim cannot know the unit will decide) and a gate-level duplicate refusal (it arrives at
 merge, on the wrong branch's bytes, saying `duplicate` where the question is `whose`).
+
+## The decision log is migrating to one file per entry (#429)
+
+`H-0263` lands phase 1: `scripts/check-decisions.py` now reads a union of four sources -- the two
+monoliths, then `DECISIONS/*.md`, then `factory/DECISIONS/*.md` -- and the two directories are optional,
+because on 2026-11-18 neither exists at `origin/main` nor on any of the 11 heads the server lists, and
+refusing an absent one would refuse every tree in flight. Three rules come with the layout. A filed
+file's name is its id: `DECISIONS/H-0042.md` holding `## H-0043` is a renumbering that silently aliases
+every citation to `H-0042`, so `layout_problems` refuses the pair. An id used twice in the union is
+refused with both locations named -- one filed file beside one monolith heading included, which is the
+rule that makes the split safe to move in batches. And a `*.md` filed *below* an entry directory is
+refused by its path, because no id names a path segment and a file the reader skipped is an entry no
+rule ever ran over.
+
+Both forms stay valid until phase 3 completes, so **do not convert an entry by hand**: the allocator
+(`factory/next-decision-id.sh`) and every writer still append to a monolith, which makes a hand-filed
+entry a file nothing will produce again. What phase 1 does not do: emit files (that is phase 2), move
+the 318 entries that exist today, or retire either monolith -- deleting one is a class reserved to a
+human. The reading order is the monoliths first, then filed entries in filename order, and id
+monotonicity stays the allocator's job: the positional sequence rule is left inside a file, because a
+directory read in sorted order has no order a merge honours -- measured on a fixture where a back-filled
+lower id sits in the directory and the union reads clean at `4 entries across 4 log(s)`.
 
 ## Configuration
 
@@ -1728,15 +1967,17 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
+| `FACTORY_TICK_KILL_AFTER` | `60` | the grace between TERM and SIGKILL when a tick is reaped, seconds (#383) — the number `TICK-FAILED` prints in its 137 sentence, which is why it is a constant and not a literal inside the `timeout` argument |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on each `git fetch` an activation does (H-0075; #342 adds the harness tree beside the primary checkout, so a split arrangement fetches each); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_HALT_RELEASES` | `2` | how many times one unit's machine-written halt may remove itself when the tree it names is provably past its cause (#341); see the section under "Stopping it" |
+| `FACTORY_STREAK_HALT` | `0` | whether one unit's second preserved accident halts the whole repository as well as costing that unit its turn (#341 demand 3). `0` is the shipped scope: the unit loses its pass and every other unit is ticked. `1` is the pre-#341 escalation, kept reachable because it is the shape the halt re-probe is written against and because an operator may decide one unit's repeats are worth stopping the queue for |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_STALE_ESCALATE` | `3` | how many consecutive activations may report the installed tree behind and not repair it before `--status`'s verdict reads `STALE` (#342). Three: enough to ride out one pass whose refusal cause clears, short enough that nobody reads 92 journal lines to call the outage a defect |
-| `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
+| `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause. The `stop=` subject on that row is a separate read with its own two knobs, both in `factory/common.sh`: `FACTORY_STOP_WINDOW_GRACE` (`5`) how far outside the hold a sample may fall and still be this stop's, and `FACTORY_STOP_WINDOW_MAX` (`8`) how many processes one row names before `,+K` (#477) |
 | `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
 | `FACTORY_LOG_TAIL` | `400` | how many of the unit's journal lines the read of the journal's own location looks back for the last line that named a directory (#260); a line-count window, so a pass that outwrites it is told `LOG-MOVED-UNKNOWN rc=2`, never "it has not moved" |
 | `SHELLCHECK` etc. | — | see `make check-shell` |
@@ -1753,6 +1994,72 @@ enough on its own: a tick can hold a worktree for 45 minutes, and inside that wi
 that can hear you is the agent. The supervisor also writes this file itself when it finds a dirty
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
+
+**Where a unit's scratch belongs (#415).** A unit's own throwaway fixtures -- probe repositories,
+fake trees, anything written to answer a question and thrown away -- belong in the scratch directory
+the dispatch mints for it: outside every worktree, exported as `$FACTORY_SCRATCH`, named in the
+tick's prompt beside the tree, deleted when the session ends whatever the session did to it,
+including being killed mid-tick. They do not belong in the unit's own tree, not even in a
+dot-directory: the content verdict cannot tell a half-finished deliverable from a scratch directory,
+and a halt is global. Measured 15-16 Nov in the supervisor's journal: one `.probe/` left in
+`wt/issue-328` wrote 39 `HALTED` lines, the last of them recording a cause already 7h39m old. If
+`mktemp` cannot mint the directory the pass journals `SCRATCH-FAILED` and dispatches without the
+sentence; the rule still stands, it just has no address to give. And when a halt does stand and its
+cause is named as untracked directories, clear them with `git -C <tree> clean -ffd -n` **before**
+`rm factory/HALT`: `git clean -fd` refuses to touch a directory containing a `.git` -- exactly what a
+unit's fixture repositories are -- so over that directory the plain dry run says only
+\`Would skip repository\`, never prints a \`Would remove\` line, and the work stands while the
+resume re-halts on the same bytes (measured on git 2.53.0: plain said one skip line at exit 0;
+\`clean -ffd -n\` said \`Would remove .probe/\`). The halt sentence carries that caveat for the same reason.
+
+**What the supervisor stops for (#341 demand 3).** It writes the marker itself over two shapes, and
+they have one thing in common: the work is nowhere else. A tree whose rescue was **refused** -- git
+would not stash it, or the tree cannot be read back clean afterwards -- journals
+`TREE-QUARANTINE-REFUSED` and then halts, `cause=dirty` or `cause=unreadable`, at whichever call site
+found it (`TICK-HALTED` before a tick, `CONFLICT-HALTED` before a conflict resolution). And, with
+`FACTORY_STREAK_HALT=1`, a unit whose tick has now stopped short of delivery twice in a row.
+
+A second accident whose work the harness **did** preserve is no longer a repository-wide stop. The
+first is absorbed silently (`TREE-QUARANTINED … attempt=1`, work in a stash and a patch, the queue
+ticked on); the second used to be `TREE-STREAK` and a marker, and it is now
+`UNIT-QUARANTINED <unit> attempt=2 others-continue stash=<sha> mirror=<path>`. The dispatcher takes
+that as exit `6` for the one unit: no session is opened in the tree it just refused -- the journal
+carries `TICK-SKIPPED` and no `TICK-START` for it -- the unit keeps its row in the queue, every other
+unit is ticked by the same pass, and the pass exits `0`. The tick's `6` never leaves the pass, so
+monitoring gains no code: `4` is still a failed tick and `8` is still a standing halt.
+
+Why that shape specifically lost the halt: by the time the streak fires, the bytes are in a stash
+**and** in a patch under `FACTORY_AT_RISK`, so the halt was no longer protecting anything -- it was
+only refusing to guess again about work it had already copied in two places. And the streak was the one
+halt whose cause was false in the same breath as the file: the stop had just stashed and mirrored the
+bytes and cleaned the tree, so the marker went down over work it had itself made safe -- which is why
+#405's re-probe can only mop this up one activation later, having stopped every other unit for the
+interval and only twice per unit before `HALT-STUBBORN` leaves the resume to a person. Measured cost of
+the old scope on #302: 14h34m and 77 activations of `HALTED` with 34 units idle, behind one unit's 2
+files, until a person ran `rm`.
+
+What replaces the halt's *visibility* is a notice, because an unticked unit is otherwise invisible in
+the one place anyone looks: `IDLE` never appears while the rest of the queue is healthy, and `QUEUED`
+merely stops shrinking. So the skip also posts on the unit's own issue --
+`UNIT-QUARANTINE-NOTICED <unit> #<n>` in the journal, and a comment naming the attempt count, the stash
+sha and the mirror path, because demand 3's whole claim is that nothing was lost and a notice that
+cannot say where the bytes are is not that claim. It is throttled by `FACTORY_HALT_NOTICE_AFTER`, the
+halt notice's own window, and the ledger stamp `quarantine-notice` is written only when `gh` exited 0: a
+unit that keeps stopping short reaches a second accident again every time it has been ticked twice since
+the last clean read, so a notice fired on each one would mail whoever owns it on the queue's own cadence,
+and a stamp written on a failed post would silently retire the only sentence telling anyone the unit is
+not being worked. A failed post journals
+`UNIT-QUARANTINE-NOTICE-FAILED` with `gh`'s exit and its own words, and costs the unit nothing -- the
+`UNIT-QUARANTINED` line is the record either way. Numbered units only, same as the halt notice:
+`unclaimed:341` has an issue to comment on and `selftest` does not.
+
+Nothing here is resumed by hand, because there is no marker to remove: `factory/factory.sh --status`
+prints the unit's `ledger:` line with `quarantine-count=2` and `quarantined-at=…`, the journal's
+`UNIT-QUARANTINED` line names the stash and the patch, and the unit is still a waiting row of the
+queue -- the activation after a skip ticks it again, which is the difference between losing a turn and
+being parked. What a person acts on is the work in `FACTORY_AT_RISK`. The halt path above is for the
+case where there is no copy to read, and if the queue-wide stop is what you want anyway, the knob is
+one `Environment=` line in the timer's unit file.
 
 Nothing halted and the queue still is not moving: read the `code:` line of
 `factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
@@ -1793,6 +2100,19 @@ A dry run never re-probes: a release is a write, and dry runs write nothing to t
 switch. The `HALT-NOTICED` issue comment stays the halt-write moment's, throttled once per hour; a
 notice posted over a mirrored halt now names the stash and the mirror path and says plainly that
 removing the marker loses nothing, because for that shape removing the marker loses nothing.
+
+**Which markers exist to be re-asked, after demand 3.** Nothing in the four outcomes above changed, and
+one knob-width changed what writes a marker at all -- worth naming here, because the fixture this
+section's legs walk to is the streak halt, which the shipped default no longer produces; those legs set
+`FACTORY_STREAK_HALT=1` to reach it, and the self-test pins both scopes. A halt is written now when the
+work is **nowhere else**: a rescue that was refused (`TREE-QUARANTINE-REFUSED`, over the verdict's own
+`cause=dirty` or `cause=unreadable`), from either call site -- before a tick, or before a conflict
+resolution. A halt standing over a tree with a merge in it never releases on the dirt question, because
+the re-probe asks git's index state as well and a half-merged tree is not clean however empty
+`git status` reads. And a second
+preserved accident writes one only under the knob. Under the shipped default that shape journals
+`UNIT-QUARANTINED`, spends the unit its turn, tells its owner once, and lets the pass finish; the
+section above, "Stopping it", carries the scope and the reason for it.
 
 ## What "dirty" means, because the test decides when the queue stops
 
@@ -2016,6 +2336,31 @@ which was shown to be transient, and it would have had to decide whether the fir
 half-applied work -- the question `TICK-HALTED` exists to stop a tick from answering. What a retry buys
 is throughput, and the timer is already the thing that provides it.
 
+**A pull request is not the only thing a unit can be owed, and reading for only one filed a delivery as
+a miss (#362, `H-0240`).** The gate a unit runs under ends its last turn by closing its issue when the
+ticket is already satisfied by `main` (`.opencode/skills/factory/SKILL.md`, "When the ticket is already
+satisfied by `main`"), and `factory/triage.sh` counts an issue claimed only by an **open** pull request:
+that close claims nothing, so the read above answers empty and the one shape of done the read could not
+tell from a miss was filed as a miss. Measured on `unclaimed:315` -- `TICK-UNDELIVERED … it stays where it
+was` at `2026-11-14T01:21:41Z`, in the same minute that `gh issue view 315 --json state,closedAt` answered
+`CLOSED` at `01:15:25Z` and `gh pr list --head issue-315 --state all` answered only the MERGED #316, the
+historical delivery two days old. So an empty pull-request read asks the ticket as well. `CLOSED` journals
+`TICK-CLOSED <unit> exit=0 issue #N reads CLOSED (<closedAt>)` and takes the shared clean-stop tail:
+`TICK-DONE` journalled, `last-tick` stamped, `stuck-since` cleared, exit `0` -- the one write it skips
+is the bundle. There was no pull request to owe; the line carries `` `gh issue reopen N` `` because a
+verdict naming its own undo is one command from correct and the day's date is none to reconstruct.
+`OPEN` keeps the old sentence unchanged. A ticket that could not be read, and a state word that is neither
+-- `gh issue view` on a pull-request number answers `MERGED` -- journals `TICK-UNCHECKED` naming the read
+that failed and renders no verdict, per the doctrine of that name: a read that failed is not a delivery
+that failed. The read is gh's own projection, which answers the state UPPERCASE; REST, which
+`factory_close_read` parses, answers lowercase, and that is the live defect #424 counts, so nothing here
+borrows that helper. `stateReason` is not askable at the gh on the box the timer runs on: this box's
+`/usr/bin/gh` 2.46.0 answers `Unknown JSON field: "stateReason"`; a 2.67.0 review box answers it
+`COMPLETED`, so the claim is of its box and the field list holds on both. The mutating leg runs a
+stubbed `gh`, pinning the call site and not the installed binary. Asking costs one view per stop,
+which is not a rate worth protecting when the alternative is a six-minute-old close journalled as a
+wasted 45-minute budget.
+
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed
@@ -2023,7 +2368,20 @@ is throughput, and the timer is already the thing that provides it.
 the trunk, so this pass stopped before dispatching and the next activation runs the merged code (#342).
 
 `3` and `7` are the two that matter to monitoring: `3` means the token or the network is gone, and
-`7` means two timers are pointing at the same repository. `8` and `9` are the two the unit files must
+`7` means two timers are pointing at the same repository. Since #380 the refusal also says so in the
+journal at the moment it decides: `LOCK-SKIPPED holder=<pid>:<comm>[ +N] lock=<path>`, where `holder=` is
+the oldest opener of the lock file as `fuser` names it, `+N` counting any descendants sharing the
+descriptor, or `unknown` where fuser cannot answer -- and `unknown` still journals the line, because
+an arm whose probe dies would recreate the silence the line ends. Before it, the six refusals
+journald had shown since 1 Nov left ZERO rows in the retained `supervisor.log`: the one refusal its
+retention still covers (14 Nov 14:39:41Z, first row 10 Nov) has no line beside it in the eleven
+minutes around it, while the sentence naming the condition lived only in journald's stderr capture
+-- all six occurrences findable there and none in the file -- and it named no holder: the diagnostic above could not be acted on from the file anyone actually reads (#380, H-0288). The holder
+comes from `fuser`, not `/proc/locks`: measured 18 Nov, a live holder at pid `4104085` was row-named
+`4104087`, which named no process, because `flock -n 9` makes the syscall in a child that execs and
+dies; and a refused shell holds the file open itself, so both the arm and the probe close the
+descriptor before asking, or the pass reports itself as the holder. `8` and `9` are the two the unit
+files must
 agree with: both are listed in the generated service's `SuccessExitStatus=`, **separated by spaces**,
 because both are decisions the pass made on purpose. The separator is part of the mechanism, not
 formatting: `systemd.service(5)` parses that value as a space-separated list, and on a comma systemd
@@ -2033,7 +2391,12 @@ ignoring: 8,9` and lists neither code, at exit 0; `SuccessExitStatus=8 9` prints
 deliberate stop that journals as
 `Failed with result 'exit-code'` points every reader away from the line that explains it (#246,
 measured on code `4` hiding `Agent not found` for 152 activations; #305 added `8` to the line; #342
-added `9` in the same commit that made the code reachable).
+added `9` in the same commit that made the code reachable). `7` deliberately stays OUTSIDE the list,
+and was weighed against adding it on #380: `8` and `9` stop a pass that had decided something, while
+`7` did nothing at all, and a two-timer collision is the one condition on this page that a unit which
+reports failure is the correct instrument for -- a green collision is a second timer nobody deletes.
+The silence that made `7` feel like an unlisted failure is repaired where it lived, in the journal
+(#380, H-0288), not by making the collision read as success.
 
 ## What it is not allowed to do
 
@@ -2104,6 +2467,12 @@ re-reads all four gate fields from the API in the same call that merges.
 Merging cannot be undone here anyway: `allow_squash_merge=false` and `allow_rebase_merge=false`, so
 every merge is permanent history.
 
+A `TRUNK-RED` line grants no unit new authority. A unit reading a red trunk on its way past a journal
+tail still may not halt the loop, refuse a merge, or hold a delivered pull request on the strength of
+that line: the trunk read is report-only, and #370 item 3 — whether a red trunk should refuse a `MERGE`
+— is an open question about the merge gate, a class a tick may not decide from a journal line. Making
+that question a rule is a `DECISIONS.md` entry with a human behind it, not an arm of `factory_body`.
+
 ## Lifting it out
 
 Nothing in `factory/` may name this repository. `FACTORY_REPO` comes from `origin`, the reviewer is
@@ -2120,9 +2489,11 @@ repository's name to work, that is a defect in it, not a convenience.
 
 ## A citation in a decision log carries its own anchor
 
-`DECISIONS.md` and `factory/DECISIONS.md` hold 565 backticked `path:line` citations, and the closing line
-of `python3 scripts/check-decisions.py` is the only figure to trust — at this head it reads 539 owing an
-anchor, 15 carrying one and 11 naming the revision they were read at. A coordinate is how
+`DECISIONS.md` and `factory/DECISIONS.md` hold backticked `path:line` citations, and the closing line
+printed by `python3 scripts/check-decisions.py` is the only figure to trust — the debt line reads how
+many it read and how many owe an anchor, and when the logs hold any `Effect:` diff tally a third line
+reports how many, with none re-measured and the reason on the same line (`H-0307`, #253); `--citations`
+names the exempt classes. Never copy its readings into prose as though they were still its readings. A coordinate is how
 an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
 `triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
 of an entry a
@@ -2142,28 +2513,29 @@ closing backtick but spaces and at most one apostrophe. It has to be found on th
 within the cited range
 (`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
 lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
-A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
+A quotation further away than that is not an anchor — and since #367 the refusal says which floor it
 applied instead of claiming there was no quotation. **The quotation has to start on the coordinate's own
-physical line.** These logs are markdown wrapped at ~110 columns, so the natural place for a 20-character
-fragment is the next line, and there it is not an anchor: the citation falls silently into the debt instead
-of being checked, which is a number moving, not an error. Hit twice writing H-0171 — both times the gate
-said `the count went UP` and `--citations` named the two rows in seconds; re-wrap the sentence rather than
-adding an unanchored pointer to the corpus you are paying down. Measured on the two logs: 3 citations carry a
-quotation of 16+ characters within six characters of the coordinate that this class declines (the
-possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
-five authors were told their citation had no anchor, by a message that never mentioned the separator.
-Widening the class was measured and refused: it reclassifies 3 pointers in other units' entries for a
-0.6% dent in the debt, and buys a rule that will accept the neighbouring sentence's quotation.
+physical line**, and since #369 both newline-cut shapes say so in words naming the newline: these logs
+wrap at ~110 columns, so a faithful fragment most often lands past one — either it opens on the NEXT
+physical line, or it opens after the closing backtick and the newline ends it unclosed. The silent
+version was measured and paid for: hit twice writing H-0171 (the gate said `the count went UP`, with no
+error to read), and when #369's refusal caught the first two live rows, one of them had also drifted in
+silence, from 1143 to 1746, while unchecked. A cut row refuses and is not debt, so the ratchet stays shut
+while one exists; a quotation further down still lands in the debt (widening the class was measured and
+refused: it reclassifies 3 of another unit's true pointers for a 0.6% dent, and buys a rule that accepts
+the neighbouring sentence's quotation), and a wrapped tail inside an open code span is shell, not a cut
+quotation — `--citations` names the cut rows in a section of its own.
 
 Shapes that are understood and are not the same claim:
 
 | written | meaning |
 |---|---|
-| `factory/common.sh:235` | a path, looked up exactly |
+| `factory/common.sh:251` | a path, looked up exactly |
 | `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
 | `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
-| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical, so inside a wrapped paragraph that is a known limit, not a guarantee: see the third finding below |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **in its own sentence** — the sentence, not the physical line, since #365 measured that a wrapped paragraph here is several sentences naming several files; a sentence that names no file leaves the row in the open shape below; and a coordinate whose quoted anchor the newline cut — on the next line or dangling open — is refused by name, never left as silent debt (#369) |
+| `` `AGENTS.md:46` now reads "…" ``, ``the rule is at `factory/factory.sh:245`` | asserts where the lines are **in the tree being gated** — refused outright without an anchor since #374; past-tensed with the date it was read it becomes an ordinary debt row |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
 | `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
@@ -2176,11 +2548,27 @@ any git subcommand but `cat-file`, because a verdict that changes between a bran
 and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
 answers the same question in every checkout.
 
-**What cannot be checked is counted, and the count may only fall.** 539 of those citations predate this
-rule and carry no anchor (the four above 535 are pointers that used to be skipped entirely — see the
-paragraph on a name that carries an extension); that number is `POINTER_DEBT` in
-`scripts/check-decisions.py` (re-measured at
-this head: `--citations` answers `debt this gate ratchets on: 535`). Above it the run
+**A sentence that says a line IS there today is itself a pointer, and it rots the same way.** "`AGENTS.md:46`
+now reads …" and "the rule sits at `:437`" make the promise the anchor rule exists to keep — to *this* tree —
+and the next merge into the cited file falsifies them while every check stays green. That is not hypothetical:
+`H-0139`'s corrective bullet, the sentence telling a reader where to look, was measured by #374 to be false in
+2 of its 4 coordinates six days after it was written, with `make verify` green over it. Since #374 the
+classifier flags the adjacent verb forms — `now at`, `is at`, `sits at`, `lives at`, `points at`, `now reads`,
+`moved to`, `still holds` at the coordinate's backtick, forward or reversed, including a verb wrapped onto the
+next physical line — and refuses the unanchored rows outright; a past tense is never refused, because "was at
+`:713`" and "read on 11 Nov" name the tree they measured and join the counted debt like any other unanchored
+coordinate. Adjacency is load-bearing and was measured: the first implementation matched the verbs anywhere on
+the row's line and pulled 12 true sentences into the refusal bucket — "`docs/factory.md` carrying … now
+reading a census", and the revision-qualified "read `X:507` at `d7a5149`" family, where the preposition
+attaches the read to a named head, not to the gated tree — so the matcher reads the text touching the opening
+backtick and the self-test pins both controls must-not-be-refused. The writer's repair is one of two: anchor
+the sentence, or past-tense it with the date it was read.
+
+**What cannot be checked is counted, and the count may only fall.** Most of those citations predate this
+rule and carry no anchor (some arrived as pointers that used to be skipped entirely — see the paragraph
+on a name that carries an extension); the count lives in `scripts/check-decisions.py` as `POINTER_DEBT`,
+and the only reading of it is the last line of `--citations`, `debt this gate ratchets on:` — a figure
+copied into prose rots there (#375 caught this page holding two copies of it at once). Above it the run
 is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
 filed off, and the next unanchored citation hides in the slack. **Neither comparison runs while a single
 pointer cannot be opened** (H-0170), because that number is not always a measurement of the logs: one
@@ -2197,12 +2585,79 @@ direction the ratchet permits a rise and the diff is the audit. A citation absen
 ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
 writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
-file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
+file is *not* refused on its own, and that is a choice, not an oversight: the unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
-holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
-past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a
-wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
-needs a rule about sentences, not lines, and that is filed as its own issue.
+holds only where an anchor already proves what the line should say — measured at the head that ships the
+sentence rule, 9 citations sit past the end of the file they name, all 9 unanchored: five `README.md`
+rows an entry *reports* as read against another revision, one `docs/factory.md:5985` history row
+`H-0159` names as history, and three rows `H-0121` writes as current — its `factory/selftest.sh` trio
+whose enumeration sentence aims `:5875`, `:6521` and `:6638` at `factory/install-timer.sh` (617 lines)
+because the clause names selftest.sh bare and the store inherits the last coordinate-named file. The
+boundary narrows the mis-aim; it does not eliminate it. The line rule also saw 9 — four mis-aimed
+continuations in `H-0110` and `H-0111`, which fell to the open shape, and the same five `README.md` rows.
+
+**An anchor that answers more rows than the citation promised verifies nothing (#440).** The accept
+branch used to ask *is the fragment on the promised row* and never *is it only on that row*, so a
+boilerplate fragment — copied from the guide's own worked example — passed on any row of boilerplate:
+70 of 343 anchors answered more than one row when the issue was filed, and #440 traces what that
+shape cost (284 coordinates re-aimed green with three landing in the wrong entry). A citation whose
+fragment is satisfied outside its promised span now classifies as a fourth must-be-zero bucket,
+`indeterminate`, and it rides the same discipline as `broken`: new ones are refused on sight, the
+corpus's existing ones get repaired, and `--citations` names every one. Rivalry is counted after two
+exclusions, both measured rather than reasoned: rows inside the cited range — the promise covers every
+row of a span — and the citing row of a same-file citation, because such a row quotes its own anchor by
+construction, and counting it makes every cross-row pointer in the logs indeterminate with no repair
+that removes them. The repair has two shapes and the target decides which: lengthen the fragment until
+only the promised row answers it, or, when no such fragment exists because the rows are byte-identical
+(the class the `POINTER_DEBT` ledger row itself belongs to), pin the revision the citation was read at
+— a `sha:file:row` whose quoted text is verified against that revision, never against faith. The repair
+pass took 123 indeterminate rows to 0, 114 of them by pin. And it found the one silent byproduct:
+pinning makes a row revision-qualified, and a revision-qualified row did not hand its file to the bare
+`:NNN` continuations later in the same sentence — the `:263`/`:265` pair in `H-0210` turned into
+`not-a-path`, checked by nothing, when the row before theirs was pinned. `scan_citations` now fills the
+continuation store from a pinned row when its path half resolves uniquely, and the self-test asserts
+both polarities so the exemption cannot silently orphan a continuation again.
+
+**An anchor that stops in the middle of a word on the cited row verifies nothing (#495).** The accept
+branch asked *is the fragment on the promised row, and only on that row* — and containment is true of a
+fragment cut anywhere inside a token, so a quotation could end mid-word and stay green while the rest of
+that word was renamed. `factory/common.sh:297` is the case the issue was filed on: five rows of
+`factory/DECISIONS.md` quote the head of one shell substitution out of its assignment — 53 characters of
+a 62-character row, stopping nine characters short of the word `question`, which each of those five rows
+then goes on to name in its own prose. `628e403` wrote the default inside the substitution as
+`needs-human`; `431b24b` changed it to `question` and moved all five citations onto the assignment's new
+line in the same commit, and the gate was green on both sides because the prefix is the same for every
+value the substitution has ever carried. `factory/factory.sh:342` carries the same shape at the
+quotation's other end, where the row says `-name` and the quote opens on `name`.
+
+A quotation now has to cover a **whole token** of the row at each end: a character outside
+`A-Za-z0-9_`, or the row's own edge, on both sides of the fragment (a range's joined seam counts as an
+edge, so the rule cannot manufacture a cut where `classify` put the space itself). A quotation that stops
+short is a sixth must-be-zero bucket, `midtoken`: refused on sight, reported with the characters it left
+off, and never entered into `POINTER_DEBT` — the row already carries a quotation and finishing it is the
+whole repair, so counting it would teach lowering the constant to hide a cut. When a fragment ends at a
+`:` or a `/` in the middle of an expression, the repair is to quote the whole expression rather than a
+prefix of it.
+
+Those two marks are left out of the token alphabet on purpose, and the price of putting them back was
+measured on the shipped bytes (a throwaway probe over the 585 anchored and resolvable citations the logs
+and the two teaching files carry today, 1,671 citations scanned, run with the shipped predicate and each
+candidate character added to the alphabet in turn). Adding `:` makes 29 further quotations read as cut,
+and every one of them ends at a completed word the cited line merely follows with that punctuation:
+`` `.opencode/skills/factory/SKILL.md:264` "The comment IS the ask" `` is one, against a row that goes on
+`ask: \`Question:\``, and `` `AGENTS.md:84` "ask the supervisor's journal" `` is another, against a row
+going on `journal: run \`factory_worktree_busy\``. The probe counts a row as cut on ANY cut match, so
+each figure is that widening's upper bound and the conservative arm below can only lower it, never raise
+it. Adding `.` costs 22 of the same and `/` and `-` one row each, and the union of `:` and `.` is 50 rows.
+None of it buys a boundary #495 needs: the substitution the issue was filed on is refused already,
+because the character after the quote is a `q`. So the alphabet stays word characters, the cut is
+decided by the character touching the quotation, and the 29 `:`-rows and 22 `.`-rows stay green because a
+colon and a full stop end a quotation the way a space does.
+
+The conservative arm is the other measured choice: a fragment matching a row more than once passes
+if ANY match is whole, because the lengthening that would fix the cut copy is advice this check cannot
+give — it cannot know which copy the author meant — while a fragment matching nothing but cuts gives that
+advice and is refused, which is the same advice #440 already gives for its own reason.
 
 **The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
 decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
@@ -2224,10 +2679,12 @@ and it is a weaker test than the one that would be free — `git ls-files` answe
 tracked?" in one read — but this rule reads no git, deliberately, so the weaker test is the price of a
 verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
 *names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
-limit that remains, stated because it is the one a reader will hit: a bare `:NNN` with no file named
-earlier on the same physical line names no file at all and is not refused, because 158 rows of these
-logs are that shape inside wrapped paragraphs and refusing them refuses 158 true sentences (H-0153 sets
-the same-line rule; the repair is a rule about sentences, and it is filed).
+limit that remains, stated because it is the one a reader will hit: a bare `:NNN` whose sentence names no
+file at all is not refused, because 175 rows of these logs are that shape inside wrapped paragraphs and
+refusing them refuses 175 true sentences (occurrences, measured at `e66dc85d`: 312 bare
+rows, 137 inheriting a file from their own sentence; 294 bare, 137 inheriting at `adddacc`, where #365
+measured the move). The open shape is sentences naming the file as a bare backticked path and sentences
+naming no file at all; the inheritance itself is still `H-0153`'s.
 
 **The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
 logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
@@ -2258,16 +2715,20 @@ Three findings came from the tool being wrong rather than the log, and all three
   `DECISIONS.md`, matched by basename, and answered "two files". Advice that does not work is worse than
   none: the reader follows it and cannot tell what broke. `./` is now looked up as a path and nothing else,
   pinned by a self-test case.
-- A bare `:NNN` is aimed by the last file resolved *on the same physical line*, and an entry in these logs
-  is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming several files.
-  Four continuations are aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
-  `factory/selftest.sh`, at `:2766` … and `:3731`" sits on a line whose earlier citation is
-  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sit on a line whose
-  earlier citation is `factory/triage.sh:600`. All four land in the debt, where they cost nothing today —
-  and all four are why the length check is anchor-only: applied to every citation the rule would
-  refuse 7 sentences that are each true on their own terms to catch zero false ones (these four, plus
-  three rows an entry is itself reporting as past the end of the file it names). Fixing it is a rule
-  about sentences, not lines, and it is filed as its own issue rather than improvised inside this one.
+- A bare `:NNN` used to be aimed by the last file resolved *on the same physical line*, and an entry in
+  these logs is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming
+  several files. Four continuations were aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
+  `factory/selftest.sh`, at `:2766` … and `:3731`" sat on a line whose earlier citation is
+  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sat on a line whose
+  earlier citation is `factory/triage.sh:600`. All four landed in the debt, where they cost nothing today
+  — and all four were why the length check is anchor-only: applied to every citation the rule would have
+  refused sentences that are each true on their own terms to catch zero false ones. The repair was a rule
+  about sentences, not lines, and #365 measured and landed it: the boundary is now a sentence-final `.`
+  or a block marker (`SENTENCE_BREAK`), which at the sync-merge tree `adddacc` aims 52 wrapped
+  continuations the line rule left invisible and drops 10 aimed rows — the four above among them — and
+  re-aims nothing: every aim the move keeps is the aim the line rule already gave it, including
+  `H-0111`'s `:336` on its skill-file row. The refusal of the bare-path antecedent rests on the row it
+  mis-aims (`D-0038`'s `:760` lands on a screenshot); the other `:336` row is the opposite edge.
 
 Re-derive any of it:
 
@@ -2277,12 +2738,81 @@ python3 scripts/check-decisions.py --citations          # what the debt is made 
 python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed at one file: ask BEFORE editing it
 ```
 
+## The tree claim: who holds this tree RIGHT NOW
+
+`factory_worktree_busy` answers a question about the past -- "did a dispatch claim
+this tree and never release it" -- and it can only answer it from the journal's
+`TICK-START`. #421 measured what that cannot see: on 16 Nov a second unit was
+dispatched into `wt/issue-341` 2m16s before a session started a merge in the same
+resolution, 8m05s of two writers on one index, while the guard was asked at
+15:31:50 about a dispatch whose `TICK-START` was being written at 15:31:50, by
+that same dispatch. A journal cannot witness an activation's intentions before
+its own first line, and a session merging outside the harness never writes one at
+all. The instant question needs a different artifact: the **tree claim**.
+
+A claim is a file under `$FACTORY_RUN/claim/` (`factory_claim_dir`) minted after
+the content verdict and **before the first write** -- before `TICK-START` on the
+tick path, before `git merge` on the inline conflict path -- carrying five fields
+(`unit=`, `tree=`, `dispatched=`, `pid=`, `deadline=`). The deadline is the
+minting activation's own bound on its own life, `FACTORY_TICK_TIMEOUT +
+FACTORY_CLAIM_SLACK` from the mint -- the tick's own `timeout(1)` kill window,
+inside the `TimeoutStartSec` belt (`H-0341`); past that moment nobody can still be working under the file, and
+that proof is what licences a later reader to sweep it. `factory_claim_held TREE`
+answers the probe in four polarities -- `0` held (stdout names the unit, its pid
+and its deadline), `1` free, `2` unknown, `3` expired-and-swept -- and identity is
+judged before matching: a member whose fields cannot be parsed, a directory where
+a `.claim` file was, or a claim directory replaced by a file all answer `unknown`,
+because it could BE this tree's claim and a guard whose read failed must not
+answer free (the same polarity #232 earned for the busy guard, and for the same
+root-walks-past-chmod reason).
+
+`factory_tree_claim_check UNIT TREE` is the verb every arrival asks -- both
+supervisor dispatch paths, and a person's or interactive session's own hands:
+the Worktrees rule in `AGENTS.md` tells any writer heading into a harness tree
+to check the claim, mint a `human:<name>` claim of its own before the first
+write, and release it when done, so the 16 Nov writer and a harness tick refuse
+each other through the same file. (A factory unit session mints nothing: its
+tick minted the tree's claim before dispatching it, and there is deliberately
+no self-exclusion -- the guard refuses whoever asks while a live claim stands.)
+A refusal is journalled in words naming the holder
+(`TREE-HELD <unit> <tree> held-by=<unit> <pid> <deadline> ...`) and costs nothing:
+`NOT-STARTED` on the tick path (budget unchanged, the claim itself makes a later
+pass the retry) and `CONFLICT-DEFERRED` on the conflict path (no model run is
+queued for a merge that never happened). A release names its owner: the right
+unit and a live pid remove the file; a release naming another writer leaves it in
+place and says `TREE-CLAIM-FOREIGN` naming both, because that file is someone
+else's working claim and deleting it re-opens the collision the file exists to
+prevent. The release is the activation's last touch of the tree -- after the
+teardown quarantine, after inventory -- inside the death traps as well as the
+clean path.
+
+The claim refuses only writers that ask. That is its whole reach and it is stated
+here so nobody oversells it: a raw `git` in an unclaimed cwd is stopped by nothing
+new, and a pass SIGKILLed between mint and release leaves a file that holds its
+tree until the deadline passes -- at most `FACTORY_TICK_TIMEOUT +
+FACTORY_CLAIM_SLACK`, never forever, which is the trade the deadline exists to
+make (`H-0340`). The journal still carries the after-the-fact half: `factory_worktree_busy`
+removes nothing while a tick's record is open; the claim removes the *race* the
+record cannot see early enough.
+
+Each shipped choice has a leg that mutates it, in `factory/selftest.sh`'s claim
+family: standing the tick's refusal down reproduces the 16 Nov collision on demand
+(`TREE-HELD` journalled and the dispatch runs anyway); muting the release leaves
+the file outliving the pass; deleting the deadline test makes a dead claim read
+held; answering `free` for the unknown lets the same garbage through; and the
+conflict box only conflicts under the mutant, which is what proves the shipped leg
+stopped a writer rather than a box that merges nothing either way. The mutant
+conflict box shows the claim does not stop at one site: the `conflict:900` tick
+the mutant queues meets the SAME claim at its own activation and is journalled
+`TREE-HELD` and `NOT-STARTED` with no session run — a mutation of the inline site
+still cannot reach a model run, because the dispatch guard holds the same tree
+independently.
 ## The journal's retention contract, written down before anything bounds it
 
 `factory/log/supervisor.log` is the harness's audit trail: which decision id was handed to which unit
 and branch, which tree a tick was holding, where the log directory went when a self-test moved it.
-Before this section the only prose about it was `docs/factory.md:1229` "the journal lives inside the
-tree (`factory/log/supervisor.log`)" -- and #334 cites that sentence at `docs/factory.md:874`, which
+Before this section the only prose about it was `docs/factory.md:1238` "the journal lives inside the
+tree (`factory/log/supervisor.log`)" -- and #334 cites that sentence at `docs/factory.md:883`, which
 the log's own growth had already slid 355 lines, which is why the sentence is quoted here beside its
 number (`H-0139`'s rule). Nothing bounds the journal today -- no code rotates, truncates or prunes --
 and bounding it is escalated, not owed by a tick (`H-0188`: deleting the operator's records is one of
@@ -2310,9 +2840,11 @@ two unrelated legs read red for a reason that is not yours.
 
 **A running tick's `TICK-START` is the oldest line of its own tick, and the guard that reads it has no
 code call site -- its caller is the rule `AGENTS.md` gives a session before it removes a tree.** Over
-the 198 paired ticks in the live journal (199 `TICK-START`, 137 `TICK-DONE`, 34 `TICK-FAILED`) the
-start-to-release distance is 1 line at the median, 16 at p90, 109 at the maximum: the supervisor is
-single-threaded and writes almost nothing while the agent runs, so the journal is nearly frozen during
+the 171 released ticks in the live journal at 2026-11-17 (199 `TICK-START`, 137 `TICK-DONE`, 34
+`TICK-FAILED`; 28 of the 199 starts have no release line at that date, and the census pairs each
+release with its own `TICK-START`, counting the lines strictly between) the start-to-release
+distance is 1 line at the median, 16 at p90, 109 at the maximum: the supervisor is single-threaded
+and writes almost nothing while the agent runs, so the journal is nearly frozen during
 a tick. That is why a *window* is not this guard's hazard -- 400 lines is above the maximum observed
 distance. The hazard is any bound that **moves the whole file away**, which is what a rename-rotation
 does and what `internal/audit/audit.go`'s five-generation scheme does -- and copying that scheme here
@@ -2324,8 +2856,9 @@ and the refusing arm, `2` unknown, comes from the guard's shape judgement -- not
 readable (the family pins a directory there; `chmod 000` measured `2` here too). The first three are
 this section's leg; the fourth is pinned by the guard's own family (#361's control C, "an unreadable
 journal must read 2, not 1"). **No rotation shape
-produces `2`.** Every one produces `1` -- the answer that authorises the removal -- so the fix #334
-files restores the 13 Nov incident `AGENTS.md` records rather than preventing it: a session asks the
+produces `2`.** Every one produces `1` -- the answer that authorises the removal -- so a bound of that
+shape restores the incident `H-0203` records rather than preventing it (`wt/issue-315` was removed
+2026-11-14T01:14:40Z and its tick did not write its release line until 01:21:18Z): a session asks the
 journal, the journal has moved away with the running tick's only line in it, the session removes the
 tree. A reader aimed at `supervisor.log*` recovers the claim when a generation was kept and still reads
 free with none kept, so keeping `.1` is necessary and not sufficient.
@@ -2362,6 +2895,60 @@ So the contract for a bound, in the order someone will implement it:
    `journal <bytes>; <N> files, <bytes> under <dir>; oldest <file> <age>`. A bound that prunes should
    make its own answer visible there, because a silently-shrinking audit trail is the thing this section
    exists to prevent.
+ 5. **Name the clock, and the zone, or refuse the answer.** "Keep N days of transcripts" is not yet a
+   predicate, and three of the six spellings an implementer reaches for are wrong in three different ways.
+   One read of one directory -- 227 transcripts, 58,792,819 B, the cut taken once into one variable, at
+   2026-11-17T19:37:42Z against cut 2026-11-10T19:37:42Z -- and "keep 7 days" removes **11** files
+   (2,766,311 B) on the seconds in the filename stamp, **11** on `mtime` read in UTC, **19** on the
+   `YYYYMMDD` prefix against the cut day with `<=`, **0** with `<`, **0** on `find -mtime +7`, and **19**
+   on `find ! -newermt` with the cut stamped bare. The three faults, in the order they bite. `+7` is not a
+   seven-day predicate at all: GNU truncates an age to whole 24-hour periods, so it asks for *eight* days,
+   and it answered empty at the same instant the seconds predicate answered 11 while `-mtime +6` named
+   the `mtime` predicate's exact set, the two lists diffed and asserted non-empty first. The bare `! -newermt` stamp is parsed as **local time** -- this box is `-0500`,
+   `/etc/localtime` being `America/Toronto` -- and answered 19, where the identical command under `TZ=UTC`
+   and the same stamp written `2026-11-10T19:37:42+00:00` answered 11: eight files for three characters of
+   suffix. And the day comparison is not a loose reading of the policy, it is another policy -- `<=` takes
+   the whole 10 Nov cohort, `<` refuses every file in it, and both read as "seven days". Nothing in the
+   tick's own environment settles the zone: the installed unit carries five `Environment=` lines and no
+   `TZ=` anywhere in the file, so a pass inherits whatever zone the activation happens to arrive with.
+   Therefore the answer this ticket asks a person for must name the number **and** the clock **and** the
+   zone, and a bound must refuse an answer that names only the number rather than defaulting the rest --
+   the tie-break this harness already applies to a missing input ("the option that refuses rather than
+   proceeding when input is missing or empty"). A defaulted clock is a retention decision taken in a code
+   review nobody convened, and `H-0188` is the record of why a tick does not get to take it.
+
+Clause 5's re-measure, because those numbers are of one minute rather than of a head. From the repository
+root: one epoch, six predicates, nothing written but `stat`:
+
+```
+cd factory/log && pat='2*T*Z.*.log' && t=$(( $(date -u +%s) - 7*86400 ))
+cut=$(date -u -d "@$t" +%Y%m%dT%H%M%SZ); cutm=$(date -u -d "@$t" +%Y-%m-%dT%H:%M:%S)
+printf 'total transcripts  %s\n' "$(find . -maxdepth 1 -name "$pat" -type f | wc -l)"
+printf 'A filename-seconds %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="$cut" 'substr($0,1,15)<c' | wc -l)"
+printf 'B mtime-seconds    %s\n' "$(TZ=UTC find . -maxdepth 1 -name "$pat" -type f ! -newermt "$cutm" | wc -l)"
+printf 'C day-string <=    %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="${cut:0:8}" 'substr($0,1,8)<=c' | wc -l)"
+printf 'D day-string <     %s\n' "$(find . -maxdepth 1 -name "$pat" -printf '%f\n' | awk -v c="${cut:0:8}" 'substr($0,1,8)< c' | wc -l)"
+printf 'E find -mtime +7   %s\n' "$(find . -maxdepth 1 -name "$pat" -type f -mtime +7 | wc -l)"
+printf 'F -newermt, no TZ  %s\n' "$(find . -maxdepth 1 -name "$pat" -type f ! -newermt "$cutm" | wc -l)"
+```
+
+The `total` line is the block's precondition, printed because the block's worst answer is a quiet one: six
+zeroes beside `total 227` is the finding, and six zeroes beside `total 0` means the glob or the working
+directory is wrong -- a failed `cd` on the first line takes the whole `&&` chain with it and leaves every
+predicate counting an empty directory. That is the ordinary outcome of running the block anywhere but
+here: `factory/log` is not tracked, `git ls-files factory/log` answering nothing even in the checkout
+that holds it, so a fresh clone or a sibling worktree prints six zeroes for a directory it has never
+written.
+
+A and B are one predicate under two clocks, and they agree only while no transcript was written long
+after it began. They agreed at the read above, 11 and 11; 86 seconds later the same block answered
+**A 12, B 11**. What separated them is `20261110T193817Z.conflict:269.log`, named 19:38:17Z and last
+written 20:05:48Z -- 27 minutes of appending after its own stamp -- so every cut inside that 27-minute
+window calls the file old by name and young by `mtime`, and a bound that runs nightly crosses into such a
+window at the same clock time each day. Which clock the answer names decides whether that file is
+deleted. The directory is not a fixture while this is read either: it gained 86,213 B of transcripts in
+the four minutes between the two reads the clause quotes, so a count copied out of this page is a
+timestamp, and `total` is the line that says whether the six numbers below it mean anything.
 
 Re-measure the inventory rather than trusting this page; it is one grep over the shipped files, and it
 was true at one head:
@@ -2374,3 +2961,241 @@ Every number above is from the live journal on 2026-11-17: `journal 1907580 B; 2
 under factory/log; oldest 20261110T134828Z.unclaimed:213.log 6d13h` -- the footprint line the shipped
 `factory_log_footprint` prints, which is also #334's premise measured forward: the issue opened at
 "20 MB across 100 files" in three days and this is seven.
+
+That block is now a tool, and the tool is gated: `factory/retention-census.sh`, whose
+`--self-test` runs on every `make verify` as the `==> journal retention census` step. `--help` is
+the whole surface -- `--dir DIR`, `--days N`, `--bytes N`, `--now STAMP`, `--self-test` -- and
+what it prints is the six rows above: one cut taken once into one variable, the directory's own
+total on the line above them, and the `refuse:` footer that says the run priced a number and chose
+no clock. It is read-only by construction -- it prices an eviction and never performs one -- and
+it refuses a `--days` with a `--bytes`, because the two shapes a bound takes are not one question.
+Three things it does that the block above cannot.
+
+It prices the day arithmetic honestly. `find -mtime +N` reads the real clock and accepts no
+reference time, so a census pinned with `--now` cannot ask `find` what `find` would have said
+seven days ago: it would answer for today and be stamped with the pinned instant. So row `E` is
+GNU's own arithmetic, `int(age/86400) > N`, evaluated at the census clock, and the census prints
+the `pinned:` line saying which of its six rows is a computation and which five are calls. The
+self-test's live leg builds the one fixture this is checkable against -- ages measured from the
+instant the leg runs, because `-mtime` has no other clock to read -- and asserts `E` equals `find
+-mtime +7`'s own count *and* that `-mtime +7` and the seven-day predicate differ by at least one
+file. The emulation is checked against the tool it emulates, not against this page's memory of it.
+
+It prices a cap, which is the other shape. `--bytes N` sorts the transcripts oldest first and
+evicts until the directory fits, once under each clock, and prints how many files the two clocks
+keep differently: the count that says whether the clock is worth arguing about before anyone
+writes a rotator. `--days` and `--bytes` are not interchangeable and neither one is a budget --
+seven days is a different number of bytes every day it runs, and a byte cap is a different number
+of days every day it runs -- so the census prints the directory's own measured rate and the bound
+that number implies.
+
+It refuses in the two states where a census means nothing. A directory holding no transcript that
+matches the transcript name exits **3**, naming the glob and the directory: `0 B` there is a
+statement about the pattern, not about the journal. And a census whose every reading is zero says
+so in a `quiet:` line, because *the block's worst answer is a quiet one* is clause 5's sentence
+and a zero is the answer a wrong glob and a genuinely young directory share -- `factory/log` is
+untracked, so the ordinary place a unit runs this is a directory it has never written.
+
+What a person still owes is unchanged: the number, the clock, the zone, and which generations
+survive, and clause 5 still refuses an answer that names only the number. What moved is where the
+cost of an answer lives -- half a second, one command, nothing written. Two runs over the live
+journal three seconds apart priced the two shapes a maintainer has to choose between. At
+2026-11-18T00:03:39Z, over 240 transcripts and 61,129,420 B, `--days 7` answered A 20 / B 19 / C
+66 / D 19 / E 0 / F 27 files: the two second-resolution clocks disagreeing by one file *at the
+same read*, and the day policy and the unqualified zone turning seven days into 66 files and 27.
+At 00:03:41Z the same tool with `--bytes 20000000`, the figure the issue itself opens with, keeps
+70 of the 240 and evicts 170 of them -- 41,151,232 B of the audit trail, a kept set the size of
+2.4 days at the directory's own measured rate. Both are readings of one minute, and the tool
+re-derives both in the time it takes to ask.
+
+## A tick's session gets no MCP servers, because a grandchild nobody asked for is torn down loudly
+
+The dispatch is `opencode --standalone`, chosen so that the 2700 s ceiling can actually reach the
+server. A private instance reads the user's own configuration, and `opencode` starts every MCP
+server that configuration declares as a child of the instance that read it -- so on a machine whose
+`~/.config/opencode/opencode.json` names MCP servers, every activation puts those servers, and
+everything they in turn start, inside the unit's cgroup. Read from inside an activation on 19 Nov,
+by a session that asked the kernel and not a tool: `/proc/self/cgroup` named
+`/user.slice/user-1000.slice/user@1000.service/app.slice/parental-lockout-factory.service`, and that
+cgroup's `cgroup.procs` held twenty processes, three of them the three configured servers. One is
+`StudioMCP.exe`, a Windows binary under Vinegar's Wine.
+
+Nothing in the harness asks for an MCP server, and a ticket about Go and shell has no use for one.
+What it gets instead is teardown, and systemd keeps that bill. `journalctl --user -u
+parental-lockout-factory.service` read per day on 19 Nov: 17 Nov carries 24 lines of `State
+'stop-sigterm' timed out. Killing.` and 24 kills, every one of them `winedevice.exe`; 18 Nov carries
+6 and 6, again every one `winedevice.exe`; 19 Nov carries none up to the read at 20:18Z, and still
+one activation that day held the teardown 44 s with nothing in the journal to explain it
+(`REAP-HELD hold=44s how=unexplained`, 17:11:09Z -- the `--status` sentence for that is H-0123). The
+kills say a Wine child does not answer `SIGTERM`; the unexplained 44 s says the hour is paid even
+when nothing is killed. The day buckets above are this box's own, rendered at `-05:00`; the report in
+the issue renders the same journal at `+05:30` and so counts a different eleven hours as "today",
+which is why only the total -- 30 timeouts, every one of them `winedevice.exe` -- is a number two
+readings of this machine agree on.
+
+So the dispatch hands the session one policy on `OPENCODE_CONFIG_CONTENT`:
+`{"policies":[{"action":"mcp.use","resource":"*","effect":"deny"}]}`, in the shell as
+`FACTORY_MCP_FENCE` (`factory/common.sh`). The documented semantics are that a denied MCP server is
+removed however it was configured, which is the whole fence. It travels as an environment layer so
+that it belongs to the dispatch and not to a file: the timer, `factory.sh --once` and a hand-run
+pass all fence the same way, and the configuration a person uses interactively is left alone.
+`factory/selftest.sh` pins the value, the hand-over and the layer: that the shipped string parses as
+one deny of every MCP server and that the parser refuses the near misses; that a real tick receives
+it verbatim and sees nothing at all once the dispatch line is replaced by an inert one; and that a
+private `opencode` instance reads the policy out of that layer where the same instance, handed no
+policy, reads the fixture's declared server and no `mcp.use` statement. The two CLI legs SKIP where
+`opencode` is not on PATH, and neither one spends a token.
+
+What the fence has not yet been shown to do is stop a process, only stop a configuration: the
+instrument for that is the unit's cgroup, and only an activation stands in one. The read is
+`awk -F: '$1==0{print $3}' /proc/self/cgroup`, then that path's `cgroup.procs` under
+`/sys/fs/cgroup`, from inside the first tick after the merge -- no MCP server should be in the list,
+and the entry that decided this is `H-0312`.
+
+What the fence is not: a sandbox, and not a statement about any other kind of child. A grandchild a
+tick *does* start -- a compiler, a test runner -- is still in the unit's cgroup and still systemd's
+to kill at the end of the activation; #390's other half, confining what lands there, is a
+tamper-resistance question and has never been decided here.
+
+## The `.cortexkit/` marker is tool state, deliberately untracked (#416, H-0325)
+
+The agent tooling that manages this machine's context keeps a managed block at
+`.cortexkit/.gitignore` in every tree it works in, and it writes and deletes that file outside git,
+on its own schedule. The file was committed on 2026-10-13 in `55a34f8`, which turned the tool's
+ordinary deletions into dirt: the primary checkout sat ` D .cortexkit/.gitignore` across 101
+activations (#346), and once the main-checkout read began restoring committed-and-missing files
+(#408), a tracked tool-owned file became a permanent restore subject -- the pass would write the
+marker back every activation while the tooling deleted it again, journalled and endless. `H-0325`
+untracked it (`git rm --cached`; the bytes stay on disk). This section is the record the tracked
+marker used to be, written down because nothing checks a paragraph: the whole `.cortexkit/`
+directory, including this marker in both of its states, present and absent, is ignored by the root
+`.gitignore`, so nothing under it can show in a status read and the main-checkout arm has no
+permanent subject in this checkout. The untracking travels with the merge: a clone whose copy is
+clean at sync time has the working-tree file deleted by the sync itself (the tooling rewrites it
+when it wants it, ignored either way), and a clone whose copy is modified at sync time meets one
+modify/delete refusal, which the quarantine arm is built to absorb.
+
+## Is the loop out of the tree? Ask `factory_unit_idle`, which refuses to let the wrong manager answer (#423)
+
+The question this page tells a person to ask before touching shared state -- fast-forward `main`,
+edit `factory/*.sh`, remove a worktree -- is "is a pass running?", and the obvious command can lie
+about it with a straight face. Measured 16 Nov at 11:14:56Z, while a pass stood `activating` with
+`MainPID=3224807` and a live `git fetch` child:
+
+```
+$ systemctl show parental-lockout-factory.service -p ActiveState -p SubState
+ActiveState=inactive
+SubState=dead          # exit 0, while the pass ran
+$ systemctl --user show parental-lockout-factory.service -p LoadState
+LoadState=not-found    # the system manager has never heard of this unit
+$ systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState
+ActiveState=activating
+SubState=start         # the unit's real state, in the manager that owns it
+```
+
+Nothing about the first reply looks like an error: exit 0, two plausible properties, the exact
+pair `inactive`/`dead` that every recipe on this page treats as permission to write. The unit is
+installed in the *user* manager (`FragmentPath=` under `~/.config/systemd/user/`), and a manager
+asked about a unit it has never loaded does not say "I am the wrong manager" through
+`ActiveState` -- it says `inactive`. The separation lives in one other property: `LoadState`, so
+any idle check worth its verdict reads `LoadState` FIRST, and treats `not-found` (or `masked`) as
+the refusal it is: the question "is a pass running" cannot be answered by a manager where the
+unit does not exist.
+
+`factory_unit_idle` [unit] is that refusal made a verb, because three facts make one property
+insufficient. It consults three signals and answers `idle` only when all three agree, on one
+line, verdict first:
+
+1. **the user manager's properties**, keyed (not positional: `systemctl show` answers in its own
+   order, the `live:` readout's own note says why), refusing rather than guessing when
+   `LoadState` is not `loaded` or the unit is `failed`;
+2. **`flock -n` on `$FACTORY_RUN/lock`**, the file the pass holds from before its first read
+   until it exits -- path-shaped, so no manager, right or wrong, can answer for it, and the only
+   signal that sees a hand-started `bash factory/factory.sh` on a box with no unit installed at
+   all. The line names the lock it asked: the lock lives per tree, and a reader standing in a
+   second checkout has to see which lock was asked. (A second tree's hand-run loop is still
+   visible through signal 3, whose match is any `factory/factory.sh` run anywhere.)
+3. **the process table**: a live `/proc/<pid>/cmdline` whose fields contain a
+   `*/factory/factory.sh` path driven by a runner (a shell, or the script execed directly). The
+   window this exists for is the activation that forked but has not reached `flock -n 9` yet --
+   the self-report hoist runs ahead of the lock (H-0191). A process that only *names* the script
+   (`tail -f`, `sed -n 1,5p`) is a reader, not the pass, and is not counted.
+
+The journal is deliberately NOT a fourth signal, and that is the ticket's own finding rather than
+an oversight: #380 measured that an activation refused by the lock exits 7 with a stderr sentence
+and no journal line, so `END rc=` followed by nothing can sit beside an armed queue, and a missing
+`END` can sit beside a pass that only failed to speak. A verdict read from the journal inherits
+both defects; #380's mirror (no journalled record of a refused start) stays open on its own terms.
+
+Exit codes, and what each permits: `0` idle -- every question ran and none saw a pass; `1` busy --
+at least one signal did; `2` unknown -- a question could not be asked (bus unreachable, unit not
+loaded *here*, `flock` or `pgrep` exiting neither-way), and unknown is never 0, the same polarity
+`factory_worktree_busy` keeps: the green light is only for a read that completed. Two honest
+limits. A check is not a lock: the timer can arm a new activation at any instant after an `idle`
+line prints, so a mutation of trunk still owes the claim check (`factory_tree_claim_check`,
+AGENTS.md) and a worktree still owes `factory_worktree_busy`. And the unit-state signal reads the
+user manager of the machine it runs on: an idle answer says nothing about the installed service on
+some other host.
+
+## The allocator reads its own journal: an id already journalled is taken while its branch lives
+
+`factory/next-decision-id.sh` numbers from a union of log headings, and the heading lands only when a
+unit commits its entry -- up to a whole tick (`FACTORY_TICK_TIMEOUT`) after the allocator handed out
+the id. Issue #442 measured what that gap costs: one id, three units, 53 minutes, one read of it made
+`REFRESH 0s union` four minutes after another unit had been told the same id was its next one. The
+journal line written at the moment of the claim was read only by the earned-set check; the allocator
+itself asked it of nothing.
+
+Now the answer is asked of the journal before it is handed out, in the same offline read as the
+headings. From the ceiling upward, the LAST `DECISION-ID` line naming a candidate is that id's claim.
+A claim of a *different* unit whose branch still exists as a ref here -- local, or `refs/remotes/` --
+is taken: the answer steps up, `next-decision-id: STEPPED-OVER ...` says so on stderr, and the
+journalled line carries the trail as a trailing note, `H-0251 (H-0250 taken: journalled ... by ...
+on branch ...)`, so a unit that sees a surprising id sees whose it skipped. A claim belonging to the
+unit being answered keeps its own id: an allocation is not a consumption, and #320's re-read after
+writing an entry must still answer the number earned -- that polarity is a leg, because a repair that
+loses it eats every retry-after-conflict path.
+
+A claim lives no longer than its branch. `issue-365` is the case: five allocations of an id, a tick
+killed at the ceiling, and no branch that ever acquired a ref -- the entry the claim would have
+committed was never written, so the claim expired and the id is free again. Without that expiry the
+allocator walks the id space upward on every dead tick, which is #427's inflation complaint wearing
+a different hat.
+
+Two honesty bounds, both stated by the code path itself. This is a read, not the claim-time lease
+#345 refused: no reservation is minted, nothing is written early, and a claim journalled by a tick on
+another machine is invisible to a local read exactly as a heading on another machine is. And the read
+is failure-blind like every other arm here -- an unreadable journal answers with no claims rather
+than refusing the answer. What moved is where the collision is caught: `check-decisions` still
+refuses a duplicate id, but its refusal fires on the second *entry*, after a unit has allocated,
+written the full entry, re-aimed its displaced coordinates and committed; the claim read moves the
+refusal back to the allocator's read, before any of that is spent. The merge remains the arbiter of
+what a local read cannot see.
+
+The polarities are pinned in `factory/selftest.d/442-journal-claims.sh`: two units one journal answer
+different ids and say whose was stepped over; one unit two reads keep their id; a claim whose branch
+never gets a ref stops being taken; the claim map is a read of the journal *file* -- planted
+well-formed lines claim and shapeless or foreign-prefix lines do not; and a control neuters the call
+and reproduces the collision verbatim, so the legs measure the mechanism and not the fixture.
+
+### Who was standing in the cgroup: the stop-window probe (#477)
+
+`REAP-HELD … how=unexplained` is the journal admitting it has a duration and no subject, and the only
+such row in the retained journal is `2026-11-19T17:11:09Z REAP-HELD hold=44s how=unexplained ended=624s
+open=1` -- 44 s the timer could not re-arm, attributed to nothing. Its subject cannot be looked up
+afterwards: asking the manager during a stop borrows the authority `H-0118` refuses to borrow, and
+asking it late is asking about a cgroup the kernel has forgotten -- re-reading that stop on this box
+answers `-- No entries --`, the oldest retained row being 2026-11-20T04:59. So the pass that owns the
+stop spawns `factory/stop-window-probe.sh` before `factory_body`, the probe samples its own cgroup's
+`cgroup.procs` when systemd's `SIGTERM` arrives, and the next pass's reap read attaches that record to
+`stop=` when its stamp falls inside the window the read had already computed. The four no-subject
+answers stay four facts: `none` (nothing armed -- the activation predates the probe, or the pass ran
+outside the unit's cgroup), `unwritten` (armed and never wrote: killed outright at the deadline, or hung
+past it), `unread` (`cgroup.procs` would not answer), `0` (looked, nobody else there) -- because "could
+not look" and "looked, nobody there" are different defects. The probe pays for its place: it answers
+`TERM`/`INT`/`HUP` itself so it never becomes a holder of the stop it watches (a leg fails it past 900
+ms), the spawn closes the unit's stdio because a line there is the pass's last word and `bash` prints
+one before any probe code runs, it refuses a cgroup that is not the named unit's and a run directory it
+had to create, it sweeps records older than a day on its way in, and its `t=` stamp pins the exponent --
+`date +%s%N` prints 19 digits here, and the first handler that ran wrote 1970. Polarities are in
+`factory/selftest.d/477-stop-window.sh`; the decision is `H-0380`.

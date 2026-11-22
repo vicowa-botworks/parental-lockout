@@ -31,6 +31,7 @@ Run it from anywhere; every path is resolved from this file's location. Output g
 testing/capture/runs/pages/ unless --out names a directory inside the repository, so re-capturing
 the committed artifacts is an explicit `--out docs/screenshots/360`.
 """
+import ast
 import contextlib
 import datetime
 import re
@@ -495,6 +496,10 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # for a computed style at all. Unconditional, because the shell is one template and a page whose
     # navigation was never censused would not fail the guard -- it would answer `nav=0 links`.
     extra += "," + cdp.NAV_JS
+    # The skip link (#387), unconditional for the identical reason: the shell is one template, a
+    # page whose fragment was never resolved would not fail the guard -- it would answer no census
+    # -- and `require_skip_link` refuses exactly that, so the splice rule below pins the asking.
+    extra += "," + cdp.SKIP_JS
     # And the state vocabulary (#199), unconditional for the same reason: the classes are on four
     # of the five pages and the stylesheet is one file, so a page whose state words were never
     # read would not fail the guard -- it would answer `states=0` and be believed.
@@ -611,10 +616,23 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     cdp.require_nav_marked(got, page, spec.nav)
     cdp.require_nav_in_palette(got, page)
     cdp.require_nav_distinguishable(got, page, spec.nav)
+    # The transcription, measured against the render (#468), at the artifact viewport ONLY:
+    # `_NAV_ROWS` transcribes 360 px and says nothing about 1024 px, where the row is one line
+    # and every box in it is a different number -- a leg there would refuse every page for a
+    # claim nobody made. Under `--self-test`'s fake browser this comparison passes by
+    # construction (the fake row IS the transcription); that tautology is exactly why the leg
+    # lives here, in the driver, where a real Chrome answers it independently.
+    if width == ARTIFACT_WIDTH:
+        cdp.require_nav_transcribed(got, page, transcribed_nav(spec.nav), NAV_HEADER)
     # The state vocabulary (#199), at both viewports and on every page, for the same two reasons as
     # the six guards above: the words are rendered by four of the five templates out of one
     # stylesheet, and a page that overflows reports its width first.
     cdp.require_state_legible(got, page)
+    # The skip link (#387), at both viewports and on every page: the shell is one template, and
+    # the refusal this guard exists for -- a fragment that resolves to nothing -- is invisible to
+    # every byte-level check, so the browser is the only witness. After the state guards for the
+    # standing reason: width and links report first, because they are the alarming facts.
+    cdp.require_skip_link(got, page)
     # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
     # still up, and one call cannot drift from its twin when someone moves the split.
     cap.require_running()
@@ -1198,7 +1216,7 @@ def main(shoot_fn=None, record_fn=None):
 # an entry naming the thing it claims to guard, and the pass breaks it and requires THAT rule to go
 # red. A rule added without an entry reddens the run rather than passing unexamined, so the number
 # here and the table there are the two halves of one claim.
-EXPECTED_RULES = 81
+EXPECTED_RULES = 88  # +3 from #468: the leg, its drift refusal, its absence refusal
 
 
 # The bytes `_FakeSession.screenshot()` hands `cdp.capture_refused`, spelled a SECOND time inside
@@ -1565,45 +1583,115 @@ def _nav_current(text, href, **over):
     return _nav_link(text, href, cur=CUR, color=NAV_INK, weight="600", bc=NAV_MARK, **over)
 
 
-# The dashboard's own row at 360 px: four entries on the first line, the fifth with the sign-out
-# form on the second, and the header's box spanning both -- measured `x=24 y=24 w=312 h=131`, with
-# the nav itself at `y=72 h=82`.
-NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 131}
-# The five entries as the shell writes them, at the boxes Chrome reported -- none of them marked.
-# `clean_nav` puts the mark on whichever entry the page being faked declares as its own.
-_NAV_ITEMS = [_nav_link("Status", "/", x=24),
-              _nav_link("Accounts", "/users", x=97, w=78),
-              _nav_link("Audit", "/audit", x=188, w=49),
-              _nav_link("Profiles", "/profiles", x=250, w=66),
-              _nav_link("Settings", "/settings", x=24, y=114, w=70)]
+# The header box, measured `x=24 y=24 w=312 h=192` at 360 px and IDENTICAL on all five
+# sections -- `/`, `/users`, `/audit`, `/profiles`, `/settings` -- on the pages fixture on
+# 21 Nov (the row entries transcribed below are NOT identical, which is why they are per-page).
+#
+# Before #388 the transcription said `h=131` with the nav at `y=72 h=82`, and those were honest
+# boxes for a different page: 8db322a measured them, and D-0016 (`9ccbe46`) landed the same day
+# on another branch with the masthead's new `<h1>` above the row, so the merge took boxes that
+# described a masthead without it; the 21 px the box was short is that heading. Nothing
+# re-measured a transcription then -- #468 is the finding that a transcription here could sit a
+# generation behind the page while every guard stayed green, because these numbers were only ever
+# fed to fakes. They now have a witness: `shoot()` calls `cdp.require_nav_transcribed` on every
+# artifact-viewport page, per fact with both sides quoted. It is stated here rather than silently
+# fixed because the same drift is why the words were still `Status`: the file has been
+# `dashboard.tmpl`, and its frame `dashboard.png`, since the commit that added it (d9cd943,
+# 15 Oct), and the word that commit put in its `title` block has been the shell's row's word for
+# it ever since.
+NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 192}
+
+# The five entries per section, as Chrome reported them on that section's own frame at 360 px
+# on 21 Nov, measured with `cdp.NAV_JS` against the pages fixture and witnessed on every capture
+# run since by `cdp.require_nav_transcribed`. Per-page and not one canonical row because the
+# widths ARE per-page: the marked entry carries `font-weight: 600` against a link's `500`, so
+# `Dashboard` measures 96 px on `/` and 92 px everywhere else, and an entry's own width moves
+# whatever shares its line -- on `/users`, `Accounts` marked is `x=131 w=83` and pushes
+# `Audit trail` to x=228; on `/audit` it is the `Audit trail` that grows (w=91) and `Accounts`
+# that shrinks back to its link width. None of this says anything about WHICH entry is marked --
+# that stays a fact about the page the rule is faking, which `clean_nav` still takes from the
+# spec. The sign-out `form` is on a third line of its own at 360 px (`x=24 y=179 w=90 h=37`) and
+# is invisible to `NAV_JS`, which censuses `<a>`; its line is inside `NAV_HEADER`'s height, and
+# `require_nav_transcribed`'s docstring says which facts this table does and does not claim.
+# Each word is that page's own name, which is what #388 decided and what
+# `TestEachNavEntryNamesThePageItLinksTo` in the Go suite now refuses the shell to get wrong; the
+# words here are a transcription of that rule, not a second place that gets to choose.
+_NAV_ROWS = {
+    "/": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 96, "h": 40},
+          {"text": "Accounts", "href": "/users", "x": 135, "y": 93, "w": 78, "h": 40},
+          {"text": "Audit trail", "href": "/audit", "x": 227, "y": 93, "w": 83, "h": 40},
+          {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130, "h": 40},
+          {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/users": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+               {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 83, "h": 40},
+               {"text": "Audit trail", "href": "/audit", "x": 228, "y": 93, "w": 83, "h": 40},
+               {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                "h": 40},
+               {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/audit": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+               {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+               {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 91, "h": 40},
+               {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                "h": 40},
+               {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 70, "h": 40}],
+    "/profiles": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+                  {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+                  {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 83, "h": 40},
+                  {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 139,
+                   "h": 40},
+                  {"text": "Settings", "href": "/settings", "x": 177, "y": 136, "w": 70, "h": 40}],
+    "/settings": [{"text": "Dashboard", "href": "/", "x": 24, "y": 93, "w": 92, "h": 40},
+                  {"text": "Accounts", "href": "/users", "x": 131, "y": 93, "w": 78, "h": 40},
+                  {"text": "Audit trail", "href": "/audit", "x": 223, "y": 93, "w": 83, "h": 40},
+                  {"text": "Lockout profiles", "href": "/profiles", "x": 24, "y": 136, "w": 130,
+                   "h": 40},
+                  {"text": "Settings", "href": "/settings", "x": 168, "y": 136, "w": 75, "h": 40}],
+}
+
+
+def transcribed_nav(nav):
+    """The transcribed row for `nav`, or a refusal that says the comparison cannot be made.
+
+    Refusing an untranscribed section rather than skipping it is the file's standing tie-break
+    for missing input: a sixth section whose `Page` arrived before its numbers did must not
+    photograph itself unmeasured and be believed, because "never compared" and "compared and
+    matched" print the same line otherwise (#468 is a whole issue about exactly that pair).
+    """
+    row = _NAV_ROWS.get(nav)
+    if row is None:
+        raise SystemExit(
+            f"the {nav!r} section has no transcribed navigation row in `_NAV_ROWS`, so its "
+            "frame cannot be asked whether it still renders what this file claims it renders. "
+            "Measure the row on the fixture (cdp.NAV_JS at the artifact viewport), transcribe "
+            "it with its date, and run the capture again (#468).")
+    return row
 
 
 def clean_nav(href):
-    """A navigation row, in the measured geometry, with `href` as the current entry.
+    """A navigation row, in the geometry transcribed for `href`'s page, with `href` current.
 
-    Why a function and not a constant: a canned "the current entry is Status" would make every
+    Why a function and not a constant: a canned "the current entry is Dashboard" would make every
     rule that runs `shoot()` against a page other than the dashboard fail on a #204 guard it knows
     nothing about -- and the tempting repair for that failure is the one this file refuses
-    everywhere, which is to weaken the guard. The geometry is transcribed once, from the dashboard;
-    which of the five is marked is a fact about the page a rule is faking, and `_fake_browser`
-    takes it from the spec the way the real driver takes it from the fixture.
+    everywhere, which is to weaken the guard. The geometry is transcribed per page (#468: the
+    marked entry's `font-weight: 600` makes the widths a fact about the frame, so one canonical
+    row would refuse four of the five pages for arithmetic that is true of the page they render);
+    which of the five is marked, and the styling that follows from it, is a fact about the page a
+    rule is faking, and `_fake_browser` takes it from the spec the way the real driver takes it
+    from the fixture.
 
-    The href has to be one of the five. Asserting that here rather than defaulting to "mark nothing"
-    is the same reasoning as the `Page(nav=...)` field being keyword-only and undeclarable-by-
-    omission: a fixture that names a section the shell does not offer is a finding, not a default.
+    The href has to be one of the five sections. Asserting that here rather than defaulting to
+    "mark nothing" is the same reasoning as the `Page(nav=...)` field being keyword-only and
+    undeclarable-by-omission: a fixture that names a section the shell does not offer is a
+    finding, not a default.
     """
-    items = [dict(i) for i in _NAV_ITEMS]
-    hit = False
-    for item in items:
-        cur = item["href"] == href
-        hit = hit or cur
-        item.update(cur=CUR if cur else None,
-                    color=NAV_INK if cur else NAV_MUTED,
-                    weight="600" if cur else "500",
-                    bc=NAV_MARK if cur else NAV_CLEAR)
-    if not hit:
+    if href not in _NAV_ROWS:
         raise AssertionError(f"clean_nav asked for {href!r} and the shell offers "
-                             f"{[i['href'] for i in _NAV_ITEMS]}")
+                             f"{sorted(_NAV_ROWS)}")
+    items = []
+    for box in _NAV_ROWS[href]:
+        over = dict(box)
+        items.append(_nav_current(**over) if box["href"] == href else _nav_link(**over))
     return [{"display": "flex", "overflow": False, "items": items}]
 
 
@@ -1619,6 +1707,30 @@ def _nav(*items, **over):
     base = dict(_BASE_PAGE, nav=nav, header=dict(NAV_HEADER))
     base.update(over)
     return base
+
+
+# --------------------------------------------------------------------------- #
+# The skip link, transcribed rather than invented (#387), same discipline as NAV_HEADER:
+# these are the strings Chrome 157 reported on /users at 360 px off the stylesheet this
+# change writes -- measured on the live fixture on 19 Nov: the box is 1 px square at
+# x=8 y=8 (the `.5rem` inset), text "Skip to content", `disp:block vis:visible` -- the
+# two computed values the D-0087 refusal turns on: the resting state is out of the layout
+# and paint, not out of the focus order. Run the fixture and the printed census is these
+# numbers; a rule that fakes a skip link passes its own row, exactly as the #204 rules
+# fake their own nav.
+# --------------------------------------------------------------------------- #
+
+
+def _skip_link(**over):
+    """The skip link as the shell renders it at rest, defaulted to the passing row."""
+    item = {"text": "Skip to content", "href": "#main", "targetId": "main", "ttag": "MAIN",
+            "before": True, "x": 8, "y": 8, "w": 1, "h": 1,
+            "disp": "block", "vis": "visible"}
+    item.update(over)
+    return item
+
+
+SKIP_LINK_CLEAN = {"links": [_skip_link()]}
 
 
 @contextlib.contextmanager
@@ -1642,7 +1754,7 @@ def _fake_browser(got, nav="/"):
     cdp.measure = lambda session, extra="": (
         _LAST_EXTRA.append(extra),
         dict({"controls": CLEAN_CENSUS, "nav": clean_nav(nav), "header": dict(NAV_HEADER),
-              "states": cdp.CLEAN_STATES},
+              "states": cdp.CLEAN_STATES, "skip": {"links": [_skip_link()]}},
              **got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
@@ -2012,12 +2124,21 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
 #     the kind an entry declares. Both reacting shapes retire #322's defect -- a body
 #     emptied to `return` does neither, and `rule()` turns the raise into a problem named by the rule's
 #     own `why`, the arm #323's crash canary witnesses on every run -- but they prove different
-#     strengths, and the weaker reading of the 61 is the true one: a raise says the rule sits on the
+#     strengths, and the weaker reading of the 61 was the true one: a raise says the rule sits on the
 #     path of the guard its name names, not that it JUDGES that guard. Only a break that changes what
 #     the guard ANSWERS can show the judgement, which is why `empty`, `data`, `page` and `shadow` exist
 #     where they were derivable and why `_rule_probes_are_live` refuses a pass in which nothing at all
-#     reports. #378 carries widening the reporting set: a `returns`-style break per guard, and the
-#     baseline it has to beat is the 20 above.
+#     reports. #378 closed the split: the `returns` kind answers a callable with a value the table
+#     names, and the sixty-one were re-derived with it -- per rule, one subprocess per rule, every
+#     candidate break whose name shares a word with the rule's `why`, scored only where the rule's
+#     own comparison reports and a clean-tree baseline passes first. Measured on this tree with the
+#     same instrumented loop: EIGHTY-ONE append a problem of their own, ZERO react on the raise
+#     alone, ZERO answer nothing. #387's merge re-ran that loop on 19 Nov over the 84 rules the
+#     merged registry holds and read EIGHTY-FOUR append, ZERO raise-only, ZERO silent: its three
+#     skip-link rows were re-derived to `returns` for that reason, because the same three rows
+#     spelled `hollow` read TWO raise-only and one that both appends and raises. That split is
+#     this paragraph's record, not a pinned number --
+#     the contract still lets a legitimately raise-witnessed rule join the table.
 #   * It does not write outside a temp directory. Two rules read files from disk, so no `setattr`
 #     reaches them. `_probe_shadow` copies what they read into a directory laid out so that
 #     `cdp.HERE/../../internal/web/templates` still resolves, edits the copies, and moves `cdp.HERE`
@@ -2038,6 +2159,9 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
 #   hollow    the named function's body raises. The nearest mechanical stand-in for what #297
 #             shipped: from outside, an emptied function and an absent one are the same object.
 #   refuse    the named function refuses every page (see the first bullet above).
+#   returns   the named callable answers the value the entry names, whatever it is called with,
+#             and refuses to apply if it names a number or carries no value: the rule's own
+#             comparison is what reacts, so the row is witnessed by the judgement, not a raise.
 #   empty     the named `manifest` function answers nothing, so the recorder reports no page.
 #   page      `DEFAULT_FIXTURE` moves, so `Page.__init__`'s own coupling test can no longer fire.
 #   data      a module-level table shrinks: `PAGES`, `CENSUS`.
@@ -2156,6 +2280,23 @@ def _apply_probe(spec):
             raise _ProbeUnapplicable(f"data variant {variant!r} is not one this file implements")
         setattr(owner, name, broken)
         return (lambda: setattr(owner, name, original)), f"{spec[1]} is {variant}"
+    if kind == "returns":
+        if len(spec) < 3:
+            raise _ProbeUnapplicable(f"{spec!r} is a returns spec with no value to answer with")
+        owner, name = _probe_target(spec[1])
+        original = getattr(owner, name)
+        if not callable(original):
+            raise _ProbeUnapplicable(f"{spec[1]} is a {type(original).__name__}, so making it "
+                                     "answer a value changes nothing a rule can notice")
+
+        def broken(*_a, **_k):
+            return spec[2]
+
+        # The note is built before the swap so a malformed spec fails the arm without having
+        # touched the module: a probe that refuses must leave nothing patched behind.
+        note = f"{spec[1]} returns {spec[2]!r}"
+        setattr(owner, name, broken)
+        return (lambda: setattr(owner, name, original)), note
     if kind == "shadow":
         undo, changed = _probe_shadow(spec[1])
         if not changed:
@@ -2275,13 +2416,35 @@ def _probe_harness(registry, ran, bad):
     # 3. The machinery, on a break aimed at itself: applying has to change the object named and put
     #    it back, and an entry the table cannot honour has to refuse rather than no-op. An
     #    `_apply_probe` hollowed to `return (lambda: None, "done")` would report all 81 rules as
-    #    probed while touching nothing, and no other line in this file would notice.
+    #    probed while touching nothing, and no other line in this file would notice. The `returns`
+    #    swap is additionally held to its ANSWER (D-0086): the witness calls the broken guard and
+    #    requires the value the spec named, because an arm that raised instead of answering, or
+    #    answered the wrong thing, would turn reporting rules back into raising ones while every
+    #    per-rule count stayed perfect.
     marker = cdp.capture_out
     try:
         undo, _note = _apply_probe(("hollow", "cdp.capture_out"))
         applied = cdp.capture_out is not marker
         undo()
         restored = cdp.capture_out is marker
+        # The `returns` kind has to be witnessed for more than the swap: an arm that stood in a
+        # function but raised from it, or answered something other than the value the spec named,
+        # would slide every reporting rule back to a raise -- the exact degradation #378 exists to
+        # retire -- and the per-rule pass still counts a raise as a reaction. So the witness calls
+        # the broken guard and holds it to the spec's own value, at TWO values: an arm hardwired
+        # to answer one constant whatever the spec named passes a single sentinel and fails this.
+        answered_ok = True
+        for sentinel in ("probe-sentinel", "probe-sentinel-2"):
+            undo, _note = _apply_probe(("returns", "cdp.capture_out", sentinel))
+            try:
+                answered = cdp.capture_out(None)
+            except Exception:  # noqa: BLE001 -- a broken break that crashes is the finding, not a crash
+                answered = None
+            answered_ok = answered_ok and cdp.capture_out is not marker and answered == sentinel
+            undo()
+            answered_ok = answered_ok and cdp.capture_out is marker
+        applied = applied and answered_ok
+        restored = restored and cdp.capture_out is marker
     except Exception as exc:  # noqa: BLE001 -- the witness answers, it does not crash the run
         applied = restored = False
         bad.append(f"{PROBE}: the probe machinery raised on its own witness break: "
@@ -2295,15 +2458,23 @@ def _probe_harness(registry, ran, bad):
                    "probe poisons every probe after it and the transcript names the wrong rule")
     for shape, label in ((("nonsense", "cdp.capture_out"), "an unknown kind"),
                          (("data", "pages.PAGES", "nonsense"), "an unknown data variant"),
-                         (("hollow", "pages.EXPECTED_RULES"), "a spec naming a number")):
+                         (("hollow", "pages.EXPECTED_RULES"), "a spec naming a number"),
+                         (("returns", "pages.EXPECTED_RULES", 1), "a returns spec naming a number"),
+                         (("returns", "cdp.capture_out"), "a returns spec with no answer value")):
         try:
-            _apply_probe(shape)
+            undo, _note = _apply_probe(shape)
         except _ProbeUnapplicable:
             continue
         except Exception as exc:  # noqa: BLE001 -- named, not crashed through
             bad.append(f"{PROBE}: {label} escaped as {type(exc).__name__} instead of refusing, so a "
                        "corrupted table entry reads as a verdict")
             continue
+        # An accepted shape means the refusal died, and the swap is LIVE in this process now: the
+        # count comparison further down reads `EXPECTED_RULES`, and #378 measured that a leaked
+        # swap makes the sibling attack suite's own pre-flight answer check refuse the row as
+        # INVALID -- the finding arrives, but as broken plumbing, not as a named refusal. Undo
+        # before naming the crime, so the row reads as what it is.
+        undo()
         bad.append(f"{PROBE}: {label} was applied as though it were a break. An entry that cannot be "
                    "honoured has to refuse: a probe that no-ops is a rule that passes")
     arms += 1
@@ -2351,17 +2522,121 @@ def _rule_probes_are_live(registry, ran, bad):
                    "arm nobody asks about any more")
 
 
+# #396: the call-site pin. Every per-guard rule above calls its `cdp.require_*` helper directly,
+# so none of them can see a driver stop calling that same guard: measured 19 Nov, `pass` written
+# over the shoot loop's `require_records`/`require_labelled_cells` pair printed
+# `capture self-test: 84 refusal rules hold` at exit 0, and the identical sentence followed the
+# same `pass` over `testlock.py`'s only labelled-cells call. The fake browser satisfies every
+# helper either way, so for a deleted call site the source is the only witness. The table pins
+# the MULTISET of `cdp.require_*` calls in each function that turns a measured page into a
+# published PNG, and it pins both directions: a deleted call is a count that fell, and a guard
+# added to a capture path without a row here is a count that rose. It reads files only -- no
+# browser, no fixture, nothing written -- so the pass stays inside #211's env rule.
+CAPTURE_PATH_GUARDS = {
+    ("pages.py", "shoot"): {
+        "require_records": 1,
+        "require_labelled_cells": 2,
+        "require_form": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_nav_transcribed": 1,
+        "require_state_legible": 1,
+        "require_skip_link": 1,
+    },
+    ("lock.py", "capture"): {
+        "require_labelled_cells": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_skip_link": 1,
+        "require_state_legible": 1,
+        "require_declared_sessions": 1,
+        "require_detail_terminated": 1,
+        "require_trail": 1,
+    },
+    ("testlock.py", "capture"): {
+        "require_labelled_cells": 1,
+        "require_control_font": 1,
+        "require_control_width": 1,
+        "require_choice_groups": 1,
+        "require_nav_marked": 1,
+        "require_nav_in_palette": 1,
+        "require_nav_distinguishable": 1,
+        "require_skip_link": 1,
+        "require_state_legible": 1,
+        "require_declared_sessions": 1,
+        "require_detail_terminated": 1,
+        "require_trail": 1,
+    },
+}
+
+
+def capture_guard_call_problems(sources):
+    """Every way a capture path has stopped calling a pinned guard, as sentences.
+
+    Pure: takes `{filename: source text}`, returns sentences; reads nothing, writes nothing, so
+    the rule and its two control arms drive the same bytes through one code path. Every
+    unreadable shape is reported, never skipped: a file that is missing, one that does not parse,
+    and one whose named function has been renamed all produce sentences, because the direction
+    an ambiguous pin must resolve toward is the refusal (#873).
+    """
+    problems = []
+    for (name, func), want in sorted(CAPTURE_PATH_GUARDS.items()):
+        src = sources.get(name)
+        if src is None:
+            problems.append(f"{name} could not be read, so its {func}() capture path could not "
+                            "be checked against the guard calls it owes; a missing file is not "
+                            "evidence that no guard was deleted")
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError as exc:
+            problems.append(f"{name} does not parse ({exc}), so the {func}() call sites cannot "
+                            "be counted; a driver that does not parse cannot promise it calls "
+                            "anything")
+            continue
+        fn = next((node for node in ast.walk(tree)
+                   if isinstance(node, ast.FunctionDef) and node.name == func), None)
+        if fn is None:
+            problems.append(f"{name} no longer defines {func}(), so the capture path this table "
+                            "pins is gone and its guard calls went with it; a move of the "
+                            "capture path moves the table entry with it, it does not retire it")
+            continue
+        got = {}
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "cdp"
+                    and node.func.attr.startswith("require_")):
+                got[node.func.attr] = got.get(node.func.attr, 0) + 1
+        for guard in sorted(set(want) | set(got)):
+            if got.get(guard, 0) != want.get(guard, 0):
+                problems.append(
+                    f"{name}'s {func}() calls cdp.{guard} {got.get(guard, 0)} time(s), want "
+                    f"{want.get(guard, 0)}: the refusal contract is only live where a driver "
+                    "calls the guard, and the per-guard rules call the helpers themselves, so "
+                    "nothing else can see a deleted call site (#396)")
+    return problems
+
+
 RULE_PROBES = {
     "a refusal on every page still measures every page":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "the literal census matches the page declaration":
      ("data", "pages.CENSUS", "empty"),
     "a fixture mode selects only its own pages":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "an unknown fixture refuses before the browser starts":
-     ("hollow", "pages.fixture_mode"),
+     ("returns", "pages.fixture_mode", None),
     "a page from the wrong document refuses":
-     ("hollow", "pages.require_needles"),
+     ("returns", "pages.require_needles", None),
     "a needle page must name a non-default fixture":
      ("page",),
     "capture_out resolves --out and returns one directory":
@@ -2369,34 +2644,34 @@ RULE_PROBES = {
     "a page is recorded where it is photographed":
      ("empty", "capture_manifest.pages_by_artifact"),
     "one refusal names it and counts the rest":
-     ("hollow", "cdp.refusal_note"),
+     ("returns", "cdp.capture_refused", None),
     "a clean run publishes and exits 0":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a clean run hands the publish the fixture it ran under, which is the only "
      "thing that makes the run's receipt writable (#302)":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a crash in shoot is a refusal, not an abort":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "a refused run says where its frames are":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.capture_refused", None),
     "each fixture keeps its refused frames apart":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "pages.fixture_mode", None),
     "a kept frame is moved out of the publish queue":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a refused directory is opened once and cleared once":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a keep that could be read as evidence is refused":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.keep_refused", None),
     "a dead browser still leaves the refusal standing":
      ("hollow", "cdp.capture_refused"),
     "report_refusal reports and returns":
      ("refuse", "cdp.report_refusal"),
     "a missing token census refuses":
-     ("hollow", "pages.require_unbreakable"),
+     ("returns", "pages.require_unbreakable", None),
     "a token under the floor refuses":
-     ("hollow", "pages.require_unbreakable"),
+     ("returns", "pages.require_unbreakable", None),
     "an absent stress row refuses":
-     ("hollow", "pages.require_stress_row"),
+     ("returns", "pages.require_stress_row", None),
     "a stress row needs a table":
      ("hollow", "pages.main"),
     "somebody must carry the stress row":
@@ -2410,114 +2685,135 @@ RULE_PROBES = {
     "a refusal in a fixture still disposes of itself once":
      ("hollow", "cdp.keep_refused"),
     "a page whose keeping died does not stop the sweep":
-     ("hollow", "cdp.keep_refused"),
+     ("returns", "cdp.capture_refused", None),
     "a desktop-only refusal fails the run":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.capture_refused", None),
     "every page is measured at every viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "each summary line names its viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "the viewport is moved before the page is loaded":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "only the artifact viewport writes bytes":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a refusal names the viewport that failed":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "the fixture guards run at the artifact viewport only":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "the viewport is verified, not assumed":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a fixture refusal carries to the other viewport":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.fixture_mode", None),
     "an untested page is not a refusal at the other viewport":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a photographed refusal has to be a refusal":
-     ("hollow", "pages.require_refusal"),
+     ("returns", "pages.require_refusal", None),
     "the refusal is produced by clicking the shipped form":
-     ("hollow", "pages.refusal_form"),
+     ("returns", "pages.refusal_form", None),
     "the kept box is read out of the form that posted":
-     ("hollow", "pages.refusal_extra"),
+     ("returns", "pages.refusal_extra", []),
     "the fill script slices a NodeList like an array":
-     ("hollow", "pages.fill_script"),
+     ("returns", "pages.fill_script", []),
     "a script that never parsed is not a vanished form":
-     ("hollow", "cdp.Session.value"),
+     ("returns", "cdp.Session.value", None),
     "the refused artifact is refused about its own refusal":
-     ("hollow", "pages.require_refusal"),
+     ("returns", "pages.require_refusal", None),
     "the control census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a control in the browser's own font refuses":
-     ("hollow", "cdp.require_control_font"),
+     ("returns", "cdp.require_control_font", None),
     "two field widths on one page refuse":
-     ("hollow", "cdp.require_control_width"),
+     ("returns", "cdp.require_control_width", None),
     "a field sized by nothing refuses":
-     ("hollow", "cdp.require_control_width"),
+     ("returns", "cdp.require_control_width", None),
     "a tick box outside its words refuses":
-     ("hollow", "cdp.require_choice_groups"),
+     ("returns", "cdp.require_choice_groups", None),
     "the census a page was shown is printed":
-     ("hollow", "cdp.census_line"),
+     ("returns", "cdp.census_line", None),
     "a census that was never taken refuses":
      ("hollow", "cdp.require_control_font"),
     "a frame photographed over the wrong session census refuses":
-     ("hollow", "cdp.require_declared_sessions"),
+     ("returns", "cdp.require_declared_sessions", None),
     "the navigation census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
+    "the skip-link census is asked for, at both viewports":
+     ("returns", "pages.shoot", None),
+    "a shell without a reachable skip link refuses":
+     ("returns", "cdp.require_skip_link", None),
+    "a skip fragment that resolves to nothing refuses":
+     ("returns", "cdp.require_skip_link", None),
     "a navigation that marks nothing refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a link still in the browser's own values refuses":
-     ("hollow", "cdp.require_nav_in_palette"),
+     ("returns", "cdp.require_nav_in_palette", None),
     "two entries marked current refuse":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark on the wrong entry refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark no property can see refuses":
-     ("hollow", "cdp.require_nav_distinguishable"),
+     ("returns", "cdp.require_nav_distinguishable", None),
     "a mark on a target nobody can hit refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a mark the browser never draws refuses":
-     ("hollow", "cdp.require_nav_distinguishable"),
+     ("returns", "cdp.require_nav_distinguishable", None),
     "a mark outside the header refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a navigation row of one link refuses":
-     ("hollow", "cdp.require_nav_marked"),
+     ("returns", "cdp.require_nav_marked", None),
     "a navigation census that was never taken refuses":
      ("hollow", "cdp.require_nav_distinguishable"),
+    # #468: the transcription leg. The first two entries share one break on purpose -- both
+    # rules read `cdp.require_nav_transcribed`, one driving the guard and one driving the
+    # driver -- so an emptied guard reddens both, while a deleted CALL SITE reddens only the
+    # second. That asymmetry is the point: #396 measured that every per-guard rule calls its
+    # guard itself, so the driver-shaped rule is the only one that can see this leg deleted.
+    "a drifted transcription refuses naming both sides":
+     ("hollow", "cdp.require_nav_transcribed"),
+    "shoot measures the transcription it owes":
+     ("hollow", "cdp.require_nav_transcribed"),
+    "a section without a transcribed row refuses":
+     ("returns", "pages.transcribed_nav", []),
     "the accepted mark is printed":
-     ("hollow", "cdp.nav_census_line"),
+     ("returns", "pages.shoot", None),
     "the state census is asked for, at both viewports":
-     ("hollow", "pages.shoot"),
+     ("returns", "pages.shoot", None),
     "a driver that measures the state census prints it":
      ("shadow", (("lock.py", "cdp.state_census_line",
                     "cdp.CENSUS_LINE_WITHDRAWN"),
                    ("testlock.py", "cdp.state_census_line",
                     "cdp.CENSUS_LINE_WITHDRAWN"))),
     "a state the stylesheet never drew refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "a state marked only by its parent's box refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "any one visible channel counts as drawn":
      ("refuse", "cdp.require_state_legible"),
     "an invisible state is skipped, its neighbour still refuses":
-     ("hollow", "cdp.require_state_legible"),
+     ("returns", "cdp.require_state_legible", None),
     "a state census that was never taken refuses":
      ("hollow", "cdp.require_state_legible"),
     "the state census is printed, zeros included":
-     ("hollow", "cdp.state_census_line"),
+     ("returns", "cdp.state_census_line", None),
     "the census is the vocabulary the templates use":
      ("shadow", ((".tmpl", "state-held", "state-held-renamed"),)),
     "a published set of PNGs is recorded in the manifest":
-     ("hollow", "pages.select_pages"),
+     ("returns", "pages.fixture_mode", None),
     "a refused run records no manifest":
-     ("hollow", "pages.select_pages"),
+     ("returns", "cdp.refused_dir", ''),
     "the declared state is the thing photographed":
-     ("hollow", "pages.require_declared_state"),
+     ("returns", "pages.require_declared_state", None),
     "the audit row count is the fixture's":
-     ("hollow", "pages.require_declared_rows"),
+     ("returns", "pages.require_declared_rows", None),
     "the driver hands the recorder the envs of the fixtures it photographed":
-     ("hollow", "pages.fixture_envs"),
+     ("returns", "pages.fixture_envs", []),
     "the conditions are handed over at the manifest step":
      ("hollow", "pages.main"),
     "the scripts condition reaches the browser, not just the manifest":
      ("hollow", "cdp.scripts_disabled"),
+    "the drivers' capture paths still call the guards they owe":
+     ("shadow", (("testlock.py",
+                  '    cdp.require_labelled_cells(g, "the result page")',
+                  "    pass"),)),
 }
 
 
@@ -4263,12 +4559,18 @@ def self_test():
         whose href resolves to the page -- so the passing fixture has to be marked where the page
         declares, not merely marked. Every rule below that wants a defect moves one fact off this
         row and leaves the rest alone, which is what keeps each refusal attributable to one guard.
+
+        The words and the boxes are the row `/users` renders at 360 px, re-measured on #388's tree
+        the same way `_NAV_ITEMS` was; the entry for the root is called `Dashboard` here because
+        that is what the shell writes there now, and a fixture that kept the old word would be the
+        next transcription of this shape to sit a generation behind the page.
         """
-        items = [_nav_link("Status", "/"), _nav_link("Audit", "/audit", x=189, w=49),
-                 _nav_link("Profiles", "/profiles", x=251, w=66),
-                 _nav_link("Settings", "/settings", x=24, y=114, w=70)]
-        head = _nav_current("Accounts", "/users", x=93, w=83) if marked else \
-            _nav_link("Accounts", "/users", x=93, w=83)
+        items = [_nav_link("Dashboard", "/", x=24, y=93, w=92),
+                 _nav_link("Audit trail", "/audit", x=228, y=93, w=83),
+                 _nav_link("Lockout profiles", "/profiles", x=24, y=136, w=130),
+                 _nav_link("Settings", "/settings", x=168, y=136, w=70)]
+        head = _nav_current("Accounts", "/users", x=131, y=93, w=83) if marked else \
+            _nav_link("Accounts", "/users", x=131, y=93, w=83)
         return _nav(head, *items, *extra, **over)
 
     def the_navigation_census_is_asked_for(problems):
@@ -4345,16 +4647,18 @@ def self_test():
         """The second route to the root, marked as well as the entry for it.
 
         #204's secondary fact was that the header held two anchors with `href="/"` on the dashboard
-        -- the title and Status -- differing only in weight. D-0026 took the title out of the row;
+        -- the title and the root's entry, which was then called `Status` and is `Dashboard` since
+        #388 -- differing only in weight. D-0026 took the title out of the row;
         this is the guard that keeps it out, because the failure mode of a fix like that is someone
         putting the link back "for the logo" and the page then answering criterion 1 with two yeses.
         """
-        both = _nav(_nav_current("Status", "/"), _nav_current("Accounts", "/users", x=93, w=83),
-                    _nav_link("Audit", "/audit", x=189, w=49))
+        both = _nav(_nav_current("Dashboard", "/"),
+                    _nav_current("Accounts", "/users", x=131, y=93, w=83),
+                    _nav_link("Audit trail", "/audit", x=228, y=93, w=83))
         _log, refusal = _run_shoot(both, ARTIFACT_WIDTH)
         if refusal is None or "2 navigation entries" not in refusal:
             problems.append(f"two entries marked current were accepted: {refusal!r}")
-        elif "'Status'" not in refusal or "'Accounts'" not in refusal:
+        elif "'Dashboard'" not in refusal or "'Accounts'" not in refusal:
             problems.append(f"the refusal does not name both marked entries: {refusal!r}")
 
     def a_navigation_marking_the_wrong_entry_refuses(problems):
@@ -4365,8 +4669,9 @@ def self_test():
         counts marks. Nine photographs of a plausibly marked row are nine photographs of the wrong
         page, which is what makes this worth a refusal of its own rather than part of the count.
         """
-        wrong = _nav(_nav_current("Status", "/"), _nav_link("Accounts", "/users", x=93, w=83),
-                     _nav_link("Audit", "/audit", x=189, w=49))
+        wrong = _nav(_nav_current("Dashboard", "/"),
+                     _nav_link("Accounts", "/users", x=131, y=93, w=83),
+                     _nav_link("Audit trail", "/audit", x=228, y=93, w=83))
         for width in WIDTHS:
             _log, refusal = _run_shoot(_run_width(wrong, width), width)
             if refusal is None or "marks '/'" not in refusal:
@@ -4375,7 +4680,7 @@ def self_test():
             elif "/users" not in refusal:
                 problems.append(f"the refusal does not name the section the page is in: "
                                 f"{refusal!r}")
-        gone = _nav(_nav_current("Status", "/"), _nav_link("Audit", "/audit", x=60, w=49))
+        gone = _nav(_nav_current("Dashboard", "/"), _nav_link("Audit trail", "/audit", x=99, w=83))
         _log, refusal = _run_shoot(gone, ARTIFACT_WIDTH)
         if refusal is None or "no such href" not in refusal:
             problems.append(f"a page whose own section is missing from the row was accepted: "
@@ -4392,15 +4697,16 @@ def self_test():
         the fifth is read, and why the second arm has to pass or the guard is refusing the fix.
         """
         quiet = _nav_users()
-        quiet["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR)
+        quiet["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=131, y=93, w=83,
+                                                cur=CUR)
         _log, refusal = _run_shoot(quiet, ARTIFACT_WIDTH)
         if refusal is None or "looks exactly like" not in refusal:
             problems.append(f"a mark no property can see was accepted: {refusal!r}")
         elif "border-bottom" not in refusal:
             problems.append(f"the refusal does not name the properties it compared: {refusal!r}")
         border_only = _nav_users()
-        border_only["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR,
-                                                      bc=NAV_MARK)
+        border_only["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=131, y=93, w=83,
+                                                      cur=CUR, bc=NAV_MARK)
         _log, refusal = _run_shoot(border_only, ARTIFACT_WIDTH)
         if refusal is not None:
             problems.append(f"a mark drawn only in the reserved border was refused: {refusal!r}")
@@ -4426,9 +4732,14 @@ def self_test():
         hittable = _nav_users()
         for item in hittable["nav"][0]["items"][1:]:
             item["h"] = 26
-        _log, refusal = _run_shoot(hittable, ARTIFACT_WIDTH)
-        if refusal is not None:
-            problems.append(f"a page was refused for the height of entries nobody marks: {refusal!r}")
+        # Driven straight rather than through `shoot()` (#468): with the transcription leg in
+        # the driver, this row's SIBLINGS at 26 px are transcription drift too, and the leg --
+        # which runs after the floor -- would refuse the row for the wrong reason. The arm is
+        # about the floor's bound on the marked entry, so the floor is what gets asked.
+        try:
+            cdp.require_nav_marked(hittable, "/users", "/users")
+        except SystemExit as exc:
+            problems.append(f"a page was refused for the height of entries nobody marks: {exc}")
 
     def a_mark_the_browser_never_draws_refuses(problems):
         """The reserved border the mark is painted on, measured rather than assumed (#204's fifth).
@@ -4522,6 +4833,113 @@ def self_test():
                 problems.append(f"the {what} guard raised {type(exc).__name__} instead of refusing; "
                                 "a traceback is not an answer")
 
+    def a_drifted_transcription_refuses_naming_both_sides(problems):
+        """The transcription leg refuses per fact, and quotes the transcription AND the render.
+
+        #468's whole failure mode was a transcription a page had moved past while every guard
+        stayed green, because the transcription was only ever compared with itself. So the guard
+        is driven here with rows DERIVED from `_NAV_ROWS["/users"]` -- the fake browser's row
+        would be the transcription itself, the tautology the issue filed -- and each arm moves
+        exactly one fact: one y, one word, a missing entry, an extra one, the header's box.
+        Every arm requires BOTH values in the refusal, because the useful sentence after a
+        #388-shaped drift is "which of the two moved", and a refusal quoting one side cannot
+        answer it. The control keeps the guard honest: a transcription refused against itself
+        would refuse every capture run that asks it a true thing.
+        """
+        row = _NAV_ROWS["/users"]
+
+        def rendered(**edits):
+            items = []
+            for box in row:
+                item = dict(box)
+                item.update(edits.pop(box["href"], {}))
+                items.append(item)
+            if edits:
+                raise AssertionError(f"no transcribed entry has href {sorted(edits)}")
+            return {"nav": [{"display": "flex", "overflow": False, "items": items}],
+                    "header": dict(NAV_HEADER)}
+
+        def refusal(got, header=None):
+            try:
+                cdp.require_nav_transcribed(got, "/users", row,
+                                            dict(NAV_HEADER) if header is None else header)
+            except SystemExit as exc:
+                return str(exc)
+            return None
+
+        if refusal(rendered()) is not None:
+            problems.append(f"the transcription refused itself: {refusal(rendered())}")
+        arms = (
+            (rendered(**{"/": {"y": 72}}), None, ("y=93", "y=72")),
+            (rendered(**{"/audit": {"text": "Status"}}), None, ("'Audit trail'", "'Status'")),
+            ({"nav": [{"display": "flex", "overflow": False,
+                       "items": [i for i in rendered()["nav"][0]["items"]
+                                 if i["href"] != "/settings"]}],
+              "header": dict(NAV_HEADER)}, None, ("'Settings'", "no such link")),
+            ({"nav": [{"display": "flex", "overflow": False,
+                       "items": rendered()["nav"][0]["items"]
+                                + [{"text": "Support", "href": "/support", "x": 24, "y": 179,
+                                    "w": 70, "h": 40}]}],
+              "header": dict(NAV_HEADER)}, None, ("'/support'", "no entry")),
+            (rendered(), {"x": 24, "y": 24, "w": 312, "h": 131}, ("h=192", "h=131")),
+        )
+        for got, header, needles in arms:
+            text = refusal(got, header)
+            if text is None:
+                problems.append(f"a drifted transcription was accepted (needles {needles})")
+                continue
+            missing = [w for w in needles if w not in text]
+            if missing or "transcription" not in text:
+                problems.append(f"the refusal does not name both sides {missing}: {text!r}")
+
+    def shoot_measures_the_transcription_it_owes(problems):
+        """shoot() runs the leg where the transcription claims and only there (#468).
+
+        These rows are otherwise clean -- marked, in palette, distinguishable, inside the header
+        -- so the leg is the ONLY guard that can see them, which is what makes the arms answer
+        about this call site and not an earlier guard: #396 measured that every per-guard rule
+        calls its guard itself, so nothing but a leg-shaped row through the real driver can see
+        this call deleted. The shift moves every entry by the 21 px the masthead heading is
+        worth -- a page that grew or lost that line is exactly the drift #388 shipped blind and
+        #468 was filed for. The second arm pins the width gate: the transcription is 360 px
+        arithmetic, and a leg at 1024 px would refuse every page for a claim nobody made.
+        """
+        shifted = _nav_users()
+        for item in shifted["nav"][0]["items"]:
+            item["y"] = 114
+        _log, refusal = _run_shoot(shifted, ARTIFACT_WIDTH)
+        if refusal is None or "transcription" not in refusal:
+            problems.append(f"a row 21 px below its transcription was photographed without a "
+                            f"refusal naming the leg: {refusal!r}")
+        elif "y=93" not in refusal or "y=114" not in refusal:
+            problems.append(f"the refusal does not name both sides: {refusal!r}")
+        _log, refusal = _run_shoot(dict(shifted, inner=DESKTOP_WIDTH), DESKTOP_WIDTH)
+        if refusal is not None:
+            problems.append(f"the {DESKTOP_WIDTH} px pass was refused by a leg that transcribes "
+                            f"only {ARTIFACT_WIDTH} px: {refusal!r}")
+
+    def a_section_without_a_transcribed_row_refuses(problems):
+        """A section nobody transcribed is refused, not silently unmeasured (#468).
+
+        The failure this exists for is the new page: someone adds a sixth entry point to the
+        shell and its `Page` to PAGES, and every transcription-shaped guard skips it for want of
+        a row -- "never compared" printing the same line as "compared and matched" is the pair
+        #468 is a whole issue about. Refusing is this file's standing tie-break for missing
+        input; the canary is every declared section answering with a row, so the refusal cannot
+        become unconditional.
+        """
+        for nav in sorted({spec.nav for spec in PAGES}):
+            if not transcribed_nav(nav):
+                problems.append(f"the {nav!r} transcription is empty, so that section's frames "
+                                "are compared against nothing")
+        try:
+            transcribed_nav("/support")
+            problems.append("an untranscribed section was accepted, so a sixth entry point "
+                            "silently skips the transcription leg")
+        except SystemExit as exc:
+            if "/support" not in str(exc):
+                problems.append(f"the refusal does not name the section it has no row for: {exc}")
+
     def the_mark_is_printed_for_every_page(problems):
         """The transcript names which entry it accepted, so a wrong mark is visible after the fact.
 
@@ -4603,6 +5021,43 @@ def self_test():
                                 "cdp.state_census_line: the guard's verdict is in the refusal and "
                                 "nowhere else, so a frame it accepted cannot be told apart from a "
                                 "page that has no state words at all")
+
+    def the_capture_paths_still_call_every_guard_they_owe(problems):
+        """#396: a helper enforces nothing where no driver calls it.
+
+        The per-guard rules above call the helpers themselves, so they stay green over a driver
+        that stopped calling them; the measured deletions are in the table comment. The control
+        drives both directions through the same pure function the reading uses, because the
+        deletion direction looks the same from a clean tree whether or not the table is wired to
+        anything -- a pin that only counts what it already remembers is decoration, not a check.
+        """
+        sources = {}
+        for name in sorted({n for n, _func in CAPTURE_PATH_GUARDS}):
+            with contextlib.suppress(OSError), open(op.join(cdp.HERE, name), encoding="utf-8") as fh:
+                sources[name] = fh.read()
+        problems.extend(capture_guard_call_problems(sources))
+        # The control drives both directions through the same pure function the reading uses:
+        # deleting the statement must read as a count that fell, and repeating it must read as a
+        # count that rose -- a pin that only counts what it already remembers is decoration, not
+        # a check. Its find is the statement the attack suite patches in `lock.py` (#396's own
+        # probe), and it is anchored THERE, not in pages.py: a control whose anchor is counted in
+        # the file that carries the control quotes itself -- the first draft of this arm reddened
+        # the suite by finding its own anchor literal lying inside the text it was counting.
+        lock_src = sources.get("lock.py", "")
+        stmt = ('    cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",\n'
+                '                      {"lock.requested"}, "the lock-now click")')
+        if lock_src.count(stmt) != 1:
+            problems.append(f"lock.py holds the require_trail statement this control drives "
+                            f"{lock_src.count(stmt)} times, so neither direction of the "
+                            "guard-call table can be re-measured against this tree")
+        else:
+            for label, repl, want_phrase in (
+                    ("deleted", "    pass", "cdp.require_trail 0 time(s), want 1"),
+                    ("added", stmt + "\n" + stmt, "cdp.require_trail 2 time(s), want 1")):
+                mutated = dict(sources, **{"lock.py": lock_src.replace(stmt, repl, 1)})
+                if not any(want_phrase in p for p in capture_guard_call_problems(mutated)):
+                    problems.append(f"the pin did not notice the {label} call: no sentence says "
+                                    f"{want_phrase!r}, so the table is decoration, not a check")
 
     def a_state_the_stylesheet_never_drew_refuses(problems):
         """The reported defect at both viewports, with no bytes staged -- and the drawn row beside it.
@@ -4733,6 +5188,117 @@ def self_test():
         _run_shoot(_states_fixture(), ARTIFACT_WIDTH, out=line)
         if "states=0 drawn=0" not in line.getvalue():
             problems.append(f"a page with no state word prints no zeros: {line.getvalue()!r}")
+
+    # #387, delivering #204's skip-link bullet from the browser's side. Same three-way shape
+    # as the #204 set: one rule pins that the census is ASKED, and two rules drive the guard's
+    # refusals, split by which half of the bullet they carry -- reachability and resolution.
+    def the_skip_link_census_is_asked_for(problems):
+        """shoot() splices cdp.SKIP_JS in, at both viewports, whatever kind of page it is.
+
+        Pinned by identity like NAV_JS and STATE_JS: `skip` is a word the page's own prose
+        carries, so only the fragment itself says the measurement was taken. Without the
+        splice the guard refuses every page with "no skip-link census was taken" -- a run
+        that refuses for the wrong reason on every page reads from outside like one that
+        found the defect (#387).
+        """
+        for width in WIDTHS:
+            _LAST_EXTRA.clear()
+            try:
+                _run_shoot(_run_width(_nav_users(), width), width)
+                if not any(cdp.SKIP_JS in e for e in _LAST_EXTRA):
+                    problems.append(f"at {width} px shoot() never asked the browser for the "
+                                    "skip-link census, so the #387 guard compares a key "
+                                    "nobody measured")
+            finally:
+                _LAST_EXTRA.clear()
+
+    def a_shell_without_a_reachable_skip_link_refuses(problems):
+        """Zero links, and the D-0087 trap, refused through the real shoot(); the honest page accepted.
+
+        The missing-census arm is driven direct for the standing reason (the fake browser
+        defaults a census so other rules can be about something else -- only a direct call
+        hands the guard the nothing it has to refuse on). `display:none` and `visibility:hidden`
+        are the two shapes whose bytes are IDENTICAL to a correct link's: they are only
+        observable as computed values, which is half of why this guard lives in the browser.
+        """
+        try:
+            cdp.require_skip_link({"scroll": 360}, "/users")
+            problems.append("the skip-link guard passed a page with no census at all")
+        except SystemExit as exc:
+            if "skip-link census" not in str(exc):
+                problems.append(f"the skip-link guard refused for a reason that does not name "
+                                f"the missing census: {exc}")
+        except Exception as exc:
+            problems.append(f"the skip-link guard raised {type(exc).__name__} instead of "
+                            "refusing; a traceback is not an answer")
+        for key, over, want in [
+            ("no fragment link at all", {"links": []}, "skips past the masthead"),
+            ("a display:none link", {"links": [_skip_link(disp="none")]},
+             "sequential focus navigation"),
+            ("a visibility:hidden link", {"links": [_skip_link(vis="hidden")]},
+             "sequential focus navigation"),
+            # The trap in its parent's clothes: the link's OWN computed values read
+            # honest, and the only browser fact left is the box that isn't there.
+            ("a 0x0 box inside a removed ancestor", {"links": [_skip_link(w=0, h=0)]},
+             "0x0"),
+        ]:
+            _log, refusal = _run_shoot(dict(_nav_users(), skip=over), ARTIFACT_WIDTH)
+            if refusal is None or want not in refusal:
+                problems.append(f"a shell with {key} was accepted: {refusal!r}")
+            if any(k[0] == "png" for k in _log):
+                problems.append(f"a shell with {key} still staged a photograph")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the shell as #387 delivers it was refused: {refusal!r}")
+
+    def a_skip_fragment_that_resolves_to_nothing_refuses(problems):
+        """#387's named false pass and its three siblings, each refused, control included.
+
+        The headline row is the one no byte guard can see: the anchor sits in the markup,
+        resolves to nothing, and greps perfectly. The siblings are the same bullet seen from
+        the other three properties a static render can settle -- one link CLAIMING the
+        content region, not two; text a reader can hear; and a position before the thing it
+        skips. Each defect is alone in its row so every refusal is attributable to exactly
+        one guard arm, and the controls at the end are the other half of the contract: the
+        honest page passes, and an anchor aimed at some other fragment does not count.
+        """
+        for key, over, want in [
+            ("the fragment resolves to no element", {"links": [_skip_link(ttag=None)]},
+             "resolves to"),
+            # getElementById answers with the FIRST element bearing the id: a duplicate
+            # id ahead of the content region shadows it, and `ttag: "DIV"` is the one
+            # field that says the keyboard lands on a box still holding the masthead.
+            ("the #main claim lands on a div shadow", {"links": [_skip_link(ttag="DIV")]},
+             "not the <main>"),
+            ("the link announces nothing", {"links": [_skip_link(text="")]}, "empty text"),
+            ("the link sits behind the masthead it skips",
+             {"links": [_skip_link(before=False)]}, "at or after the navigation"),
+            ("two fragment links claim the job",
+             {"links": [_skip_link(), _skip_link(href="#main", text="skip there too")]},
+             "2 fragment links"),
+        ]:
+            _log, refusal = _run_shoot(dict(_nav_users(), skip=over), ARTIFACT_WIDTH)
+            if refusal is None or want not in refusal:
+                problems.append(f"a shell with {key} was accepted: {refusal!r}")
+            if any(k[0] == "png" for k in _log):
+                problems.append(f"a shell with {key} still staged a photograph")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the resolving fragment was refused: {refusal!r}")
+        # One contract with the byte-level leg in nav_test.go: an in-page anchor that does
+        # not CLAIM the content region is not a second skip link. A page that later grows a
+        # `Back to top` at `#faq` must pass both gates or fail both -- the local review
+        # round on #387 caught the two gates disagreeing on exactly this document, the Go
+        # leg tolerating it and this one calling a legal anchor "a second opinion".
+        _log, refusal = _run_shoot(
+            dict(_nav_users(), skip={"links": [
+                _skip_link(),
+                _skip_link(href="#faq", targetId="faq", ttag="P", text="Back to top",
+                           before=False)]}),
+            ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a content anchor claiming its own fragment was refused as a "
+                            f"second skip link: {refusal!r}")
 
     def every_state_class_the_pages_render_is_in_the_census(problems):
         """The census list is the vocabulary the templates use, in both directions.
@@ -5219,6 +5785,14 @@ def self_test():
     rule("a navigation row of one link refuses", a_navigation_row_of_one_link_refuses)
     rule("a navigation census that was never taken refuses",
          a_navigation_that_was_never_censused_refuses)
+    # #468: a transcription and the witness it never had. Three faces of one guard -- the
+    # comparison itself, the driver that must run it, and the refusal an untranscribed section
+    # owes -- because the issue was numbers copied off a page that nothing ever re-measured.
+    rule("a drifted transcription refuses naming both sides",
+         a_drifted_transcription_refuses_naming_both_sides)
+    rule("shoot measures the transcription it owes", shoot_measures_the_transcription_it_owes)
+    rule("a section without a transcribed row refuses",
+         a_section_without_a_transcribed_row_refuses)
     rule("the accepted mark is printed", the_mark_is_printed_for_every_page)
 
     # #199: the state vocabulary.
@@ -5237,6 +5811,19 @@ def self_test():
          the_state_census_is_printed_for_every_page)
     rule("the census is the vocabulary the templates use",
          every_state_class_the_pages_render_is_in_the_census)
+
+    # #396: the guards can all pass while no driver calls them. This is the only rule that reads
+    # the drivers' call sites, so it is the only witness a deleted call leaves anything had.
+    rule("the drivers' capture paths still call the guards they owe",
+         the_capture_paths_still_call_every_guard_they_owe)
+
+    # #387: the skip link, from the browser's side.
+    rule("the skip-link census is asked for, at both viewports",
+         the_skip_link_census_is_asked_for)
+    rule("a shell without a reachable skip link refuses",
+         a_shell_without_a_reachable_skip_link_refuses)
+    rule("a skip fragment that resolves to nothing refuses",
+         a_skip_fragment_that_resolves_to_nothing_refuses)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).

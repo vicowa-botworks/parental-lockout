@@ -469,8 +469,11 @@ ROWS = [
      "                missing = []  # the count is kept from admitting it"),
 
     # ---- #322: the probe pass, on itself. Nine CAUGHT rows for the machinery, nine HOLE rows for
-    #      the arms. The CAUGHT rows break the pass by breaking what it does -- ignore the table, aim
-    #      every rule at the same harmless break, hollow `_apply_probe`, make an undo not undo, stop
+    #      the arms, and five CAUGHT rows #378 added for the `returns` kind -- the tenth through
+    #      fourteenth machinery rows, each pinning a way the new arm could put the raise-only
+    #      world back while every per-rule count stayed perfect. The CAUGHT rows break the pass
+    #      by breaking what it does -- ignore the table, aim every rule at the same harmless
+    #      break, hollow `_apply_probe`, make an undo not undo, stop
     #      `rule()` registering, drop a verdict shape -- and each turns the run red. The HOLE rows
     #      break the checks that watch the pass, which is the floor: see the class text. They are
     #      listed rather than deleted because a floor nobody re-measures is indistinguishable from a
@@ -490,6 +493,31 @@ ROWS = [
     (CAUGHT, "pages.py", "a probe's undo does not put the guard back",
      '        return (lambda: setattr(owner, name, original)), f"{kind} {spec[1]}"',
      '        return (lambda: None), f"{kind} {spec[1]}"'),
+    # ---- #378: the `returns` kind, on its own failure modes. The kind exists so a rule is
+    #      witnessed by its own comparison instead of by a raise escaping; each row below makes
+    #      the arm behave like the old world again -- raise instead of answer, answer a constant
+    #      whatever the table named, undo that restores nothing -- and each must turn this suite
+    #      red, because the per-rule pass counts a raise as a reaction and cannot see any of
+    #      them. Arm 3's witness is what catches R1-R3; the last two rows are refused-specs the
+    #      witness's reject loop already names, made live.
+    (CAUGHT, "pages.py", "the `returns` arm raises instead of answering, sliding every "
+     "reporting rule back to a raise while every per-rule count stays perfect",
+     '        def broken(*_a, **_k):\n            return spec[2]',
+     '        def broken(*_a, **_k):\n            raise AssertionError("probe arm always raises")'),
+    (CAUGHT, "pages.py", "the `returns` arm answers one fixed value whatever the table named",
+     '            return spec[2]',
+     '            return "probe-sentinel"'),
+    (CAUGHT, "pages.py", "the `returns` arm's undo restores nothing",
+     '        return (lambda: setattr(owner, name, original)), note',
+     '        return (lambda: None), note'),
+    (CAUGHT, "pages.py", "a `returns` spec with no answer value is accepted instead of refused",
+     "        if len(spec) < 3:",
+     "        if len(spec) < -1:"),
+    (CAUGHT, "pages.py", "a `returns` spec naming a number is accepted instead of refused",
+     '        if not callable(original):\n'
+     '            raise _ProbeUnapplicable(f"{spec[1]} is a {type(original).__name__}, so making it "\n'
+     '                                     "answer a value changes nothing a rule can notice")',
+     '        pass'),
     (CAUGHT, "pages.py", "`rule()` stops registering its rules, so the table names 81 strangers",
      "            registry.append((why, body))", "            pass"),
     # Measured 14 Nov: this one went red on its own, which is why the raise-only degradation is a
@@ -519,6 +547,26 @@ ROWS = [
      # whatever it is told instead of asking the verdict.
      "            code = self_test_verdict(list(ran_shape), list(bad_shape), trips)",
      "            code = want"),
+
+    # ---- #396: a deleted call site, where nobody calls the guard ----
+    # The three deletions the ticket measured for itself. On the pre-pin tree each one printed
+    # `capture self-test: 84 refusal rules hold` at exit 0 -- every per-guard rule green because
+    # each rule calls its helper directly and none reads the driver's call sites. They are CAUGHT
+    # here now because the pin `the drivers' capture paths still call the guards they owe` reads
+    # the same bytes (D-0091): the suite re-measures the gap instead of restating the defect.
+    (CAUGHT, "pages.py",
+     "the shoot loop stops calling require_records and its labelled-cells sibling (#396 probe 1)",
+     "        cdp.require_records(got, page)\n        cdp.require_labelled_cells(got, page)",
+     "        pass"),
+    (CAUGHT, "testlock.py",
+     "the single-shot probe driver stops calling require_labelled_cells (#396 probe 2)",
+     '    cdp.require_labelled_cells(g, "the result page")',
+     "    pass"),
+    (CAUGHT, "lock.py",
+     "the lock driver stops asserting its own trail (#396 probe 3)",
+     '    cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",\n'
+     '                      {"lock.requested"}, "the lock-now click")',
+     "    pass"),
 
     # ---- honest edits: these must stay green, or the guard is matching text it should ignore, and
     #      a guard that is a tax gets switched off ----
@@ -552,7 +600,10 @@ ROWS = [
 # was already here and stays one row -- only its expectation moves, from `HOLE` on `origin/main` to
 # `CAUGHT` here. A merge of two branches that each added rows and left this number at one side's
 # value is a merge that dropped rows, which is the failure this pin exists to catch.
-EXPECTED_ROWS = 73
+# 78 -> 81 on 19 Nov (#396, D-0091): the three call-site deletions the ticket measured as silent,
+# re-measured against the new pin. None of the three replaces a row: no row in the previous 78
+# touched `require_records`, `require_labelled_cells` or `require_trail` at all.
+EXPECTED_ROWS = 81
 
 
 def shape_problems():

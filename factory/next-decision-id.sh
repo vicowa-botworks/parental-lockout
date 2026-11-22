@@ -9,11 +9,24 @@
 # sibling branch?
 #
 # What "free" means. The id is one higher than the highest id of this prefix anywhere in the repo's
-# local refs -- the working file, HEAD, every refs/heads ref and every refs/remotes ref. It is not the
+# local refs -- the working tree, HEAD, every refs/heads ref and every refs/remotes ref. It is not the
 # lowest unused number. The logs deliberately retain gaps: H-0031 and H-0032 were retired when the
 # harness prefixes were split from D ids, and H-0057 is a permanent gap created by a documented
 # renumbering. A "smallest gap" allocator would recycle those numbers and turn every historical
 # citation into an alias.
+#
+# What the union reads depends on the layout the caller named, and that is the whole of #456: a monolith
+# is one blob, so `show HEAD:DECISIONS.md` is the whole log, but a filed log (#429, H-0263) is a
+# directory and a name read as a blob is nothing at all. So a filed path is walked -- every *.md under it
+# in the working tree, and every *.md the ref's tree carries -- for the same maximum. The working tree is
+# read whole; a ref's copies carry two claims read two ways (#506): the NAME, synthesized from the
+# basename -- EMITS names that file and the gate refuses a heading that differs from it,
+# `layout_problems` -- and the CONTENT, read once per unique blob rather than once per entry per ref,
+# because the spawn product the review of #505 priced is a cost shape, not a taken-set shape: the same
+# bytes claim the same id on every ref, so the sha dedup cannot move the maximum. The alternative is
+# the collision #442 counts: an id reserved only as `factory/DECISIONS/H-0277.md` on a sibling's branch
+# is invisible to a union that reads one path, and both units are then handed the same number in good
+# faith by a tool that exists to refuse it.
 #
 # Which half raised it. The union is read as two maxima rather than one, because its two halves answer
 # different questions. A ceiling some ref carries is a sibling that took the number. A ceiling ONLY the
@@ -28,14 +41,27 @@
 # still carries the id alone: the number is still the best answer, merely an unreserved one.
 #
 # What is never allocated. An id is printed only for a path that IS a decision log: named
-# DECISIONS.md, and a regular file in the working tree or a blob in HEAD. A union with no headings in
+# DECISIONS.md and a regular file in the working tree or a blob in HEAD, or named DECISIONS and a
+# directory in the working tree or a tree in HEAD -- the filed spelling #429 phase 1 gave the same logs.
+# A union with no headings in
 # it is not an empty log, it is a wrong path, and answering it prints <prefix>-0001 -- the most-cited
 # number in either log, so a typo would be answered with a guaranteed collision (issue #253, measured:
 # `--prefix H factory/DECISION.md` printed H-0001 and exited 0). Existence is not the test, because
 # every wrong path in a checkout exists: at `c5aa1eb` `--prefix H docs/factory.md`, `README.md`,
 # `AGENTS.md`, `factory` and `factory/` each printed H-0001 and exited 0 (H-0076). A fresh adoption is
 # one `touch` away and still gets its honest D-0001, from headings the log does not have yet rather
-# than from silence.
+# than from silence. The two names are three characters apart and the two verdicts must not be
+# confusable: the type test runs per layout, so a directory called `DECISIONS.md` is still refused and a
+# directory called `DECISIONS` is still read. A trailing slash belongs to that same pair, because a slash
+# is a claim about the face: `DECISIONS/` is the filed log with its shell-completed slash and is read,
+# while `DECISIONS.md/` asks for a directory by the monolith's name and is refused (#456).
+#
+# Where the entry goes. An answer is a number and a destination, so stderr names the destination too:
+# `EMITS` is the entry file to create -- the log's filed directory plus the id -- whichever face the
+# caller named, because from #456 phase 2 a NEW entry is a file in either log while the monoliths keep
+# only the entries that predate the instruction. That sentence is the only thing telling a unit which
+# of the two layouts AGENTS.md means -- write the entry where the allocator says, and do not hand-file
+# an existing entry into the other one.
 #
 # This is a collision-free read, not a lock. Two processes running at the same instant can still see
 # the same ceiling and receive the same id; the harness fixes that by cutting each unit from an
@@ -93,21 +119,44 @@
 # compares every newly present heading against it (`factory_decision_provenance`, common.sh). A bare
 # run -- a person, a test -- has no unit to journal for and writes nothing; a failed write is said on
 # stderr and changes neither the id nor the exit.
+#
+# The same journal is READ before an answer is handed out (#442). #345 made an issued id visible; it
+# did not make the allocator consume one: the taken-set is log headings only, so an id this command
+# had just journalled to one unit sat below the ceiling invisible to the next unit's read, and three
+# units were handed `H-0250` in 53 minutes. Every candidate from the ceiling up is now asked of that
+# journal: the LAST line naming the id is the claim, and a live one -- another unit's, on a branch
+# that still exists as a ref here -- steps the answer up and says whose id was skipped. A claim whose
+# branch exists nowhere is expired: the entry it would have committed was never written, and a claim
+# that never expires lets dead ticks walk the id space upward (issue-365 earned `H-0355` and
+# never acquired a branch). A claim belonging to the unit being answered keeps its own id -- the
+# cross-unit collision is what is refused, #320's same-unit re-read is what is preserved. This is a
+# READ, offline and failure-blind like every other arm here, not the claim-time lease `H-0195`
+# refused: a journal this run cannot read, or a claim taken on another machine, leaves the window
+# exactly as wide as `REFRESH-BLIND` says, and the merge stays the arbiter of what this cannot see.
 set -euo pipefail
 
-USAGE='usage: next-decision-id.sh [--repo DIR] [--prefix D|H] [DECISIONS.md]
+USAGE='usage: next-decision-id.sh [--repo DIR] [--prefix D|H] [DECISIONS.md|DECISIONS]
 
-Print the next decision-log id for DIR. The path is the log being written and selects the prefix:
-factory/DECISIONS.md uses H-, any other DECISIONS.md uses D-; --prefix overrides that.
+Print the next decision-log id for DIR. The path is the log being written and selects both the prefix
+and the layout: a path under factory/ uses H-, any other uses D-; --prefix overrides that. A name of
+DECISIONS.md is a monolith (one file, headings appended); a name of DECISIONS is a filed log (a
+directory, one entry per file). Both layouts are answered until #429 phase 3 retires the monoliths.
 
-The union read is the working file, HEAD, refs/heads and refs/remotes. Blobs that do not contain the
-named log, and refs git cannot read, are ignored. The result is the first free id ABOVE every id seen;
-gaps below the ceiling stay closed. No fetch is performed.
+The union read is the working file, HEAD, refs/heads and refs/remotes -- for a filed log that is
+every *.md under the directory in each, so an entry a sibling filed on a branch is counted as the claim
+on its id that it is. Blobs that do not contain the named log, and refs git cannot read, are ignored.
+The result is the first free id ABOVE every id seen; gaps below the ceiling stay closed. No fetch is
+performed. The journal at FACTORY_LOG (default
+DIR/factory/log) is then asked for live claims: an id whose newest DECISION-ID line belongs to a
+different unit on a branch that still exists as a ref here is taken and stepped over, whatever the
+headings say, and the answer names on stderr what it stepped over and whose it was.
 
 stderr carries how far that union can see: REFRESH with the age of the read, or REFRESH-BLIND with
 the reason a sibling could be invisible here and the repair that would close it -- a fetch when the
 read is stale, a git config remote.origin.fetch write when a refspec cannot fetch a branch, because
-a fetch cannot widen a refspec. stdout stays the id alone, and the exit status stays 0
+a fetch cannot widen a refspec. EMITS names the entry file to create -- the filed directory of the
+log plus the id, e.g. factory/DECISIONS/H-0042.md -- whichever face the caller named, because a new
+entry is a file from #456 phase 2. stdout stays the id alone, and the exit status stays 0
 either way -- a blind read is still the best read available, and a refusal is what sends a session
 back to numbering by eye. FACTORY_ID_MAX_AGE (default 300 seconds) is how stale the read may get
 before the clock arm calls it blind.
@@ -118,9 +167,10 @@ alone. A re-read taken after you wrote your own entry therefore cannot be mistak
 it. The note being absent is the verdict on the other half: since the refresh arms print beside every
 answer, it is the note that is read, never an empty stderr.
 
-Only the decision log itself is answered: DECISIONS.md or factory/DECISIONS.md, as a regular file in the
-working tree or a blob in HEAD. Any other path is refused, including one that exists -- allocating from
-an empty union means answering <prefix>-0001, a taken id in every log this repository has.'
+Only the decision log itself is answered: DECISIONS.md and factory/DECISIONS.md as a regular file in the
+working tree or a blob in HEAD, and DECISIONS and factory/DECISIONS as a directory in the working tree or
+a tree in HEAD. Any other path is refused, including one that exists -- allocating from an empty union
+means answering <prefix>-0001, a taken id in every log this repository has.'
 
 die() {
 	printf 'next-decision-id: %s\n' "$*" >&2
@@ -130,6 +180,16 @@ die() {
 repo=$PWD
 log=''
 prefix=''
+# Which layout the caller named: `monolith` (one file, headings appended) or `filed` (a directory, one
+# file per entry). Set by `log_is_here` from the name; the default is what every caller before #456 asked
+# for, so a call that never reaches the guard cannot read it as a verdict about a filed log.
+layout=monolith
+# Set when the caller named a face of the log that is not itself present and the *other* face is: the
+# filed question asked of a log still living in one file, or the old path asked of a log already split.
+# It changes what the answer is for, not whether there is one.
+other_rel=''
+other_kind=''
+other_here=no
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -170,6 +230,19 @@ case "$prefix" in
 esac
 
 [ -n "$log" ] || log='DECISIONS.md'
+# A filed log IS a directory, and `DECISIONS/` and `DECISIONS` are one request: the slash is what a
+# person types when they mean a directory, and `${rel##*/}` on `DECISIONS/` yields the empty string, so
+# the strip belongs here once, before any test reads the basename. One slash only, because a path ending
+# in two is a typo and still has to be refused for what it is.
+#
+# The strip is remembered, because the slash is a claim about the face and not decoration. Stripping it
+# quietly made `DECISIONS.md/` -- a request for a *directory* named after the monolith, which no layout
+# ever writes -- read as the monolith: the review caught it, and it is one character away from the
+# `DECISIONS.md` decoy `log_is_here` exists to refuse (H-0076). #456 asks for that pair in both
+# directions, one leg per direction, so the flag travels to the guard instead of vanishing here.
+log_slash=0
+case "$log" in */) log_slash=1 ;; esac
+log=${log%/}
 
 # `--repo` names the repository the log lives in, and it is also what a relative log path is read
 # against -- there is no second reading. The first version resolved the path against the caller and
@@ -197,6 +270,35 @@ case "$target" in
 *) rel=$target ;;
 esac
 
+# One log, two faces. #429 splits each log into a directory of entries without retiring the monolith, so
+# until phase 3 `DECISIONS.md` and `DECISIONS/` are one id space -- the gate already enforces that
+# reading: `cross_log_problems` refuses an id used in both forms and names both locations. The stem is the
+# coordinate the two faces share, and every union read below goes through both of them. An allocator that
+# counted only the face the caller named would answer a number the other face has already taken, which is
+# exactly the collision #442 priced, wearing the migration's clothes.
+case "$rel" in
+*DECISIONS.md) stem=${rel%.md} ;;
+*) stem=$rel ;;
+esac
+
+# Is this face of the log present -- as a regular file or a directory in the working tree, or as a blob or
+# a tree in HEAD? The two tests are the guard's own, because the guard's lesson (H-0076) is that "present"
+# has to be a type question: `git cat-file -e` answers yes to a directory and to a gitlink alike.
+face_here() { # <root-relative path> <file|dir> -> 0 when that face is the log somewhere
+	local relx=$1 kind=$2 kind_head
+	kind_head=$(git -C "$root" cat-file -t "HEAD:$relx" 2>/dev/null || true)
+	if [ "$kind" = dir ]; then
+		if [ -d "$root/$relx" ] || [ "$kind_head" = tree ]; then
+			return 0
+		fi
+		return 1
+	fi
+	if [ -f "$root/$relx" ] || [ "$kind_head" = blob ]; then
+		return 0
+	fi
+	return 1
+}
+
 # The union has to contain the log. An empty one has exactly one answer available, <prefix>-0001, and
 # that is the most-cited number either log has -- so a mistyped path would be answered with a
 # guaranteed collision, the thing this command exists to refuse. Asking for a fresh log is one `touch`
@@ -216,26 +318,85 @@ esac
 # invisible to every plant the suite has, and the leg that pins it would be an ok nothing can falsify.
 log_is_here() { # -> 0 when the named path IS a decision log; sets $why to the reason it is not
 	why=''
-	case ${rel##*/} in
-	DECISIONS.md) ;;
+	local name=${rel##*/}
+	# Both accepted names in one arm, so the suite's control that opens this guard to every basename has
+	# one line to plant; everything below reads the name this guard accepted and decides nothing about
+	# whether there is a log.
+	case $name in
+	DECISIONS.md | DECISIONS) ;;
 	*)
-		why="that is not a decision log's name -- this repository keeps its ids in DECISIONS.md and factory/DECISIONS.md and reads nothing else"
+		why="that is not a decision log's name -- this repository keeps its ids in DECISIONS.md and factory/DECISIONS.md, or in the filed directories DECISIONS and factory/DECISIONS beside them, and reads nothing else"
 		return 1
 		;;
 	esac
+	# The one-character twin of the decoy below: a *trailing slash* on the monolith's name asks for a
+	# directory called `DECISIONS.md`, and no layout puts a directory there -- phase 1 files entries as
+	# `DECISIONS/<id>.md`, never inside a directory named after the monolith. Without this test the
+	# `${log%/}` above turns that ask into the monolith and answers an id for it (measured with this test
+	# deleted: `H-0023`, exit 0), which is the acceptance #456 refuses while the decoy stays refused.
+	if [ "$name" = DECISIONS.md ] && [ "$log_slash" = 1 ]; then
+		why="that is not a decision log's name -- the trailing slash asks for a directory, and the monolith is a file; the filed logs are the directories DECISIONS and factory/DECISIONS beside them"
+		return 1
+	fi
+	# The filed layout (#429, H-0263) is a directory of entries, one file per id, and the gate has read
+	# it since phase 1. Accepting the name here is what makes a filed entry a claim: the alternative is
+	# the collision #442 counts, where the union cannot see an id because the union reads one path.
+	if [ "$name" = DECISIONS ]; then
+		layout=filed
+	fi
+	# The OTHER face of the same log -- the monolith when a directory was named, the filed directory
+	# when a file was -- is what makes a not-yet-present face answerable: asking the filed question
+	# before anyone has filed anything is phase 2's first entry. It is asked about here rather
+	# than beside the function for the same reason the two existing tests are: the shipped control neuters
+	# this function by its call site, so a test written outside it is invisible to every plant.
+	if [ "$layout" = filed ]; then
+		other_rel=$stem.md
+		other_kind="file"
+	else
+		other_rel=$stem
+		other_kind="dir"
+	fi
+	other_here=no
+	if face_here "$other_rel" "$other_kind"; then
+		other_here=yes
+	fi
 	# The type HEAD holds at that path: `blob` for a file, `tree` for a directory, empty for nothing.
 	# Comparing it is the whole second test -- the predicate this branch replaced asked only whether
 	# *anything* was there (`cat-file -e`), which a directory named DECISIONS.md satisfies. The suite's
 	# type control plants that predicate back, so the leg is known to be decided by the verdict.
 	head_kind=$(git -C "$root" cat-file -t "HEAD:$rel" 2>/dev/null || true)
+	if [ "$layout" = filed ]; then
+		# A filed log is a directory in the tree or a tree in HEAD, and only the basename `DECISIONS`
+		# reaches this arm: the decoy the monolith arm below exists for -- a *directory* named
+		# `DECISIONS.md` -- is refused by that arm, exactly as it always was. Both directions are legs
+		# in `selftest.sh`, because the two names differ by three characters and one wrong verdict is a
+		# silent collision in one direction and a refusal-to-work in the other.
+		if [ -d "$target" ] || [ "$head_kind" = tree ]; then
+			return 0
+		fi
+		# The directory a log will have, not filed yet: asking the filed question before anyone has filed
+		# anything is phase 2's first entry, and the union behind it is not empty -- it is the monolith
+		# beside it. The refusal below stays the answer when neither face exists, which is the case the
+		# empty-union refusal was written for.
+		if [ "$other_here" = yes ]; then
+			return 0
+		fi
+		why='it is neither a directory in the working tree nor a tree in HEAD'
+		return 1
+	fi
 	if [ -f "$target" ] || [ "$head_kind" = blob ]; then
+		return 0
+	fi
+	# The symmetric case: the monolith was retired on disk and only the entries are left. Naming the old
+	# path must not refuse the pass; the id space is the log's, not one file's.
+	if [ "$other_here" = yes ]; then
 		return 0
 	fi
 	why='it is neither a regular file in the working tree nor a blob in HEAD'
 	return 1
 }
 log_is_here ||
-	die "no decision log at $rel in $root: ${why:-it is not the decision log}. An empty union is a wrong path, not a free log: it answers with the first id of the range (D-0001 or H-0001), which every log this repository has already used. Name DECISIONS.md or factory/DECISIONS.md, or create the file first."
+	die "no decision log at $rel in $root: ${why:-it is not the decision log}. An empty union is a wrong path, not a free log: it answers with the first id of the range (D-0001 or H-0001), which every log this repository has already used. Name DECISIONS.md, factory/DECISIONS.md, DECISIONS or factory/DECISIONS, or create the log first."
 
 # The file's name is the normal selector. If it has no headings yet -- a fresh harness adoption -- D is
 # the product default; H is only inferred from factory/DECISIONS.md rather than from a prefix found in
@@ -247,8 +408,20 @@ log_is_here ||
 if [ -z "$prefix" ]; then
 	case "$rel" in
 	factory/DECISIONS.md) prefix=H ;;
-	*) prefix=$(sed -n 's/^## \([DH]\)-[0-9][0-9][0-9][0-9].*/\1/p' "$target" 2>/dev/null |
-		head -n 1 || true) ;;
+	# The filed spelling of the same log takes its prefix from the same fact -- it stands in the
+	# `factory/` tree -- and not from a heading read out of whichever entry the directory listed first.
+	factory/DECISIONS) prefix=H ;;
+	*)
+		if [ "$layout" = filed ]; then
+			# The root directory is the root log's filed form, so D, which is also the product default
+			# two lines below; it is written out because the alternative is running `sed` over a
+			# directory to learn nothing.
+			prefix=D
+		else
+			prefix=$(sed -n 's/^## \([DH]\)-[0-9][0-9][0-9][0-9].*/\1/p' "$target" 2>/dev/null |
+				head -n 1 || true)
+		fi
+		;;
 	esac
 	[ -n "$prefix" ] || prefix=D
 fi
@@ -258,6 +431,97 @@ fi
 # predicate below is byte-for-byte the one the single-maximum read ran and the split adds a source, not
 # a second test. The `for-each-ref` call and the two ref classes beside it are plant targets in
 # `selftest.sh` -- one control per ref class -- so keep both strings on the lines they are on.
+#
+# Both faces of the log are read, always: the monolith blob and the filed directory, whichever one the
+# caller named. That is #456's requirement in one line -- the id space belongs to the log, and during the
+# migration (#429) the log has two spellings -- and the two readers below are the only places the
+# difference between them is expressed. Each face is read twice, in the working tree and in every ref,
+# because a commit on any branch is a claim on an id and the working tree is the claim this unit has not
+# made yet.
+#
+# Two shapes here carry history that was measured wrong once and is measured right now: the `if` around
+# the working-tree read, and the tolerance on a ref that will not open. Both are corrected in H-0073, and
+# a leg in `factory/selftest.sh` pins each answer instead of a rumour about it.
+face_work() { # <root-relative path> <file|dir> -- one face of the log in the working tree, tagged
+	local relx=$1 kind=$2 f
+	if [ "$kind" = dir ]; then
+		# Every entry file the directory holds, the caller's own uncommitted entry included -- that is
+		# the working-tree half of the union in this layout, and the PENDING note below is what reads
+		# it. `find` rather than a glob, because a glob with nothing to match hands `sed` the literal
+		# `DECISIONS/*.md` and dies on it. The `|| true` on the pipeline is load-bearing, not
+		# decoration, and for the reason H-0073 just above: under `pipefail` the assignment inherits
+		# the pipeline's status, so one entry file deleted between the listing and the read would end
+		# the script with no id and no word on either stream.
+		if [ -d "$root/$relx" ]; then
+			find "$root/$relx" -type f -name '*.md' -print 2>/dev/null |
+				while IFS= read -r f; do sed 's/^/W /' -- "$f" || true; done || true
+		fi
+	elif [ -f "$root/$relx" ]; then sed 's/^/W /' -- "$root/$relx"; fi
+}
+
+# The same face in one ref. For a monolith that is the single `git show` this command has always run; for
+# a filed log it is one `ls-tree` per ref -- and #506 is what the listing's two halves are then read as.
+# The per-entry `git show` this arm shipped with #505 cost one process spawn per entry per ref per
+# answer (the review of #505 measured the filed arm at 6.7 s -> 10.6 s on a 1372-ref clone), unbounded
+# once phase 3 files hundreds of entries onto the trunk every ref descends from, because then EVERY ref
+# pays EVERY entry. #506 keeps BOTH claims the old read made and drops the product: the basename is a
+# claim -- EMITS names the file to create, the gate refuses filename != heading (`layout_problems`), and
+# #442's blindness, an id existing only as `factory/DECISIONS/H-0277.md` on a sibling's branch, is a NAME
+# the basename read sees even from an empty file a content read had nothing to find in -- and the bytes
+# are a claim too, read ONCE per unique blob instead of once per path per ref: the same bytes claim the
+# same id on every ref that carries them, so deduping by sha cannot move the maximum the awk below
+# computes, while it bounds the content reads by the log's size no matter how many refs share it. That
+# is the union the review called the conservative choice (filename-max and content-max); what the dedup
+# changes is the cost shape, not the taken set. An entry filed below the prefix is counted by its
+# basename too -- refusing the nested file is the gate's job (`layout_problems`), not this read's.
+face_ref() { # <ref> <root-relative path> <file|dir> -- one face as that ref carries it, tagged
+	local ref=$1 relx=$2 kind=$3 meta path base
+	if [ "$kind" = dir ]; then
+		# The directory as a plain pathspec. The wildcard form `"$relx/*.md"` -- what phase 1 shipped
+		# -- matches NOTHING here, measured on git 2.53.0 against a ref that provably carries
+		# `factory/DECISIONS/H-0007.md`: the same `ls-tree` with the bare directory as its pathspec
+		# prints the row, and `:(glob)` magic is refused outright (`pathspec magic not supported by
+		# this command`). So a wildcard pathspec is not merely slower, it is silent: every filed id on
+		# every sibling ref was invisible, which is the exact blindness #442 priced at 7 of 31 ids. A
+		# ref git cannot open and a tree with no such directory contribute nothing and say nothing:
+		# same tolerance as the monolith arm has always had, same reason -- `set -e` would end the
+		# script over one ref this clone cannot serve. The row is parsed, not taken by `--name-only`:
+		# the path half becomes the synthesized `## <id>` line the awk below already parses, and the
+		# sha half joins the dedup ledger the union block reads back once the loop has finished.
+		git -C "$root" ls-tree -r "${ref}^{commit}" -- "$relx" 2>/dev/null |
+			while IFS=$'\t' read -r meta path; do
+				# Entry files only, the same `*.md` gate the working-tree face applies and the same
+				# one the per-entry read this replaces carried: two faces of one log must not read
+				# two different file sets, or the same call answers differently for bytes no entry
+				# is made of.
+				case $path in
+				*.md) ;;
+				*) continue ;;
+				esac
+				case $meta in
+				'100644 blob '* | '100755 blob '* | '120000 blob '*)
+					printf '%s\n' "${meta##* }" >>"$filed_blobs" ;;
+				esac
+				base=${path##*/}
+				case ${base%.md} in
+				[DH]-[0-9][0-9][0-9][0-9]) printf 'R ## %s\n' "${base%.md}" ;;
+				esac
+			done || true
+	else
+		git -C "$root" show "${ref}^{commit}:$relx" 2>/dev/null | sed 's/^/R /' || true
+	fi
+}
+
+# The #506 dedup ledger: one blob sha per line, appended by every dir-arm listing in the union pass
+# below and read back ONCE, deduped, after the ref loop. A plain file per process, not a variable: the
+# ref loop is the tail of a pipeline and its `while` body runs in a subshell, so nothing it accumulates
+# survives the loop. `mktemp` because two allocators may answer in the same instant -- two units, or a
+# unit and a person -- and one answer must not read another's ledger. The trap covers every exit after
+# this line; the runs that die later (the max-age refusal) still clean up.
+filed_blobs=$(mktemp "${TMPDIR:-/tmp}/next-decision-id-blobs.XXXXXX") ||
+	die 'cannot open a temporary file to hold the filed-blob ledger'
+trap 'rm -f -- "$filed_blobs"' EXIT
+
 union=$(
 	{
 		# An `if`, not `[ -f ] && cat` -- and not because the AND-list was ever fatal. That claim
@@ -271,7 +535,8 @@ union=$(
 		# under `pipefail` a pipeline hands its status to the assignment, so a missing log ended the
 		# script before any message (measured on `91d992d`, the same fixture without `--prefix`: status
 		# 2, stdout and stderr both empty).
-		if [ -f "$target" ]; then sed 's/^/W /' -- "$target"; fi
+		face_work "$stem" dir
+		face_work "$stem.md" file
 
 		# HEAD first, then every branch. A remote-tracking ref may name a commit the local
 		# checkout cannot open (a shallow fetch, for example); the read below is allowed to
@@ -281,8 +546,21 @@ union=$(
 			printf 'HEAD\n'
 			git -C "$root" for-each-ref --format='%(refname)' refs/heads refs/remotes 2>/dev/null
 		} | sort -u | while IFS= read -r ref; do
-			git -C "$root" show "${ref}^{commit}:$rel" 2>/dev/null | sed 's/^/R /' || true
+			face_ref "$ref" "$stem" dir
+			face_ref "$ref" "$stem.md" file
 		done
+
+		# The content claim for every filed copy, once per unique blob (#506). The ledger was filled
+		# by the dir arm above; the listing ran per ref because `ls-tree` takes no rev-list, but the
+		# read runs per sha because identical bytes claim identical ids on every ref that carries
+		# them, and the awk below takes a maximum. That is why this stage cannot change the answer
+		# relative to #505's per-entry `git show` -- it can only stop the answer from spawning one
+		# process per entry per ref. Unreadable blobs contribute nothing and say nothing: the same
+		# tolerance the ref walk has always carried for a ref this clone cannot serve.
+		sort -u -- "$filed_blobs" 2>/dev/null |
+			while IFS= read -r blob; do
+				git -C "$root" cat-file blob "$blob" 2>/dev/null || true
+			done | sed 's/^/R /' || true
 	} | awk -v want="$prefix" '
 	{
 		src = substr($0, 1, 1)
@@ -317,6 +595,79 @@ fi
 fmt_id() { printf '%s-%04d' "$prefix" "$1"; }
 
 next=$(fmt_id "$((ceiling + 1))")
+
+# ------------------------------------------------------------- the journal's live claims (#442)
+#
+# The ceiling above counts log HEADINGS, so an id another unit was handed -- journalled, not yet
+# committed -- sits below it invisible, which is how 53 minutes delivered `H-0250` three times. Ask
+# the journal before answering: from the ceiling up, the LAST `DECISION-ID` line naming a candidate
+# is that id's claim; a claim of a DIFFERENT unit whose branch still exists as a ref here holds the
+# id -- step over it and say whose was skipped (`H-0251 (H-0250 taken: journalled ... by ...)`
+# travels in the journalled line, and a STEPPED-OVER line says it on stderr). A claim whose branch
+# exists nowhere is expired, because the entry it would have committed was never written:
+# issue-365 earned `H-0355`, died at the tick ceiling, and no branch ever followed. A claim of THIS
+# unit keeps its own id, so #320's re-read after writing an entry still answers the number earned.
+# Failure-blind and offline like every other arm: an unreadable journal answers with no claims, and
+# the merge stays the arbiter of what a local read cannot see.
+claims_dir=${FACTORY_LOG:-$root/factory/log}
+claims_note=''
+
+claim_branch_alive() { # -> 0 when a journalled claim's branch exists as a ref here; a claim lives no longer than its branch
+	case ${1:-} in
+	'' | unknown | HEAD) return 1 ;;
+	esac
+	git -C "$root" rev-parse -q --verify "refs/heads/$1" >/dev/null 2>&1 && return 0
+	git -C "$root" rev-parse -q --verify "refs/remotes/origin/$1" >/dev/null 2>&1
+}
+
+claim_scan() { # steps `next` over live journal claims; records the trail in claims_note; never fails the answer
+	local claims_map claim_n claim_row claim_id claim_unit claim_branch claim_ts
+	[ -r "$claims_dir/supervisor.log" ] || return 0
+	claims_map=$(awk -v want="$prefix" '
+		$2 == "DECISION-ID" && $4 ~ /^unit=/ && $5 ~ /^branch=/ && substr($3, 1, 1) == want {
+			last_u[$3] = substr($4, 6)
+			last_b[$3] = substr($5, 8)
+			last_t[$3] = $1
+		}
+		END {
+			for (claim_scan_id in last_u)
+				printf "%s\t%s\t%s\t%s\n", claim_scan_id, last_u[claim_scan_id], \
+					last_b[claim_scan_id], last_t[claim_scan_id]
+		}
+	' "$claims_dir/supervisor.log" 2>/dev/null) || claims_map=''
+	[ -n "$claims_map" ] || return 0
+	claim_n=$((ceiling + 1))
+	while :; do
+		claim_id=$(fmt_id "$claim_n")
+		claim_row=$(printf '%s\n' "$claims_map" | awk -F'\t' -v id="$claim_id" '$1 == id { print; exit }')
+		[ -n "$claim_row" ] || break
+		IFS=$'\t' read -r claim_id claim_unit claim_branch claim_ts <<<"$claim_row"
+		if [ "$claim_unit" = "${FACTORY_TICK_UNIT-}" ]; then
+			break
+		fi
+		claim_branch_alive "$claim_branch" || break
+		if [ -n "$claims_note" ]; then
+			claims_note="$claims_note; $claim_id taken: journalled $claim_ts by $claim_unit on branch $claim_branch"
+		else
+			claims_note="$claim_id taken: journalled $claim_ts by $claim_unit on branch $claim_branch"
+		fi
+		printf 'next-decision-id: STEPPED-OVER %s -- journalled %s by %s, whose branch %s still exists\n' \
+			"$claim_id" "$claim_ts" "$claim_unit" "$claim_branch" >&2
+		claim_n=$((claim_n + 1))
+	done
+	next=$(fmt_id "$claim_n")
+}
+
+# claim_scan ends 0 by construction -- it is failure-blind like every other arm -- so it needs no
+# `|| :` guard, and the trail it records must be set in this shell, beside the answer it describes.
+claim_scan # the call is the read: the journal is asked before the answer is handed out
+
+# One fact, spelled once (#464): the entry file this answer emits. The `EMITS` line below and the
+# journalled `path=` field are the same destination read back two ways -- a unit that creates the
+# file EMITS names must find that exact path in the journal line, or the end-of-tick comparison
+# audits the provenance of an id against a file nobody was told to write. `next` is final here:
+# claim_scan has already stepped it, and nothing after this line moves it.
+emit_rel="$stem/$next.md"
 
 # Where the ceiling came from (issue #320). `work > refs` holds in exactly one window: the highest
 # heading in the repository is the one the caller is writing, so no ref carries it and the file being
@@ -553,9 +904,20 @@ if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]; then
 	fi
 	[ -z "$blind_age" ] || jrn_read="$jrn_read ${blind_age}s"
 	jrn_read="$jrn_read union"
-	if printf '%s DECISION-ID %s unit=%s branch=%s (allocator, %s, %s)\n' \
+	# The trail of a step-over travels in the answer's own line (#442): a unit that sees a
+	# surprising id must see whose id it skipped, not only which union read it came from. It is a
+	# trailing note after the fixed fields, because both readers of this line -- the earned-set
+	# read in common.sh and this command's own claim scan -- key on the positional fields.
+	# `path=` joins those fixed fields as the sixth (#464): the entry file the answer emits, so
+	# the end-of-tick comparison can audit an id against a destination, not only against a
+	# branch. Both positional readers key on `$2`-`$5` and read no further, which is why the new
+	# field sits before the note and never after it -- a note is already the shape that says
+	# "variable tail, parse no fixed field past me".
+	jrn_note=''
+	[ -z "$claims_note" ] || jrn_note=" ($claims_note)"
+	if printf '%s DECISION-ID %s unit=%s branch=%s path=%s (allocator, %s, %s)%s\n' \
 		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$next" "$FACTORY_TICK_UNIT" \
-		"${jrn_branch:-unknown}" "$rel" "$jrn_read" \
+		"${jrn_branch:-unknown}" "$emit_rel" "$rel" "$jrn_read" "$jrn_note" \
 		>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then
 		printf 'next-decision-id: journalled DECISION-ID %s (%s)\n' "$next" "$jrn_read" >&2
 	else
@@ -563,5 +925,22 @@ if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]; then
 			"$FACTORY_LOG/supervisor.log" "$next" >&2
 	fi
 fi
+
+# ------------------------------------------------------------------- where the entry goes
+#
+# The number is only half of what a writer needs; the other half is which file carries it. Before the
+# split the answer was always the path the caller named, so naming it back was worth nothing. It is worth
+# something now: `#429` phase 1 shipped a reader that opens both layouts while every writer appended to
+# the monolith, and `AGENTS.md` tells a unit not to file an *existing* entry by hand for exactly that
+# reason -- a hand-filed file is one nothing will produce again. Phase 2 ends the other half: a NEW
+# entry is a file, in either log, so the answer names the entry file whichever face the caller asked
+# about. A unit following the old brief and reading this line stops appending; a unit that ignores
+# stderr still gets a correct id, which is all it ever got.
+#
+# stderr, because stdout is what a caller captures as the id: a marker in front of the number would be
+# parsed into it or ignored, and an ignored marker is the silence this replaces (the same rule the PENDING
+# and REFRESH notes follow above).
+printf 'next-decision-id: EMITS %s -- create that file with your entry; new entries are files, not monolith appends\n' \
+	"$emit_rel" >&2
 
 printf '%s\n' "$next"

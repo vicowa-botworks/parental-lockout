@@ -417,8 +417,8 @@ var layoutHooks = map[string]string{
 	"notes":          "the `aside` that explains how a page's list was produced (/audit, /users)",
 	"opt":            "a `<label>` in the assign-profile cell",
 	"profile":        "the `<section>` per profile on /profiles",
-	"rule":           "the rule-name `<span>` in the status page's Why cell",
-	"sessions":       "the session `<ul>` on the status page",
+	"rule":           "the rule-name `<span>` in the dashboard's Why cell",
+	"sessions":       "the session `<ul>` on the dashboard",
 }
 
 func TestEveryClassTheTemplatesWriteIsDrawnOrADeclaredHook(t *testing.T) {
@@ -680,7 +680,7 @@ func firstMatch(re *regexp.Regexp, s string) string {
 //	           refusal). Always `role="alert"`, always outside a cell: a refusal is a paragraph above
 //	           or beside the form it refused, and it is read out to the operator by the same thing that
 //	           reads the audit trail aloud.
-//	override -- the hold the operator granted and nothing else. It lives in the status page's "Why"
+//	override -- the hold the operator granted and nothing else. It lives in the dashboard's "Why"
 //	           column, which is the only surface that grants a hold.
 //	exempt   -- the session the daemon runs inside, which no schedule will lock (2 sites, the two
 //	           result pages). It lives in a "Detail" cell, beside the `.problem` detail it must stay
@@ -721,7 +721,7 @@ func TestEveryStateClassCarriesOneMeaning(t *testing.T) {
 		case "override":
 			if s.cell != "Why" {
 				t.Errorf("%s puts `.override` (cell %q, in a cell: %v). The open hold is reported in the "+
-					"status page's \"Why\" column, which is the column that explains why a schedule is not "+
+					"dashboard's \"Why\" column, which is the column that explains why a schedule is not "+
 					"holding; #239 gave the daemon's self-exemption its own name (`exempt`) rather than "+
 					"leaving one class to mean a hold and the absence of one.", s.tmpl, s.cell, s.inCell)
 			}

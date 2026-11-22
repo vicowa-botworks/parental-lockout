@@ -156,10 +156,17 @@ When you reach a decision point, do this instead, in this order:
    factory/next-decision-id.sh factory/DECISIONS.md
    ```
 
-   Use exactly what it prints. It takes the union of the current checkout, `HEAD`, `refs/heads` and
+   Use exactly what it prints — and write the entry into the file its stderr `EMITS` line names
+   (`EMITS factory/DECISIONS/H-0369.md -- create that file...`), not into a monolith: new entries are
+   files in either log (#456), while existing entries stay where they are — never hand-convert one.
+   The same file is journalled beside your id (`DECISION-ID … path=factory/DECISIONS/H-0369.md`, #464):
+   if the file you created is not the one the allocator journalled, one of the two was taken by eye.
+   It takes the union of the current checkout, `HEAD`, `refs/heads` and
    `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
    wrong, not the tool**: it answers only for the decision log itself -- a path whose name is
-   `DECISIONS.md`, holding a regular file in the working tree or a blob in `HEAD` -- because
+   `DECISIONS.md` holding a regular file in the working tree or a blob in `HEAD`, or, since #456, the
+   filed name `DECISIONS` holding a directory in the tree or a tree in `HEAD` (`DECISIONS/` is
+   accepted; `DECISIONS.md/` is still refused) -- because
    an empty union has exactly one answer available -- `D-0001`/`H-0001`, the number both logs opened
    with -- and handing that out is the collision this command exists to refuse (`H-0073`). Read its
    message and name the log you mean; never fall back to numbering by eye. A relative path resolves
@@ -254,10 +261,10 @@ anything is allowed to claim it happened (#1180).
 
 ```bash
 # 1. the comment, and the entry with `Chose: escalated` and `Awaiting:` naming the decision, committed.
-#    An escalated entry carries `Checkpoint: n/a` -- it decided nothing -- so there is no checkpoint
-#    commit to take first.
-gh issue comment "$ISSUE" --body "…what is ambiguous, what each option costs, what you would
-recommend, and the exact command to proceed…"
+#    The comment IS the ask: `Question:` on its first line, `Options:` numbered in that same comment
+#    with each cost and a recommendation; receipts above in their own comment, `Checkpoint: n/a` (H-0285).
+gh issue comment "$ISSUE" --body "Question: <the one line only a maintainer can answer>.
+Options: 1) …, costs …; 2) …, costs …. Recommended: <n>. To proceed: <exact command>."
 # write the entry into the log the ticket belongs to, then:
 git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
 git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
@@ -292,15 +299,18 @@ exit 1, and `gh issue edit 314` with the same name printed
 read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
 only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
 that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
-name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
---remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
+name at all. `D-0047` measured the split from the other side -- `gh issue edit 240` with two
+`--remove-label` arguments, `blocked` and the marker name of the moment, exited 0 and read back
+`labels: []` where `gh pr edit`
 died on that field (`./DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
 is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
 to read.
 
 Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
 exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
-enough. The name is `factory/escalation-label.sh`'s to print and #311's to settle; a reported refusal is
+enough. The name is `factory/escalation-label.sh`'s to print, and only that: #311 settled what the value
+is on 18 Nov and its answer lives in `factory/common.sh`, so a unit that wants a different one has a
+ticket to argue on, not a string to type. A reported refusal is
 the honest end state of a step whose name is still owed, while an invented label is a marker that reads
 as settled. Nothing outside that script's output may reach `--add-label`.
 
@@ -376,6 +386,17 @@ inflection of "close" next to an issue number unless the issue is really finishe
 matches a closing keyword immediately followed by an issue reference, with no notion of negation:
 measured on this repository, `**This does not close #10.**` closed issue #10 the second the merge
 landed. For partial work write `Part of #10 only; the umbrella is not finished.` or `Refs #10`.
+
+A ticket delivered in slices makes every slice partial at the moment its body is written, so `Refs`
+is the correct spelling on each one and the closer is owed by nobody -- which is how eleven finished
+issues sat open behind honest `Refs` bodies, the oldest 6d01h, with no artifact naming the slice that
+completed the umbrella (#497). The slice you believe *finishes* the ticket must say so: write
+`Last slice of #N.` in plain text beside the documented keyword touching the same number. The phrase
+is no GitHub keyword and closes nothing by itself -- it stays out of the harness's closer pattern for
+#1256's reason; it is the author's statement to this repository's checker and to the next reader,
+and `scripts/check-close-verb.py` refuses the statement when no keyword touches that number. Without
+the statement the row stays honestly `delivered`, exactly as before: a genuinely partial slice must
+never be pushed toward a closer that would lie.
 
 **And when the issue really is finished, put the verb where GitHub can see it: in plain text, touching
 the number, never inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured
@@ -592,8 +613,8 @@ catches.
 - A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
   label, and the read-back that says the label landed.
 - A label name of your own choosing. `--add-label` takes only what `factory/escalation-label.sh`
-  prints, and `gh label create` is not a tick's move: what the escalation marker is called is #311's
-  open question, and a label you invented reads as a decision somebody made (#315).
+  prints, and `gh label create` is not a tick's move: #311 settled the name on 18 Nov as `question`
+  (H-0250), and a label you invented reads as a decision somebody made (#315).
 - `git checkout <file>` / `git restore` to undo a probe -- it reverts to HEAD and takes the whole
   uncommitted change with it. Keep a `/tmp` backup and restore with `cp`, taken **after** the fix.
 - Committing `plock`. `git ls-files | grep -x plock` must print nothing before any `git add -A`.
@@ -603,15 +624,82 @@ catches.
   because the code changed; fix the anchor, and say so in the PR body.
 - Touching `vendor/` or a submodule to get a build green: there is no `vendor/`.
 - Working outside your worktree, or reading another unit's worktree to "help".
+- Scratch inside your own tree. Throwaway fixtures -- probe repositories, fake trees, anything you
+  write to answer a question and throw away -- go in `$FACTORY_SCRATCH`, the directory the supervisor
+  mints outside every worktree, names in your prompt beside the tree, and deletes when your tick
+  ends. Untracked directories inside the tree are what the content verdict cannot tell apart from a
+  half-finished deliverable, and a halt is global: one unit's `.probe/` froze the whole queue for
+  7h39m (#415). If `$FACTORY_SCRATCH` is empty, use `/tmp`, never the tree -- an ignore rule is not
+  a fence, and the verdict that halts exists precisely because the harness will not guess about
+  untracked bytes.
 - A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
   the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
   it, and the entry reads as though it is still re-runnable. Write the text you measured after the
-  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop. Adding" ``, at least 16 quoted characters, and
   `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
   `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
   files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
-  the SAME physical line: the rule reads one line, so a fragment wrapped onto the next one is not an anchor
-  and the citation lands in the debt instead of being checked. A citation with no
-  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the SAME physical line: the rule reads one line, so a quotation the newline cut — the fragment opening
+  on the next line, or one left unclosed at end of line — is not an anchor, and since #369 it is REFUSED
+  by name, not left as silent debt; while any such row exists the ratchet is held shut, so fixing it is
+  never optional. A citation with no
+  quote at all is counted against `POINTER_DEBT` there, and that number may only fall. And since #374 a
+  sentence saying a line `now reads` or `is at` a place in the tree the gate reads is itself a pointer:
+  unanchored it is refused outright, so anchor the sentence or past-tense it with the date it was read.
+  Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.
+- A `path:line` quotation that stops in the middle of a word on the cited line. Containment is true of a
+  fragment cut anywhere inside a token, so a quotation that leaves the end of the word off stays green
+  while the rest of that word is renamed — the pointer cannot fail, which is the same defect #374 refuses,
+  one edge further out. Measured on the shipped logs: five rows quoted the head of one shell substitution,
+  and the commit that changed the default inside it to `question` and moved all five onto the new line
+  greened the gate without lengthening one quotation (#495). Quote through the last character of the
+  token, and when a fragment ends at a `:` or a `/` in the middle of an expression, take the whole
+  expression instead of a prefix of it; `--citations` names every row that stops short and prints the
+  characters it left off.
+
+## New harness legs are files under `factory/selftest.d/`, not a tail on `factory/selftest.sh`
+
+#428 measured the shared append tail: every unit that adds a leg appends to the end of
+`factory/selftest.sh`, two tails in one window conflict by construction (3 of 8 open branches measured),
+and every merge slides the line numbers the logs cite inside that file. The repair landed in phase 1:
+the suite now ends by sourcing every `*.sh` under `factory/selftest.d/` in `LC_ALL=C` byte order via
+`run_selftest_d_legs`, whose contract block sits directly above it in the same file.
+
+- **A new leg is a new file**: `factory/selftest.d/<n>-<slug>.sh`. The `<n>-` prefix is the run order and
+  the runner sorts byte order, so pad it (three digits sorts predictably). The file is *sourced* mid-run
+  by the parent suite: `$work`, `$HERE`, `$pass`/`$fail` and `claim_leg` already exist there. Assert with
+  `claim_leg`; keep `set -e` in mind — a bare failing command inside a sourced file aborts the whole
+  suite, so detail goes to stderr and verdicts go through `claim_leg`.
+- **The file is linted standalone** by `scripts/check-shell.sh` even though it only runs sourced, so
+  naming the inherited harness variables needs a `# shellcheck disable=SC2154` header, and `make
+  check-shell` is the leg that tells you so before CI does.
+- **Do not migrate an existing leg to a file in your unit's branch.** Batches are phase 2 (see
+  `NEXT.md`); in-flight branches keep appending to the old body until they merge. A leg that reads its own
+  file — extracting a function body, scanning itself, building a control from its own bytes — must carry
+  that self-read with it (`$BASH_SOURCE`), and the list of such sites is kept in `NEXT.md`'s owed section.
+  A leg that moves and loses its self-read passes vacuously, which is the failure #428 names.
+- **Cite a leg file by name, not by line.** The point of the split is that adding a leg cannot shift a
+  coordinate inside another file; a pointer into `factory/selftest.sh` still slides. Prefer the function
+  name; a `path:line` still needs its quoted fragment like anywhere else.
+- **`NEXT.md` is unchanged by phase 1** — the hand-off stays one gated file. #428 proposes splitting it
+  into `NEXT.d/` with `scripts/check-next-md.sh` reading the directory; until that lands, write the
+  hand-off exactly as the section above says.
+
+## If the branch carries a number, the body must name it (#457)
+
+An `issue-<N>` branch states the ticket it delivers in its own name, and until #457 nothing read the
+name and the body together. #454 is the specimen, re-measured 21 Nov from its merged body: `#375`
+occurs zero times -- the substring `375` appears three times, twice as the branch string and once as
+a coincidental hit inside a quoted `factory/selftest.sh` line number -- no keyword names the ticket,
+the merge registered no closing reference, and the ticket was dispatched again eight minutes after
+it had been delivered. So Step 5's checker, `scripts/check-close-verb.py`, now refuses the second
+half too: on a branch whose name claims a number, a body that names that number with NOTHING exits
+1. A documented keyword, a `Refs`/`Part of` line, or anything else the checker reports counts as
+naming it; a bare `#N` does not, because a link registers with no queue. The branch is read with
+`git rev-parse --abbrev-ref HEAD` in the directory the checker runs -- another reason Step 5 says to
+run it in the worktree rather than over a pipe; `--branch NAME` overrides what it finds, and
+`--branch ''` or `--span-blind` silences the leg. Practical rule: name your own ticket in the body
+in the same breath as the body's first line -- not as a post-create edit, which nothing re-checks --
+and run the checker against the body file before `gh pr create`, not after.

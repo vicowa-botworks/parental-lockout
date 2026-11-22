@@ -3339,7 +3339,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   this file, only without the renumbering), `python3 scripts/check-decisions.py --log` exits **1** with
   two problems: `id D-0058 is already used at …:2975; ‘revert to before D-0058’ would name two
   commits` and `D-0058 is used in … — one id, 2 decisions; a citation to it does not resolve.
-  Renumber the later entry in its own log` (`scripts/check-decisions.py:145`, `:471`). Folding is worse
+  Renumber the later entry in its own log` (`scripts/check-decisions.py:189`, `:654`). Folding is worse
   than folding away: two questions, two option sets and two checkpoints cannot share a heading without
   deleting one of them, and the record being deleted would be a merged one (#1180: a decision record
   gets a dated correction, never an edit). So the choice is which side moves, and three reads decide it.
@@ -5210,7 +5210,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   nowhere in the file, an argument that advertised a dependency it did not have. The
   guard #355 proposed — refusing fixture windows that end at `23:59` — lost to nothing:
   this same branch later wrote it (`scripts/check-fixture-window.sh`, wired into
-  `Makefile:152` "fixture window guard"), as decision H-0202, which amends this
+  `Makefile:155` "fixture window guard"), as decision H-0202, which amends this
   bullet — the pinned gap-minute cells and the shape guard now police the class together.
 - Checkpoint: ac936ae
 - Effect: the commit carrying this entry — `unenforcedCandidates` takes `now`;
@@ -5220,3 +5220,432 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the new call site with the battery re-validated whole. `make verify` and the reads after
   the push are quoted with their exit statuses in the pull-request body, not here, because an
   `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0086 · #378: the probe table witnessed 61 of its 81 rules by a raise alone — the probe sat on the rule's path but never tested the judgement the rule's name claims — add a kind that makes a guard ANSWER and re-derive every hollow rule, widen only the rules a reviewer names, or keep the raise-only floor
+
+- Question: `RULE_PROBES` in `testing/capture/pages.py` states every row is a break aimed at the
+  thing the rule's `why` names. Measured 14 Nov by an instrumented classification `print` in the
+  probe loop (the recipe, with its command and output, is in #378): of 81 rules TWENTY append a
+  problem sentence for their break, SIXTY-ONE react only because the break's exception escapes
+  through them, and none are silent. A raise proves the break sat on the path the rule drives;
+  it does not prove the rule would notice the guard ANSWERING without refusing — which is the
+  judgement every one of those rows claims. The kinds that answer (`empty`, `data`, `page`,
+  `shadow`) existed only where derivation could reach a file or a table, not the callable guards
+  the sixty-one name.
+- Mechanism of the choice: `("returns", "<module>.<name>", value)` stands a callable in that
+  answers the value the entry names whatever it is called with, refusing before it touches
+  anything if the spec names a number or carries no value. Every one of the sixty-one re-derived per rule,
+  one subprocess per rule so one crash cannot hide the rest, against every candidate callable
+  whose leaf name shares a word with the rule's `why` (the derivation convention `D-0076`
+  already ran hollowing breaks under), values `None`, `[]`, `{}`, `0`, `""` and a
+  deliberate wrong answer; a candidate scores only where the rule's own comparison appends its
+  problem AND the rule passes the whole self-test on a clean tree first — the baseline arm proves
+  every rule passes unbroken before any break is trusted. Fifty entries kept their guard and
+  changed kind; ten moved to the neighbouring guard whose answer the rule actually reads; seven
+  needed an alternate candidate re-scored in the shipped probe order, because their isolated
+  clean-report degraded to a raise once the other eighty probes ran before them — the ordering
+  the harness comment itself calls the worst case. Measured on this tree with the same
+  instrumented loop: EIGHTY-ONE report, ZERO raise-only, ZERO silent. The arm-3 machinery
+  witness now additionally holds the broken guard to the spec's own value, at two sentinels so a
+  hardwired constant cannot pass it, and the reject loop undoes an improperly accepted shape
+  before naming it — #378 measured that a leaked swap of the rules-count constant makes the
+  sibling suite's pre-flight answer check refuse the row as INVALID, arriving as broken plumbing
+  instead of as a named refusal. Five CAUGHT rows in `scripts/attack-capture-self-test.py` pin
+  raise-instead-of-answer, answer-one-constant, undo-restores-nothing and both refused specs.
+- Options: repair per rule only the rows a reviewer names | add a kind that makes a callable
+  guard ANSWER the value the table names and re-derive every raise-only row with it, extending
+  the existing apply/restore witness to hold the answer to the spec | same kind, but with a
+  dedicated fifth harness arm to witness it | same kind and keep the 61 raise-only rows too,
+  pinning nothing about which shape witnessed which rule | leave the table alone and downgrade
+  its header sentence to say sixty-one rows are witnessed by reaction location only
+- Chose: add a kind that makes a callable guard ANSWER the value the table names and re-derive
+  every raise-only row with it, extending the existing apply/restore witness to hold the answer
+  to the spec
+- Why: no existing kind makes a guard answer — `hollow` and `refuse` force a raise by
+  construction, `data` swaps only a shipped table, `shadow` rewrites files on disk — so the
+  judgement half of the table's claim was unprovable by the machinery as built, not merely
+  unmeasured. All sixty-one rather than a named subset because a subset leaves the table's
+  sentence true only for the rows that were upgraded, and the in-context alternates closed every
+  remaining rule at zero cost to any rule's strength — the subset version measured 74/7/0 and
+  still carried the exact gap the issue names. Two sentinels because the per-rule pass counts a
+  raise as a reaction and is structurally blind to an arm that raises or answers one constant;
+  the witness is the only machine positioned to see it.
+- What lost: the per-rule repair for only the reviewer-named rules lost — cheaper, and leaves
+  sixty claims unwitnessed. A fifth harness arm dedicated to the `returns` witness lost — arm 3
+  is the apply-and-restore witness and an unwitnessed arm is the listed-floor pattern this suite
+  exists to refuse. Pinning `RAISED == 0` inside `_rule_probes_are_live` lost: a raise remains a
+  legitimate witness for a rule whose contract IS an escaping refusal, so a zero floor would
+  forbid honest future rows — 81/0/0 is this table's measured state, recorded here and in the
+  paragraph above the table, not a harness floor. A `returns` arm whose answer is computed from
+  the call arguments lost: every rule needed a constant answer, and a computed answer wants a
+  spec vocabulary this table has no present reason to invent. Scoring candidates only in the
+  shipped order lost as the sole method: it hides which alternate candidate serves which rule
+  once the order shifts, so the isolated per-rule sweep is the derivation and the shipped-order
+  re-score is the acceptance gate.
+- Checkpoint: 6358c12
+- Effect: the commit carrying this entry — the `returns` arm in `_apply_probe` with the note
+  built before the swap, the two-sentinel witness and the undo-before-naming reject loop in
+  arm 3, the 61 re-pointed entries, the kinds list and the re-measured split in the paragraph
+  above the table, the five attack rows, and `EXPECTED_ROWS` 73 to 78. `make verify` and the
+  reads after the push are quoted with their exit statuses in the pull-request body, not here,
+  because an `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0087 · #387: the shell gains a skip link — which anchor reaches the content, and which collapse idioms can hide a thing a keyboard still has to reach
+
+- Question: #204's one undelivered bullet: every page the shell renders paints a masthead of
+  five links and a sign-out form before the content, nothing skips past them, and the template
+  carried a comment apologising for the missing link in prose instead of carrying the link.
+  #387 asks for one first-focusable anchor that resolves to a real target, without shifting
+  the layout of any of the nine acceptance frames. The mechanism is the decision: the link
+  must be invisible at rest and reachable by Tab, and the two obvious ways to hide an element
+  — `display: none` and `visibility: hidden` — remove it from the sequential focus navigation
+  order outright, so the naive "hidden" link is exactly the link the one input it exists for
+  can never reach.
+- Options: leave the bullet in prose and open a follow-up | add a `display:none` hidden anchor
+  with no CSS reveal | add a hidden `href="#"` anchor at the top of the content region, no
+  stylesheet change | put an id on `<main>` and a real anchor as the first child of `<body>`,
+  collapsed with the clip idiom `table.rows thead` already uses and revealed by releasing
+  width, height and clip while `position: absolute` holds, so the focused state reflows
+  nothing | same anchor, but reveal it by returning the box to the flow (`position: static`)
+- Chose: put an id on `<main>` and a real anchor as the first child of `<body>`, collapsed
+  with the clip idiom `table.rows thead` already uses and revealed by releasing width, height
+  and clip while `position: absolute` holds, so the focused state reflows nothing
+- Why: `display: none` and `visibility: hidden` were refused by what they do to the focus
+  order, not by taste — a skip link a keyboard cannot land on is the bullet undelivered with
+  the markup present. A hidden `href="#"` is reachable but lands at the top of the document,
+  which is where the masthead already is: it is the #387-named false pass seen from the other
+  end, an href whose target does not answer the question the link asks. Static reveal was
+  refused for the reason the ticket states as a requirement — a box that re-enters the flow on
+  focus pushes the masthead down on every Tab and pulls it back on every blur, a layout shift
+  per keystroke on every page, against "without shifting the layout". The absolute reveal
+  floats over the page instead. The collapse idiom is not invented here: app.css already
+  hides the table's head at phone width with `position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%)` and its own comment "Out of the layout, but not
+  out of the accessibility tree" — the same claim this link needs, one rule away.
+- What lost: prose lost — it is what #204 through #387 already lived with, and an apology in
+  a comment is a bullet nobody is guard-keeping. `display:none` lost on the focus order. The
+  `href="#"` anchor lost on its landing point. Static reveal lost with it, and with that the
+  simpler focus rule: `position: static` on focus needs one property, the absolute reveal
+  needs the box to be positioned in both states and a `z-index` so it paints over what it
+  overlaps. The overlap is the accepted residue of this choice: while focused, the link
+  covers part of the masthead area, and nothing else.
+- Checkpoint: d6cb007
+- Effect: the commit carrying this entry — `page.tmpl` gains the anchor as the first element
+  of every shell page and the id on `<main>`, and its masthead comment no longer apologises;
+  app.css gains the `.skip` collapse and `.skip:focus` reveal;
+  `TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage` guards resolution, singleness,
+  text and order per page, its fixture proven against seven defect shapes before it was
+  trusted; W303 and W304 put the deletion and the orphaned-fragment shapes back for the
+  battery. Gate receipts and the re-capture are read back with their exit statuses in the
+  pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy
+  (#1180).
+
+## D-0088 · #388: the root page has been called two things since the commit that added it, because `D-0016` delegated the word to `#204` and `#204` closed with the bullet unworked - keep the reader's word and move the build's vocabulary to it, move the shell's word and the prose that names the page to *dashboard*, pin only the shell's own pair and let the two vocabularies coexist, or ask a person for the word
+
+- Question: what is the root page called? `git log --diff-filter=A` says `dashboard.tmpl` arrived as
+  `dashboard.tmpl` in `d9cd943` (15 Oct), "feat(web): the status and accounts pages", and the same commit
+  wrote `{{define "title"}}Status{{end}}` into it, so the file, its package `internal/dashboard`, its frame
+  `docs/screenshots/360/dashboard.png` and the 30 mentions in `docs/` and the package (`git grep -o -i
+  dashboard -- docs internal/dashboard`, where `docs/PLAN.md`'s route table maps `/` to `dashboard`) have
+  said *dashboard* while everything a reader sees has said *Status*: the navigation entry, the tab strip, the
+  `<h1>`, three back-links reading "Back to the status page", the test-lock page's "use *Lock now* on the
+  status page", and the settings banner's "The status page says so too". `#204` carried the rename in its own
+  body ("**Name the root page once.**") and `D-0016` assigned it there; `#219` quoted the split (`the link
+  reads Status, the page is the dashboard`, credited to `#204`) and sent it there too; `#204` is closed with
+  the bullet unworked and the word never moved. This is the choice `D-0016` deliberately did not make - it
+  settled the heading MECHANISM and left the word inside it - and `#388` names the split, not a direction:
+  "either answer settles the ticket; the split is the only wrong outcome".
+- Options: `Status`, moving the 93 tracked files that say *dashboard* up to it, a Go package name included |
+  `dashboard`, moving the shell's word, the reader-visible prose that names the page, the comments inside the
+  package that renders it, the `pagename` slug and the capture harness's transcription of the row | pin only
+  the shell's pair (nav entry == `title` block) and leave the code's vocabulary and the reader's vocabulary
+  separately named, which is the split with a test on its edges | a third word (`Overview`) | escalate the
+  word to a person as a naming decision
+- Chose: `dashboard`, moving the shell's word, the reader-visible prose that names the page, the comments
+  inside the package that renders it, the `pagename` slug and the capture harness's transcription of the row
+- Why: the ticket's own evidence leans this way and the measurement agrees with it - 93 tracked files outside
+  `DECISIONS.md` carry *dashboard* (`git grep -il dashboard -- ':!DECISIONS.md' | wc -l`) against the eight
+  places a reader meets *Status*, five of them prose - but the reason is not the count. *dashboard* is the
+  word the build-side vocabulary uses and cannot stop using without renaming a Go package, a frame name, a
+  manifest key and the operator docs that name it, which is the bigger change to the wrong surface: renaming
+  code moves a name nobody reads and leaves the reader's prose where it is until the same ticket is filed
+  again. *Status* carries a cost the count hides: it is already the word an operator types, `plock status` -
+  16 mentions in `docs/` and `README.md`, and `docs/cli.md` documents the command - so keeping it for the page
+  leaves one word meaning a screen and a verb in the same manual. Moving the reader's word settles both layers
+  in one direction, and the direction is the one the file, the package and the docs already claim.
+- Mechanism of the choice: `dashboard.tmpl`'s `title` block moves `<title>` and the `<h1>` together by
+  construction, so the pair #219 guards cannot drift; the navigation entry is a literal in `page.tmpl` and is
+  the piece the ticket called out as the forgettable one, so it moved beside it and is now pinned - see
+  `TestEachNavEntryNamesThePageItLinksTo` in `internal/web/page_heading_test.go`, which renders each of the
+  five shell pages and refuses a row whose entry's words are not that page's own `<h1>`, and the label list in
+  `TestTheMastheadLinksAreSeparatedInTheRenderedBytes` in `internal/web/pages_test.go`, which is the empty-nav
+  floor that guard needs. The slug moved too (`pagename`: `status` to `dashboard`), which measured as inert:
+  `git grep 'page-status'` answers nothing at this entry's checkpoint, `internal/web/static/app.css` carries
+  no `page-` rule at all, and `page.tmpl`'s own header comment says of `pagename` that "the slug is not the
+  name anybody reads". It moved for the same reason as the prose: the class the browser reports should not name
+  a fifth thing. The capture harness's transcription moved with the row it transcribes, re-measured rather than
+  re-worded (see Effect).
+- What lost: `Status` lost the reader's familiarity - someone who has followed "Back to the status page" for a
+  year reads `Dashboard` now, and the three back-links are the price of settling 93 files that nobody reads.
+  Pinning only the shell's pair lost as a method: it leaves a page whose heading and row agree with each other
+  and disagree with the manual that tells an operator where to look, which is the complaint #388 was written
+  from. A third word lost because it settles nothing the two existing words could not, and re-opens the
+  operator docs that name the frame plus #219's heading for no new information. Escalating lost: the ticket
+  calls this "reversible prose, `git revert`-able, not an escalation", and the four classes that belong to a
+  person do not include the spelling of a page's own heading. Longer entries also cost the phone row one
+  wrapped line, recorded rather than argued away: the row breaks between ENTRIES and never between words, so in
+  document order the measured boxes - `Dashboard` 96, `Accounts` 78, `Audit trail` 83, `Lockout profiles` 130,
+  `Settings` 70, the sign-out form 90, gaps 14 - put three on the first line (x=24, 135, 227, ending at 310
+  inside the 312 available), two on the second (x=24, 168, ending at 238), and the form alone on a third at
+  y=179, because joining the second line would need 238+14+90 = 342 px. The third line is therefore forced by
+  the order and the widths, not by a packer that missed a tighter fit; the header measures 312x192 with the nav
+  at y=93 h=123 where the pre-rename row measured 312x152 with the nav at h=83. Fitting it back into two lines
+  is a CSS call about the gap, the form and the words, with its own numbers, and it is not this ticket's call.
+- Checkpoint: 83f88c7
+- Effect: the commit carrying this entry - `dashboard.tmpl`'s `pagename` and `title`, the five entry labels in
+  `page.tmpl` with the comment that says an entry's words ARE its page's name, the five reader-visible strings
+  and the `internal/web` comments and reported strings, `TestEachNavEntryNamesThePageItLinksTo` and the
+  re-aimed label list, mutants `W306`/`W307`/`W308` in `scripts/mutations/web.json` — filed here as
+  `W303`/`W304`/`W305`, and renumbered by the merge that met `#387`, which had landed those three ids
+  on its own skip-link mutants in the same set (an id collision git could not see, because the two
+  families were appended at opposite ends of `mutants`: `check-mutations.py` refuses `id 'W303' is
+  used twice in this set`) — and `W212`'s re-pointed
+  `old`, and the capture harness's re-measured transcription in `testing/capture/pages.py` and
+  `testing/capture/cdp.py`. The transcribed box was wrong before this branch touched it, and by more than
+  wording: `8db322a` recorded `h: 131` with the nav at `y=72 h=82` on a tree whose masthead had no page-name
+  heading, `9ccbe46` (`D-0016`) added that heading the same day on another branch, and the merge kept the
+  boxes. Measured at this entry's own checkpoint - a scratch worktree at 83f88c7, the fixture's daemon, Chrome
+  at 360 px, `header.getBoundingClientRect()` - the header is `x=24 y=24 w=312 h=152` with the nav at `y=93
+  h=83`: 21 px taller than its own transcription, and that is D-0016's heading. On this branch's tree the same
+  probe answers `h=192` with the nav at `y=93 h=123`, which is what `NAV_HEADER` now says. The drift is filed
+  as #468, because a transcription here can be a generation behind the page and every guard stays green: these
+  numbers are only ever fed to fakes. `internal/web/static/app.css`'s flex comment carried the same stale
+  measurement (323 px of entries, nav 312x82, header 131) and now carries the measured one. The frames and
+  `manifest.json` land in the re-capture commit beside this one, because `sources_rev` is read from a commit
+  and a screenshot's source has to exist before the frame can be dated from it. `make verify` and the reads
+  after the push are quoted with their exit statuses in the pull-request body, not here, because an `Effect:`
+  written before a gate runs is a prophecy (#1180).
+
+## D-0089 · #387: a base sync met this branch at one junction where both parents rewrote the same probe-table rows — which KIND the new rows ship in, when the gate prints the same verdict for both answers
+
+- Question: the sync of `origin/main` at `623f685` (the #465 merge: #466's answering-kind pass
+  `D-0086`, #465's label gate `H-0304`..`H-0306`) onto this branch's skip-link work `D-0087`
+  conflicted on exactly two paths. `DECISIONS.md` is the shipped union's to settle and it settled
+  it; `testing/capture/pages.py` is this entry's. Git split one junction into two hunks: trunk
+  replaced the navigation rule's row `("raises", "pages.select", None)` with
+  `("returns", "pages.shoot", None)`, and this branch replaced the state-census and nav-state
+  rows with `("raises", "pages.cdp", "Page.setDeviceMetricsOverride")` and
+  `("raises", "pages.js", "window.__plockNav")` and added the new rule's row as
+  `("hollow", "pages.shoot", None)`. `D-0086` had left all four of trunk's rows raising while
+  naming those same three methods, so both parents were editing one table in one place, and the
+  merged registry is the union of their rules — 84, which is what `EXPECTED_RULES` claims. What
+  had to be decided is the KIND of the three rows this branch wrote, because a row is a
+  measurement and the two spellings are not equivalent: `hollow` is the kind `D-0086` exists to
+  retire, and on the merged bytes `pages.shoot` answers `window.__plockFocus`.
+- Options: keep this branch's three rows as written, since they are what the delivery unit
+  measured and a conflict tick moves no other unit's claims | adopt trunk's answering kind for
+  all three, since the merged tree answers every method they name | resolve only where the
+  parents collided — trunk's answering row for the navigation rule, the other two left raising | settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Chose: settle it on the merged bytes by running an instrumented copy of the shipped `_probe_every_rule` over both answers and ship the one that scores higher
+- Why: measured 19 Nov on these bytes, twice, with the file copied out and the shipped function
+  imported unchanged rather than retyped — the three rows as this branch wrote them score 80
+  REPORTED, 2 REPORTED-RAISE, 2 RAISE-ONLY, 0 silent; as merged, navigation answering and the
+  other two answering the methods they name, they score 84 REPORTED, 1 REPORTED-RAISE, 0
+  RAISE-ONLY, 0 silent. The tie-break order is not reached: one answer measures the merged tree
+  and the other measures each parent's own. Both spellings leave
+  `python3 testing/capture/pages.py --self-test` at exit 0, which is the finding and not an
+  aside — the gate cannot tell a retired `hollow` row from a live one, so the number belongs in
+  this record rather than in a green checkmark. The direction is not dictated by `D-0086`, which
+  refused to pin `RAISED == 0` because "a raise remains a legitimate witness for a rule whose
+  contract IS an escaping refusal" — and none of these three is such a rule: each names a guard
+  the rule calls and reads, and all three report when that guard answers.
+- What lost: keeping this branch's `hollow` spelling lost — it is the cheapest diff and the
+  delivery unit's own witness, and it is false of the tree it would ship into: the instrumented
+  pass scored it two rules short of the merged registry's reporting count. The collide-only
+  resolution lost — it leaves a `hollow` row in a kind the trunk pass had already outgrown, and
+  reports a split that measures neither parent. And `D-0087`'s witness lost as a claim about
+  this head: its rows are now witnessed by an answer rather than by a raise. That entry is not
+  edited here, because a published `Effect:` is a receipt of the tree it was written against and
+  this commit's witness is this entry.
+- Checkpoint: 89a48bc496714ff524781d0d050b092ad1e16006
+- Effect: `testing/capture/pages.py` — the navigation row takes trunk's
+  `("returns", "pages.shoot", None)`, the state-census and nav-state rows take
+  `("returns", "pages.cdp", None)` and `("returns", "pages.js", None)`, the skip-link row takes
+  `("returns", "pages.shoot", None)`, and the count paragraph above the table now carries both
+  splits with the tree each was measured against, because trunk's paragraph names its own
+  parent's 81-rule registry and the merged registry is not that file. `DECISIONS.md` unioned by
+  `python3 scripts/merge-decisions.py --tree .` once `testing/capture/pages.py` and `NEXT.md`
+  were final and staged: it refused once, `UNION-REFUSED reason=id-collision DECISIONS.md D-0085
+  is digits-only on both sides but moved in OPPOSITE directions from base`, on a seam where this
+  branch's only delta from base is the blank separator line before its own next entry while
+  trunk's is the same coordinate re-aimed two lines down, because trunk's own `verify` recipe
+  gained two `check-doc-labels` steps above that one. Measured 19 Nov here, and the anchor is on
+  the same physical line as its coordinate: `Makefile:155` "fixture window guard". That seam is
+  adjudicated theirs, the index's stage-2 blob was rewritten so this one entry matched base's
+  bytes, and the shipped tool then unioned the whole file: `UNION entries=73 ours=1 theirs=2
+  drift=0 repointed=14 files=1`. `NEXT.md` was hand-stacked first and staged for that reason —
+  this head on top, the issue-386 head demoted whole beneath it — and its zero-loss census is in
+  its own text. The union ran a SECOND time after the last edit to `NEXT.md`: the first run
+  re-aimed fourteen of trunk's pointers into a hand-off that then grew by eight lines, and
+  `check-decisions` read 14 anchored citations landing eight lines low as a result. A repoint is
+  only a claim about the bytes that ship with it, so the order is hand-off final, then union,
+  then this entry. Gate receipts are read back with their exit statuses in the pull-request body,
+  not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
+
+## D-0090 · #388: the same base sync met this branch in two files, and only one of them refused to merge — what does a path that auto-merged owe a re-check, when the thing it merged is a set of claims
+
+- Question: `git merge origin/main@cfe1559` (the #467 merge, #387's skip link `D-0087` plus its
+  base-sync pass `D-0089`) refused on `DECISIONS.md` and `docs/screenshots/360/manifest.json` and
+  took `scripts/mutations/web.json` without a word. Both parents had appended three mutants to that
+  one set — trunk's at rows 293-295 of the `mutants` array, labelled `W303`/`W304`/`W305` against the skip anchor,
+  this branch's at rows 296-298, labelled `W303`/`W304`/`W305` against the navigation words — because each
+  appended to the 292 rows their shared parent held and neither allocator could see the other's three. The merged file
+  holds 298 rows, `expected_mutants: 295`, and three ids used twice. Which side's manifest digests
+  ship, and which side's ids move?
+- Options: take trunk's `manifest.json` because it is the newer trunk and leave both id families as
+  merged | take ours for the manifest because its digests are the only field checkable against bytes
+  in the tree and renumber this branch's three ids because trunk's are already on `main` where a
+  citation can be followed | take ours for the manifest and renumber trunk's three ids because they
+  arrived second in the merged file | delete the duplicate rows because the checker's own sentence
+  offers "if they are the same bug, drop one" | leave the collision for the next gate to name
+- Chose: take ours for the manifest because its digests are the only field checkable against bytes in
+  the tree and renumber this branch's three ids because trunk's are already on `main` where a citation
+  can be followed
+- Why: the manifest's `png_sha256` is the field `manifest.py check` verifies against the file on disk,
+  and the nine PNGs the merge left are this branch's — the frames diverged on our side only, so
+  trunk's digests name frames this tree does not contain, which is the single thing the identity arm
+  refuses. The cost of that choice is named rather than hidden: it makes `head` and the nine
+  `sources_rev` a commit stale, and `a4f6393` pays it by running the published recipe against the
+  merged tree; that re-capture came back with all nine frames byte-for-byte the files `0dc0fde`
+  committed and a 29-in/29-out diff containing no digest at all, which is also the answer to whether
+  #387's anchor costs pixels (it is the `.skip` block in `internal/web/static/app.css`, whose
+  `clip-path: inset(50%)` and `overflow: hidden` take it out of the paint and whose `.skip:focus`
+  releases both). The ids move the other way because a
+  citation on `main` is a promise a reader can keep, and renumbering landed history breaks it.
+  "Delete the duplicate rows" was rejected on inspection: `python3 scripts/mutate.py`-level they are
+  six different bugs — the skip anchor's three collapse shapes and the navigation words' three rename
+  directions — and only share labels because two allocators ran blind to each other in one day. The
+  collision is not a reading of the diff: `python3 scripts/check-mutations.py` on the merged tree
+  exits 1 with `holds 298 mutants, expected 295` and three lines of `id 'W303' is used twice in this
+  set (also on mutant #292)` before any of this was concluded, and the same three lines were the
+  reason the first `make verify` on this branch's merged tree stopped; the renumber is what makes that
+  gate read green again. The `Checkpoint:` above names the tree this judgement was taken ON rather
+  than under: the merge was already committed at `a8adf95` when the collision was found, so no
+  checkpoint of the pre-decision tree exists any more, and what is recoverable is the revert -- one
+  commit whose effect is this set's id lines and this log's citation of them, and reverting it
+  returns the collision the gate refuses.
+- Checkpoint: 93f97be
+
+## D-0091 · #396: a driver's capture path can stop calling its audit guards and every gate stays green — every per-guard rule calls the helper directly and none reads the driver's call sites — pin the multiset of call sites inside `pages.py --self-test` and ship the ticket's own three probes as CAUGHT attack rows
+
+- Question: the refusal contracts live in `cdp.require_*`, and every rule in
+  `pages.py --self-test` that polices one calls the helper directly — no rule reads the call sites
+  in the three driver functions that turn a measured page into a published PNG. Measured 19 Nov on
+  the tree checkpoint `7a789ec` copies, in a box holding `testing/capture/*.py`,
+  `internal/web/templates/*.tmpl` and `Makefile`: `pass` written over the shoot loop's
+  `cdp.require_records(got, page)` and its `require_labelled_cells` sibling printed
+  `capture self-test: 84 refusal rules hold` at exit 0, and the identical sentence followed `pass`
+  written over `testlock.py`'s only `require_labelled_cells` call and the deletion of `lock.py`'s
+  `require_trail` statement, with `capture manifest self-test: 54 rules hold` beside every one of
+  them; restoring each patch returned both suites to green, so what was missing was a witness, not
+  a flake. The ticket names two candidate repairs — an attack-suite line that ships as a HOLE row
+  documenting the gap, and a structural pin inside `pages.py --self-test` on the shape
+  `manifest.py` uses against the Makefile — and its tie-breakers.
+- Options: ship the ticket's three probes as HOLE rows in `scripts/attack-capture-self-test.py`,
+  a measured and documented gap that leaves the closure to the next pass | pin the multiset of
+  `cdp.require_*` calls per capture path as a new rule in `pages.py --self-test`, on the shape
+  `manifest.py` pins the Makefile, and ship the same three probes as CAUGHT rows | add attack rows
+  expecting CAUGHT now, with no pin, leaving their class dependent on a rule this entry does not
+  write | make the run itself demand every guard fires under the fake driver, pinning nothing
+  statically
+- Chose: pin the multiset of `cdp.require_*` calls per capture path as a new rule in
+  `pages.py --self-test`, on the shape `manifest.py` pins the Makefile, and ship the same three
+  probes as CAUGHT rows
+- Why: the runtime option is what the tree already runs, and the measurement above is exactly what
+  it is blind to — the fake browser satisfies every helper, so a deleted call site cannot change a
+  runtime verdict, which is also why options one and three lose: a HOLE row keeps the hole it
+  documents, and a CAUGHT row without the pin is a class resting on a rule that does not exist.
+  A pin that reads source is the only witness a deletion leaves, and a suite pinning text outside
+  itself is the shape this repo already trusts — `manifest.py` pins the Makefile's `verify:` clause
+  for exactly this reason (`D-0079`'s lineage). The table pins the MULTISET in both directions:
+  a deleted call is a count that fell, and a guard added to a capture path without a row here is
+  a count that rose, because the addition direction has no witness from a clean tree — a table
+  that under-counts looks identical to a path that under-calls. After the pin the same three
+  deletions each exit 1 with `1 of 85 rules failed`, and the attack suite reads
+  `VERDICT: 81 attacks, 0 problem(s)` with the three rows named CAUGHT on their own lines: the
+  suite now re-measures the gap instead of restating the defect, which was the ticket's own
+  wording for what it wanted. The rule's probe shadows `testlock.py`'s labelled-cells call and its
+  control drives both directions anchored in `lock.py`, not in `pages.py`: the first draft embedded
+  the control's find literals in `pages.py` and counted them there, so the rule reddened the suite
+  by finding its own quotations — 2 and 3 hits where it wanted 1 — inside the text it was reading.
+  What that slip cost is the design note: a control's anchor must not be counted in the file that
+  carries the control.
+- Checkpoint: 7a789ec
+
+## D-0092 · #399: the last hand-rolled serve site ran its daemon outside every seam, and the guard on its startup line could not miss — route it through `startServe` with the helper returning the opened config path, retire the variadic that never accepted an argument, judge the announcement line by line, and reject an inline start in a source-scanning leg
+
+- Question: `TestServeAnnouncesItsStart` started its daemon with a hand-rolled
+  `go func() { code <- runServeContext(...) }()`, the last serve site in the file that
+  did. #399 measured three facts at its filing and this unit re-measured all three on
+  the checkpoint tree: the seam read while that daemon was live is `(production)` and
+  `liveServeDaemons` reads 0 live and 0 after stop, so the site is invisible to the
+  `TestMain` exit read that nets every other serve overrun, and its timeout arm names
+  neither the seam nor the left-behind daemon. This unit added the measurement the
+  ticket did not have: the same inline body run under a `PATH` whose `loginctl` is a
+  logging shim recorded four real `loginctl` executions (`--no-ask-password
+  list-sessions --json=short` and `show-session`, twice each — the startup probe and
+  one tick) from a single test run, and the same config started through `startServe`
+  under that same `PATH` recorded zero with the stub answering instead. That also
+  falsifies the ticket's own frame that the path is "the session enumeration path
+  rather than a lock, which bounds it": `lockBackends: ["logind"]` is exactly a lock
+  backend, and `list-sessions` is its first call. A second, independent defect showed
+  up while repairing: the site's whole-buffer assertion on the config path can never
+  fail for the reason it claims, because the engine prints its own
+  `enforce: running, every %v, config %s` line at the same path a beat after the
+  announcement — measured with a product mutant that deleted the path from the
+  announcement itself while the test held its original shape: green. So: which way
+  does the site start its daemon, and what guards the class?
+- Options: keep the site inline and hand-copy the helper's three things — the runner seam, the count, and the arm that names the seam | route the site through `startServe` and change nothing else | route the site through `startServe`, have the helper return the config path it passed, leave the unused `extra ...string` parameter exactly where it is, and keep the whole-buffer path assertion | route the site through `startServe` with the helper returning the opened config path, retire the variadic that never accepted an argument, judge the startup announcement as the one line it is rather than as the growing buffer, and add a leg that rejects a `runServeContext` call outside `startServe` whose exit code is not consumed on its own line
+- Chose: route the site through `startServe` with the helper returning the opened
+  config path, retire the variadic that never accepted an argument, judge the startup
+  announcement as the one line it is rather than as the growing buffer, and add a leg
+  that rejects a `runServeContext` call outside `startServe` whose exit code is not
+  consumed on its own line
+- Why: the first pass of this unit shipped the third option and the mutant battery
+  caught it — a whole-buffer `Contains(cfgPath)` stayed green on the strength of the
+  engine's enforce line, so the second option (and everything short of judging the
+  line) ships an arm that still cannot miss the mistake it names. Four product
+  mutants against the shipped line-wise guard, each verified to have edited the
+  product before the test was run and restored byte-identically after: drop the path
+  from the announcement, red on the path arm; print a literal wrong path, red naming
+  both the expected path and the line; rename the program to `plockd serve`, red on
+  the identity arm; print no `starting, config` phrase at all, red from the wait. The
+  second option alone also cannot carry the path assertion: the test must compare the
+  announcement against the very path the helper passed as `--config`, and a config the
+  test wrote a second time is a second document, not the one under guard. The repair
+  sketch's other road — making the variadic live — is rejected on evidence: the
+  parameter was born dead (`git log --all` finds no commit ever appending it to the
+  args, and the commit that introduced the helper names it once, in the signature),
+  and the file's own convention is that the helper writes the fixture the seam guards
+  stand on — the comment in `TestServeStartsWhenOneBackendIsUsable` says "nothing
+  needs to be passed in" — so a live argument road would contradict that contract
+  while nothing on this branch needs it. The leg is the guard rather than the
+  ticket-suggested assertion that `writeServeConfig` ships `"users": []`: that
+  assertion pins fixture content, and the very commit that adds the hazard edits the
+  fixture anyway; the leg rejects the bypass shape itself, measured both ways — a
+  planted inline site is refused naming its file and line, and the shipped tree
+  passes. Two false positives the leg's first draft earned are on the record because
+  they shaped it: it refused `refuseWithin` and the two usage- and config-refusal
+  probes, which consume the exit code on their own line and cannot leave a daemon (a
+  refusal returns before a daemon exists, and a synchronous non-refusal blocks the
+  test loudly instead of silently outliving it); and it refused its own source line,
+  because a written literal of the call token is a call site to its own scanner — the
+  needle is built by concatenation now. What lost: the variadic's intended-but-never-
+  taken argument road loses, and a future site needing custom arguments must add a
+  parameter that works and measure it rather than inherit one that lies; the
+  fixture-shape guard loses to the shape guard, and the leg pins today's spelling — a
+  bypass that consumes a code into a variable nobody reads would read past it, which
+  the leg's own comment says; and option three loses with its whole-buffer assertion,
+  which the drop-the-path mutant proves was the same unreportable overrun in a second
+  register.
+- Checkpoint: 368ce91

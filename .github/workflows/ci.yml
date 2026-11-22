@@ -1,5 +1,24 @@
 name: CI
 
+# A superseded push has to stop the run nobody will read, and this file is the only place that can
+# say so: GitHub has no repository or organisation setting that cancels superseded runs, so without
+# a group every push queues its own ~12-minute pass over the four legs below and finishes green on
+# a head no reviewer can ever be shown -- a push dismisses the review and moves the head, so a
+# verdict on a superseded SHA is worth nothing to anyone. Measured on PR #401 on 2026-11-16: four
+# pushes to `issue-334` started four runs at once and three of them were cancelled by hand
+# mid-flight, which is the automation this block is.
+#
+# The group is keyed per pull request, which keeps stacked PRs apart -- the same reason the
+# `pull_request:` trigger below is deliberately unfiltered. `cancel-in-progress` is true only for a
+# `pull_request` event, so a push to `main` and a `workflow_dispatch`ed debug run each land in a
+# group of one (`run_id`) and no later PR push can cancel them. Cancelling is not erasing: a
+# completed run stays attached to its SHA, and what gets stopped is an in-flight run of a head that
+# no longer exists. `release.yml` carries no group at all and should keep not carrying one -- a
+# cancelled half-published release is worse than a queue that makes someone wait.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   push:
     branches: [main]
@@ -21,6 +40,9 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    env:
+      SHELLCHECK_VERSION: v0.10.0
+      SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
     steps:
       # `fetch-depth: 0`, and it is not an optimisation to undo. `actions/checkout@v4` defaults to
       # one commit, and `make verify` runs `testing/capture/manifest.py check`, which dates every
@@ -42,11 +64,138 @@ jobs:
         with:
           go-version: "1.27"
 
+      # `make verify` runs check-shell, and until this step that run used the runner's
+      # stock shellcheck -- unpinned, so the verdict belonged to the runner image. On
+      # 2026-11-18 the image rotated it from 0.9.0 to 0.11.0 inside a 34-minute window:
+      # main read green at 08:42Z (`check-shell: 0.9.0` over 33 scripts) and a branch
+      # beside it read red at 09:14Z on 0.11.0 -- eight SC2329 infos over fixture
+      # functions the harness invokes by name through claim_leg, no content of either
+      # tree involved. That is the pin-by-digest pattern below this job's own stated
+      # reason for existing (H-0266): fetch the same digest the shellcheck job fetches
+      # and hand it to make verify, so the version and the verdict are the repository's.
+      - name: Fetch shellcheck at a pinned digest
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 180 -o /tmp/sc.tar.xz "$url"
+          echo "${SHELLCHECK_SHA256}  /tmp/sc.tar.xz" | sha256sum --check --status || {
+            echo "the downloaded shellcheck does not match the pinned digest" >&2
+            echo "refusing to run an unverified binary" >&2
+            exit 1
+          }
+          tar -xf /tmp/sc.tar.xz -C /tmp
+          "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" --version
+
+      # The second input on this job whose verdict the runner image owned, and the
+      # same rotation window as the step above: the image move that carried shellcheck
+      # 0.11.0 (H-0266) also moved `ubuntu-latest` from 24.04 to 26.04, and Ubuntu 26
+      # split the backward-compatibility zone links out of tzdata into tzdata-legacy --
+      # the 26.04 image's published apt table ships tzdata 2026e with no tzdata-legacy
+      # line. `internal/schedule`'s bounds guard then did exactly what it was written
+      # to do: refuse a partial system database, because a scan that measures a
+      # fraction of the zones certifies bounds it never measured, and Enderbury is one
+      # of the zones that deleted a calendar date -- the reason the three-day walk
+      # exists. Measured: the green trunk run beside this branch's red one (`44269015134`
+      # at `1292021`) printed `ok .../internal/schedule 140.636s` on `Image:
+      # ubuntu-24.04` at 08:46Z, and this branch's verify job set up on
+      # `Image: ubuntu-26.04` at 09:44Z FAILed six tests in that package with
+      # `Pacific/Enderbury is missing from the system database` -- nothing in the tree
+      # between the two runs caused it. Reproduced on a 26.04 box with the runner's
+      # own debs: unpacked tzdata 2026e alone fails those six tests verbatim, and the
+      # same tree with tzdata-legacy 2026e overlaid passes them. Pinning the job to
+      # ubuntu-24.04 would only defer this: noble-updates carries the same split
+      # (tzdata 2026e-0ubuntu0.24.04.1 ships no Enderbury either), so the next noble
+      # image refresh reds the same way. So the database the bounds are certified
+      # against belongs to the repository: fetch both halves of one pinned pair by
+      # digest and replace the tree, so the scan's population is a number this file
+      # states rather than one the image picks.
+      - name: Install the pinned tz database
+        env:
+          TZDATA_VERSION: 2026e-0ubuntu0.26.04.1
+          TZDATA_SHA256: 8859c96f6169bd81d6d4ec757929b9f92d56a0a906fde6fbd96f54bee476c742
+          TZDATA_LEGACY_SHA256: 6fb2a6b78f428769023fdd55d576b80dc9199c176de225c49f0b54a5a8ff5908
+        run: |
+          set -euo pipefail
+          # One hostname and `--retry 3` was the whole resilience of this fetch, and
+          # neither half could reach the failure that actually came (#469): on 19 Nov
+          # `tzdata_<version>_all.deb` served 0 bytes at 30 s from archive.ubuntu.com
+          # -- intermittently, per object: a HEAD of the same object returned 200
+          # minutes earlier, the sibling deb on the same host served normally the
+          # whole time, and both debs on us.archive.ubuntu.com served bytes matching
+          # the digests below -- while `--retry` spends nothing on a transport-level
+          # reset. Fixture (rows A/B, curl 8.18.0): this step's old flags took a
+          # mid-body RST at rc 56 on ONE connection, zero retries; adding
+          # --retry-all-errors made the same call spend FOUR; an HTTP 503 retried
+          # four ways under the old flags, so the retry machinery was live and the
+          # error class is the whole story. So each half is now tried through a host
+          # list behind the unchanged digest gate: the sha256 check is what decides a
+          # fetch, not the hostname, so a fallback can only ever re-deliver the
+          # pinned bytes. The step records which host served each half, so a future
+          # red run names the degraded host instead of guessing one. What this
+          # trades: if both hosts fully hang, the step burns its retries slowly
+          # (worst case ~12 capped attempts per half) instead of dying fast -- red
+          # for a real archive-wide outage is honest; red for one degraded hostname
+          # is not.
+          pool_hosts=(https://us.archive.ubuntu.com/ubuntu https://archive.ubuntu.com/ubuntu)
+          fetch_pinned() { # fetch_pinned <out> <pool filename> -- first host that delivers wins
+            local out=$1 name=$2 host rc=0
+            for host in "${pool_hosts[@]}"; do
+              if curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
+                   --connect-timeout 10 --max-time 180 \
+                   -o "$out" "$host/pool/main/t/tzdata/$name"; then
+                echo "pinned fetch: $name served by $host"
+                return 0
+              else
+                rc=$?
+                echo "pinned fetch: $host failed for $name (curl exit $rc), trying the next host" >&2
+                rm -f "$out"
+              fi
+            done
+            echo "pinned fetch: no host served $name (last curl exit $rc)" >&2
+            return 1
+          }
+          mkdir -p /tmp/tzdata && cd /tmp/tzdata
+          fetch_pinned tzdata.deb "tzdata_${TZDATA_VERSION}_all.deb"
+          fetch_pinned tzdata-legacy.deb "tzdata-legacy_${TZDATA_VERSION}_all.deb"
+          echo "${TZDATA_SHA256}  tzdata.deb" | sha256sum --check --status || {
+            echo "the downloaded tzdata does not match the pinned digest" >&2
+            echo "refusing to certify bounds against an unverified database" >&2
+            exit 1
+          }
+          echo "${TZDATA_LEGACY_SHA256}  tzdata-legacy.deb" | sha256sum --check --status || {
+            echo "the downloaded tzdata-legacy does not match the pinned digest" >&2
+            echo "refusing to certify bounds against an unverified database" >&2
+            exit 1
+          }
+          for pkg in tzdata tzdata-legacy; do
+            mkdir -p "x-$pkg"
+            (cd "x-$pkg" && ar x "../$pkg.deb" && tar --zstd -xf data.tar.zst)
+          done
+          # Replace, do not overlay: the pinned legacy half over whatever tzdata the
+          # image picked is the mixed-version shape the guard itself refuses.
+          sudo rm -rf /usr/share/zoneinfo
+          sudo cp -a x-tzdata/usr/share/zoneinfo /usr/share/zoneinfo
+          sudo cp -a x-tzdata-legacy/usr/share/zoneinfo/. /usr/share/zoneinfo/
+          # Say which database the scan downstream will measure, and prove both halves
+          # really arrived -- a step that green-ticks having installed nothing is the
+          # shape check-shell.sh already refuses for its own list. The version line is
+          # the one inside the deb: the installed tree's +VERSION is written by the
+          # package's postinst, and no postinst runs on an unpack.
+          head -n1 /usr/share/zoneinfo/tzdata.zi
+          test -e /usr/share/zoneinfo/Pacific/Kanton
+          test -e /usr/share/zoneinfo/Pacific/Enderbury
+
       # The same gate `make verify` runs locally: gofmt, vet, build, race tests,
       # and the zero-dependency guard. Nothing else is wired in here so the two
-      # cannot drift apart.
+      # cannot drift apart. SHELLCHECK names the binary fetched above, and
+      # SHELLCHECK_REQUIRED keeps the honest skip honest: in this job a missing
+      # shellcheck is a failure, because the fetch above is the one thing that
+      # could have failed first and said so.
       - name: Verify
         run: make verify
+        env:
+          SHELLCHECK: /tmp/shellcheck-${{ env.SHELLCHECK_VERSION }}/shellcheck
+          SHELLCHECK_REQUIRED: "1"
 
   # The shell that ships with the product: the installer runs as root and deletes
   # directories, and the two guards in scripts/ are what CI and every local gate lean on.
@@ -76,7 +225,7 @@ jobs:
         run: |
           set -euo pipefail
           url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -sSfL --retry 3 -o /tmp/sc.tar.xz "$url"
+          curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 180 -o /tmp/sc.tar.xz "$url"
           echo "${SHELLCHECK_SHA256}  /tmp/sc.tar.xz" | sha256sum --check --status || {
             echo "the downloaded shellcheck does not match the pinned digest" >&2
             echo "refusing to run an unverified binary" >&2

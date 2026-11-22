@@ -24,7 +24,7 @@
 
 <p class="muted">Nothing was locked. This page asks each backend whether it could do its job
   and reports what it said; it never sends a lock request. To lock <strong>{{.Target}}</strong>
-  now, use <em>Lock now</em> on the status page.</p>
+  now, use <em>Lock now</em> on the dashboard.</p>
 
 {{- /* The doubt this page exists to settle, said separately from the backend count: a
        machine with three healthy backends and the child logged out still answers "nothing
@@ -131,5 +131,5 @@
 </table>
 {{- end -}}
 
-<p><a href="/">Back to the status page</a></p>
+<p><a href="/">Back to the dashboard</a></p>
 {{end}}

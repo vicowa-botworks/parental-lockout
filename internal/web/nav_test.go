@@ -407,3 +407,285 @@ func TestTheStylesheetMarksTheCurrentEntryLast(t *testing.T) {
 			hoverAt, currentAt)
 	}
 }
+
+// TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage is the other half of #204's delivery:
+// the skip link.
+//
+// The masthead sits above every page's content: five navigation links and a sign-out button,
+// all focusable. With nothing past them, a keyboard reader walked the entire chrome of the
+// site on Tab to reach the page they were already on -- the bullet #204 listed as
+// undelivered, which the template's own comment apologised for until #387 deleted the
+// apology together with the defect.
+//
+// #387 names the false pass this guard exists to refuse: `href="#main"` pointing at a
+// <main> with no id reads as a skip link to every grep that asks "does the anchor exist"
+// and goes nowhere in a browser. So the contract is stated as RESOLUTION, never as
+// spelling -- the id is read off the element and the fragment off the link, and the two
+// are compared, so neither can be satisfied by coincidence of a literal:
+//
+//   - the content region exists, exactly once, and carries an id -- the shell emits one
+//     skip target per page and there is exactly one thing to skip to;
+//   - exactly one link on the page targets that id -- a second one is a second Tab stop
+//     on the way to the content, the thing the first one exists to save;
+//   - that link precedes <nav> in the rendered bytes, and no focusable element precedes
+//     it -- "first in the tab order" is document order for sequential focus navigation,
+//     so a link after the masthead is the defect back with the spelling right;
+//   - the link's own text is not empty -- an invisible link with no words is announced
+//     as nothing and skips nothing for anybody.
+//
+// The login page stays out of the loop on the same reading as
+// TestTheShellCarriesNavigationThatMarksThePageYouAreOn: the login document is
+// loginPageTmpl in handlers.go, its own inline template with no {{template "page"}} render,
+// and there is no <nav> block in its bytes for any of this to attach to. What the capture
+// side measures -- that Chrome
+// focuses the link at all, which `display: none` would silently prevent -- stays the
+// driver's half, and this is the cheap half that runs on the rendered bytes, per page, on
+// every `go test`.
+func TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	// The same seam the navigation guard carries: without a trail the /audit page answers
+	// 503 and renders no document to ask about.
+	s.Trail = &fakeTrail{tail: audit.Tail{Records: trailFixture(), FilesRead: 1}}
+
+	for _, path := range []string{"/", "/users", "/audit", "/profiles", "/settings"} {
+		body := authGet(t, s, path).Body.String()
+
+		// The target: the content region, its id, and their singleness. Reading the id
+		// off the element rather than matching a literal is what keeps this about the
+		// contract: an id renamed on both ends in the same edit still passes, and an
+		// `<a href="#main">` aimed at a bare <main> still does not.
+		if n := strings.Count(body, "<main"); n != 1 {
+			t.Errorf("%s: the page carries %d <main> element(s); the shell renders the content "+
+				"region exactly once, and #387's skip link targets it (#387)", path, n)
+			continue
+		}
+		mainTag := body[strings.Index(body, "<main"):]
+		mainTag, _, _ = strings.Cut(mainTag, ">")
+		target := attribute(mainTag, "id")
+		if target == "" {
+			t.Errorf("%s: <main> carries no id, so no fragment can land on it: a skip link here "+
+				"is decoration -- #387's named false pass is an href nothing resolves, and it "+
+				"reads fine to any grep that only asks whether the anchor exists (#387)", path)
+			continue
+		}
+		// The id must be UNIQUE, not merely present: getElementById answers with the
+		// FIRST element bearing it, so a duplicate `id` standing earlier in the document
+		// shadows the content region -- Tab-and-Enter lands on a box that still contains
+		// the masthead, and every property the arms above check is individually fine.
+		// The capture leg sees the same document from the browser as ttag != MAIN.
+		if n := strings.Count(body, `id="`+target+`"`); n != 1 {
+			t.Errorf("%s: %d elements carry id %q in the rendered bytes, so the fragment lands "+
+				"on the earliest one, not necessarily the content region -- a duplicate id is "+
+				"#387's false pass with a shadow standing in front (#387)", path, n, target)
+		}
+
+		// The anchors, scanned left to right with their real byte offsets — the way
+		// navEntries reads the nav (opening tags and href attributes, no regex), plus
+		// the one thing navEntries does not need: position. Position is the whole
+		// question here, and an offset that is not an offset is how this guard nearly
+		// shipped wrong: a tail-derived "offset" that equals len(body) minus the
+		// REMAINDER reads low for the first anchor and high for the last, so the
+		// first anchor in the bytes was reported at byte 3218 of a 3385-byte page.
+		// A guard asserting "first" must know where first IS.
+		var targeting, dangling []string
+		skipAt, skipText := -1, ""
+		for _, a := range anchors(body) {
+			href := attribute(" "+a.open, "href")
+			switch {
+			case href == "#"+target:
+				targeting = append(targeting, href)
+				text, _, _ := strings.Cut(a.inner, "</a>")
+				skipText = strings.TrimSpace(text)
+				if skipAt == -1 {
+					skipAt = a.at
+				}
+			case strings.HasPrefix(href, "#"):
+				dangling = append(dangling, href)
+			}
+		}
+		if len(targeting) != 1 {
+			t.Errorf("%s: %d link(s) target the content region's id %q (%v), and the page carries "+
+				"%d other in-page fragment(s) (%v): the shell emits exactly one skip link, which is "+
+				"a first Tab stop, not a second one to walk past (#387)",
+				path, len(targeting), target, targeting, len(dangling), dangling)
+			continue
+		}
+		if skipText == "" {
+			t.Errorf("%s: the skip link carries no text, so it is announced as nothing and nobody "+
+				"is told what it skips (#387)", path)
+		}
+		if navIdx := strings.Index(body, "<nav"); navIdx < 0 {
+			t.Errorf("%s: the page renders no <nav> block; the navigation guard above owns that "+
+				"failure, and without it there is no masthead to establish that the skip link "+
+				"comes first", path)
+		} else if skipAt > navIdx {
+			t.Errorf("%s: the skip link sits at byte %d and the navigation opens at byte %d, so the "+
+				"link comes AFTER the masthead in document order -- and document order IS the tab "+
+				"order here, which is the defect back with the spelling right (#387)",
+				path, skipAt, navIdx)
+		}
+
+		// Nothing focusable before it, measured with the same left-to-right care.
+		// <input type="hidden"> is skipped because it is not focusable, and that is
+		// not a detail: the masthead's own sign-out form carries one, so a scan that
+		// counted hidden inputs would report the skip link second on every page --
+		// and a scan that instead took the FIRST and LAST byte of each token with
+		// strings.Index would call the last form on the page the first element in
+		// it. Both misreads were made writing this guard and are named here so the
+		// next reader does not make a third.
+		if first, what := firstFocusable(body); first != skipAt {
+			t.Errorf("%s: something focusable (%s) sits at byte %d while the skip link is at "+
+				"byte %d, so the skip link is not the first Tab stop on the page (#387)",
+				path, what, first, skipAt)
+		}
+	}
+}
+
+// anchor is one opening <a> tag in a rendered page, with the byte offset the ordering
+// assertions are made of.
+// nextAnchorStart finds the next opening anchor tag at or after i: the two bytes `<a`
+// followed by ASCII whitespace or `>`. The old literal "<a " required the space and the
+// browser does not: `<a\nhref="#main">` is a legal anchor, a real tab stop, and exactly
+// the element this file's guards are about -- a scanner that misses it lets the cheapest
+// byte in HTML hide a focusable element from a byte-level tab-order assertion. `<abbr`
+// is a different word and `</a` is the same word backwards; neither may match.
+func nextAnchorStart(body string, i int) int {
+	for ; i >= 0 && i < len(body); i++ {
+		if body[i] != '<' || i+2 >= len(body) || body[i+1] != 'a' {
+			continue
+		}
+		switch body[i+2] {
+		case ' ', '\t', '\n', '\r', '>':
+			return i
+		}
+	}
+	return -1
+}
+
+type anchor struct {
+	at    int    // byte offset of the "<a" itself
+	open  string // the tag between "<a" and its closing ">", quote-aware
+	inner string // the bytes after the opening tag: the anchor's text, among other things
+}
+
+// anchors scans every opening <a> tag out of a rendered page, left to right.
+//
+// A quote-aware scanner, not a Cut: an attribute value may hold a literal ">" (Go's escaper
+// writes "&gt;", but a value may also hold a bare one inside quotes and parsers must
+// tolerate it), and the tag ends at the first ">" OUTSIDE quotes. The inner text runs to
+// the first "</a" after the tag, or to the next opening anchor -- whichever comes first --
+// because this shell emits no nested anchors and an unclosed one is a defect the caller's
+// counts will surface, not something the scanner should silently swallow.
+func anchors(body string) []anchor {
+	var out []anchor
+	for i := 0; ; {
+		start := nextAnchorStart(body, i)
+		if start < 0 {
+			break
+		}
+		tag := body[start+2:]
+		var quote byte
+		end := -1
+		for k := 0; k < len(tag); k++ {
+			switch c := tag[k]; {
+			case quote != 0:
+				if c == quote {
+					quote = 0
+				}
+			case c == '"' || c == '\'':
+				quote = c
+			case c == '>':
+				end = k
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			// An opening tag never closed: report what was scanned and stop, so the
+			// caller sees a malformed page as missing links, not as a hang.
+			break
+		}
+		inner := tag[end+1:]
+		if cut := strings.Index(inner, "</a"); cut >= 0 && cut <= len(inner) {
+			inner = inner[:cut]
+		}
+		if next := nextAnchorStart(inner, 0); next >= 0 {
+			inner = inner[:next]
+		}
+		out = append(out, anchor{at: start, open: tag[:end], inner: inner})
+		i = start + 2 + end + 1
+	}
+	return out
+}
+
+// firstFocusable answers which focusable element a browser reaches first in document
+// order, and its token, for the byte-level tab-order assertion. Hidden inputs are not
+// focusable and the masthead sign-out form carries one; the shell's only focusable
+// elements are anchors, buttons, and the form controls below.
+func firstFocusable(body string) (int, string) {
+	best, what := len(body), "nothing"
+	if i := nextAnchorStart(body, 0); i >= 0 && i < best {
+		best, what = i, "<a"
+	}
+	for _, tok := range []string{"<button", "<select", "<textarea"} {
+		if i := strings.Index(body, tok); i >= 0 && i < best {
+			best, what = i, tok
+		}
+	}
+	for i := 0; ; {
+		j := strings.Index(body[i:], "<input")
+		if j < 0 {
+			break
+		}
+		at := i + j
+		tag := body[at:]
+		if k := strings.Index(tag, ">"); k >= 0 {
+			if !strings.Contains(tag[:k], `type="hidden"`) && at < best {
+				best, what = at, "<input"
+			}
+		}
+		i = at + len("<input")
+	}
+	return best, what
+}
+
+// TestTheAnchorScannerReadsEveryLegalSpelling pins the tokenizer itself, not the page:
+// the template happens to write `<a ` today, which is exactly why a "<a "-only scanner
+// can pass every page test while being blind to what the browser would focus. The
+// browser treats `<a` followed by space, `\n`, `\t`, `\r` or `>` as one tag opener; the
+// scanner must too, and it must keep saying no to `<abbr` and to `</a`.
+func TestTheAnchorScannerReadsEveryLegalSpelling(t *testing.T) {
+	body := `<p abbr="x">text</p>` + "\n<a\nhref=\"#a\">one</a>" +
+		"<a\thref=\"#b\">two</a><a>c</a>" + "</a><abbr>not</abbr>"
+	wantText := []string{"one", "two", "c"}
+	got := anchors(body)
+	if len(got) != len(wantText) {
+		t.Fatalf("the scanner read %d anchors from a page carrying %d: at=%v",
+			len(got), len(wantText), func() []int {
+				var at []int
+				for _, a := range got {
+					at = append(at, a.at)
+				}
+				return at
+			}())
+	}
+	for i, a := range got {
+		text, _, _ := strings.Cut(a.inner, "</a>")
+		if strings.TrimSpace(text) != wantText[i] {
+			t.Errorf("anchor %d carries text %q, want %q -- the scanner mis-sliced the document",
+				i, strings.TrimSpace(text), wantText[i])
+		}
+	}
+	if i := nextAnchorStart("</a><abbr>", 0); i >= 0 {
+		t.Errorf("byte %d of %q is not an anchor opening; </a> and <abbr must never match", i, "</a><abbr>")
+	}
+	if i := nextAnchorStart(body, 0); i != strings.Index(body, "<a\n") {
+		t.Errorf("the first anchor was reported at %d, want the newline-spelled one at %d",
+			i, strings.Index(body, "<a\n"))
+	}
+	if at, what := firstFocusable(body); at != strings.Index(body, "<a\n") || what != "<a" {
+		t.Errorf("firstFocusable answered (%d,%q), want the newline-spelled anchor at %d",
+			at, what, strings.Index(body, "<a\n"))
+	}
+}
