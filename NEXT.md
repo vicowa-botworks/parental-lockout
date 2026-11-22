@@ -1,4 +1,56 @@
-# NEXT — issue-503 (branch `issue-503`, PR open against `main`; this unit ships `H-0394`: the per-tick scratch is minted with a PATH-safe name. `factory/factory.sh:1488` folded `:` out of the unit id before `mktemp` — `plock-$(factory_slug "${unit//:/-}")` — because PATH is colon-delimited, an `unclaimed:<n>` unit id carries a colon, `factory_slug` maps `/` alone, and so the minted `/tmp/plock-unclaimed:503-…` made every prepend through `$FACTORY_SCRATCH/bin` contribute the two entries `/tmp/plock-unclaimed` and `503-…/bin`, neither of which exists: the prepend failed silently and the tick's stub binaries were not found. Measured in this tick, whose own scratch carried the colon: the prepend found nothing and PATH's head split exactly as named, while the colon-free twin found the stub. Three legs in `factory/selftest.d/503-scratch-path-safe.sh` — the world rule with both polarities so a control that cannot fail cannot pass, the shipped dispatch (no colon, the name still echoing the unit id, the stub FOUND through the prepend, the directory gone after the pass), and a mutant control that restores the filed mint and must show the colon and the missing stub. The mint line keeps its number and its `scratch=$(mktemp -d` text, so the pointers into it and the #415 family's mutant anchor still land; gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing. The `issue-495` head beneath this one is `H-0388`/`H-0392`'s hand-off, superseded only as a heading: PR #515 MERGED at `6ddb1d7f0569ef1635e6a6f2010309e076e0a213` 2026-11-22T08:58:21Z and PR #516 MERGED at `e50d96e6fc9079bd6a5a84ea2308bb8f147ef07a` 2026-11-22T10:02:19Z, both read back from the API at this re-heading, their clauses folded, their section bodies byte-kept beneath)
+# NEXT — issue-511 (branch `issue-511`, PR open against `main`; this unit ships `H-0397`: `notice_legs` in `factory/selftest.sh` opened its locals with a bare `local label` and never assigned it, so under the file's `set -u` the first FAIL in that leg expanded the reporter idiom's unset name and killed the run at the very sentence that would have explained it — reproduced in this tick against a throwaway clone of `23f51c6` with the FAIL branch forced by a one-line mutation: stderr `label: unbound variable` at the FAIL printf, the EXIT trap `RUN INCOMPLETE -- died with exit 1 after 173 ok and 1 FAIL, before any verdict` (the counter incremented before the print, so the run counted a failure it never reported and stopped ~27k lines short of the verdict, every later leg silently unrun), and with the declaration fixed the same forced FAIL printed `FAIL  a halt comments on its unit …` and the suite continued. The green path is why nobody noticed: `ok` rows print literals and shellcheck 0.10.0 reports the shape clean, so a FAIL branch is invisible until the product actually breaks — which is why the class got a pin, not just a fix. The fix is the idiom (assign at the declaration, the 67-row convention in the same file, one line, `1 1` numstat, zero log pointers aimed at that band as measured by `check-decisions.py --citations`); the pin is `factory/selftest.d/511-fail-path-unbound-label.sh`, two legs: a scan of the shipped bytes (body plus every leg file) refusing a top-level function that prints `"$label"` with no `label=` in its own body, and a mutant control that counts the fix's declaration row to exactly one, cuts it out of a copy, re-reads the cut, and refuses to pass unless the scan goes RED naming `notice_legs` — both polarities exercised against pre-fix and post-fix roots before the first commit. Gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing)
+
+## What this unit shipped
+
+- `factory/selftest.sh`, one row: the `notice_legs` declaration now reads
+  `local label="a halt comments on its unit" unit=unclaimed:247 tree=$repo n=0 body=""` — the
+  label's own FAIL wording, matching the `ok` row's literal so the two cannot drift. The row's
+  number and the file's line count are unchanged, so every pointer above and below keeps its seat.
+- `factory/selftest.d/511-fail-path-unbound-label.sh`, two legs on no fixture at all (the scanned
+  subject is the shipped tree): (a) a top-level-function scan — column-0 `name()` to column-0 `}` —
+  over `factory/selftest.sh` and every `factory/selftest.d/*.sh`, refusing any body that expands
+  the literal reporter `"$label"` in a printf while carrying no `label=` assignment; (b) the
+  control: copy the suite, anchor-count the fix row to exactly one (zero rows and >1 rows name
+  their different causes), cut it, re-read the cut, and require the scan to come back RED naming
+  `notice_legs` — the polarity pair the #503 family insists on, since a scanner green on blindness
+  and a control red on a plant that never happened are both worse than no pin.
+- `factory/DECISIONS/H-0397.md`, trailer `Decision: H-0397`, checkpoint `40b2d21`.
+- Nothing else in the enforcement path. `claim_leg`, the reporters, and every other leg are
+  untouched; the scan flags exactly zero of the 67 existing `local label=` rows.
+
+## What is still owed
+
+- The scan knows `label` in `printf` only. Every other name's FAIL-path discipline — a hypothetical
+  `$tree` or `$want` that a FAIL row prints but no branch assigns — is unpinned, because widening the
+  alphabet is a corpus judgement on `read`-assigned locals (`run_selftest_d_legs`' loop var is
+  legitimate) that #511 does not price. The scanner is one function; the judgement is the ticket.
+- A FAIL branch still has no execution-time proof until the product breaks once; the scan is a
+  cheap static partial, not a replacement. A leg family that forces each FAIL polarity (plant a
+  defect, expect the FAIL line, per leg) is the real closure and is far bigger than this unit.
+- The scanner reads a column-0 `}` as a function end: a heredoc holding one closes a body early
+  and HIDES a later defect. None exists today (the control reads `notice_legs` whole and leg (a)
+  is green across all 40 leg files); a future heredoc-shaped `}` is the day to teach the state
+  machine about here-strings, and leg (a) going quiet-when-it-should-not is the symptom.
+- `docs/factory.md` names no reporter-idiom convention today; nothing was added there because every
+  line added slides the pointers the logs aim at it, the same priced reason #503 left its sentence
+  owed. The legs are the guarantee.
+
+## Constraints a stranger would break
+
+- The control's anchor is the fix row verbatim: `local label="a halt comments on its unit" unit=`.
+  If you rewrite `notice_legs`, re-derive the control against the new declaration — the leg tells
+  you which of the two causes you hit (0 rows = the fix is gone; >1 = the row was copied), and
+  neither is a reason to delete the leg.
+- Do not extend the scan to arbitrary variable names by deleting the name filter: several shipped
+  legs fill locals with `read` and would fire it; that is the owed corpus judgement, not a quick
+  edit. Do not add a second scanner for the other names without the same two-leg polarity — a
+  one-legged scan is the vacuous-green the control leg exists to refuse.
+- The leg file is itself inside the scanned set. Its own patterns spell the reference as awk
+  regexes whose raw bytes are not the literal substring; a future edit there that puts a bare
+  `"$label"` printf into a function without `label=` will (correctly) redden leg (a) — spell the
+  pattern as this file does instead of adding an exemption.
+
+## Record — issue-503 unit, for PR #517 (branch `issue-503`, PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading; this head is demoted in place, its parenthetical byte-kept except the merge fact it could not know when written, and its three section bodies byte-kept beneath; this unit ships `H-0394`: the per-tick scratch is minted with a PATH-safe name. `factory/factory.sh:1488` folded `:` out of the unit id before `mktemp` — `plock-$(factory_slug "${unit//:/-}")` — because PATH is colon-delimited, an `unclaimed:<n>` unit id carries a colon, `factory_slug` maps `/` alone, and so the minted `/tmp/plock-unclaimed:503-…` made every prepend through `$FACTORY_SCRATCH/bin` contribute the two entries `/tmp/plock-unclaimed` and `503-…/bin`, neither of which exists: the prepend failed silently and the tick's stub binaries were not found. Measured in this tick, whose own scratch carried the colon: the prepend found nothing and PATH's head split exactly as named, while the colon-free twin found the stub. Three legs in `factory/selftest.d/503-scratch-path-safe.sh` — the world rule with both polarities so a control that cannot fail cannot pass, the shipped dispatch (no colon, the name still echoing the unit id, the stub FOUND through the prepend, the directory gone after the pass), and a mutant control that restores the filed mint and must show the colon and the missing stub. The mint line keeps its number and its `scratch=$(mktemp -d` text, so the pointers into it and the #415 family's mutant anchor still land; gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing. The `issue-495` head beneath this one is `H-0388`/`H-0392`'s hand-off, superseded only as a heading: PR #515 MERGED at `6ddb1d7f0569ef1635e6a6f2010309e076e0a213` 2026-11-22T08:58:21Z and PR #516 MERGED at `e50d96e6fc9079bd6a5a84ea2308bb8f147ef07a` 2026-11-22T10:02:19Z, both read back from the API at this re-heading, their clauses folded, their section bodies byte-kept beneath)
 
 ## What this unit shipped
 

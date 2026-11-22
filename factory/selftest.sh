@@ -3283,7 +3283,7 @@ rescue_leaves_no_temporary_behind
 # that make a notice real: it goes on the unit's own issue, it carries the marker's sentence, it is
 # throttled, and a failed post is journaled without stamping the throttle.
 notice_legs() {
-	local label unit=unclaimed:247 tree=$repo n=0 body=""
+	local label="a halt comments on its unit" unit=unclaimed:247 tree=$repo n=0 body=""
 	q_reset "$tree" "$unit"
 	q_dirty "$tree"
 	: >"$q_rec"
