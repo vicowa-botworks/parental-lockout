@@ -1485,7 +1485,7 @@ Inventing the ask is the failure this repository has written up more often than 
 	# litters the tree anyway, because this rule reaches the tick through its prompt and is advisory by
 	# construction.
 	local scratch='' scratch_note=''
-	scratch=$(mktemp -d "${TMPDIR:-/tmp}/plock-$(factory_slug "$unit")-XXXXXX" 2>/dev/null) || scratch=''
+	scratch=$(mktemp -d "${TMPDIR:-/tmp}/plock-$(factory_slug "${unit//:/-}")-XXXXXX" 2>/dev/null) || scratch='' # ':' would split a PATH prepend through this dir (#503)
 	if [ -n "$scratch" ]; then
 		scratch_note="
 
