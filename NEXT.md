@@ -5,14 +5,25 @@ precondition still live while this unit's gate run was in flight, and it stayed 
 
 ## What this unit shipped, and what it did not
 
-- Inherited, not this round's work (the four commits `305d073` `43e8c39` `d63c0d3` `7695b3e`):
+- Inherited, not this round's work (the four commits `73513ea` the pre-H-0384 checkpoint,
+  `65fcc72` the pin, `1390dca` the pre-H-0385 checkpoint, `1076b1e` the gate; the four shas first
+  written on this line — `305d073` `43e8c39` `d63c0d3` `7695b3e` — are no object on any ref and
+  were replaced 2026-11-22, on #514's review):
   `H-0384`'s per-pass pin — the `proc_run` line in `factory/selftest.sh` carries
   `FACTORY_UNITS_DIR="$proc_work/units-pass"` and
   `FACTORY_SERVICE_UNIT=proc-pass-factory.service` — and `H-0385`'s ownership gate in
   `factory_supervisor_repair`, refused-token `SUPERVISOR-FF-REFUSED not-this-pass`, with its
   containment legs in `factory/selftest.d/489-installed-tree-containment.sh` (a: pin extracted,
-  canary moves, RED; b: gate extracted, canary moves, RED; c: the shape prohibition aimed at the
-  tick's exported pair, GREEN only while some leg spawns a real supervisor pass at all).
+  canary moves, RED; b: gate extracted, canary moves, RED; c: shape greps of the shipped pin, the
+  knobs and the `proc_extra_env` prohibition — GREEN whether or not any supervisor pass ever
+  spawns, corrected to that polarity 2026-11-22 on #514's review).
+- Shipped (review round for #514, 2026-11-22, prose-only): the record-accuracy repairs that review
+  `6010672599` named — the `proc_extra_env` ordering claim corrected to what the code does (the
+  array expands BEFORE `proc_run`'s shipped list, so an entry naming a pinned name is nullified by
+  the pin, never an override) at its four shipped sites, with a dated `Correction` bullet on
+  `H-0384` and the four dead commit locators on the `Inherited` row replaced by the four that
+  ship; leg (c)'s polarity restated as shape-greps. No behaviour byte moved — text-only motion,
+  so the suite verdict carries.
 - Shipped (`factory/DECISIONS/H-0386.md`, trailer `Decision: H-0386`, checkpoint `4600323`): the
   measured limit of that gate. `$FACTORY_ROOT` is *derived*, by `_factory_main` in
   `factory/common.sh`, from the first `worktree` row of `git worktree list --porcelain`, and git
@@ -68,8 +79,9 @@ precondition still live while this unit's gate run was in flight, and it stayed 
 - The pinned pair on the `proc_run` line in `factory/selftest.sh` is a defence, not tidiness
   (`H-0384`). `factory/selftest.d/489-installed-tree-containment.sh` prints RED against its
   extraction, so removing it cannot land quietly; and no selftest may set `FACTORY_SERVICE_UNIT` to
-  a name the real unit answers to — leg (c) is the leg that says so, and it only runs while some leg
-  spawns a real supervisor pass, so do not make leg (c) pass by deleting the spawn.
+  a name the real unit answers to — leg (c) is pure shape-greps of `factory/selftest.sh` and passes
+  whether or not any pass spawns (corrected 2026-11-22 on #514's review); the legs that watch a
+  real pass run are (a) and (b), so deleting a spawn reddens those, never (c).
 - A new fixture that spawns the real supervisor must pin the pair AND expect
   `SUPERVISOR-FF-REFUSED not-this-pass`. A leg whose refusal sentence comes from `installed? no`
   tests an earlier arm and proves nothing about containment — the false-pass trap `H-0385` names in

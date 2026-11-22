@@ -28,7 +28,7 @@
 #       containment, not an arm that never ran;
 #   (c) the shipped shape: `proc_run`'s env list carries both names pinned, legs move them only
 #       through the knobs, and no `proc_extra_env` entry carries the unit name -- that array lands
-#       AFTER the shipped list, so it is the override channel the incident needs.
+#       BEFORE the shipped list, so the pin nullifies such an entry; it never overrides anything.
 #
 # Why a direct launcher and not `proc_run` itself: the defect lives in what is BEFORE the shipped
 # list (the exported tick environment surviving the preamble), and by design no channel in
@@ -262,8 +262,8 @@ it489_shape() {
 	}
 	if grep -q 'proc_extra_env=.*FACTORY_SERVICE_UNIT' "$self"; then
 		it489_say 'a proc_extra_env entry is carrying FACTORY_SERVICE_UNIT again. That array'
-		it489_say 'lands AFTER the shipped list -- it is the override channel the incident needs,'
-		it489_say 'and the installed-unit pair must travel on proc_units_dir/proc_service_unit.'
+		it489_say 'lands BEFORE the shipped list -- the pin nullifies it in silence, aiming the'
+		it489_say 'leg at the pinned fixture; the pair travels on proc_units_dir/proc_service_unit.'
 		return 1
 	fi
 	return 0

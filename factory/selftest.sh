@@ -3926,11 +3926,11 @@ proc_kill=''
 proc_extra_env=()
 # The two installed-unit names as a leg-settable knob (#489), the same shape as `proc_pass_timeout`
 # below: `proc_run` forwards these into `pass_knobs` only when a leg has put something in them.
-# They are NOT `proc_extra_env` entries, because the shipped list now spells both names with the
-# fixture values -- an array entry would land later and the array's documented purpose is to let a
-# leg OVERRIDE the shipped list, which is exactly the seam #489 closes. A leg that legitimately
-# aims the installed-unit read at a fixture unit (the containment leg, the divergence-gate leg)
-# sets these; everything else inherits the shipped pin.
+# They are NOT `proc_extra_env` entries: the shipped list spells both names at fixture values, and
+# `proc_extra_env` expands BEFORE that list (see the pass_env note in proc_run) -- an entry naming
+# a pinned name loses to the pin under env last-wins and is nullified in silence, aiming the leg
+# at the pinned fixture while it believes it planted its own unit. Only a knob lands after the
+# shipped list, so only a knob moves a pinned name; planted-unit legs set these, the rest inherit.
 proc_units_dir=''
 proc_service_unit=''
 proc_new() {
