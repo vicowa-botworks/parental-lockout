@@ -638,6 +638,15 @@ catches.
   Before editing any file
   the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
   same commit.
+- A `path:line` quotation that stops in the middle of a word on the cited line. Containment is true of a
+  fragment cut anywhere inside a token, so a quotation that leaves the end of the word off stays green
+  while the rest of that word is renamed — the pointer cannot fail, which is the same defect #374 refuses,
+  one edge further out. Measured on the shipped logs: five rows quoted the head of one shell substitution,
+  and the commit that changed the default inside it to `question` and moved all five onto the new line
+  greened the gate without lengthening one quotation (#495). Quote through the last character of the
+  token, and when a fragment ends at a `:` or a `/` in the middle of an expression, take the whole
+  expression instead of a prefix of it; `--citations` names every row that stops short and prints the
+  characters it left off.
 
 ## New harness legs are files under `factory/selftest.d/`, not a tail on `factory/selftest.sh`
 
