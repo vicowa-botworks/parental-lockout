@@ -18866,7 +18866,7 @@ dpn_j1() {
 		printf '            it answered %s, not the D-0002 the planted log points at.\n' "$got" >&2
 		return 1
 	fi
-	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:j1 branch=issue-j (allocator, DECISIONS.md,' \
+	grep -qF -- 'DECISION-ID D-0002 unit=unclaimed:j1 branch=issue-j path=DECISIONS/D-0002.md (allocator, DECISIONS.md,' \
 		"$dpn_j1_log/supervisor.log" && return 0
 	printf '            the id printed, and the journal says:\n' >&2
 	{ sed 's/^/              /' "$dpn_j1_log/supervisor.log" 2>/dev/null ||
@@ -18875,8 +18875,8 @@ dpn_j1() {
 	printf '            which is exactly the state #345 could not tell apart from numbering by eye.\n' >&2
 	return 1
 }
-dpn_leg 'a unit answer journals itself' 'one DECISION-ID line naming the id, the unit, the branch and the log' \
-	dpn_j1
+dpn_leg 'a unit answer journals itself' \
+	'one DECISION-ID line naming the id, the unit, the branch, the entry path and the log' dpn_j1
 
 # The COUNT, not the grep: `a unit answer journals itself` asks whether a line exists, so a write
 # that fires twice passes on its first line -- and #425's repair lesson is that a leg satisfied by
@@ -19121,7 +19121,7 @@ dpn_leg 'the pass names unearned ids' \
 # paid for by something else in the function; if the plant fails, the control is declared dead, not
 # green.
 dpn_p1c1=0
-dpn_mut "$HERE/common.sh" 'for rel in DECISIONS.md factory/DECISIONS.md; do' \
+dpn_mut "$HERE/common.sh" 'for rel in DECISIONS.md DECISIONS factory/DECISIONS.md factory/DECISIONS; do' \
 	'	for rel in ; do # MUTANT-345 the comparison scans no log' "$dpn_work/common-noscan" || dpn_p1c1=1
 dpn_p1c1_leg() {
 	local j=$dpn_work/p1c1-log/supervisor.log
@@ -19237,7 +19237,317 @@ dpn_p2c_leg() {
 }
 dpn_leg 'the UNCHECKED line is that arm' 'blinding it lets the failed read pass in silence' dpn_p2c_leg
 
-# ----------------------------------------------------------------------- the wiring: dispatch to journal
+# ------------------------------------------------------------------- the filed faces (#464)
+#
+# #456 made a NEW entry a FILE (`DECISIONS/H-0369.md`), and its `EMITS` line names the file to
+# create. #464 closes the other two legs of that fact. (1) The comparison pass and its baseline
+# inventory must count the filed faces: an entry filed as `DECISIONS/D-0042.md` that enters neither
+# read is #345's gap rebuilt inside the new layout -- a heading whose provenance nobody asks about.
+# (2) The journalled answer must carry the entry path the allocator emitted: `id` and `path` are one
+# answer, and the comparison audits the provenance of an id against the destination that id was
+# handed. The control the ticket prices up front is the shape the pass itself must get right: on
+# every p4/p5 fixture TRUNK carries no `DECISIONS/` at all (the layout postdates `dpn_repo`'s
+# fixture trunk), and that reads as an EMPTY base -- reported verdicts, no UNCHECKED -- not as a
+# failed read. The dpn_p2/p2c legs above keep the true polarity: an origin git cannot open at all
+# is UNCHECKED and renders nothing.
+#
+# One fact spelled twice, one plant per claim. A filed-face UNEARNED line names the ENTRY FILE in
+# its `log=` field, the same path `EMITS` named: the #345 lesson generalises -- `branch` and `unit`
+# were never enough, and a destination nobody journalled is a destination nobody audits.
+dpn_alloc_aim() { # <repo> <logdir> <unit> <aim> [script] -> stdout=id, stderr at $dpn_work/alloc-aim.err
+	local repo=$1 logdir=$2 unit=$3 aim=$4 script=${5:-$dpn_alloc}
+	mkdir -p -- "$logdir" || return 1
+	( cd -- "$repo" && env -u FACTORY_TICK_UNIT -u FACTORY_TICK_BRANCH \
+		FACTORY_LOG="$logdir" FACTORY_TICK_UNIT="$unit" \
+		FACTORY_TICK_BRANCH=issue-j bash "$script" "$aim" ) 2>"$dpn_work/alloc-aim.err"
+}
+
+# f1: the journalled line carries `path=` as its sixth positional field -- ahead of the step-over
+# note, because the note is the variable tail that says `parse no fixed field past me` -- and it
+# holds EXACTLY the path the EMITS line handed the unit. The two are one destination read two ways;
+# an end-of-tick comparison that audits an id against a file nobody was told to write is auditing
+# nothing. `dpn_repo`'s fixture trunk carries the entry dir filed AND the monolith, so the aim says
+# which face was asked and the path says which file the answer emits either way.
+dpn_f1_repo=$dpn_work/f1-repo
+if ! dpn_repo "$dpn_f1_repo" issue-j; then
+	pos_say 'fixture f1-repo could not be built; the path= legs read a tree that is not there'
+elif ! (
+	set -eu
+	mkdir -p "$dpn_f1_repo/main/DECISIONS"
+	printf '## D-0001 · a filed twin of the trunk entry\nbody\n' >"$dpn_f1_repo/main/DECISIONS/D-0001.md"
+	git -C "$dpn_f1_repo/main" add -A
+	git -C "$dpn_f1_repo/main" commit -qm 'fixture trunk: the filed face too'
+	git -C "$dpn_f1_repo/main" push -q origin main
+); then
+	pos_say 'fixture f1-repo'"'"'s filed face could not be committed; the path= legs read no directory'
+fi
+dpn_f1() {
+	local got j jpath eg gpath
+	got=$(dpn_alloc_aim "$dpn_f1_repo/unit" "$dpn_work/f1-log" unclaimed:f1 DECISIONS) || {
+		printf '            the allocator refused the filed aim; its stderr:\n' >&2
+		sed 's/^/              /' "$dpn_work/alloc-aim.err" >&2
+		return 1
+	}
+	[ "$got" = D-0002 ] || {
+		printf '            it answered %s, not the D-0002 the two D-0001 faces point at.\n' "$got" >&2
+		return 1
+	}
+	j=$dpn_work/f1-log/supervisor.log
+	jpath=$(awk '$2 == "DECISION-ID" {print $6; exit}' "$j" 2>/dev/null)
+	eg=$(grep 'next-decision-id: EMITS' "$dpn_work/alloc-aim.err" 2>/dev/null)
+	gpath=$(printf '%s\n' "$eg" | sed -n 's/^next-decision-id: EMITS //; s/ --.*//p' | head -n1)
+	if [ "${jpath%%=*}" = path ] && [ -n "$gpath" ] && [ "$jpath" = "path=$gpath" ] &&
+		grep -qF -- "$gpath (allocator, DECISIONS," "$j"; then
+		return 0
+	fi
+	printf '            the answer emitted %s and journalled %s -- one destination, read two\n' \
+		"${gpath:-<nothing>}" "${jpath:-<no path= field>}" >&2
+	printf '            ways, and they parted. The journal line:\n' >&2
+	{ sed 's/^/              /' "$j" 2>/dev/null || printf '              (no journal at all)\n'; } >&2
+	return 1
+}
+dpn_leg 'the journalled answer names its entry file' \
+	'path= is the sixth field and holds EXACTLY the path EMITS handed the unit' dpn_f1
+
+# f2 (control for f1): a journalled line that stores the LOG AIM instead of the entry file must
+# split the two readings apart. If the leg still passed, it was checking that SOME field exists,
+# not that EMITS and the journal are one fact.
+dpn_f2=0
+# The plant line legitimately ENDS in a continuation backslash -- it rewrites one line of a
+# multi-line printf, and the rewritten line must keep the continuation. SC1003 reads a trailing
+# `\'` anywhere as a botched single-quote escape; here the quote closes the argument, not the
+# backslash.
+# shellcheck disable=SC1003
+dpn_mut "$dpn_alloc" '"${jrn_branch:-unknown}" "$emit_rel" "$rel" "$jrn_read"' \
+	'		"${jrn_branch:-unknown}" "$rel" "$rel" "$jrn_read" "$jrn_note" \' \
+	"$dpn_work/alloc-logpath" || dpn_f2=1
+dpn_f2_leg() {
+	local j jpath gpath
+	if [ "${dpn_f2:-1}" != 0 ]; then
+		printf '            the path= field could not be moved, so f1 ran shipped code and its\n' >&2
+		printf '            agreement proves nothing about the field it greps for.\n' >&2
+		return 1
+	fi
+	if ! dpn_alloc_aim "$dpn_f1_repo/unit" "$dpn_work/f2-log" unclaimed:f2 DECISIONS \
+		"$dpn_work/alloc-logpath" >/dev/null; then
+		printf '            the mutated allocator refused, which is not the state f1 asks about:\n' >&2
+		printf '            the id must still be right when only provenance moved.\n' >&2
+		return 1
+	fi
+	j=$dpn_work/f2-log/supervisor.log
+	jpath=$(awk '$2 == "DECISION-ID" {print $6; exit}' "$j" 2>/dev/null)
+	gpath=$(grep 'next-decision-id: EMITS' "$dpn_work/alloc-aim.err" 2>/dev/null |
+		sed -n 's/^next-decision-id: EMITS //; s/ --.*//p' | head -n1)
+	# The control bites when the two readings PART in exactly the planted direction: EMITS still
+	# names the entry file, the journal now names the log aim. Anything else and the plant did
+	# not plant, and the leg above was never challenged.
+	if [ "$gpath" = DECISIONS/D-0002.md ] && [ "$jpath" = path=DECISIONS ]; then
+		return 0
+	fi
+	printf '            planted run: EMITS=%s journal6=%s -- expected the pair to part as\n' \
+		"${gpath:-<nothing>}" "${jpath:-<nothing>}" >&2
+	printf '            EMITS=DECISIONS/D-0002.md, path=DECISIONS:\n' >&2
+	{ sed 's/^/              /' "$j" 2>/dev/null || printf '              (no journal at all)\n'; } >&2
+	return 1
+}
+dpn_leg 'the path= field is that write' \
+	'journal the log aim instead and the EMITS identity leg refuses the run' dpn_f2_leg
+
+# f3 (bullet 2): the comparison counts the filed faces, and the report names the ENTRY FILE. A
+# heading filed as `DECISIONS/D-0008.md` with nothing journalled is #345's state in the new layout,
+# and the line must be actionable in the same sentence the monolith shape is: id, unit, branch, and
+# the file the id sits in. D-0010 is the earned control -- journalled on the OLD five-field shape,
+# which certifies an id exactly as before: `path=` is additive, and a reader that expects it must
+# not start calling history unearned. The fixture doubles as the ticket's priced-up-front control:
+# its trunk carries no `DECISIONS/` at all, so a pass that mistook "trunk has no filed face" for a
+# failed read would show up as UNCHECKED and silence -- both asserted against below.
+dpn_f3_dir=$dpn_work/f3
+if ! dpn_repo "$dpn_f3_dir" issue-f3; then
+	pos_say 'fixture f3 could not be built; the filed-face legs read a tree that does not exist'
+elif ! (
+	set -eu
+	mkdir -p "$dpn_f3_dir/unit/DECISIONS" "$dpn_f3_dir/unit/factory/DECISIONS"
+	printf '## D-0008 · an id filed by eye\nbody\n' >"$dpn_f3_dir/unit/DECISIONS/D-0008.md"
+	printf '## D-0010 · an id filed and earned\nbody\n' >"$dpn_f3_dir/unit/DECISIONS/D-0010.md"
+	printf '## H-0005 · a harness id filed by eye\nbody\n' >"$dpn_f3_dir/unit/factory/DECISIONS/H-0005.md"
+	git -C "$dpn_f3_dir/unit" add -A
+	git -C "$dpn_f3_dir/unit" commit -qm 'fixture: three filed headings, one earned'
+); then
+	pos_say 'fixture f3'"'"'s filed entries could not be committed; the comparison legs read nothing'
+fi
+mkdir -p "$dpn_f3_dir/log"
+printf '2026-11-21T00:00:00Z DECISION-ID D-0010 unit=address_review:903 branch=issue-f3 (allocator, DECISIONS, REFRESH 1s union)\n' \
+	>>"$dpn_f3_dir/log/supervisor.log"
+dpn_prove "$HERE/common.sh" unclaimed:f3 issue-f3 "$dpn_f3_dir/unit" "$dpn_f3_dir/log" "$dpn_f3_dir/ledger" \
+	>"$dpn_work/f3.out" 2>&1 ||
+	pos_say 'the shipped comparison exited non-zero on filed entries (it returns 0 by contract); see '"$dpn_work"'/f3.out'
+dpn_prove "$HERE/common.sh" unclaimed:f3 issue-f3 "$dpn_f3_dir/unit" "$dpn_f3_dir/log" "$dpn_f3_dir/ledger" \
+	>"$dpn_work/f3b.out" 2>&1 ||
+	pos_say 'the second activation exited non-zero; see '"$dpn_work"'/f3b.out'
+dpn_f3_leg() {
+	local j=$dpn_f3_dir/log/supervisor.log n
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0008 (no allocation journalled for this unit) unit=unclaimed:f3 branch=issue-f3 log=DECISIONS/D-0008.md' "$j"; then
+		printf '            the filed by-eye id was not reported naming the FILE it sits in --\n' >&2
+		printf '            that path is what EMITS handed its writer, and a bare log name after\n' >&2
+		printf '            #456 names a file nobody was told to write:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED H-0005' "$j" ||
+		! grep -qF -- 'log=factory/DECISIONS/H-0005.md' "$j"; then
+		printf '            the unearned filed heading in the HARNESS log was not reported, so the\n' >&2
+		printf '            comparison counts only the repository side:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qE -- 'DECISION-ID-UNEARNED (D-0010|D-0005|H-0001)' "$j"; then
+		printf '            something earned or already-on-trunk got reported: D-0010 IS journalled\n' >&2
+		printf '            on this branch on the OLD five-field shape -- path= is additive, an id a\n' >&2
+		printf '            pre-#464 line certifies stays certified:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qF -- 'DECISION-ID-UNCHECKED' "$j"; then
+		printf '            a trunk with no filed directory read as a FAILED read; the layout\n' >&2
+		printf '            postdates this fixture trunk -- empty is a verdict, silence is a lie,\n' >&2
+		printf '            and UNCHECKED is neither:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	n=$(grep -c 'DECISION-ID-UNEARNED' "$j") || true
+	if [ "${n:-0}" != 2 ]; then
+		printf '            two activations journalled %s UNEARNED line(s), not two: one per id\n' "${n:-0}" >&2
+		printf '            per unit, whichever face the id was filed in:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the comparison counts filed faces and names the file' \
+	'a filed by-eye id reports UNEARNED with log=DECISIONS/<id>.md; an empty filed trunk is not UNCHECKED' \
+	dpn_f3_leg
+
+# f3c: the same blinding plant as control one, aimed at the filed half -- with only the two monolith
+# faces on the list, the shipped f3 verdicts above vanish entirely. This is what proves those lines
+# are paid for by the face list and not by the monolith reads happening to walk past them.
+dpn_f3c=0
+dpn_mut "$HERE/common.sh" 'for rel in DECISIONS.md DECISIONS factory/DECISIONS.md factory/DECISIONS; do' \
+	'	for rel in DECISIONS.md factory/DECISIONS.md; do # MUTANT-464 the filed faces are not scanned' \
+	"$dpn_work/common-nofiled" || dpn_f3c=1
+dpn_f3c_leg() {
+	local j=$dpn_work/f3c-log/supervisor.log
+	if [ "${dpn_f3c:-1}" != 0 ]; then
+		printf '            the filed faces could not be blinded, so f3 ran shipped code and its\n' >&2
+		printf '            filed lines prove nothing about the face list.\n' >&2
+		return 1
+	fi
+	mkdir -p -- "$dpn_work/f3c-log"
+	printf '2026-11-21T00:00:00Z DECISION-ID D-0010 unit=address_review:903 branch=issue-f3 (allocator, DECISIONS, REFRESH 1s union)\n' \
+		>>"$j"
+	dpn_prove "$dpn_work/common-nofiled" unclaimed:f3c issue-f3 "$dpn_f3_dir/unit" \
+		"$dpn_work/f3c-log" "$dpn_work/f3c-ledger" >"$dpn_work/f3c.out" 2>&1 || {
+		printf '            the blinded comparison exited non-zero; see %s/f3c.out\n' "$dpn_work" >&2
+		return 1
+	}
+	if grep -qF -- 'DECISION-ID-UNEARNED' "$j"; then
+		printf '            blinding the filed faces did not silence the filed reports -- the\n' >&2
+		printf '            shipped leg is being paid for by something other than the face list:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	return 0
+}
+dpn_leg 'the filed report is the face list'"'"'s' \
+	'monolith faces only, and the filed UNEARNED lines vanish' dpn_f3c_leg
+
+# f4: #427's shape in the filed layout. A heading an EARLIER tick filed, judged at that tick's end,
+# must not be re-reported to every later unit -- the exemption lives in the TICK-START snapshot, and
+# the snapshot is `factory_decision_headings` output. So this fixture tests the inventory too: a
+# baseline that still keyed rows by log name (or skipped the filed face) would not hold `D-0011`,
+# and D-0011 would come back UNEARNED -- the #427 noise #464 must not rebuild in the new layout.
+# D-0012, filed AFTER the snapshot, is the other edge of the same line: in-filed ids earn UNEARNED
+# exactly like monolith ones. One line carries both verdicts.
+dpn_snapshot() { # <common.sh> <unit> <tree> <statedir> -- FACTORY_LOG pinned to <statedir>/log
+	local common=$1 unit=$2 tree=$3 statedir=$4
+	(
+		set -eu
+		# shellcheck disable=SC1090,SC1091
+		. "$common"
+		FACTORY_DIR=$statedir FACTORY_LOG=$statedir/log FACTORY_LEDGER=$statedir/ledger \
+			FACTORY_RUN=$statedir/run DRY_RUN=0 \
+			FACTORY_REPO=example/repo FACTORY_OWNER=example FACTORY_NAME=repo \
+			factory_decision_provenance_snapshot "$unit" "$tree"
+	)
+}
+dpn_f4_dir=$dpn_work/f4
+dpn_f4_st=$dpn_work/f4-st
+if ! dpn_repo "$dpn_f4_dir" issue-f4; then
+	pos_say 'fixture f4 could not be built; the filed-baseline leg reads a tree that does not exist'
+elif ! (
+	set -eu
+	mkdir -p "$dpn_f4_dir/unit/DECISIONS"
+	printf '## D-0011 · filed by an earlier tick\nbody\n' >"$dpn_f4_dir/unit/DECISIONS/D-0011.md"
+	git -C "$dpn_f4_dir/unit" add -A
+	git -C "$dpn_f4_dir/unit" commit -qm 'fixture: a filed heading from an earlier tick'
+); then
+	pos_say 'fixture f4'"'"'s filed TICK-START heading could not be committed'
+fi
+mkdir -p "$dpn_f4_st/log"
+# The snapshot must land where `dpn_prove` will look for it: the pass reads
+# `$FACTORY_DIR/run/provenance/<unit>.headings`, and dpn_prove pins FACTORY_DIR to $dpn_work/st.
+dpn_snapshot "$HERE/common.sh" unclaimed:f4 "$dpn_f4_dir/unit" "$dpn_f4_st" \
+	>"$dpn_work/f4-snap.out" 2>&1 ||
+	pos_say 'the TICK-START snapshot exited non-zero (it returns 0 by contract); see '"$dpn_work"'/f4-snap.out'
+if ! (
+	set -eu
+	printf '## D-0012 · filed during this tick\nbody\n' >"$dpn_f4_dir/unit/DECISIONS/D-0012.md"
+	git -C "$dpn_f4_dir/unit" add -A
+	git -C "$dpn_f4_dir/unit" commit -qm 'fixture: a filed heading the unit itself wrote'
+); then
+	pos_say 'fixture f4'"'"'s mid-tick filed heading could not be committed'
+fi
+dpn_prove "$HERE/common.sh" unclaimed:f4 issue-f4 "$dpn_f4_dir/unit" "$dpn_f4_st/log" "$dpn_f4_st" \
+	>"$dpn_work/f4.out" 2>&1 ||
+	pos_say 'the comparison exited non-zero on the filed baseline fixture; see '"$dpn_work"'/f4.out'
+dpn_f4_leg() {
+	local j=$dpn_f4_st/log/supervisor.log s n
+	if ! grep -qF -- 'DECISION-ID-UNJOURNALABLE 1 unit=unclaimed:f4 branch=issue-f4 log=DECISIONS/ ids=D-0011' "$j"; then
+		printf '            the filed heading already here at TICK-START was not exempted and\n' >&2
+		printf '            reported as itself -- which means the SNAPSHOT does not count filed\n' >&2
+		printf '            faces either, and every later unit re-meets #427'\''s backlog per file:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if grep -qE -- 'DECISION-ID-UNEARNED D-0011' "$j"; then
+		printf '            the inherited filed id was called UNEARNED: the exemption read missed\n' >&2
+		printf '            it in a baseline keyed by log name, or in no baseline at all.\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	if ! grep -qF -- 'DECISION-ID-UNEARNED D-0012 (no allocation journalled for this unit) unit=unclaimed:f4 branch=issue-f4 log=DECISIONS/D-0012.md' "$j"; then
+		printf '            the id filed DURING this tick was not reported UNEARNED naming its file\n' >&2
+		printf '            -- the exemption must swallow the inherited half and ONLY that half:\n' >&2
+		sed 's/^/              /' "$j" >&2
+		return 1
+	fi
+	s=$dpn_f4_st/run/provenance/unclaimed:f4.headings
+	[ -f "$s" ] || { printf '            no snapshot file at %s -- the TICK-START inventory\n' "$s" >&2
+		printf '            did not run for this unit, so the pass had no baseline to read:\n' >&2
+		return 1; }
+	grep -qF -- 'DECISIONS/D-0011.md D-0011' "$s" || {
+		printf '            the snapshot file does not key the filed heading by its ENTRY PATH\n' >&2
+		printf '            (`DECISIONS/D-0011.md D-0011`), so the face prefix read has nothing\n' >&2
+		printf '            to match: %s\n' "${s:-<no snapshot file>}" >&2
+		return 1
+	}
+	n=$(grep -c 'DECISION-ID-UNJOURNALABLE' "$j") || true
+	[ "${n:-0}" = 1 ] && return 0
+	printf '            %s UNJOURNALABLE line(s), not one:\n' "${n:-0}" >&2
+	sed 's/^/              /' "$j" >&2
+	return 1
+}
+dpn_leg '#427 in the filed layout' \
+	'an inherited filed id reads UNJOURNALABLE with the baseline keyed by entry path' dpn_f4_leg
 #
 # The two contracts above meet across a process boundary: `factory_tick` exports the unit context,
 # and the allocator -- run by the session, minutes later, inside a worktree -- writes its answer

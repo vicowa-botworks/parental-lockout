@@ -3712,22 +3712,61 @@ factory_quarantine_after_tick() {
 	return 0
 }
 
-# Every decision heading this tree carries right now, as `<log> <id>` pairs -- both logs, each read as
-# committed HEAD plus the working file, which is the same shape the end-of-tick comparison reads so the
-# two can never disagree about what "carried" means.
+# Every decision heading this tree carries right now, as `<path> <id>` pairs -- both logs on both
+# faces, each read as committed HEAD plus the working file, which is the same shape the end-of-tick
+# comparison reads so the two can never disagree about what "carried" means. For a filed entry the
+# path is the entry file itself (`DECISIONS/D-0042.md`), not the log's name: since #456 a NEW entry
+# is a file, and an inventory that enumerated only the two monoliths would be blind to the layout
+# every fresh heading is arriving in -- the same blindness #442 priced at 7 of 31 ids, one face
+# later.
 #
 # usage: factory_decision_headings TREE
 factory_decision_headings() {
-	local tree=$1 rel
+	local tree=$1 rel f
+	[ -d "$tree" ] || return 0
 	# The quoted spelling is not style: the selftest's MUTANT-345 anchors the unquoted `for rel in
-	# DECISIONS.md factory/DECISIONS.md; do` in `factory_decision_provenance` and `dpn_mut` refuses a
-	# mutant anchor that occurs twice. Two loops over the same two names is one fact spelled twice.
-	for rel in 'DECISIONS.md' 'factory/DECISIONS.md'; do
-		{
-			git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
-			if [ -f "$tree/$rel" ]; then cat -- "$tree/$rel" 2>/dev/null || true; fi
-		} | sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$rel \\1|p"
-	done | sort -u
+	# DECISIONS.md DECISIONS factory/DECISIONS.md factory/DECISIONS; do` in `factory_decision_provenance`
+	# and `dpn_mut` refuses a mutant anchor that occurs twice. Two loops over the same four faces is
+	# one fact spelled twice.
+	{
+		for rel in 'DECISIONS.md' 'factory/DECISIONS.md'; do
+			{
+				git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
+				if [ -f "$tree/$rel" ]; then cat -- "$tree/$rel" 2>/dev/null || true; fi
+			} | sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$rel \\1|p"
+		done
+		for rel in 'DECISIONS' 'factory/DECISIONS'; do
+			factory_decision_entry_paths "$tree" "$rel" | while IFS= read -r f; do
+				if [ -f "$tree/$f" ]; then
+					sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$f \\1|p" -- "$tree/$f" 2>/dev/null ||
+						true
+				else
+					git -C "$tree" show "HEAD:$f" 2>/dev/null |
+						sed -n "s|^## \\([DH]-[0-9][0-9][0-9][0-9]\\).*|$f \\1|p"
+				fi
+			done
+		done
+	} | sort -u
+	return 0
+}
+
+# The entry files one filed face holds, as repo-relative paths, deduped: every `*.md` git can see
+# in HEAD or under the directory in the working tree. `find` rather than a glob because a glob with
+# nothing to match hands the next command the literal `DECISIONS/*.md` -- the lesson `face_work` in
+# `next-decision-id.sh` records for the same reason -- and a plain path is never a glob failure: a
+# missing directory contributes no rows, it does not end the inventory. Tolerant by construction:
+# every read folds, because a snapshot written while git was unreadable must be zero rows and zero
+# words, not a half-file with a stack trace in it.
+#
+# usage: factory_decision_entry_paths TREE DIR
+factory_decision_entry_paths() {
+	local tree=$1 rel=$2
+	{
+		git -C "$tree" ls-tree -r --name-only HEAD -- "$rel" 2>/dev/null | sed -n 's|\.md$|&|p'
+		[ -d "$tree/$rel" ] &&
+			find "$tree/$rel" -type f -name '*.md' -print 2>/dev/null | sed "s|^$tree/||"
+		true
+	} | sort -u
 	return 0
 }
 
@@ -3810,8 +3849,9 @@ factory_decision_provenance_snapshot() {
 # exit:  0 always. What the tick delivered remains the tick's own answer; this is the journal's.
 factory_decision_provenance() {
 	local unit=$1 branch=$2 tree=$3
+	local unit=$1 branch=$2 tree=$3
 	local rel id journal earned reported added new held base bad='' snap baseline
-	local pre unj shown nn
+	local pre unj shown nn face_kind f found idpath basetext
 	journal="$FACTORY_LOG/supervisor.log"
 
 	if [ -z "$branch" ]; then
@@ -3852,20 +3892,63 @@ factory_decision_provenance() {
 	unj=$(factory_ledger_get "$unit" unjournalable-reported) || unj=''
 	added=''
 
-	for rel in DECISIONS.md factory/DECISIONS.md; do
+	# Four faces, one fact: the same enumeration `factory_decision_headings` inventories, so the
+	# snapshot and this comparison can never disagree about which bytes are "carried" (#464 counts
+	# the filed faces in; before #464 a heading filed as `DECISIONS/D-0042.md` entered neither read,
+	# which is #345's gap rebuilt in the new layout). The face names here are the MUTANT-345 anchor
+	# line, and it is one line for the four -- `dpn_mut` refuses an anchor that occurs twice. The
+	# kind is a SUFFIX TEST, not a fifth name on this line: bash's `for` distributes to one variable
+	# only, and a `for a b in` header is a parse error the syntax leg below would have caught the
+	# first time it was written (the ticket's own wording, corrected here at the cost of one red
+	# `bash -n` in this unit's own session).
+	for rel in DECISIONS.md DECISIONS factory/DECISIONS.md factory/DECISIONS; do
+		case $rel in
+		*.md) face_kind='file' ;;
+		*) face_kind='dir' ;;
+		esac
 		# The branch as the tick leaves it is committed plus uncommitted: a tick killed between
 		# writing an entry and committing it left a heading the next allocator must not hand out,
-		# and it is exactly the shape whose provenance nobody asked about.
-		held=$({
-			git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
-			[ -f "$tree/$rel" ] && cat -- "$tree/$rel" 2>/dev/null || true
-		} | sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' | sort -u) || held=''
+		# and it is exactly the shape whose provenance nobody asked about. A filed face holds one
+		# entry per file, so its read carries the ENTRY PATH beside each id -- the reports' `log=`
+		# field names the file the id was actually found in, which is the point of journalling
+		# `path=` (#464): id and destination audited against each other, not an id against a log
+		# nobody was told to write.
+		found=''
+		if [ "$face_kind" = dir ]; then
+			found=$(factory_decision_entry_paths "$tree" "$rel" | while IFS= read -r f; do
+				if [ -f "$tree/$f" ]; then
+					sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' -- "$tree/$f" 2>/dev/null
+				else
+					git -C "$tree" show "HEAD:$f" 2>/dev/null |
+						sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' || true
+				fi | sed "s|$|\t$f|"
+			done) || found=''
+			held=$(printf '%s\n' "$found" | sed 's/\t.*//' | grep -v '^$' | sort -u) || held=''
+		else
+			held=$({
+				git -C "$tree" show "HEAD:$rel" 2>/dev/null || true
+				[ -f "$tree/$rel" ] && cat -- "$tree/$rel" 2>/dev/null || true
+			} | sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' | sort -u) || held=''
+		fi
 		[ -n "$held" ] || continue
-		if ! base=$(git -C "$tree" show "origin/main:$rel" 2>/dev/null); then
+		if [ "$face_kind" = dir ]; then
+			# A trunk that carries no such directory is an EMPTY base, not a failed read: on most
+			# branches the filed layout arrived after trunk was cut, and calling that UNCHECKED
+			# would silence this pass exactly where a unit's first filed entry needs it heard. A
+			# trunk git cannot open at all is the failed read, and says so.
+			if ! git -C "$tree" rev-parse --verify -q 'origin/main' >/dev/null 2>&1; then
+				bad="${bad:+$bad; }origin/main holds no readable $rel/"
+				continue
+			fi
+			basetext=$(git -C "$tree" ls-tree -r --name-only origin/main -- "$rel" 2>/dev/null |
+				sed -n 's|\.md$|&|p' | while IFS= read -r f; do
+					git -C "$tree" show "origin/main:$f" 2>/dev/null || true
+				done) || basetext=''
+		elif ! basetext=$(git -C "$tree" show "origin/main:$rel" 2>/dev/null); then
 			bad="${bad:+$bad; }origin/main holds no readable $rel"
 			continue
 		fi
-		base=$(printf '%s\n' "$base" |
+		base=$(printf '%s\n' "$basetext" |
 			sed -n 's/^## \([DH]-[0-9][0-9][0-9][0-9]\).*/\1/p' | sort -u)
 		# New to the branch means new against the trunk it will merge into; an id `main` already
 		# carries is not this unit's claim to make and not this unit's to have journalled.
@@ -3878,8 +3961,15 @@ factory_decision_provenance() {
 		# read is covered by the allocator's `PENDING` line, not by this one.
 		pre=''
 		if [ "$baseline" = tick-start ]; then
-			pre=$(awk -v r="$rel" '$1 == r {print $2}' "$snap" 2>/dev/null |
-				sort -u | tr '\n' ' ') || pre=''
+			if [ "$face_kind" = dir ]; then
+				# The snapshot keys a filed row by its entry path; the face selects by directory
+				# prefix, which is why `factory_decision_headings` emits paths, not log names.
+				pre=$(awk -v r="$rel/" 'index($1, r) == 1 {print $2}' "$snap" 2>/dev/null |
+					sort -u | tr '\n' ' ') || pre=''
+			else
+				pre=$(awk -v r="$rel" '$1 == r {print $2}' "$snap" 2>/dev/null |
+					sort -u | tr '\n' ' ') || pre=''
+			fi
 		fi
 		pre_new=''
 		for id in $new; do
@@ -3895,13 +3985,19 @@ factory_decision_provenance() {
 			# Past here the id arrived DURING this tick and nothing journalled it. That is the one
 			# state `UNEARNED` was written to name (#345), and the one state worth this line.
 			case " $reported " in *" $id "*) continue ;; esac
-			log_event "DECISION-ID-UNEARNED $id (no allocation journalled for this unit) unit=$unit branch=$branch log=$rel baseline=$baseline"
+			idpath=$rel
+			if [ "$face_kind" = dir ]; then
+				idpath=$(printf '%s\n' "$found" |
+					awk -F'\t' -v i="$id" '$1 == i {print $2; exit}') || idpath=''
+			fi
+			log_event "DECISION-ID-UNEARNED $id (no allocation journalled for this unit) unit=$unit branch=$branch log=${idpath:-$rel} baseline=$baseline"
 			added="${added:+$added }$id"
 		done
 		# The inherited half, reported as ITSELF. One line per unit per log naming the count and the
 		# ids -- so the exemption is auditable rather than a silent `case` in the loop, which is what
 		# #427 asked for -- and never through the `unearned-reported` ledger, so the backlog cannot
-		# spend the one report each real claim is owed.
+		# spend the one report each real claim is owed. A filed face names its DIRECTORY with the
+		# trailing slash: the bundle spans files, and the slash is the face, not a typo of a path.
 		if [ -n "$pre_new" ]; then
 			shown=''
 			nn=0
@@ -3911,7 +4007,8 @@ factory_decision_provenance() {
 				nn=$((nn + 1))
 			done
 			if [ -n "$shown" ]; then
-				log_event "DECISION-ID-UNJOURNALABLE $nn unit=$unit branch=$branch log=$rel ids=$shown (on the branch at TICK-START; no allocation line could exist for them) baseline=$baseline"
+				log_event "DECISION-ID-UNJOURNALABLE $nn unit=$unit branch=$branch log=$rel$(
+					[ "$face_kind" = dir ] && printf '/') ids=$shown (on the branch at TICK-START; no allocation line could exist for them) baseline=$baseline"
 				factory_ledger_set "$unit" unjournalable-reported "${unj:+$unj }$shown"
 				unj="${unj:+$unj }$shown"
 			fi

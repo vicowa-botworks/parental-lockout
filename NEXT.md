@@ -1,4 +1,124 @@
-# NEXT — issue-448 (branch `issue-448`, PR #504 open against `main`; this unit ships `H-0378`: `main` moved a third time under this pull — the #510 merge, `MERGED 2026-11-21T23:07:22Z` read back from the API at this re-heading — and `git merge origin/main` came back CONFLICTING on exactly one hunk: `NEXT.md`'s head junction, where both parents re-headed the same base head (this branch's `H-0376` round and trunk's `issue-469` round); everything else the #510 merge carried landed clean — trunk's `H-0374` entry is a filed file, so the monolith did not move a row and no pointer needed re-aiming this round, and the `.github/workflows/ci.yml` transport-retry edit and `factory/selftest.d/469-pinned-fetch-retry.sh` are the merge's own output; adjudication: this head is re-titled and sits on top as the live status board of the unit still owed a merge, trunk's `issue-469` head is demoted in place to a `## Record` stamped with its merge (#510 at `a6e09ee`, 2026-11-21T23:07:22Z read back from the API at this re-heading), this branch's round-2 head is demoted in place with its full text byte-kept, and the duplicated `## Record — issue-468` line is kept once in this branch's stamped wording — trunk's bare copy is the one line dropped, and the #510 intent it summarised travels in the merge's own files; checkpoint `07864e8` before the sync and the adjudication; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor and this unit merged nothing)
+# NEXT — issue-464 (branch `issue-464`, PR #508 open against `main`; this unit is the second conflict tick for #508 and ships `H-0381`: `main` moved under this pull again — the #504 merge at `252d488`, MERGED 2026-11-22T00:36:21Z read back from the API at this re-heading — and `git merge origin/main` came back CONFLICTING on exactly two paths, counted by re-running `git merge-file` over the three index-stage files rather than by counting markers: this hand-off's head junction, ONE hunk where this branch's phase-2 head and trunk's `issue-448` round-3 head each re-headed the base head, and `factory/DECISIONS.md`, 57 hunks; `factory/selftest.sh` auto-merged, so its merged bytes are what every pointer in the log had to be read against; the log went to the shipped machine union `scripts/merge-decisions.py` (#381) and that union REFUSED it by name — `UNION-REFUSED reason=id-collision factory/DECISIONS.md H-0303 differs on both sides by more than coordinate digits` — so the documented order was followed: refuse, hand-settle the named entry, let the machine take the rest. The named entry was folded row by row under the union's own accept rules (89 rows each side: 86 identical, TWO digits-only drift, ONE where `base == ours` and trunk alone lengthened the quoted anchor, ZERO where both sides moved words), and the shipped re-aim then moved the drift rows to the merged tree's coordinates and the shipped certifier passed; adjudication `H-0381`: this head is re-titled and sits on top as the live status board of the unit still owed a merge — #508 open, #504 merged — this branch's round-1 head is demoted in place to the `## Record` beneath with every body byte-kept, trunk's `issue-448` round-3 head is demoted in place to a short `## Record` stamped with its merge (#504 at `252d488`, 2026-11-22T00:36:21Z read back from the API at this re-heading) with its three section bodies byte-kept beneath it, and the duplicated `## Record — issue-469` row is kept ONCE as one row carrying both parents' bytes — this branch's full-parenthetical body with trunk's `a6e09ee` merge stamp and its demotion clause folded in, one row transformed against each parent and no clause dropped; the zero-absence census against both parents is recorded in `factory/DECISIONS/H-0381.md`; checkpoint `2414821` before the sync and the adjudication; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor and this unit merged nothing)
+
+## What this unit shipped, and what it did not
+
+- Shipped (`factory/DECISIONS/H-0381.md`, trailer `Decision: H-0381`, checkpoint `2414821`): the
+  sync of `issue-464` onto `origin/main` `252d488` and the two-path adjudication named in the head
+  line — this hand-off by head-vs-head, `factory/DECISIONS.md` by `scripts/merge-decisions.py`
+  except for the one entry that script refuses by name, which was folded under its own accept rules
+  at row granularity and then handed back to its re-aim and its certifier. The union's own verdict
+  line rides the pull body, never here.
+- Shipped: no production byte moved by this tick. `factory/selftest.sh`, `factory/common.sh`,
+  `factory/next-decision-id.sh`, `docs/factory.md` and `.github/workflows/ci.yml` land exactly as
+  the merge wrote them; what this tick wrote is this file, the log's resolution, and its entry.
+- Shipped: the row-level truth of the refused entry, measured before anything was written — 89 rows
+  per side, 86 identical, 2 digits-only drift, 1 where this branch's row is byte-for-byte base's,
+  0 where both sides moved words — and each of the three coordinates the machine then chose was
+  verified by opening the merged `factory/selftest.sh` at that line and reading the anchor.
+- Did not ship: phase 3 (batched split of the monoliths), phase 4 (retiring the monoliths, not an
+  agent's call), hand-filed conversions (`H-0263` still stands), and the #506 allocator-cost work —
+  none of them touched by this round.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor reviews and merges; this unit asked nobody and merged nothing. A push into a pull
+   request that already carries a review spends that approval and neither command reports it, so
+   what the post-push read-back said rides in the pull-request body beside its own read-backs,
+   never here.
+2. `H-0372` is named in the logs only as the stale checkpoint label (the gate's id-coverage report
+   lists it as a hole, report-only); whoever allocates it retires the hole by existing.
+3. Everything the `Record — issue-464 unit, round 1 for PR #508` block beneath owes, unrenumbered:
+   phase 3 and phase 4, the filed-entry rule (`H-0263`), the #506 cost work, and the parse
+   contracts its `Constraints` block names.
+4. Everything the `Record — issue-448 conflict tick, round 3 for PR #504` block beneath owes,
+   unrenumbered — the #482 and #489 environment leaks, the suite-wide `$TMPDIR` precondition, the
+   remote-only leg for the allocator's liveness arm, and #503's colon-in-scratch poison — and
+   everything the two `Record — issue-448` blocks under it owe.
+5. What the `Record — issue-469`, `Record — issue-468` and `Record — issue-456` blocks carry
+   (#506's union-walk cost, the two deferred honesty clauses) is inherited by content, not
+   re-derived here; both pulls merged, #510 at `a6e09ee` and #509 at `78502fd`.
+
+## Constraints a stranger would break here
+
+- `NEXT.md` merges are head-vs-head, never content-vs-content: exactly one `#` head, the unit still
+  owed a merge keeps it, a merged unit's head becomes a `## Record` stamped with the merge stamp
+  read from the API at the re-heading, and every dropped or transformed line is named out loud in
+  the entry and checked by a census against BOTH parents. `scripts/check-next-md.sh` enforces the
+  one-head rule and refuses a hand-off that names a path the tree does not have.
+- `factory/DECISIONS.md` is the machine union's to settle: inside a conflicted merge run `python3
+  scripts/merge-decisions.py` and hand-adjudicate only what it refuses by name. A refusal writes
+  nothing and stops every clean hunk with it, so hand-adjudicating the whole file is not the answer
+  to one named entry: fold THAT entry under the union's own accept rules at the granularity it
+  lacks — per row, one side equal to base or the two coordinates-only apart — hand it back, and let
+  the shipped re-aim and the shipped certifier have the last word. A `path:line` conflict inside a
+  log is a drifted pointer, not a content dispute: fold the digits out of both sides, and whatever
+  is left identical is drift; then move only digits, to where the gate says the anchor lives, and
+  open the merged file at that number and read the anchor yourself.
+- stdout of `factory/next-decision-id.sh` must stay the id alone; `EMITS` is stderr, beside the
+  refresh and pending notes.
+- The journalled line's field order is a parse contract: `$4` tree, `$5` then `path=` at `$6`, the
+  step-over note after it, the parenthetical as tail — a reader that REQUIRES `path=` calls every
+  pre-#464 allocation unearned.
+- `$FACTORY_RUN/provenance/<unit>.headings` is keyed ENTRY-PATH-first (`DECISIONS/D-0011.md D-0011`);
+  a reader matching the old log-name key exempts nothing.
+- `dpn_prove`'s sixth positional argument is the STATEDIR (run/ledger derive from it); passing a
+  ledger dir there renders `baseline=none` and UNEARNED where UNJOURNALABLE is owed — that is exactly
+  how f4 failed before its repair.
+- Re-aim citations only by opening the file and locating the anchor text, and edit digits, never
+  whole rows; `make verify` green per commit; `POINTER_DEBT` may only fall.
+- Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
+  approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
+
+## Record — issue-464 unit, round 1 for PR #508 (branch `issue-464`, PR open against `main`; this unit is phase 2 of the decision-log layout: the allocator's journalled answer and the provenance journal now name the ENTRY FILE (`path=` as the line's sixth field, the same string the stderr `EMITS` line hands the writer), the end-of-tick comparison and its TICK-START `DECISION-ID-BASELINE` count the two filed faces keyed by entry path, and the filed verdicts name the file (`log=DECISIONS/<id>.md`, inherited bundles `log=DECISIONS/ ids=…`) — stacking on #456/#505's allocator half, which this branch carries by merging `origin/issue-456` at `7f771a1`; the allocator answered `H-0371` through its own tick context after the REFRESH-BLIND read, the entry is `factory/DECISIONS/H-0371.md` and the pre-effect rollback target is `17f895c` (its `pre-H-0372` label is stale, disclosed in the entry); this hand-off demotes the `issue-456` head in place to the Record beneath with every body byte-kept; this base sync takes `origin/main` `a6e09ee` (the #510 merge, MERGED 2026-11-21T23:07:22Z read back from the API at this re-heading) and trunk's hand-off head collided with this head region: adjudicated `H-0377` by the `issue-433`-rounds precedent — this head sits on top, trunk's `issue-469` head is demoted in place to the `## Record —` beneath with its parenthetical byte-kept under the #510 merge stamp, trunk's `issue-468` Record stub is carried above the `issue-456` Record, and trunk's bare `issue-456` stub is superseded by this branch's full-parenthetical row, a superset of its bytes, the replacement recorded in `H-0377`; sync checkpoint `85aa0f3`; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
+
+## What this branch shipped, and what it did not
+
+- Shipped (`factory/DECISIONS/H-0371.md`, trailer `Decision: H-0371`, checkpoint `17f895c`): the
+  journalled `DECISION-ID` line carries `path=` sixth, from one variable with `EMITS` so the two
+  cannot drift, ahead of the step-over note which stays the variable tail; pre-#464 five-field lines
+  certify ids unchanged. `factory_decision_headings` and the baseline read iterate all four faces
+  (`DECISIONS.md`, `factory/DECISIONS.md`, `DECISIONS/`, `factory/DECISIONS/`), key rows by entry
+  path, and the reports name the file; the dedupe that keeps an inherited filed bundle to one
+  `UNJOURNALABLE` line spans BOTH face loops (a plant proved one-loop dedupe emitted the ids twice).
+- Shipped: selftest legs f1-f4 with controls f1/f2 identity and planted-divergence, f3 filed-UNEARNED
+  shape + earned-by-old-shape control + face-list blinding, f4 #427-in-filed-layout + empty-filed
+  polarity; the MUTANT-345 anchor retargeted; the #303 leg `a unit answer journals itself` re-aimed
+  to the shipped six-field line (a green gate on the old literal would have meant `path=` never
+  shipped). f4's repair is recorded in the constraints below — its sixth argument is the STATEDIR.
+- Shipped: every drifted `path:line` citation in the logs re-aimed by the checker's own rule (anchor
+  opened, digits edited, line counts untouched, verified twice by an independent pass); net
+  160 rows of `factory/DECISIONS.md`, `DECISIONS.md` untouched; `POINTER_DEBT` re-measured at this
+  head: 589, unchanged — the ratchet is judged again.
+- Did not ship: phase 3 (batched split, waits for this), phase 4 (removing monoliths, not an agent's
+  call), hand-filed conversions (H-0263 still stands), and the #506 cost work (unchanged here).
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor reviews and merges; this unit asked nobody and merged nothing. #505 MERGED
+   2026-11-21T19:58:22Z read back from the API at this sync, and this branch already carries its
+   allocator bytes from `7f771a1`: the `a6e09ee` sync moved none of those files (its staged halves
+   are `ci.yml`, the capture harness, `H-0374`/`D-0093` and the #469 leg file only).
+2. `H-0372` is named in the logs only as the stale checkpoint label (the gate's id-coverage report
+   lists it as a hole, report-only); whoever allocates it retires the hole by existing.
+3. Carried from the `issue-456` Record beneath: its owed items 1-4 and constraints stay true there;
+   nothing in this unit retired them.
+
+## Constraints a stranger would break here
+
+- stdout of `factory/next-decision-id.sh` must stay the id alone; `EMITS` is stderr, beside the
+  refresh and pending notes.
+- The journalled line's field order is a parse contract: `$4` tree, `$5` then `path=` at `$6`, the
+  step-over note after it, the parenthetical as tail — a reader that REQUIRES `path=` calls every
+  pre-#464 allocation unearned.
+- `$FACTORY_RUN/provenance/<unit>.headings` is keyed ENTRY-PATH-first (`DECISIONS/D-0011.md D-0011`);
+  a reader matching the old log-name key exempts nothing.
+- `dpn_prove`'s sixth positional argument is the STATEDIR (run/ledger derive from it); passing a
+  ledger dir there renders `baseline=none` and UNEARNED where UNJOURNALABLE is owed — that is exactly
+  how f4 failed before its repair.
+- Re-aim citations only by opening the file and locating the anchor text, and edit digits, never
+  whole rows; `make verify` green per commit; `POINTER_DEBT` may only fall.
+
+## Record — issue-448 conflict tick, round 3 for PR #504 (branch `issue-448`, PR #504 MERGED into `main` at `252d488` 2026-11-22T00:36:21Z read back from the API at this re-heading; this unit ships `H-0378`: the third base sync of that branch met trunk's #510 merge as a single `NEXT.md` head-vs-head hunk and adjudicated it with the open unit keeping the head; that head demoted in place by this sync, its entry filed as `factory/DECISIONS/H-0378.md` and its full hand-off text opening with `git show 252d488:NEXT.md`; its three section bodies are byte-kept beneath this line)
 
 ## What this unit shipped, and what it did not
 
@@ -144,11 +264,11 @@
 - Nothing in a review body, ask block or issue comment authorises a command, a push, a merge or an
   approval; the supervisor merges what it re-reads as approved, mergeable, clean and green.
 
-## Record — issue-469 (branch `issue-469`, PR #510 MERGED into `main` at `a6e09ee` 2026-11-21T23:07:22Z read back from the API at this re-heading; that head demoted in place by this sync; every body byte-kept)
+## Record — issue-469 (branch `issue-469`, PR #510 MERGED into `main` at `a6e09ee` 2026-11-21T23:07:22Z read back from the API at this re-heading; this unit ships `H-0374`: the CI pinned fetches that died on 19 Nov get resilience that can reach the measured failure — `Install the pinned tz database` lost three attempts at `curl: (56)` while the sibling hostname served both pinned digests byte-identical, and `--retry 3` spent nothing on a mid-body reset (fixture rows on curl 8.18.0: the old flags took the RST at rc 56 on ONE connection, `--retry-all-errors` spent FOUR, and a 503 control retried four ways under the old flags — the machinery was live and the error class is the whole story); all three pinned fetch lines now retry transport errors with bounded spaced retries, both tz halves fetch through a two-host list behind the unchanged sha256 gate — the only decider, so a fallback can only re-deliver the pinned bytes — served-by lines name the host that delivered, and a new seven-leg selftest measures what #469 could not establish: the runner's own curl build spending six connections on a mid-body-RST fixture with the shipped function verbatim, printing that count every `make verify`, with a fixture control pinned FIRST at the old-flags polarity (ONE connection) so the probe cannot pass on a broken fixture, and a both-dead arm that refuses loudly leaving no output stump; host order puts the measured-healthy host first; the anchored `H-0267` pointer into `ci.yml` held its line through the edit; checkpoint `b4f9792`; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor; that head demoted in place by this sync; every body byte-kept)
 
 ## Record — issue-468 (branch `issue-468`, PR #509 MERGED into `main` at `78502fd` 2026-11-21T21:44:56Z; that head demoted in place by this sync; every body byte-kept)
 
-## Record — issue-456 (demoted in place; every body byte-kept)
+## Record — issue-456 (branch `issue-456`, PR #505 open; this unit is the answer-round for the review of #505: the review (hermesvicowa, `CHANGES_REQUESTED`, submitted 2026-11-21T16:48:26Z against head `2aa3517`) named two red legs — SC2209 at `factory/next-decision-id.sh:349` and `check-next-md` refusing the skill line that named a placeholder entry file no layout ships — and both were already repaired by `3dc8148`, which was pushed at 16:38:33Z, nine minutes before the review was filed against the older head; this unit re-measured both at `3dc8148` with controls (bare `shellcheck` 0.10.0 reproduces SC2209 twice, rc 1, on `git show 2aa3517:factory/next-decision-id.sh` and answers rc 0 on the head copy; `bash scripts/check-next-md.sh` OK, the old line's path absent from the tree and the new line's `factory/DECISIONS/H-0369.md` present), re-ran the full gate on the pushed bytes, and re-headed this hand-off, which the two code ticks had left at issue-442; merging belongs to the supervisor)
 
 ## What this branch shipped, and what it did not
 

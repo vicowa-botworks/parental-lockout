@@ -610,6 +610,13 @@ claim_scan() { # steps `next` over live journal claims; records the trail in cla
 # `|| :` guard, and the trail it records must be set in this shell, beside the answer it describes.
 claim_scan # the call is the read: the journal is asked before the answer is handed out
 
+# One fact, spelled once (#464): the entry file this answer emits. The `EMITS` line below and the
+# journalled `path=` field are the same destination read back two ways -- a unit that creates the
+# file EMITS names must find that exact path in the journal line, or the end-of-tick comparison
+# audits the provenance of an id against a file nobody was told to write. `next` is final here:
+# claim_scan has already stepped it, and nothing after this line moves it.
+emit_rel="$stem/$next.md"
+
 # Where the ceiling came from (issue #320). `work > refs` holds in exactly one window: the highest
 # heading in the repository is the one the caller is writing, so no ref carries it and the file being
 # read is the only place it exists. Commit the entry and HEAD joins the union, the two maxima agree,
@@ -849,11 +856,16 @@ if [ -n "${FACTORY_TICK_UNIT:-}" ] && [ -n "${FACTORY_LOG:-}" ]; then
 	# surprising id must see whose id it skipped, not only which union read it came from. It is a
 	# trailing note after the fixed fields, because both readers of this line -- the earned-set
 	# read in common.sh and this command's own claim scan -- key on the positional fields.
+	# `path=` joins those fixed fields as the sixth (#464): the entry file the answer emits, so
+	# the end-of-tick comparison can audit an id against a destination, not only against a
+	# branch. Both positional readers key on `$2`-`$5` and read no further, which is why the new
+	# field sits before the note and never after it -- a note is already the shape that says
+	# "variable tail, parse no fixed field past me".
 	jrn_note=''
 	[ -z "$claims_note" ] || jrn_note=" ($claims_note)"
-	if printf '%s DECISION-ID %s unit=%s branch=%s (allocator, %s, %s)%s\n' \
+	if printf '%s DECISION-ID %s unit=%s branch=%s path=%s (allocator, %s, %s)%s\n' \
 		"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$next" "$FACTORY_TICK_UNIT" \
-		"${jrn_branch:-unknown}" "$rel" "$jrn_read" "$jrn_note" \
+		"${jrn_branch:-unknown}" "$emit_rel" "$rel" "$jrn_read" "$jrn_note" \
 		>>"$FACTORY_LOG/supervisor.log" 2>/dev/null; then
 		printf 'next-decision-id: journalled DECISION-ID %s (%s)\n' "$next" "$jrn_read" >&2
 	else
@@ -876,7 +888,7 @@ fi
 # stderr, because stdout is what a caller captures as the id: a marker in front of the number would be
 # parsed into it or ignored, and an ignored marker is the silence this replaces (the same rule the PENDING
 # and REFRESH notes follow above).
-printf 'next-decision-id: EMITS %s/%s.md -- create that file with your entry; new entries are files, not monolith appends\n' \
-	"$stem" "$next" >&2
+printf 'next-decision-id: EMITS %s -- create that file with your entry; new entries are files, not monolith appends\n' \
+	"$emit_rel" >&2
 
 printf '%s\n' "$next"
