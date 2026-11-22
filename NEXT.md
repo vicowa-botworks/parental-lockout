@@ -1,4 +1,53 @@
-# NEXT — issue-503 (branch `issue-503`, PR open against `main`; this unit ships `H-0394`: the per-tick scratch is minted with a PATH-safe name. `factory/factory.sh:1488` folded `:` out of the unit id before `mktemp` — `plock-$(factory_slug "${unit//:/-}")` — because PATH is colon-delimited, an `unclaimed:<n>` unit id carries a colon, `factory_slug` maps `/` alone, and so the minted `/tmp/plock-unclaimed:503-…` made every prepend through `$FACTORY_SCRATCH/bin` contribute the two entries `/tmp/plock-unclaimed` and `503-…/bin`, neither of which exists: the prepend failed silently and the tick's stub binaries were not found. Measured in this tick, whose own scratch carried the colon: the prepend found nothing and PATH's head split exactly as named, while the colon-free twin found the stub. Three legs in `factory/selftest.d/503-scratch-path-safe.sh` — the world rule with both polarities so a control that cannot fail cannot pass, the shipped dispatch (no colon, the name still echoing the unit id, the stub FOUND through the prepend, the directory gone after the pass), and a mutant control that restores the filed mint and must show the colon and the missing stub. The mint line keeps its number and its `scratch=$(mktemp -d` text, so the pointers into it and the #415 family's mutant anchor still land; gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing. The `issue-495` head beneath this one is `H-0388`/`H-0392`'s hand-off, superseded only as a heading: PR #515 MERGED at `6ddb1d7f0569ef1635e6a6f2010309e076e0a213` 2026-11-22T08:58:21Z and PR #516 MERGED at `e50d96e6fc9079bd6a5a84ea2308bb8f147ef07a` 2026-11-22T10:02:19Z, both read back from the API at this re-heading, their clauses folded, their section bodies byte-kept beneath)
+# NEXT — issue-506 review round (branch `issue-506`, PR #518 open against `main`; this round answers the #518 review of 2026-11-22T12:34:04Z at head `d72deef` — `reviewDecision` read back `CHANGES_REQUESTED` from the API before any byte changed, review newer than the head commit — and ships one blocking control repair plus the review's two text corrections. The review's blocking finding, re-measured before believed: `rn_ctl_shape` grepped the whole `face_ref()` function, which always carries the monolith arm's legitimate `git show`, so the control's grep matched the shipped unmutated file (rc 0) and could never report its plant invisible — the drift simulation (leg scope narrowed from `/^\telse$/` to `/ls-tree -r/`) kept the pre-repair suite 8/8 GREEN with leg (d) blind to the planted read. The repair gives `rn_dir_arm` a file argument and extracts the mutant through the leg's own function, so control and leg share one awk scope: the repaired file goes 7/1 RED on the same drift and stays 8/8 green without it, and the review's literal one-liner (duplicated scope in the control) was measured too — it stays 8/8 green on the drift, which is why the shared extractor shipped over it (`H-0398`, checkpoint `84fc3e5`). Gate verdicts and the post-push review state ride the pull body (#1180); merging belongs to the supervisor and this round merged nothing. The `issue-503` head beneath this one is `H-0394`'s hand-off, superseded only as a heading: PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading, its section bodies byte-kept beneath. No `issue-506` row existed on this board before this head: `d72deef` shipped `H-0395` without re-heading `NEXT.md`, so the effect round's record is `factory/DECISIONS/H-0395.md` and the pull body, not this file)
+
+## What this unit shipped
+
+- `factory/selftest.d/506-refname-taken-set.sh`: `rn_dir_arm` takes an optional file argument
+  (`"${1:-$dpn_alloc}"`) and `rn_ctl_shape` greps `rn_dir_arm "$m"` — the control now reads exactly
+  the bytes the leg reads, one awk-range definition in the file, and the claim "the planted arm goes
+  red" is falsifiable where before it was structurally unfalsifiable (measured 22 Nov: whole-function
+  grep hits `git -C "$root" show` on the UNMUTATED file; drift reds the repaired file 7/1; shipped
+  bytes green 8/8; reviewer's duplicated-scope variant measured green on the drift). Same file:
+  `rn_ctl_dedup`'s comment now names the check that actually goes red — measured
+  `rn_shape`-against-the-dedup-mutant fails at the blob-stage **locate** branch, because the plant
+  replaces the line `rn_blob_stage` locates by — not the `sort -u` grep the old comment promised.
+- `factory/DECISIONS/H-0398.md`, trailer `Decision: H-0398`, checkpoint `84fc3e5`: options, the
+  measured preference over the one-liner, what lost, and one disclosed probe slip of this round's
+  own (a first probe called the unfixed extractor after reassigning `dpn_alloc`; re-run clean,
+  plant visible, shipped arm empty — the 8/8/7/1 pair is the load-bearing evidence either way).
+- Nothing else in the tree. `factory/next-decision-id.sh` is untouched — the review approved the
+  mechanism ("this is a control fix and not a code fix"); the pull body's claim that the scoping
+  "is pinned by a leg that greps the scoping line itself" is re-aimed by this round's body edit,
+  since no such leg exists and what pins the scoping now is that the control extracts through
+  `rn_dir_arm` itself.
+
+## What is still owed
+
+- The re-review after this push: the push is measured to spend the standing `CHANGES_REQUESTED`
+  row's force (#269), and the ask is the supervisor's poke, not this unit's — this round asked
+  nobody, and the post-push read of `reviewDecision,reviews,mergeable,mergeStateStatus` rides the
+  pull body.
+- If a future round touches this leg file, cite it by function name, never by line: this round's
+  edits shifted line numbers inside `factory/selftest.d/506-refname-taken-set.sh` (the pointer
+  census answered 0 citations aimed at the file at `d72deef`, so nothing drifted; a future round
+  re-derives with `python3 scripts/check-decisions.py --citations`).
+- The carried `issue-503` owed rows below (the `docs/factory.md` scratch sentence, the colon in the
+  other minted names) stand unchanged and belong to whoever takes them; this head moves none of
+  their coordinates.
+
+## Constraints a stranger would break
+
+- Do not duplicate `rn_dir_arm`'s awk range inside another control. Measured, not argued: a control
+  carrying its own copy of the scope answers GREEN while the leg's scope has drifted and gone blind
+  (8/8, the reviewer's one-liner under drift) — one shared extraction is the whole point of the
+  file argument on `rn_dir_arm`, and removing the argument restores a control that cannot fail.
+- Do not "simplify" `rn_dir_arm`'s `"${1:-$dpn_alloc}"` back to `$dpn_alloc`: `rn_ctl_shape` plants
+  a mutant and extracts it through that argument; the leg's polarity (shipped dir arm answers empty,
+  planted dir arm answers the show line) both run through the same call.
+- The leg answers on BYTES, never on a timer, on purpose: an answer-based dedup leg would go red on
+  a busy supervisor and the dedup mutant answers identically by design. Keep the shape legs as byte
+  inspections.
+## Record — issue-503 unit, for PR #517 (branch `issue-503`, PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading; the heading below is superseded as a heading only; this unit ships `H-0394`: the per-tick scratch is minted with a PATH-safe name. `factory/factory.sh:1488` folded `:` out of the unit id before `mktemp` — `plock-$(factory_slug "${unit//:/-}")` — because PATH is colon-delimited, an `unclaimed:<n>` unit id carries a colon, `factory_slug` maps `/` alone, and so the minted `/tmp/plock-unclaimed:503-…` made every prepend through `$FACTORY_SCRATCH/bin` contribute the two entries `/tmp/plock-unclaimed` and `503-…/bin`, neither of which exists: the prepend failed silently and the tick's stub binaries were not found. Measured in this tick, whose own scratch carried the colon: the prepend found nothing and PATH's head split exactly as named, while the colon-free twin found the stub. Three legs in `factory/selftest.d/503-scratch-path-safe.sh` — the world rule with both polarities so a control that cannot fail cannot pass, the shipped dispatch (no colon, the name still echoing the unit id, the stub FOUND through the prepend, the directory gone after the pass), and a mutant control that restores the filed mint and must show the colon and the missing stub. The mint line keeps its number and its `scratch=$(mktemp -d` text, so the pointers into it and the #415 family's mutant anchor still land; gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing. The `issue-495` head beneath this one is `H-0388`/`H-0392`'s hand-off, superseded only as a heading: PR #515 MERGED at `6ddb1d7f0569ef1635e6a6f2010309e076e0a213` 2026-11-22T08:58:21Z and PR #516 MERGED at `e50d96e6fc9079bd6a5a84ea2308bb8f147ef07a` 2026-11-22T10:02:19Z, both read back from the API at this re-heading, their clauses folded, their section bodies byte-kept beneath)
 
 ## What this unit shipped
 

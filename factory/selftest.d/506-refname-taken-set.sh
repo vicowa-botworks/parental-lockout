@@ -196,9 +196,13 @@ dpn_leg 'an empty filed file on a ref still claims' \
 # per ref times one read-spawn per entry -- so the answer must read blobs once per unique sha and
 # never from inside the per-ref arm. This reads the SHIPPED bytes, not a run: a leg that timed the
 # box would go red on a busy supervisor, and the cost is a property of the code.
-rn_dir_arm() { # just the dir arm of face_ref: the monolith arm's `git show` is legal and must not
-	# trip the shape grep, so the extraction stops at the `else` that leaves the dir case.
-	sed -n '/^face_ref()/,/^}/p' "$dpn_alloc" | awk '/= dir \]; then/,/^\telse$/'
+rn_dir_arm() { # <file?> -- just the dir arm of face_ref: the monolith arm's `git show` is legal
+	# and must not trip the shape grep, so the extraction stops at the `else` that leaves the dir
+	# case. The optional file argument lets the shape CONTROL extract the MUTANT through this same
+	# extraction (#518 review): the control greps exactly the bytes leg (d) greps, and the awk
+	# range has one definition in the file -- a copy of the range inside the control could drift
+	# from the leg's, which is the blindness this control exists to catch.
+	sed -n '/^face_ref()/,/^}/p' "${1:-$dpn_alloc}" | awk '/= dir \]; then/,/^\telse$/'
 }
 rn_blob_stage() { # the shipped stage that reads the ledger back: from the dedup gate to the read
 	awk 'index($0, "sort -u -- \"$filed_blobs\"") { on = 1 }
@@ -242,13 +246,19 @@ dpn_leg 'the dir arm lists; the blob stage dedupes' \
 # (control) Plant the per-path content read back into the arm and the shape leg must go red on
 # it -- the proof that rn_shape inspects the mechanism rather than passing on whatever the file
 # happens to contain. The plant keeps the script parseable (dpn_mut checks), so the refusal is
-# the shape.
+# the shape. The grep runs over rn_dir_arm's OWN extraction of the mutant, not the whole
+# function: the function always carries the monolith arm's legitimate `git show`, so a
+# whole-function grep matches the shipped unmutated file (measured 22 Nov on the pre-repair
+# copy: the grep matched `git -C "$root" show "${ref}^{commit}:$relx"`) and could never report
+# the plant invisible -- the scope narrowing this control must survive. Extracting through the
+# leg's own function is what makes the claim below falsifiable: measure the leg with a narrowed
+# awk range and the plant falls outside the shared scope, and this leg goes red naming it.
 rn_ctl_shape() {
 	local m=$rn_work/mutant-shape.sh arm
 	dpn_mut "$dpn_alloc" 'printf '"'"'%s\n'"'"' "${meta##* }" >>"$filed_blobs" ;;' \
 		'git -C "$root" show "${ref}^{commit}:$path" 2>/dev/null | grep -m1 -E "^## [DH]-[0-9][0-9][0-9][0-9]" || true ;;' \
 		"$m" || return 1
-	arm=$(sed -n '/^face_ref()/,/^}/p' "$m")
+	arm=$(rn_dir_arm "$m")
 	printf '%s\n' "$arm" | grep -Eq 'git [^|;]*(show|cat-file)' || {
 		rn_say 'the planted content read is INVISIBLE to the shape grep -- the leg would pass'
 		rn_say 'the blob read back in, which is the exact regression it exists to refuse'
@@ -258,9 +268,13 @@ rn_ctl_shape() {
 dpn_leg 'control: the shape grep catches the blob read' \
 	'the planted arm goes red, so leg (d) is a gate not a comment' rn_ctl_shape
 
-# (control) And the dedup gate is a gate too: delete the `sort -u` and leg (d)'s second grep must
-# go red. Answers would not change (the union is a maximum and identical bytes claim identical
-# ids) -- which is exactly why the cost has to be pinned on the code, not on a run.
+# (control) And the dedup gate is a gate too: delete the `sort -u` and leg (d) goes red -- at the
+# blob-stage LOCATE check first, not at the second grep: the mutant replaces the very line
+# rn_blob_stage locates the stage by, so the stage cannot be found before any gate inside it is
+# read (measured 22 Nov: rn_shape on this mutant fails at 'could not be located'). The locate
+# address is load-bearing, and this control plants into that address and says so. Answers would
+# not change (the union is a maximum and identical bytes claim identical ids) -- which is exactly
+# why the cost has to be pinned on the code, not on a run.
 rn_ctl_dedup() {
 	local m=$rn_work/mutant-nodedup.sh stage
 	dpn_mut "$dpn_alloc" 'sort -u -- "$filed_blobs" 2>/dev/null |' \
