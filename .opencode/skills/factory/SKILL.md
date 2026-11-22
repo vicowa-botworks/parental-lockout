@@ -387,6 +387,17 @@ matches a closing keyword immediately followed by an issue reference, with no no
 measured on this repository, `**This does not close #10.**` closed issue #10 the second the merge
 landed. For partial work write `Part of #10 only; the umbrella is not finished.` or `Refs #10`.
 
+A ticket delivered in slices makes every slice partial at the moment its body is written, so `Refs`
+is the correct spelling on each one and the closer is owed by nobody -- which is how eleven finished
+issues sat open behind honest `Refs` bodies, the oldest 6d01h, with no artifact naming the slice that
+completed the umbrella (#497). The slice you believe *finishes* the ticket must say so: write
+`Last slice of #N.` in plain text beside the documented keyword touching the same number. The phrase
+is no GitHub keyword and closes nothing by itself -- it stays out of the harness's closer pattern for
+#1256's reason; it is the author's statement to this repository's checker and to the next reader,
+and `scripts/check-close-verb.py` refuses the statement when no keyword touches that number. Without
+the statement the row stays honestly `delivered`, exactly as before: a genuinely partial slice must
+never be pushed toward a closer that would lie.
+
 **And when the issue really is finished, put the verb where GitHub can see it: in plain text, touching
 the number, never inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured
 over all 180 merged pull requests here, read 14 Nov 2026 (`scripts/check-close-verb.py` ships the
