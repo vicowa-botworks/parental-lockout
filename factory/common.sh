@@ -1021,8 +1021,8 @@ EOF
 			"$(factory_age_human "$hold")" "$(factory_age_human "$age")" "$(factory_service_unit)"
 		;;
 	*)
-		printf 'HELD %s with nothing in the journal saying why. Ended %s ago.' \
-			"$(factory_age_human "$hold")" "$(factory_age_human "$age")"
+		printf 'HELD %s with nothing in the journal saying why. Ended %s ago.%s' \
+			"$(factory_age_human "$hold")" "$(factory_age_human "$age")" "$(factory_reap_stop_saying "$hold" "$age")"
 		;;
 	esac
 	[ "$open" = "1" ] && printf '; a pass is running now'
@@ -1094,8 +1094,8 @@ EOF
 		# ignored SIGTERM" is only true of the first of the three, and a mark that asserts the wrong
 		# cause is worse than one that asserts none. The cause is the `how=` field, and the sentence
 		# that spells each one out is `--status`, three lines from the same read.
-		printf 'REAP-HELD hold=%ss how=%s ended=%ss open=%s -- %s was still being torn down after the pass said its last line, and %s counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246)\n' \
-			"$hold" "$how" "$age" "$open" "$(factory_service_unit)" "$FACTORY_TIMER_UNIT"
+		printf 'REAP-HELD hold=%ss how=%s ended=%ss open=%s stop=%s -- %s was still being torn down after the pass said its last line, and %s counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause where the journal has one, and `stop=` is what the stop-window probe found in the unit cgroup at the stop, the attribution for a hold with no cause (#246, #477)\n' \
+			"$hold" "$how" "$age" "$open" "$(factory_reap_stop_window "$hold" "$age")" "$(factory_service_unit)" "$FACTORY_TIMER_UNIT"
 		;;
 	esac
 }
@@ -5957,4 +5957,151 @@ factory_unit_idle() { # [unit] -> 0 idle | 1 busy | 2 unknown; one verdict line 
 	fi
 	printf 'idle   %s; %s\n' "$note" "$lock_note"
 	return 0
+}
+
+# ------------------------------------------------------------- the stop window (#477)
+#
+# `REAP-HELD … how=unexplained` is the one hold the journal can price but not attribute: the pass
+# printed its last line, the unit stayed ACTIVE past `FACTORY_REAP_NOTICE_SECS`, and systemd wrote
+# neither `State 'stop-sigterm' timed out. Killing.` (which is `deadline`) nor `with SIGKILL on
+# client request.` (which is `client`), so `factory_reap_read` has a duration and no subject. The
+# retained journal holds exactly one such row -- `2026-11-19T17:11:09Z REAP-HELD hold=44s
+# how=unexplained ended=624s open=1` -- and every other reap on 19 Nov reads `REAP-CLEAN hold=0s
+# how=clean`; `H-0312`'s `Follow-up:` is what named the gap ("a 44 s stop with nothing in the
+# journal is still a 44 s the timer cannot re-arm through") and #477 filed it.
+#
+# Why this cannot be read after the fact, measured before it was written: the kernel forgets which
+# processes were in a cgroup when the cgroup goes away, and journald forgets the window on its own
+# schedule. Re-reading the 19 Nov stop on this box --
+#   journalctl --user -u parental-lockout-factory.service \
+#       --since 2026-11-19T17:09:00 --until 2026-11-19T17:12:00
+# answers `-- No entries --` (22 Nov, and the oldest row the user journal then held was
+# 2026-11-20T04:59). An instrument pointed at the stop window therefore has to stand inside the
+# cgroup while the stop happens, which is `factory/stop-window-probe.sh`; this is the read side
+# that attaches what the probe left behind to the line the next pass journals.
+#
+# The window. `factory_reap_read`'s own two stamps locate the stop: the terminal line is
+# `now − age` and the hold began at the work line, `now − age − hold`. A record written anywhere
+# between the work line and the terminal line is this activation's stop, and the grace
+# (`FACTORY_STOP_WINDOW_GRACE`, seconds, default 5) absorbs the rounding both fields carry; the
+# previous activation cannot intrude because consecutive units are minutes apart and the window is
+# bounded by one hold plus that grace. Newest record wins.
+#
+# What the field refuses to say. `stop=none` means no record exists and no marker does either --
+# the activation predates the probe, or the pass ran outside the unit's cgroup (a manual
+# `factory.sh` from a terminal: the probe exits rather than sample the login session, because
+# attributing the wrong subject is worse than attributing none). It is not the claim `stop=0`
+# makes, which is "the probe sampled and the cgroup held nothing else". `stop=unread` says the
+# probe armed and `cgroup.procs` would not answer. `stop=unwritten` says a probe armed for this
+# window and left no record at all -- its `alive-<pid>` marker with a dead process behind it is
+# the only trace, which is the shape of a handler killed outright at the deadline or hung past
+# it. The field rides every `REAP-HELD` row, `deadline` and `client` included: those two already
+# name their cause, and a sample that agrees with systemd is worth having.
+FACTORY_STOP_WINDOW_GRACE=${FACTORY_STOP_WINDOW_GRACE:-5}
+FACTORY_STOP_WINDOW_MAX=${FACTORY_STOP_WINDOW_MAX:-8}
+
+# factory_reap_stop_window <hold_s> <age_s> -> `none` | `unwritten` | `unread` | `0` |
+# `<n>:<pid=comm,…>`.
+# The list carries the first `FACTORY_STOP_WINDOW_MAX` subjects and `,+K` for the rest, because a
+# cgroup can hold twenty processes (measured, 11 Nov: `MainPID=0` beside `TasksCurrent=10`) and the
+# line has to stay one greppable row. A comm has its field separators -- `, ; = <space>` -- and any
+# control byte flattened: comm is `argv[0]`-derived bytes chosen by whoever ran the process, and
+# they must not forge a field in the journal row or a line in the stream.
+factory_reap_stop_window() {
+	local sw_hold=$1 sw_age=$2
+	local sw_dir=${FACTORY_STOP_WINDOW_DIR:-$FACTORY_RUN/stop-window}
+	local sw_unit sw_f sw_t sw_u sw_best_t='' sw_best_f='' sw_n=0 sw_list=''
+	local sw_now sw_term sw_lo sw_hi sw_kw sw_p sw_c
+	case $sw_hold in '' | *[!0-9]*) printf 'none\n'; return 0 ;; esac
+	case $sw_age in '' | *[!0-9]*) printf 'none\n'; return 0 ;; esac
+	if [ ! -d "$sw_dir" ]; then printf 'none\n'; return 0; fi
+	sw_unit=$(factory_service_unit)
+	sw_now=$(date -u +%s 2>/dev/null) || sw_now=''
+	case $sw_now in '' | *[!0-9]*) printf 'none\n'; return 0 ;; esac
+	sw_term=$(( (sw_now - sw_age) * 1000000 ))
+	sw_lo=$(( sw_term - (sw_hold + FACTORY_STOP_WINDOW_GRACE) * 1000000 ))
+	sw_hi=$(( sw_term + FACTORY_STOP_WINDOW_GRACE * 1000000 ))
+	for sw_f in "$sw_dir"/stop-*; do
+		[ -f "$sw_f" ] || continue
+		sw_t=$(sed -n 's/^t=\([0-9][0-9]*\)$/\1/p' "$sw_f" 2>/dev/null | head -n 1)
+		sw_u=$(sed -n 's/^unit=\(.*\)$/\1/p' "$sw_f" 2>/dev/null | head -n 1)
+		if [ "$sw_u" != "$sw_unit" ]; then continue; fi
+		case $sw_t in '' | *[!0-9]*) continue ;; esac
+		if [ "$sw_t" -lt "$sw_lo" ] || [ "$sw_t" -gt "$sw_hi" ]; then continue; fi
+		if [ -z "$sw_best_t" ] || [ "$sw_t" -gt "$sw_best_t" ]; then
+			sw_best_t=$sw_t sw_best_f=$sw_f
+		fi
+	done
+	if [ -z "$sw_best_f" ]; then
+		# No record matched. A marker whose process is gone -- and whose own stamp falls in this
+		# window -- is a different fact from no marker at all: the probe armed for the stop and
+		# never wrote, which is what a SIGKILL at the deadline or a hung handler leaves behind. A
+		# marker whose process still answers is the probe standing in THIS activation, not evidence
+		# about the last one.
+		local sw_m sw_mp sw_mt
+		for sw_m in "$sw_dir"/alive-*; do
+			[ -f "$sw_m" ] || continue
+			sw_mp=${sw_m##*/alive-}
+			case $sw_mp in '' | *[!0-9]*) continue ;; esac
+			if [ -d "/proc/$sw_mp" ]; then continue; fi
+			sw_mt=$(find "$sw_m" -maxdepth 0 \
+				-newermt "@$(( sw_lo / 1000000 ))" ! -newermt "@$(( (sw_hi + 999999) / 1000000 ))" \
+				-print 2>/dev/null)
+			if [ -n "$sw_mt" ]; then printf 'unwritten\n'; return 0; fi
+		done
+		printf 'none\n'
+		return 0
+	fi
+	sw_f=$sw_best_f
+	if grep -q '^sample=no' -- "$sw_f" 2>/dev/null; then printf 'unread\n'; return 0; fi
+	while read -r sw_kw sw_p sw_c; do
+		if [ "$sw_kw" != "proc" ]; then continue; fi
+		sw_c=${sw_c//[[:cntrl:]]/?}
+		sw_c=${sw_c//,/_}
+		sw_c=${sw_c//;/_}
+		sw_c=${sw_c//=/-}
+		sw_c=${sw_c// /_}
+		sw_n=$(( sw_n + 1 ))
+		if [ "$sw_n" -le "$FACTORY_STOP_WINDOW_MAX" ]; then
+			sw_list=${sw_list:+$sw_list,}$sw_p=$sw_c
+		fi
+	done <"$sw_f"
+	if [ "$sw_n" -gt "$FACTORY_STOP_WINDOW_MAX" ]; then
+		sw_list=$sw_list,+$(( sw_n - FACTORY_STOP_WINDOW_MAX ))
+	fi
+	if [ "$sw_n" -eq 0 ]; then
+		printf '0\n'
+	else
+		printf '%s:%s\n' "$sw_n" "$sw_list"
+	fi
+}
+
+# The prose for the `--status` sentence, in one call so the two readers of the same read cannot
+# drift: it returns the whole clause, leading space and trailing period included, or nothing when
+# there is nothing to say beyond what the sentence already says.
+factory_reap_stop_saying() { # <hold_s> <age_s>
+	local sw
+	sw=$(factory_reap_stop_window "$1" "$2")
+	case $sw in
+	none)
+		printf ' (and no stop-window evidence exists for this activation, so nothing names the subject: the row predates the probe, or the pass ran outside the unit'"'"'s cgroup)'
+		;;
+	unwritten)
+		printf ' (a stop-window probe armed for this stop and left no record, only its marker: the handler was killed outright at the deadline or hung past it, so the subject is unwritten, not absent)'
+		;;
+	unread)
+		printf ' (the stop-window probe armed and cgroup.procs would not answer, so the subject is unread, not absent)'
+		;;
+	0)
+		printf ' (the stop-window probe sampled the cgroup as systemd opened the stop and found no other process in it, so what held it was gone before the sample or was never in the cgroup)'
+		;;
+	*:*)
+		printf ' (the stop-window probe caught it: %s stood in the cgroup when systemd opened the stop)' "${sw#*:}"
+		;;
+	*)
+		# A value outside the contract is printed as what it is rather than swallowed: an empty
+		# clause here would read exactly like a hold with nothing to say.
+		printf ' (the stop-window read answered outside its own contract: %s)' "$sw"
+		;;
+	esac
 }
