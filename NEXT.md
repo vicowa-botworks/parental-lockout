@@ -33,12 +33,24 @@
   stages) is kept ONCE on trunk's bytes — the spelling `main` carries today — and this
   branch's clause "the heading below is superseded as a heading only" is dropped as the
   duplicate of that same claim, disclosed because a byte census cannot tell an adjudication
-  from a loss. Zero-absence census over both sides' added rows against the merged file:
-  this branch {} of {} distinct rows present, trunk {} of {}, and the two absent rows are
+  from a loss. Zero-absence census over both sides' added rows against the merged file
+  (distinct rows each parent added since the merge base, EXCLUDING rows the merge base already
+  carries — re-heading moved 4 such rows per side, and counting them would answer 44 of 45 and
+  46 of 47 for the same two absences; method and digits re-derived at this rendering fix):
+  this branch 40 of 41 distinct rows present, trunk 42 of 43, and the two absent rows are
   exactly this branch's `issue-503`-record rendering (kept once on trunk's bytes) and
   trunk's head line (demoted in place to the stamped record here). No production byte moved
   by this tick: what it wrote is this file, the entry, and the merge. Gate verdicts ride the
   pull body (#1180); merging belongs to the supervisor and this tick merged nothing.
+- Shipped by this rendering-fix tick (round 3's one blocking finding; no new decision id — the
+  digits were already adjudicated in `H-0399`, this tick only stops their sentence shipping as
+  an uninterpolated format string): the four `{}` in the census sentence above are filled
+  `40 of 41` / `42 of 43` from `H-0399`, with the census independently re-derived here in
+  python over the three blobs rather than copied off the entry's prose, and the entry's method
+  pinned beside the digits, because a naive count over ALL distinct added rows answers
+  44 of 45 and 46 of 47 for the same two absences — the recorded census excludes the four
+  per-side rows the merge base already carries (re-heading moves), and without that clause the
+  filled digits are not re-derivable by a future reader. Nothing else in the tree moved.
 
 ## What is still owed
 
