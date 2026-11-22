@@ -12825,8 +12825,19 @@ dirt_stale_named() {
 	proc_journal_line "$proc_journal" 'DELIVERED-TREE-UNREADABLE branch/issue-906' |
 		grep -qF -- "$proc_trees/issue-906"
 }
-proc_leg 'the stale entry under the trees root is named, not skipped' \
-	'its journal line says the directory cannot be read as its branch' dirt_stale_named
+# The planted empty `.git` is unreadable only while nothing encloses it: when $TMPDIR resolves
+# inside a repository, discovery walks OUT of it and the tick's own read
+# (`rev-parse --abbrev-ref HEAD`, measured on git 2.53.0 to answer the enclosing path from this
+# fixture shape) names a real tree, so the DELIVERED-TREE-UNREADABLE row is never written and the
+# leg FAILs for where the scratch sat, not for the shipped code (#448). The guard asks the same
+# discovery the tick takes, from the fixture itself -- one condition, the one message already
+# worded at the two #371 guards.
+if git -C "$proc_trees/issue-906" rev-parse --git-dir >/dev/null 2>&1; then
+	printf '  SKIP  %-34s $TMPDIR is inside a work tree\n' 'the stale entry under the trees root'
+else
+	proc_leg 'the stale entry under the trees root is named, not skipped' \
+		'its journal line says the directory cannot be read as its branch' dirt_stale_named
+fi
 
 # The fallback the issue rows need: triage prints `-` in the branch column for an `issue` unit, and
 # the only branch that tree was ever cut for is `issue-<key>`. Driven at the helper, because the
@@ -21369,9 +21380,20 @@ gen_leg 'git can still refuse: not-ff-only quotes git' \
 gen_leg 'a current read clears the streak and the reason' \
 	'silence, streak 0, reason gone' \
 	stale_repair_current_tree_clears_streak
-gen_leg 'an activation that saw nothing touches neither' \
-	'no unit, unreadable tree: streak unmoved both ways' \
-	stale_repair_blind_activation_touches_nothing
+# Arm two's premise is a tree git cannot read as a checkout, and that premise is host-dependent
+# exactly as `$bare` and `$pos_plain` were (#371): when $TMPDIR resolves inside a repository,
+# discovery walks out of the plain `$fx/ghost` directory, factory_supervisor_position answers the
+# enclosing repository instead of UNKNOWN, the unreadable arm counts, and the streak moves -- a
+# FAIL about the scratch, not about the repair. The probe is the root the predicate builds ghost
+# under: the nearest .git above any path under it is the nearest .git above the ghost.
+mkdir -p -- "$r342_work"
+if git -C "$r342_work" rev-parse --git-dir >/dev/null 2>&1; then
+	printf '  SKIP  %-34s $TMPDIR is inside a work tree\n' 'an activation that saw nothing'
+else
+	gen_leg 'an activation that saw nothing touches neither' \
+		'no unit, unreadable tree: streak unmoved both ways' \
+		stale_repair_blind_activation_touches_nothing
+fi
 gen_leg 'dry run prints the merge and writes no ledger' \
 	'the exact declined command; no streak file (H-0017)' \
 	stale_repair_dry_run_writes_nothing
