@@ -159,6 +159,8 @@ When you reach a decision point, do this instead, in this order:
    Use exactly what it prints — and write the entry into the file its stderr `EMITS` line names
    (`EMITS factory/DECISIONS/H-0369.md -- create that file...`), not into a monolith: new entries are
    files in either log (#456), while existing entries stay where they are — never hand-convert one.
+   The same file is journalled beside your id (`DECISION-ID … path=factory/DECISIONS/H-0369.md`, #464):
+   if the file you created is not the one the allocator journalled, one of the two was taken by eye.
    It takes the union of the current checkout, `HEAD`, `refs/heads` and
    `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
    wrong, not the tool**: it answers only for the decision log itself -- a path whose name is
