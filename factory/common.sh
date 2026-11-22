@@ -4385,9 +4385,13 @@ factory_units_dir() {
 # Arm 3 agrees with arm 2 for every checkout this repository has had. When it does not, the line that
 # results prints the path it looked at, which is what makes a wrong guess checkable rather than fatal.
 factory_service_unit() {
-	if [ -n "$FACTORY_SERVICE_UNIT" ]; then
+	# `:-`, not the bare name: the suite preamble (#489) unsets `FACTORY_SERVICE_UNIT` AFTER
+	# sourcing this file -- the source-time default above cannot survive an unset -- and the reap
+	# legs call this function under `set -u`, where a bare dereference dies in its command
+	# substitution and the leg reads the rc-1 arm of a function that never ran.
+	if [ -n "${FACTORY_SERVICE_UNIT:-}" ]; then
 		printf '%s\n' "$FACTORY_SERVICE_UNIT"
-	elif [ -n "$FACTORY_NAME" ]; then
+	elif [ -n "${FACTORY_NAME:-}" ]; then
 		printf '%s-factory.service\n' "$FACTORY_NAME"
 	else
 		printf '%s-factory.service\n' "$(basename -- "${FACTORY_ROOT%/}")"
