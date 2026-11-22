@@ -18,7 +18,12 @@
 # What the union reads depends on the layout the caller named, and that is the whole of #456: a monolith
 # is one blob, so `show HEAD:DECISIONS.md` is the whole log, but a filed log (#429, H-0263) is a
 # directory and a name read as a blob is nothing at all. So a filed path is walked -- every *.md under it
-# in the working tree, and every *.md the ref's tree carries -- for the same maximum. The alternative is
+# in the working tree, and every *.md the ref's tree carries -- for the same maximum. The working tree is
+# read whole; a ref's copies carry two claims read two ways (#506): the NAME, synthesized from the
+# basename -- EMITS names that file and the gate refuses a heading that differs from it,
+# `layout_problems` -- and the CONTENT, read once per unique blob rather than once per entry per ref,
+# because the spawn product the review of #505 priced is a cost shape, not a taken-set shape: the same
+# bytes claim the same id on every ref, so the sha dedup cannot move the maximum. The alternative is
 # the collision #442 counts: an id reserved only as `factory/DECISIONS/H-0277.md` on a sibling's branch
 # is invisible to a union that reads one path, and both units are then handed the same number in good
 # faith by a tool that exists to refuse it.
@@ -455,32 +460,67 @@ face_work() { # <root-relative path> <file|dir> -- one face of the log in the wo
 }
 
 # The same face in one ref. For a monolith that is the single `git show` this command has always run; for
-# a filed log it is one `git show` per entry, and that listing is the half the old read was blind to. The
-# blindness has a price list: an id that exists only as `factory/DECISIONS/H-0277.md` on a sibling's
-# branch is a claim on that id, and #442 measured 7 of 31 ids reaching two or more branches while the
-# union could not see the second copy. An entry filed below the prefix is counted here too -- refusing the
-# nested file is the gate's job (`layout_problems`), not this read's.
+# a filed log it is one `ls-tree` per ref -- and #506 is what the listing's two halves are then read as.
+# The per-entry `git show` this arm shipped with #505 cost one process spawn per entry per ref per
+# answer (the review of #505 measured the filed arm at 6.7 s -> 10.6 s on a 1372-ref clone), unbounded
+# once phase 3 files hundreds of entries onto the trunk every ref descends from, because then EVERY ref
+# pays EVERY entry. #506 keeps BOTH claims the old read made and drops the product: the basename is a
+# claim -- EMITS names the file to create, the gate refuses filename != heading (`layout_problems`), and
+# #442's blindness, an id existing only as `factory/DECISIONS/H-0277.md` on a sibling's branch, is a NAME
+# the basename read sees even from an empty file a content read had nothing to find in -- and the bytes
+# are a claim too, read ONCE per unique blob instead of once per path per ref: the same bytes claim the
+# same id on every ref that carries them, so deduping by sha cannot move the maximum the awk below
+# computes, while it bounds the content reads by the log's size no matter how many refs share it. That
+# is the union the review called the conservative choice (filename-max and content-max); what the dedup
+# changes is the cost shape, not the taken set. An entry filed below the prefix is counted by its
+# basename too -- refusing the nested file is the gate's job (`layout_problems`), not this read's.
 face_ref() { # <ref> <root-relative path> <file|dir> -- one face as that ref carries it, tagged
-	local ref=$1 relx=$2 kind=$3 p
+	local ref=$1 relx=$2 kind=$3 meta path base
 	if [ "$kind" = dir ]; then
-		# The directory as a plain pathspec, then the `.md` filter in the pipeline. The wildcard form
-		# `"$relx/*.md"` -- what phase 1 shipped -- matches NOTHING here, measured on git 2.53.0 against
-		# a ref that provably carries `factory/DECISIONS/H-0007.md`: the same `ls-tree` with the bare
-		# directory as its pathspec prints the row, and `:(glob)` magic is refused outright
-		# (`pathspec magic not supported by this command`). So a wildcard pathspec is not merely slower,
-		# it is silent: every filed id on every sibling ref was invisible, which is the exact blindness
-		# #442 priced at 7 of 31 ids. A ref git cannot open and a tree with no such directory contribute
-		# nothing and say nothing: same tolerance as the monolith arm has always had, same reason --
-		# `set -e` would end the script over one ref this clone cannot serve.
-		git -C "$root" ls-tree -r --name-only "${ref}^{commit}" -- "$relx" 2>/dev/null |
-			grep '\.md$' |
-			while IFS= read -r p; do
-				git -C "$root" show "${ref}^{commit}:$p" 2>/dev/null || true
-			done | sed 's/^/R /' || true
+		# The directory as a plain pathspec. The wildcard form `"$relx/*.md"` -- what phase 1 shipped
+		# -- matches NOTHING here, measured on git 2.53.0 against a ref that provably carries
+		# `factory/DECISIONS/H-0007.md`: the same `ls-tree` with the bare directory as its pathspec
+		# prints the row, and `:(glob)` magic is refused outright (`pathspec magic not supported by
+		# this command`). So a wildcard pathspec is not merely slower, it is silent: every filed id on
+		# every sibling ref was invisible, which is the exact blindness #442 priced at 7 of 31 ids. A
+		# ref git cannot open and a tree with no such directory contribute nothing and say nothing:
+		# same tolerance as the monolith arm has always had, same reason -- `set -e` would end the
+		# script over one ref this clone cannot serve. The row is parsed, not taken by `--name-only`:
+		# the path half becomes the synthesized `## <id>` line the awk below already parses, and the
+		# sha half joins the dedup ledger the union block reads back once the loop has finished.
+		git -C "$root" ls-tree -r "${ref}^{commit}" -- "$relx" 2>/dev/null |
+			while IFS=$'\t' read -r meta path; do
+				# Entry files only, the same `*.md` gate the working-tree face applies and the same
+				# one the per-entry read this replaces carried: two faces of one log must not read
+				# two different file sets, or the same call answers differently for bytes no entry
+				# is made of.
+				case $path in
+				*.md) ;;
+				*) continue ;;
+				esac
+				case $meta in
+				'100644 blob '* | '100755 blob '* | '120000 blob '*)
+					printf '%s\n' "${meta##* }" >>"$filed_blobs" ;;
+				esac
+				base=${path##*/}
+				case ${base%.md} in
+				[DH]-[0-9][0-9][0-9][0-9]) printf 'R ## %s\n' "${base%.md}" ;;
+				esac
+			done || true
 	else
 		git -C "$root" show "${ref}^{commit}:$relx" 2>/dev/null | sed 's/^/R /' || true
 	fi
 }
+
+# The #506 dedup ledger: one blob sha per line, appended by every dir-arm listing in the union pass
+# below and read back ONCE, deduped, after the ref loop. A plain file per process, not a variable: the
+# ref loop is the tail of a pipeline and its `while` body runs in a subshell, so nothing it accumulates
+# survives the loop. `mktemp` because two allocators may answer in the same instant -- two units, or a
+# unit and a person -- and one answer must not read another's ledger. The trap covers every exit after
+# this line; the runs that die later (the max-age refusal) still clean up.
+filed_blobs=$(mktemp "${TMPDIR:-/tmp}/next-decision-id-blobs.XXXXXX") ||
+	die 'cannot open a temporary file to hold the filed-blob ledger'
+trap 'rm -f -- "$filed_blobs"' EXIT
 
 union=$(
 	{
@@ -509,6 +549,18 @@ union=$(
 			face_ref "$ref" "$stem" dir
 			face_ref "$ref" "$stem.md" file
 		done
+
+		# The content claim for every filed copy, once per unique blob (#506). The ledger was filled
+		# by the dir arm above; the listing ran per ref because `ls-tree` takes no rev-list, but the
+		# read runs per sha because identical bytes claim identical ids on every ref that carries
+		# them, and the awk below takes a maximum. That is why this stage cannot change the answer
+		# relative to #505's per-entry `git show` -- it can only stop the answer from spawning one
+		# process per entry per ref. Unreadable blobs contribute nothing and say nothing: the same
+		# tolerance the ref walk has always carried for a ref this clone cannot serve.
+		sort -u -- "$filed_blobs" 2>/dev/null |
+			while IFS= read -r blob; do
+				git -C "$root" cat-file blob "$blob" 2>/dev/null || true
+			done | sed 's/^/R /' || true
 	} | awk -v want="$prefix" '
 	{
 		src = substr($0, 1, 1)
