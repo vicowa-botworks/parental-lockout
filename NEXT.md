@@ -1,4 +1,103 @@
-# NEXT — issue-488 (branch `issue-488`, PR open against `main`; this unit ships `H-0383`: #488 is phase 3 of the decision-log split — 437 entries still live inside the two monoliths (78 `D-` rows over 5,651 lines, 359 `H-` rows over 19,253 lines at `42dea11`), and phase 3 moves them out in batches of ~40 with `make verify` between them. What shipped is the machine that does a batch: `scripts/split-decisions.py` files the oldest entries through `--through <id>` into `DECISIONS/<id>.md` / `factory/DECISIONS/<id>.md` byte for byte AND re-aims every `path:line` citation in the union that points into the log whose rows it moved, in the same commit — one row map (a moved row becomes its entry's file at `row - heading + 1`, a staying row loses the lines removed above it, the preamble is above every cut), continuations expanded into written paths, revision-qualified pointers left alone, `range-split` and `already-filed` refused by name. The proof for the ~41 pointers nothing judges is the ~1,360 that re-verify: the rewrite never touches an anchor's bytes, so wrong arithmetic is a red gate, not a drift (H-0383). DRY-RUN ONLY — zero batches have been run: `--through H-0040` reports 38 entries filed, 19,253 → 18,369 lines, 48 citations re-aimed, no refusal; the 45-minute ceiling arrived before the first write, so the split itself is the next tick's work and every number here is a dry run that wrote nothing; `make verify` was not run on this branch's head — its 5m15s does not fit the ceiling either, so CI on the pull request is the first full gate and its verdict rides the pull body with its read-back, never here (#1180); merging belongs to the supervisor, and this unit merged nothing — the head above this one is demoted in place, byte-kept, because no pull request is open on trunk (`gh pr list --state open` → `[]`, read at this re-heading) and the unit owed a merge is the one that speaks)
+# NEXT — issue-489 (branch `issue-489`, PR open against `main`; this unit ships `H-0386` beside the branch's shipped `H-0384` and `H-0385`: the leak #489 filed — `make verify` from a tick environment fast-forwards the REAL installed tree — is closed for the filed shape by a per-pass pin in `factory/selftest.sh` and an ownership gate in `factory_supervisor_repair`, both already on the branch; what this round adds is the measurement of where that gate is blind, and the baseline re-measured rather than quoted — 19 fast-forwards in the operator's reflog since #489 was filed, 10 of them journalled by the supervisor within the same second, 9 not — a ceiling on the leak
+rather than a count of it, since the reflog cannot tell a supervisor merge from a person pulling —
+and the operator's checkout read back at `42dea11`, clean, 2 behind trunk: the leak's own
+precondition still live while this unit's gate run was in flight, and it stayed where it was)
+
+## What this unit shipped, and what it did not
+
+- Inherited, not this round's work (the four commits `73513ea` the pre-H-0384 checkpoint,
+  `65fcc72` the pin, `1390dca` the pre-H-0385 checkpoint, `1076b1e` the gate; the four shas first
+  written on this line — `305d073` `43e8c39` `d63c0d3` `7695b3e` — are no object on any ref and
+  were replaced 2026-11-22, on #514's review):
+  `H-0384`'s per-pass pin — the `proc_run` line in `factory/selftest.sh` carries
+  `FACTORY_UNITS_DIR="$proc_work/units-pass"` and
+  `FACTORY_SERVICE_UNIT=proc-pass-factory.service` — and `H-0385`'s ownership gate in
+  `factory_supervisor_repair`, refused-token `SUPERVISOR-FF-REFUSED not-this-pass`, with its
+  containment legs in `factory/selftest.d/489-installed-tree-containment.sh` (a: pin extracted,
+  canary moves, RED; b: gate extracted, canary moves, RED; c: shape greps of the shipped pin, the
+  knobs and the `proc_extra_env` prohibition — GREEN whether or not any supervisor pass ever
+  spawns, corrected to that polarity 2026-11-22 on #514's review).
+- Shipped (review round for #514, 2026-11-22, prose-only): the record-accuracy repairs that review
+  `6010672599` named — the `proc_extra_env` ordering claim corrected to what the code does (the
+  array expands BEFORE `proc_run`'s shipped list, so an entry naming a pinned name is nullified by
+  the pin, never an override) at its four shipped sites, with a dated `Correction` bullet on
+  `H-0384` and the four dead commit locators on the `Inherited` row replaced by the four that
+  ship; leg (c)'s polarity restated as shape-greps. No behaviour byte moved — text-only motion,
+  so the suite verdict carries.
+- Shipped (`factory/DECISIONS/H-0386.md`, trailer `Decision: H-0386`, checkpoint `4600323`): the
+  measured limit of that gate. `$FACTORY_ROOT` is *derived*, by `_factory_main` in
+  `factory/common.sh`, from the first `worktree` row of `git worktree list --porcelain`, and git
+  prints the MAIN checkout first even when the command runs in a linked worktree — so a pass
+  started from a linked worktree with the timer's exported unit name and no explicit
+  `FACTORY_ROOT` resolves both sides of the gate to the operator's checkout and the gate does not
+  fire. `H-0385`'s premise "A pass knows that relation through exactly one name" holds only when a
+  caller sets the name. Probe and verdicts are in the entry; the probe writes nothing.
+- Shipped: the gate run taken with the incident's own precondition live rather than neutralised —
+  `make verify` from a tick environment with `FACTORY_SERVICE_UNIT=parental-lockout-factory.service`
+  deliberately left in the environment, while the operator's checkout sat behind trunk with its
+  last reflog move (03:26:13Z) one of the 9 unjournalled. Read the verdict for what it tests: root
+  resolved equal to installed, so the gate could not fire and its silence is not evidence about
+  containment; what the run can say is whether the pin held and whether the tree moved.
+- Disclosed, because a hand-off must not inherit a false claim about the control: this unit ran
+  `git fetch --prune origin` in the operator's checkout (remote-tracking refs only) and intended
+  to pin that tree to trunk as the null control; the live read afterward is HEAD `42dea11`, clean,
+  unchanged, with no reflog entry for such a move. So the control is NOT "root == installed ==
+  trunk" — it is "root == installed == behind trunk", which is the harsher and more useful shape,
+  and it is what the paragraph above describes. Nothing in the operator's checkout was written by
+  this unit.
+- Did not ship: the widening. No byte of `factory/common.sh` or `factory/selftest.sh` moved in
+  this round.
+
+## What is still owed (all of it, none silent)
+
+1. The supervisor reviews and merges; this unit asked nobody and merged nothing.
+2. H-0386's widening, as a unit and not a drive-by: compare the installed tree against the
+   canonicalised parent of `$FACTORY_DIR` instead of `$FACTORY_ROOT`, and in the SAME commit
+   re-verdict the two families that would otherwise change verdict for the wrong reason — the r342
+   legs, which source the shipped `common.sh` from the harness tree while planting a fixture
+   installed tree (under the new semantics every one of them reads foreign and the gate fires
+   inside legs that exist to test other arms), and the `installed? no` legs, which plant a
+   non-installed root and take their refusal from an earlier arm. Falsifier to write with it: the
+   H-0386 probe must flip from `does NOT refuse` to a journalled refusal.
+3. Read the 9 before acting on them. Each is a fast-forward in the operator's checkout with no
+   `SUPERVISOR-FF` line within ±3s of it, and the reflog cannot tell a supervisor merge from a
+   person typing `git pull` or from a session's own merge — so 9 is a CEILING on the leak, not a
+   count of it. What makes them worth the ticket is that #489 measured an unattended writer to that
+   tree doing exactly this, and the harness is the only unattended writer identified so far; proving
+   any single one of the 9 was it needs a per-move cause the reflog does not carry. The move that
+   left the tree where it is now, `2b4686d -> 42dea11` at 03:26:13Z, matches no journal line in
+   `factory/log/` at its second.
+4. Whoever lands the widening should also decide whether a pass whose derived `$FACTORY_ROOT`
+   equals the installed tree while it runs elsewhere deserves a journal line of its own: the pair
+   is already visible in the journal (`SUPERVISOR-AT` prints root and harness side by side), only
+   the refusal is missing.
+5. Unchanged from `H-0383`'s rows: the tick-environment leak in the fence-comparison legs, and the
+   allocator cost of #506. Neither is touched by this branch.
+
+## Constraints a stranger would break here
+
+- The pinned pair on the `proc_run` line in `factory/selftest.sh` is a defence, not tidiness
+  (`H-0384`). `factory/selftest.d/489-installed-tree-containment.sh` prints RED against its
+  extraction, so removing it cannot land quietly; and no selftest may set `FACTORY_SERVICE_UNIT` to
+  a name the real unit answers to — leg (c) is pure shape-greps of `factory/selftest.sh` and passes
+  whether or not any pass spawns (corrected 2026-11-22 on #514's review); the legs that watch a
+  real pass run are (a) and (b), so deleting a spawn reddens those, never (c).
+- A new fixture that spawns the real supervisor must pin the pair AND expect
+  `SUPERVISOR-FF-REFUSED not-this-pass`. A leg whose refusal sentence comes from `installed? no`
+  tests an earlier arm and proves nothing about containment — the false-pass trap `H-0385` names in
+  its own `Why`.
+- Nothing may infer "the tree I am running in" from the first row of `git worktree list --porcelain`:
+  measured 2026-11-22 from a linked worktree, git prints the main checkout first. `_factory_main` in
+  `factory/common.sh` does exactly that, and `H-0386` is the consequence.
+- Measuring this defect's reflog: `%ct` is the TARGET COMMIT's committer date, not the time the ref
+  moved. Parse the selector (`--date=iso-strict`, then `HEAD@{...}`). The retained reflog holds 72
+  fast-forward entries from 2026-10-23T21:23:45Z to 2026-11-22T03:26:13Z; the first attempt at this
+  baseline reported 22 for a window it did not actually measure.
+- A journal match for a fast-forward must be same-second (±3s), not same-minute: passes run seconds
+  apart, and a minute window invented a match on 2026-11-22 for the 03:26:13Z move whose nearest
+  journalled event was 43 minutes away.
+
+## Record — NEXT — issue-488 (branch `issue-488`, PR open against `main`; this unit ships `H-0383`: #488 is phase 3 of the decision-log split — 437 entries still live inside the two monoliths (78 `D-` rows over 5,651 lines, 359 `H-` rows over 19,253 lines at `42dea11`), and phase 3 moves them out in batches of ~40 with `make verify` between them. What shipped is the machine that does a batch: `scripts/split-decisions.py` files the oldest entries through `--through <id>` into `DECISIONS/<id>.md` / `factory/DECISIONS/<id>.md` byte for byte AND re-aims every `path:line` citation in the union that points into the log whose rows it moved, in the same commit — one row map (a moved row becomes its entry's file at `row - heading + 1`, a staying row loses the lines removed above it, the preamble is above every cut), continuations expanded into written paths, revision-qualified pointers left alone, `range-split` and `already-filed` refused by name. The proof for the ~41 pointers nothing judges is the ~1,360 that re-verify: the rewrite never touches an anchor's bytes, so wrong arithmetic is a red gate, not a drift (H-0383). DRY-RUN ONLY — zero batches have been run: `--through H-0040` reports 38 entries filed, 19,253 → 18,369 lines, 48 citations re-aimed, no refusal; the 45-minute ceiling arrived before the first write, so the split itself is the next tick's work and every number here is a dry run that wrote nothing; `make verify` was not run on this branch's head — its 5m15s does not fit the ceiling either, so CI on the pull request is the first full gate and its verdict rides the pull body with its read-back, never here (#1180); merging belongs to the supervisor, and this unit merged nothing — the head above this one is demoted in place, byte-kept, because no pull request is open on trunk (`gh pr list --state open` → `[]`, read at this re-heading) and the unit owed a merge is the one that speaks)
 ## Record — NEXT — issue-477 (branch `issue-477`, PR open against `main`; this unit ships `H-0380`: the stop hold the journal cannot attribute gets a subject sampled where it can be seen — `2026-11-19T17:11:09Z REAP-HELD hold=44s how=unexplained ended=624s open=1` is 44 s the timer could not re-arm with nothing named, and the only instrument that can name it is one standing in the same cgroup when systemd sends the stop: the pass spawns `factory/stop-window-probe.sh` before `factory_body`, the probe answers its own `SIGTERM` by snapshotting `cgroup.procs` and dying, and the next pass's reap read attaches the match as `stop=` on the `REAP-HELD` row and in the `--status` sentence, with the four no-subject answers kept as four facts (`none`, `unwritten`, `unread`, `0`) because "could not look" and "looked, nobody there" are different defects; asking the manager was refused as the authority `H-0118` will not borrow, and asking it late as asking about a cgroup the kernel has forgotten — re-reading the 19 Nov stop on this box answers `-- No entries --`; ten legs in `factory/selftest.d/477-stop-window.sh`, the window and its negative control in one leg because each is the other's falsifier, plus five on the probe itself, including its `t=` exponent (`date +%s%N` prints 19 digits here and the first handler that ran wrote 1970) and a 900 ms bound on its own death, because a probe slow to die is itself a holder of the stop it watches; checkpoint `24d2f6b`; second conflict tick for #512: `main` moved under this pull again — the #508 merge at `2b4686d`, MERGED 2026-11-22T02:25:21Z read back from the API at this re-heading — and `git merge origin/main` came back CONFLICTING on exactly one path, counted by re-running `git merge-file` over the three index-stage files rather than by counting markers: this hand-off's head junction, ONE hunk where this branch's head and trunk's `issue-464` round-2 head each re-headed the same base head; `factory/DECISIONS.md`, `factory/selftest.sh`, `factory/common.sh`, `factory/next-decision-id.sh`, `docs/factory.md` and `.opencode/skills/factory/SKILL.md` auto-merged, so their merged bytes are what every pointer in the log had to be read against; adjudication `H-0382`: this head is re-titled and stays the single `#` head — the status board names the unit still owed a merge, and #512 is open while #508 reads MERGED — trunk's `issue-464` head is demoted in place to the stamped `## Record` beneath it with its three section bodies byte-kept, and this branch's three `## Record` stub rows (`issue-469`, `issue-468`, `issue-456`) are kept ONCE, superseded by trunk's stamped full-parenthetical rows below, which carry every clause of all three; checkpoint `3a0138d` before the sync and the adjudication; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor)
 
 ## Record — issue-464 conflict tick, round 2 for PR #508 (branch `issue-464`, PR #508 MERGED into `main` at `2b4686d` 2026-11-22T02:25:21Z read back from the API at this re-heading; this unit is the second conflict tick for #508 and ships `H-0381`: `main` moved under this pull again — the #504 merge at `252d488`, MERGED 2026-11-22T00:36:21Z read back from the API at this re-heading — and `git merge origin/main` came back CONFLICTING on exactly two paths, counted by re-running `git merge-file` over the three index-stage files rather than by counting markers: this hand-off's head junction, ONE hunk where this branch's phase-2 head and trunk's `issue-448` round-3 head each re-headed the base head, and `factory/DECISIONS.md`, 57 hunks; `factory/selftest.sh` auto-merged, so its merged bytes are what every pointer in the log had to be read against; the log went to the shipped machine union `scripts/merge-decisions.py` (#381) and that union REFUSED it by name — `UNION-REFUSED reason=id-collision factory/DECISIONS.md H-0303 differs on both sides by more than coordinate digits` — so the documented order was followed: refuse, hand-settle the named entry, let the machine take the rest. The named entry was folded row by row under the union's own accept rules (89 rows each side: 86 identical, TWO digits-only drift, ONE where `base == ours` and trunk alone lengthened the quoted anchor, ZERO where both sides moved words), and the shipped re-aim then moved the drift rows to the merged tree's coordinates and the shipped certifier passed; adjudication `H-0381`: this head is re-titled and sits on top as the live status board of the unit still owed a merge — #508 open, #504 merged — this branch's round-1 head is demoted in place to the `## Record` beneath with every body byte-kept, trunk's `issue-448` round-3 head is demoted in place to a short `## Record` stamped with its merge (#504 at `252d488`, 2026-11-22T00:36:21Z read back from the API at this re-heading) with its three section bodies byte-kept beneath it, and the duplicated `## Record — issue-469` row is kept ONCE as one row carrying both parents' bytes — this branch's full-parenthetical body with trunk's `a6e09ee` merge stamp and its demotion clause folded in, one row transformed against each parent and no clause dropped; the zero-absence census against both parents is recorded in `factory/DECISIONS/H-0381.md`; checkpoint `2414821` before the sync and the adjudication; gate verdicts ride the pull body with their read-backs, never here (#1180); merging belongs to the supervisor and this unit merged nothing; that head demoted in place by this sync; its three section bodies are byte-kept beneath this line)

@@ -110,7 +110,16 @@ unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_ID_MAX_AGE \
 # says exactly that). Legs that need an attribution variable pass it explicitly
 # (the journalling fixture pins its own values in both arms of `dpn_alloc_run`); nothing may rely
 # on the ambient one.
-unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH
+# #489 adds the installed-unit pair to the same door for the same shape of reason: the unit exports
+# `Environment=FACTORY_SERVICE_UNIT=` about itself (`install-timer.sh`), a tick inherits it, and
+# `factory_service_unit`'s first arm honours it ahead of every derivation -- so under a tick the
+# supervisor-pass fixtures resolved the OPERATOR's unit file, `factory_installed_tree` answered the
+# real checkout, and the stale-repair arm fast-forwarded it 22 unjournalled times (measured in the
+# real reflog, 16-20 Nov). `FACTORY_UNITS_DIR` joins it because its absence silently defaults
+# `factory_units_dir` to `~/.config/systemd/user`: unsetting the name alone would still aim the read
+# at the operator's directory, just at a derived name. The name-blind arms were already load-bearing
+# here (the journalctl stub above); the installed-tree read is name-aware, and it does not merely read.
+unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH FACTORY_SERVICE_UNIT FACTORY_UNITS_DIR
 
 pass=0
 fail=0
@@ -1553,19 +1562,25 @@ halt_call_sites_shaped
 # deleted -- which is exactly why the text half exists.
 scrub_at_the_door() {
 	local label="the tick attribution is scrubbed at the door" self="$HERE/selftest.sh" stripped
-	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$' "$self"; then
+	# The pattern names six variables because #489 added the installed-unit pair to the door: a run
+	# from a tick inherits `FACTORY_SERVICE_UNIT` (the unit exports it about itself), the shipped
+	# supervisor env list forwards it, `factory_service_unit`'s first arm honours it ahead of every
+	# derivation, and the stale-repair arm merges whatever tree the name resolves to -- the
+	# operator's checkout. A tick's `make verify` fast-forwarded the real tree 22 unjournalled times.
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH FACTORY_SERVICE_UNIT FACTORY_UNITS_DIR$' "$self"; then
 		pass=$((pass + 1))
-		printf '  ok    %-40s %s\n' "$label" 'the preamble clears LOG, both TICK variables and the scratch path before any fixture runs'
+		printf '  ok    %-40s %s\n' "$label" 'the preamble clears LOG, both TICK variables, the scratch path and the installed-unit pair before any fixture runs'
 	else
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the preamble no longer unsets the tick'"'"'s attribution variables, so\n' "$label"
 		printf '          a run from a dispatch inherits them: fixture answers journal into the real\n'
-		printf '          supervisor log and the bare-run legs read red for the tick that ships.\n'
+		printf '          supervisor log, the bare-run legs read red for the tick that ships, and\n'
+		printf '          (#489) a fixture supervisor fast-forwards the real installed tree.\n'
 	fi
 	mkdir -p -- "$work/scrub"
 	stripped=$work/scrub/selftest.sh
-	sed '/^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$/d' "$self" >"$stripped"
-	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH$' "$stripped"; then
+	sed '/^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH FACTORY_SERVICE_UNIT FACTORY_UNITS_DIR$/d' "$self" >"$stripped"
+	if grep -qE '^unset FACTORY_TICK_UNIT FACTORY_TICK_BRANCH FACTORY_LOG FACTORY_SCRATCH FACTORY_SERVICE_UNIT FACTORY_UNITS_DIR$' "$stripped"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the scan still finds the unset after its line is deleted, so the\n' "control: $label"
 		printf '          ok above matches something else and means nothing.\n'
@@ -1579,13 +1594,14 @@ scrub_at_the_door() {
 	# would have passed unnoticed in a clean caller. What must not survive the door is the live path
 	# and the attribution.
 	if [ "${FACTORY_LOG:-}" != "$FACTORY_ROOT/factory/log" ] && [ -z "${FACTORY_TICK_UNIT:-}" ] \
-		&& [ -z "${FACTORY_TICK_BRANCH:-}" ]; then
-		printf '        probe: this run carries no live journal path and no tick attribution,\n'
-		printf '        as every fixture below sees them.\n'
+		&& [ -z "${FACTORY_TICK_BRANCH:-}" ] \
+		&& [ -z "${FACTORY_SERVICE_UNIT:-}" ] && [ -z "${FACTORY_UNITS_DIR:-}" ]; then
+		printf '        probe: this run carries no live journal path, no tick attribution and no\n'
+		printf '        installed-unit name, as every fixture below sees them.\n'
 	else
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the running suite still carries %s, so a bare fixture run\n' "probe: $label" \
-			"$([ "${FACTORY_LOG:-}" = "$FACTORY_ROOT/factory/log" ] && printf 'the live journal path' || printf 'a live journal path or a tick variable')"
+			"$([ "${FACTORY_LOG:-}" = "$FACTORY_ROOT/factory/log" ] && printf 'the live journal path' || printf 'a live journal path, a tick variable or a live installed-unit name')"
 		printf '          would journal into the operator'"'"'s record rather than the fixture box.\n'
 	fi
 	return 0
@@ -3908,6 +3924,15 @@ proc_kill=''
 # later the connect-timeout knob) without changing what any other proc_run carries: `proc_run`
 # expands this array into its `env` only when a leg has put something in it.
 proc_extra_env=()
+# The two installed-unit names as a leg-settable knob (#489), the same shape as `proc_pass_timeout`
+# below: `proc_run` forwards these into `pass_knobs` only when a leg has put something in them.
+# They are NOT `proc_extra_env` entries: the shipped list spells both names at fixture values, and
+# `proc_extra_env` expands BEFORE that list (see the pass_env note in proc_run) -- an entry naming
+# a pinned name loses to the pin under env last-wins and is nullified in silence, aiming the leg
+# at the pinned fixture while it believes it planted its own unit. Only a knob lands after the
+# shipped list, so only a knob moves a pinned name; planted-unit legs set these, the rest inherit.
+proc_units_dir=''
+proc_service_unit=''
 proc_new() {
 	local name=$1
 	proc_repo=$proc_work/$name
@@ -3974,6 +3999,20 @@ proc_run() {
 	# H-0332 (#419): the push bound travels the same road as the fetch bound's knob above, for the
 	# same measured reason -- an assignment earlier in `env` loses to the shipped list below it.
 	[ -z "${proc_push_timeout:-}" ] || pass_knobs+=(FACTORY_PUSH_TIMEOUT="$proc_push_timeout")
+	# #489: the installed-unit pair ships pinned (see the env list below), so it travels as a knob
+	# and a leg that needs a different fixture unit moves the knob, never the shipped list -- the
+	# knob lands AFTER the list only through this array, exactly like the timeout knobs.
+	[ -z "${proc_units_dir:-}" ] || pass_knobs+=(FACTORY_UNITS_DIR="$proc_units_dir")
+	[ -z "${proc_service_unit:-}" ] || pass_knobs+=(FACTORY_SERVICE_UNIT="$proc_service_unit")
+	# The shipped pair below (#489): the unit exports `Environment=FACTORY_SERVICE_UNIT=` about
+	# itself and `factory.sh` forwards its own environment to each tick, so a tick's exported value
+	# survives the preamble unset and would aim `factory_service_unit`'s first arm -- and with it
+	# the stale-repair read -- at the OPERATOR's unit file and the real installed tree, which is
+	# how a tick's `make verify` fast-forwarded that checkout 22 unjournalled times. A fixture
+	# directory holding no `<unit>.service` keeps `factory_service_file` "installed? no" in every
+	# fixture pass, as a plain box always is, and the fixture-only name means no leg can resolve a
+	# real unit by any arm. The dry-run and rerun legs that DO plant fixture unit files move the
+	# pair through the knobs above; nothing else reaches `factory_service_file`.
 	env PATH="$proc_bin:$PATH" "${pass_kill[@]}" "${pass_env[@]}" \
 		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
 		PROC_TICK_FAILS="${proc_tick_fails:-}" \
@@ -3990,6 +4029,7 @@ proc_run() {
 		FACTORY_LOG="$proc_log" FACTORY_LEDGER="$proc_stash" FACTORY_RUN="$proc_rundir" \
 		FACTORY_TREES="$proc_trees" FACTORY_AT_RISK="$proc_risk" FACTORY_HALT="$proc_halt" \
 		FACTORY_BASE=main FACTORY_MAX_TICKS=4 FACTORY_BUDGET=120 \
+		FACTORY_UNITS_DIR="$proc_work/units-pass" FACTORY_SERVICE_UNIT=proc-pass-factory.service \
 		FACTORY_TICK_TIMEOUT=30 FACTORY_FETCH_TIMEOUT=10 "${pass_knobs[@]}" \
 		timeout --signal=TERM --kill-after=10 "${proc_pass_timeout:-180}" bash "$proc_dir/factory.sh" \
 		>"$proc_work/$tag.out" 2>&1 || proc_rc=$?
@@ -29635,7 +29675,8 @@ proc_mutate_rerun_flag() { # -> the RERUN stop's disarm flag out of $proc_dir/fa
 	mv "$proc_work/rerun-mut" "$proc_dir/factory.sh"
 }
 
-proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-stop" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_units_dir=$proc_work/units-stop
+proc_service_unit=proc-rerun-factory.service
 proc_kill=''
 proc_rerun_box stop && proc_rerun_stop_planted=1 || proc_rerun_stop_planted=0
 proc_run death-rerun-stop-1
@@ -29643,7 +29684,8 @@ proc_leg 'SUPERVISOR-RERUN stops with no END: the stop line is the last word' \
 	'FF line naming exit 9, RERUN line last, no END rc= at all, no died=, rc 9, no tick' \
 	proc_rerun_leg_stops "$proc_journal" "$proc_rc" "$proc_rerun_stop_planted"
 
-proc_extra_env=("FACTORY_UNITS_DIR=$proc_work/units-forged" "FACTORY_SERVICE_UNIT=proc-rerun-factory.service")
+proc_units_dir=$proc_work/units-forged
+proc_service_unit=proc-rerun-factory.service
 proc_rerun_box forged && proc_rerun_forged_planted=1 || proc_rerun_forged_planted=0
 proc_mutate_rerun_flag && proc_rerun_forged_mutated=1 || proc_rerun_forged_mutated=0
 proc_run death-rerun-forged-1
@@ -29686,6 +29728,10 @@ proc_leg 'the RERUN flag is the guard: without it the stop forges died=EXIT' \
 	proc_rerun_leg_forged "$proc_journal" "$proc_rc" "$proc_rerun_forged_planted" "$proc_rerun_forged_mutated"
 
 proc_extra_env=()
+# the two legs above set the installed-unit knobs (#489, see `proc_run`); the family below must
+# not inherit a fixture unit the rerun legs planted.
+proc_units_dir=''
+proc_service_unit=''
 printf '[]\n' >"$proc_fix/pr-open.json"
 
 # H-0341 -- the two ceilings the claim sweep actually stands on, pinned as arithmetic.

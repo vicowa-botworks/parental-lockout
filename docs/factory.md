@@ -1166,6 +1166,15 @@ and `ahead = 0`. Every refusal is a named condition, printed and never acted on:
   is not its last line: measured against a locked index the last line is `Updating 568f92b..2fc8ebd`,
   and that distinction between *not safe* and *refused anyway* is the whole reason refusal is a token
   rather than a boolean).
+- `SUPERVISOR-FF-REFUSED not-this-pass tree=<installed> root=<FACTORY_ROOT>` -- the unit file names
+  a tree that is not the checkout this pass supervises (#489: a tick's exported
+  `FACTORY_SERVICE_UNIT` made fixture supervisors resolve the operator's checkout, and the
+  position arms read it honestly while the merge wrote a tree no reader of this log was
+  watching). The refusal sits after the position read -- a tree git cannot count stays the
+  unstreaked `SUPERVISOR-UNKNOWN` it was, because #342's contract says an unknown count is not
+  a refusal -- and an uncountable tree reaches no merge either way. It counts into the streak
+  like any unrepaired staleness, because passes aimed at a
+  foreign tree are an outage in the same shape.
 - The streak and the escalation: an activation that reported staleness and did not repair it appends
   its condition to a ledger line (`supervisor.stale-streak`); a current tree or a completed repair
   clears it. `factory.sh --status` then prints a fifth verdict word, `STALE`, once the streak reaches
