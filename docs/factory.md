@@ -986,7 +986,7 @@ Three marks, one line, always exactly one (`<age>` is how long ago the terminal 
 
 ```
 REAP-CLEAN hold=0s how=clean ended=<age>s open=1
-REAP-HELD hold=60s how=deadline ended=<age>s open=1 -- parental-lockout-factory.service was still being torn down after the pass said its last line, and parental-lockout-factory.timer counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246)
+REAP-HELD hold=60s how=deadline ended=<age>s open=1 stop=1:1361554=bash -- parental-lockout-factory.service was still being torn down after the pass said its last line, and parental-lockout-factory.timer counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246). `stop=` is who else was in the unit's cgroup when systemd sent the stop, or one of the four ways there is no subject to name (`none`, `unwritten`, `unread`, `0`) -- #477, and the closing section of this file
 REAP-UNKNOWN rc=2 a pass finished and nothing in the journal says when its work stopped, so the hold is unread, not zero (#246)
 REAP-UNKNOWN rc=1 nothing in the journal window has finished, so this pass cannot say what the last one cost the queue (#246)
 ```
@@ -1962,7 +1962,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_STALE_ESCALATE` | `3` | how many consecutive activations may report the installed tree behind and not repair it before `--status`'s verdict reads `STALE` (#342). Three: enough to ride out one pass whose refusal cause clears, short enough that nobody reads 92 journal lines to call the outage a defect |
-| `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
+| `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause. The `stop=` subject on that row is a separate read with its own two knobs, both in `factory/common.sh`: `FACTORY_STOP_WINDOW_GRACE` (`5`) how far outside the hold a sample may fall and still be this stop's, and `FACTORY_STOP_WINDOW_MAX` (`8`) how many processes one row names before `,+K` (#477) |
 | `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
 | `FACTORY_LOG_TAIL` | `400` | how many of the unit's journal lines the read of the journal's own location looks back for the last line that named a directory (#260); a line-count window, so a pass that outwrites it is told `LOG-MOVED-UNKNOWN rc=2`, never "it has not moved" |
 | `SHELLCHECK` etc. | — | see `make check-shell` |
@@ -3121,3 +3121,25 @@ different ids and say whose was stepped over; one unit two reads keep their id; 
 never gets a ref stops being taken; the claim map is a read of the journal *file* -- planted
 well-formed lines claim and shapeless or foreign-prefix lines do not; and a control neuters the call
 and reproduces the collision verbatim, so the legs measure the mechanism and not the fixture.
+
+### Who was standing in the cgroup: the stop-window probe (#477)
+
+`REAP-HELD … how=unexplained` is the journal admitting it has a duration and no subject, and the only
+such row in the retained journal is `2026-11-19T17:11:09Z REAP-HELD hold=44s how=unexplained ended=624s
+open=1` -- 44 s the timer could not re-arm, attributed to nothing. Its subject cannot be looked up
+afterwards: asking the manager during a stop borrows the authority `H-0118` refuses to borrow, and
+asking it late is asking about a cgroup the kernel has forgotten -- re-reading that stop on this box
+answers `-- No entries --`, the oldest retained row being 2026-11-20T04:59. So the pass that owns the
+stop spawns `factory/stop-window-probe.sh` before `factory_body`, the probe samples its own cgroup's
+`cgroup.procs` when systemd's `SIGTERM` arrives, and the next pass's reap read attaches that record to
+`stop=` when its stamp falls inside the window the read had already computed. The four no-subject
+answers stay four facts: `none` (nothing armed -- the activation predates the probe, or the pass ran
+outside the unit's cgroup), `unwritten` (armed and never wrote: killed outright at the deadline, or hung
+past it), `unread` (`cgroup.procs` would not answer), `0` (looked, nobody else there) -- because "could
+not look" and "looked, nobody there" are different defects. The probe pays for its place: it answers
+`TERM`/`INT`/`HUP` itself so it never becomes a holder of the stop it watches (a leg fails it past 900
+ms), the spawn closes the unit's stdio because a line there is the pass's last word and `bash` prints
+one before any probe code runs, it refuses a cgroup that is not the named unit's and a run directory it
+had to create, it sweeps records older than a day on its way in, and its `t=` stamp pins the exponent --
+`date +%s%N` prints 19 digits here, and the first handler that ran wrote 1970. Polarities are in
+`factory/selftest.d/477-stop-window.sh`; the decision is `H-0380`.

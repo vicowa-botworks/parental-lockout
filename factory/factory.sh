@@ -2465,5 +2465,25 @@ if ! flock -n 9; then
 	exit 7
 fi
 
+# The stop-window probe (#477), spawned while this pass is still the only thing in the unit's
+# cgroup: it answers the SIGTERM systemd sends the whole cgroup at stop and records who else
+# was standing there, which is the only way to name what `REAP-HELD … how=unexplained` cannot
+# (see factory/stop-window-probe.sh for why the sample must run in the cgroup it samples, and
+# for the discipline that keeps the probe from becoming a holder of the stop it watches).
+# Detached on purpose: nothing waits for it, nothing dies with it, and it self-guards — no unit
+# name, no run dir it can create, a cgroup that is not this unit's, and it is gone without a word.
+# A dry run inside the unit is NOT a guard: its stop is a real stop, so it is instrumented like any
+# other. The next pass's reap read attaches what it writes to the `stop=` field.
+#
+# stdio is closed at the spawn, not only inside the probe: `bash` prints its own message before any
+# line of the probe runs, and a line on the unit's stdio is a process line, which is what
+# `factory_reap_lastword` reads back as the pass's last word -- so a spawn whose target is missing
+# would rewrite the hold the probe exists to measure. Measured 22 Nov in the supervisor's own
+# fixture trees, which are copies taken at a commit that has no probe: every one of them printed
+# `bash: …/factory/stop-window-probe.sh: No such file or directory`. Silence is the contract here, so
+# the channel is never opened.
+bash "$FACTORY_DIR/stop-window-probe.sh" "$(factory_service_unit)" "$FACTORY_RUN/stop-window" \
+	</dev/null >/dev/null 2>&1 &
+
 factory_body
 exit $?
