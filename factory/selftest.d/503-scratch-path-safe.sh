@@ -110,8 +110,12 @@ sp503_world() {
 	fi
 	return 0
 }
-claim_leg 'fixture: a colon in a PATH entry splits it' \
-	'the colon-free prepend finds the stub and the colon-bearing one finds nothing' sp503_world
+# The reporter here is `claim_leg <label> <command...>`: the leg's own name is what the suite prints,
+# so the sentence each leg owes the reader is the comment above it, never a third argument -- passing
+# the description as an argument makes the reporter try to EXECUTE it, which is how these three legs
+# first shipped: `line 9406: the colon-free prepend finds the stub...: command not found`, three FAILs
+# and not one assertion of mine run.
+claim_leg 'fixture: a colon in a PATH entry splits it' sp503_world
 
 # ---- (b) the shipped dispatch: the minted name is PATH text.
 sp503_shipped() {
@@ -150,9 +154,7 @@ sp503_shipped() {
 	[ -n "$bad" ] && sp503_say "$bad"
 	[ -z "$bad" ]
 }
-claim_leg 'the shipped mint is PATH-safe and echoes the unit' \
-	'no colon in the name, the stub found through a PATH prepend, the directory gone after the pass' \
-	sp503_shipped
+claim_leg 'the shipped mint is PATH-safe and echoes the unit' sp503_shipped
 
 # ---- (c) the control: the mint exactly as #503 was filed on. `factory_slug` maps `/` alone, so the
 # colon of `unclaimed:900` reaches the name. This is the proof that (b) measures that colon and not
