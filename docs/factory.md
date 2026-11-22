@@ -1609,8 +1609,14 @@ factory/next-decision-id.sh factory/DECISIONS.md
 
 The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref — on
 the face the named path selects, and since #456 a filed aim (`DECISIONS/`, `factory/DECISIONS/`)
-enumerates every `*.md` under the directory instead of one file: `git ls-tree -r --name-only` per ref,
-`git show` per path, a ref git cannot open skipped silently for the reason `H-0071` gives. An entry
+enumerates every `*.md` under the directory instead of one file: one `git ls-tree -r` per ref, a ref
+git cannot open skipped silently for the reason `H-0071` gives. The listing is read as the two claims
+a filed entry is (#506): the **name** claims its id on every ref that carries the file — EMITS names
+the file to create and `layout_problems` refuses a heading that differs from it, so an entry claims
+its name even as an empty file — and the bytes claim theirs too, but once per UNIQUE blob: the
+listing's shas pass `sort -u` into one `git cat-file` each. `git show` per path per ref was one
+spawn per entry per ref per answer (6.7 s → 10.6 s on a 1372-ref clone, #505's review), and phase 3
+multiplies it without bound; identical bytes claim identical ids, so the dedup moves cost, not ceiling. An entry
 filed as `factory/DECISIONS/H-0277.md` on a sibling's ref raises the ceiling exactly as the same
 heading inside the monolith does, which is what makes a filed entry a *claim* rather than a file —
 before #456 the union never asked for that path, and `#442` tallied 7 of 31 ids handed to two or more

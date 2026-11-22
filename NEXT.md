@@ -1,4 +1,85 @@
-# NEXT — issue-511 (branch `issue-511`, PR open against `main`; this unit ships `H-0397`: `notice_legs` in `factory/selftest.sh` opened its locals with a bare `local label` and never assigned it, so under the file's `set -u` the first FAIL in that leg expanded the reporter idiom's unset name and killed the run at the very sentence that would have explained it — reproduced in this tick against a throwaway clone of `23f51c6` with the FAIL branch forced by a one-line mutation: stderr `label: unbound variable` at the FAIL printf, the EXIT trap `RUN INCOMPLETE -- died with exit 1 after 173 ok and 1 FAIL, before any verdict` (the counter incremented before the print, so the run counted a failure it never reported and stopped ~27k lines short of the verdict, every later leg silently unrun), and with the declaration fixed the same forced FAIL printed `FAIL  a halt comments on its unit …` and the suite continued. The green path is why nobody noticed: `ok` rows print literals and shellcheck 0.10.0 reports the shape clean, so a FAIL branch is invisible until the product actually breaks — which is why the class got a pin, not just a fix. The fix is the idiom (assign at the declaration, the 67-row convention in the same file, one line, `1 1` numstat, zero log pointers aimed at that band as measured by `check-decisions.py --citations`); the pin is `factory/selftest.d/511-fail-path-unbound-label.sh`, two legs: a scan of the shipped bytes (body plus every leg file) refusing a top-level function that prints `"$label"` with no `label=` in its own body, and a mutant control that counts the fix's declaration row to exactly one, cuts it out of a copy, re-reads the cut, and refuses to pass unless the scan goes RED naming `notice_legs` — both polarities exercised against pre-fix and post-fix roots before the first commit. Gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing)
+# NEXT — issue-506 review round (branch `issue-506`, PR #518 open against `main`; this round answers the #518 review of 2026-11-22T12:34:04Z at head `d72deef` — `reviewDecision` read back `CHANGES_REQUESTED` from the API before any byte changed, review newer than the head commit — and ships one blocking control repair plus the review's two text corrections. The review's blocking finding, re-measured before believed: `rn_ctl_shape` grepped the whole `face_ref()` function, which always carries the monolith arm's legitimate `git show`, so the control's grep matched the shipped unmutated file (rc 0) and could never report its plant invisible — the drift simulation (leg scope narrowed from `/^\telse$/` to `/ls-tree -r/`) kept the pre-repair suite 8/8 GREEN with leg (d) blind to the planted read. The repair gives `rn_dir_arm` a file argument and extracts the mutant through the leg's own function, so control and leg share one awk scope: the repaired file goes 7/1 RED on the same drift and stays 8/8 green without it, and the review's literal one-liner (duplicated scope in the control) was measured too — it stays 8/8 green on the drift, which is why the shared extractor shipped over it (`H-0398`, checkpoint `84fc3e5`). Gate verdicts and the post-push review state ride the pull body (#1180); merging belongs to the supervisor and this round merged nothing. The `issue-503` head beneath this one is `H-0394`'s hand-off, superseded only as a heading: PR #517 MERGED into `main` at `23f51c690fcf02dc9d5b257e2df397c26bc213ef` 2026-11-22T10:58:20Z read back from the API at this re-heading, its section bodies byte-kept beneath. No `issue-506` row existed on this board before this head: `d72deef` shipped `H-0395` without re-heading `NEXT.md`, so the effect round's record is `factory/DECISIONS/H-0395.md` and the pull body, not this file)
+
+## What this unit shipped
+
+- `factory/selftest.d/506-refname-taken-set.sh`: `rn_dir_arm` takes an optional file argument
+  (`"${1:-$dpn_alloc}"`) and `rn_ctl_shape` greps `rn_dir_arm "$m"` — the control now reads exactly
+  the bytes the leg reads, one awk-range definition in the file, and the claim "the planted arm goes
+  red" is falsifiable where before it was structurally unfalsifiable (measured 22 Nov: whole-function
+  grep hits `git -C "$root" show` on the UNMUTATED file; drift reds the repaired file 7/1; shipped
+  bytes green 8/8; reviewer's duplicated-scope variant measured green on the drift). Same file:
+  `rn_ctl_dedup`'s comment now names the check that actually goes red — measured
+  `rn_shape`-against-the-dedup-mutant fails at the blob-stage **locate** branch, because the plant
+  replaces the line `rn_blob_stage` locates by — not the `sort -u` grep the old comment promised.
+- `factory/DECISIONS/H-0398.md`, trailer `Decision: H-0398`, checkpoint `84fc3e5`: options, the
+  measured preference over the one-liner, what lost, and one disclosed probe slip of this round's
+  own (a first probe called the unfixed extractor after reassigning `dpn_alloc`; re-run clean,
+  plant visible, shipped arm empty — the 8/8/7/1 pair is the load-bearing evidence either way).
+- Nothing else in the tree. `factory/next-decision-id.sh` is untouched — the review approved the
+  mechanism ("this is a control fix and not a code fix"); the pull body's claim that the scoping
+  "is pinned by a leg that greps the scoping line itself" is re-aimed by this round's body edit,
+  since no such leg exists and what pins the scoping now is that the control extracts through
+  `rn_dir_arm` itself.
+- Shipped by this conflict tick (`factory/DECISIONS/H-0399.md`, trailer `Decision: H-0399`,
+  checkpoint `f3da0df`): the sync of `issue-506` onto `origin/main` `d4b2c93` and the
+  head-vs-head adjudication of this file's junction, per `H-0393`'s rule as remeasured here:
+  this head stays the single `#` (PR #518 is the live unit of this junction — of the two
+  open rows `gh pr list --state open` answered at this re-heading, #518 and #520, only #518
+  feeds this merge), trunk's `issue-511` head is demoted in place beneath it as the stamped
+  `## Record — issue-511 unit, for PR #519` carrying the read-back `MERGED
+  2026-11-22T13:10:19Z commit d4b2c9343426fb9734f18b4fe64570c3873e6bc7`, and its three
+  section bodies are byte-kept as trunk wrote them; the `## Record — issue-503 unit` row
+  both sides demoted (identical bytes except one inserted clause each, measured on the raw
+  stages) is kept ONCE on trunk's bytes — the spelling `main` carries today — and this
+  branch's clause "the heading below is superseded as a heading only" is dropped as the
+  duplicate of that same claim, disclosed because a byte census cannot tell an adjudication
+  from a loss. Zero-absence census over both sides' added rows against the merged file
+  (distinct rows each parent added since the merge base, EXCLUDING rows the merge base already
+  carries — re-heading moved 4 such rows per side, and counting them would answer 44 of 45 and
+  46 of 47 for the same two absences; method and digits re-derived at this rendering fix):
+  this branch 40 of 41 distinct rows present, trunk 42 of 43, and the two absent rows are
+  exactly this branch's `issue-503`-record rendering (kept once on trunk's bytes) and
+  trunk's head line (demoted in place to the stamped record here). No production byte moved
+  by this tick: what it wrote is this file, the entry, and the merge. Gate verdicts ride the
+  pull body (#1180); merging belongs to the supervisor and this tick merged nothing.
+- Shipped by this rendering-fix tick (round 3's one blocking finding; no new decision id — the
+  digits were already adjudicated in `H-0399`, this tick only stops their sentence shipping as
+  an uninterpolated format string): the four `{}` in the census sentence above are filled
+  `40 of 41` / `42 of 43` from `H-0399`, with the census independently re-derived here in
+  python over the three blobs rather than copied off the entry's prose, and the entry's method
+  pinned beside the digits, because a naive count over ALL distinct added rows answers
+  44 of 45 and 46 of 47 for the same two absences — the recorded census excludes the four
+  per-side rows the merge base already carries (re-heading moves), and without that clause the
+  filled digits are not re-derivable by a future reader. Nothing else in the tree moved.
+
+## What is still owed
+
+- The re-review after this push: the push is measured to spend the standing `CHANGES_REQUESTED`
+  row's force (#269), and the ask is the supervisor's poke, not this unit's — this round asked
+  nobody, and the post-push read of `reviewDecision,reviews,mergeable,mergeStateStatus` rides the
+  pull body.
+- If a future round touches this leg file, cite it by function name, never by line: this round's
+  edits shifted line numbers inside `factory/selftest.d/506-refname-taken-set.sh` (the pointer
+  census answered 0 citations aimed at the file at `d72deef`, so nothing drifted; a future round
+  re-derives with `python3 scripts/check-decisions.py --citations`).
+- The carried `issue-503` owed rows below (the `docs/factory.md` scratch sentence, the colon in the
+  other minted names) stand unchanged and belong to whoever takes them; this head moves none of
+  their coordinates.
+
+## Constraints a stranger would break
+
+- Do not duplicate `rn_dir_arm`'s awk range inside another control. Measured, not argued: a control
+  carrying its own copy of the scope answers GREEN while the leg's scope has drifted and gone blind
+  (8/8, the reviewer's one-liner under drift) — one shared extraction is the whole point of the
+  file argument on `rn_dir_arm`, and removing the argument restores a control that cannot fail.
+- Do not "simplify" `rn_dir_arm`'s `"${1:-$dpn_alloc}"` back to `$dpn_alloc`: `rn_ctl_shape` plants
+  a mutant and extracts it through that argument; the leg's polarity (shipped dir arm answers empty,
+  planted dir arm answers the show line) both run through the same call.
+- The leg answers on BYTES, never on a timer, on purpose: an answer-based dedup leg would go red on
+  a busy supervisor and the dedup mutant answers identically by design. Keep the shape legs as byte
+  inspections.
+
+## Record — issue-511 unit, for PR #519 (branch `issue-511`, PR #519 MERGED into `main` at `d4b2c9343426fb9734f18b4fe64570c3873e6bc7` 2026-11-22T13:10:19Z read back from the API at this re-heading; this head is demoted in place, its parenthetical byte-kept except the merge fact it could not know when written, and its three section bodies byte-kept beneath; this unit ships `H-0397`: `notice_legs` in `factory/selftest.sh` opened its locals with a bare `local label` and never assigned it, so under the file's `set -u` the first FAIL in that leg expanded the reporter idiom's unset name and killed the run at the very sentence that would have explained it — reproduced in this tick against a throwaway clone of `23f51c6` with the FAIL branch forced by a one-line mutation: stderr `label: unbound variable` at the FAIL printf, the EXIT trap `RUN INCOMPLETE -- died with exit 1 after 173 ok and 1 FAIL, before any verdict` (the counter incremented before the print, so the run counted a failure it never reported and stopped ~27k lines short of the verdict, every later leg silently unrun), and with the declaration fixed the same forced FAIL printed `FAIL  a halt comments on its unit …` and the suite continued. The green path is why nobody noticed: `ok` rows print literals and shellcheck 0.10.0 reports the shape clean, so a FAIL branch is invisible until the product actually breaks — which is why the class got a pin, not just a fix. The fix is the idiom (assign at the declaration, the 67-row convention in the same file, one line, `1 1` numstat, zero log pointers aimed at that band as measured by `check-decisions.py --citations`); the pin is `factory/selftest.d/511-fail-path-unbound-label.sh`, two legs: a scan of the shipped bytes (body plus every leg file) refusing a top-level function that prints `"$label"` with no `label=` in its own body, and a mutant control that counts the fix's declaration row to exactly one, cuts it out of a copy, re-reads the cut, and refuses to pass unless the scan goes RED naming `notice_legs` — both polarities exercised against pre-fix and post-fix roots before the first commit. Gate verdicts ride the pull body (#1180); merging belongs to the supervisor and this unit merged nothing)
 
 ## What this unit shipped
 
