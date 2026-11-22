@@ -104,8 +104,9 @@ respects.
 
 --citations prints what the citation rule found instead of refusing on it: the unanchored
 count by the file pointed at, the citations a reader cannot open, the anchored ones whose
-text has moved, and since #440 the ones whose anchor is satisfied by more rows than the
-citation promised. It reads and changes nothing, and it is how the debt number is re-derived.
+text has moved, since #440 the ones whose anchor is satisfied by more rows than the citation
+promised, and since #495 the ones whose quotation stops inside a token of the row it quotes.
+It reads and changes nothing, and it is how the debt number is re-derived.
 
 --citations PATH lists every citation pointing at that path instead, with the log line that cites
 it. Ask before editing a file that other people's decisions quote: a merge that moves a line has to
@@ -123,6 +124,13 @@ lands on the wrong sentence, which is the bug #318 was written about. A citation
 be checked, so it is counted, and the count is recorded in this file as POINTER_DEBT. That number may
 only fall: a new unanchored citation is refused, and so is a run that measured below it, because an
 unlowered number hides the next broken pointer in the slack.
+
+Being on the line answers only *is the text there*. The fragment also has to single that line out --
+#440, an anchor satisfied by rows the citation did not promise verifies nothing -- and it has to stop
+at a token boundary of the line it quotes -- #495, a quotation cut inside a word stays green when the
+rest of the word is renamed, which is how five rows of `factory/DECISIONS.md` came to point at a
+default that had been changed under them. Both are refused outright and neither is counted in
+POINTER_DEBT: the row already carries a quotation, and finishing it is the whole repair.
 
 A provenance pair is a commit token glued to a parenthesised pull-request reference: `` `cf00b44`
 (PR #410) ``. #433 measured ``cf00b44`` (PR #427, `H-0235`) ride two review rounds while one `git
@@ -1521,7 +1529,7 @@ def stray_note(cands):
 
 
 def classify(found, read):
-    """The four buckets a citation falls into, plus the count that owes an anchor.
+    """The buckets a citation falls into, plus the count that owes an anchor.
 
     `read(path)` returns the file's text or None. Split out of `citation_problems` so `--citations`
     reports exactly what the gate refuses on, rather than a second implementation that can drift from
@@ -1557,6 +1565,24 @@ def classify(found, read):
     indeterminate with no repair that removes it (measured: 155 rows naive, 127 after the two
     exclusions; the naive count would have refused the gate's own corpus with nothing to fix).
 
+    `midtoken` is the #495 bucket and it refuses the other blind spot of the same accept test. "The
+    fragment is at the cited row" is true of a fragment that stops in the middle of a word, and such
+    a quote is equally satisfied by a line that no longer says what the entry measured. Measured on
+    `431b24b`, which re-aimed six rows of this log at the escalation-label default while changing
+    both that line's number and its value: one row carries the whole new line as its quotation, five
+    were shortened to its first 53 characters and now quote `${FACTORY_ESCALATION_LABEL:-` -- a quote
+    ending inside the word `question`, on `factory/common.sh:297`, the line this file itself names as
+    the single place that default is written. The five read green the moment they were written and
+    read green on the tree that ships this paragraph, because containment measures what is inside the
+    quotation marks and nothing measured what sits outside them: rename that default to anything and
+    the quoted fragment stays true of the row while the row stops saying it. That is #374's `cannot
+    fail` at the edge the accept branch never tested -- the same edge #440 widened the accept branch
+    for at the other end: what the fragment matches, and now how much of the row it covers. It must
+    be zero like the others and it is not folded into `unanchored` either way: the row carries a
+    quotation and lengthening it is the whole repair, so it refuses, not ratchets. The boundary is a
+    token run, not an arbitrary text run; `ANCHOR_TOKEN_RUN`, kept beside `anchor_cut` at the foot of
+    this file, carries the measured reasons for the marks inside it and for the two that are not.
+
     Only `unanchored` feeds the ratchet. A pointer to a file that is absent, or to a name five files
     answer to, is not an unverified promise, it is a pointer that does not work today, and that is
     refused on its own and must be zero -- folding it into the number would have hidden the 17 pointers
@@ -1577,6 +1603,7 @@ def classify(found, read):
     wrapped = []
     nowstate = []
     indeterminate = []
+    midtoken = []
     cache = {}
 
     def lines_of(path):
@@ -1658,7 +1685,36 @@ def classify(found, read):
                              "it is at line %s" % ", ".join(str(x) for x in now[:6]) if now
                              else "it is nowhere in the file"))
             continue
-        if want in norm(" ".join(body[c["low"] - 1:c["high"]])):
+        region = norm(" ".join(body[c["low"] - 1:c["high"]]))
+        if want in region:
+            # #495: the same accept test, at its other edge. Containment says the fragment is on the
+            # cited text and says nothing about where the quotation stops, and a fragment that stops
+            # inside a token stays true when the rest of that token is renamed -- `cannot fail` in the
+            # shape this branch never measured. The occurrence set is read off the same joined region
+            # the accept test just matched against, so the two rules cannot disagree about where the
+            # fragment sits; `anchor_cut` is conservative exactly as #440 is, refusing only when every
+            # match of the fragment is cut.
+            cut = anchor_cut(want, region)
+            if cut is not None:
+                where, dropped = cut
+                c["cut"] = cut
+                midtoken.append("%s %s -> %s is anchored to %r and the fragment IS at the cited row, "
+                                "but the quotation stops inside a token: %s, so the rest of the word "
+                                "can be renamed and this pointer stays green over a line that no "
+                                "longer says it -- #374's `cannot fail`, and not a coordinate (the class "
+                                "#495 was filed on is five rows of this log quoting "
+                                "`${FACTORY_ESCALATION_LABEL:-`, 53 characters ending inside the word "
+                                "`question`, after `431b24b` shortened them). Write the quotation "
+                                "through to the end of the token "
+                                "and re-check the longer fragment: it must still match only the "
+                                "promised row, which is #440's rule and the reason not to pad the "
+                                "quote with the next line"
+                                % (at, cite, c["path"], c["anchor"][:48],
+                                   ("the cited text carries %r more of the same word immediately after "
+                                    "the quote" % dropped) if where == "end" else
+                                   ("the cited text carries %r more of the same word immediately "
+                                    "before the quote" % dropped)))
+                continue
             # #440: "the fragment is at the cited row" answers *is it there*, never *is it only
             # there*, and a fragment that also sits elsewhere cannot single out the row the entry
             # promised -- that is how a scripted re-aim aimed three pointers into another entry's
@@ -1692,7 +1748,7 @@ def classify(found, read):
                  % (c["path"], c["low"], norm(body[c["low"] - 1])[:96]))
         broken.append("%s %s in %s is anchored to %r and %s"
                       % (at, cite, c["path"], c["anchor"][:48], where))
-    return unanchored, unresolvable, broken, wrapped, nowstate, indeterminate
+    return unanchored, unresolvable, broken, wrapped, nowstate, indeterminate, midtoken
 
 
 CitationVerdict = collections.namedtuple(
@@ -1706,8 +1762,12 @@ CitationVerdict = collections.namedtuple(
     # (#374) joins them for the same reason again: a fifth bucket that only the report knew about would
     # let the headline count as debt exactly the rows the report refuses. `indeterminate` (#440) joins
     # for the third time on the same argument: the refusal list, the `--citations` report and the
-    # headline must be three reads of one verdict, not three chances to disagree.
-    "problems measured unanchored unresolvable broken wrapped nowstate indeterminate judged "
+    # headline must be three reads of one verdict, not three chances to disagree. `midtoken` (#495)
+    # joins for the fourth time on the same argument, and its absence would be worse than a drift in a
+    # count: a cut quotation is the one refused shape that reads as a satisfied anchor, so a headline
+    # that did not carry it would call the run clean while the report listed pointers that stay green
+    # over lines that no longer say them.
+    "problems measured unanchored unresolvable broken wrapped nowstate indeterminate midtoken judged "
     "unjudged_because")
 
 
@@ -1720,7 +1780,10 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
     the ratchet NOT running when a pointer cannot be opened, both newline-cut anchors (#369: the
     fragment on the next line, the quotation unclosed on this one) refused rather than counted, and the
     #440 anchor that answers more rows than the citation promised (both polarities, the same-file
-    self-match exclusion, the cited range, and the ratchet held while one exists).
+    self-match exclusion, the cited range, and the ratchet held while one exists), and the #495 anchor
+    that stops inside a token of the row it quotes (the cut end, the cut beginning, a cut inside a
+    dotted name or a path staying outside the class, a range edge, the conservative many-match rule,
+    and the ratchet held while one exists).
     `judge_debt=False` is the `--log` case, where the corpus the number describes is not the corpus
     being read.
     """
@@ -1731,7 +1794,8 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                             "before the first line of the file, so there is nothing for a reader to "
                             "open" % (c.get("label", "?"), c["line"], c["entry"], c["written"],
                                       c["low"], c["high"]))
-    unanchored, unresolvable, broken, wrapped, nowstate, indeterminate = classify(found, read)
+    unanchored, unresolvable, broken, wrapped, nowstate, indeterminate, midtoken = \
+        classify(found, read)
     for group, head in ((broken, "anchored citation(s) in the decision logs point at text that is not "
                                  "there"),
                         (unresolvable, "citation(s) in the decision logs a reader cannot open at all"),
@@ -1744,7 +1808,11 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         (indeterminate, "citation(s) in the decision logs whose anchor is satisfied by "
                                         "more rows than the citation promised -- the text is at the "
                                         "row, and elsewhere too, which #440 refuses instead of "
-                                        "accepting as checked")):
+                                        "accepting as checked"),
+                        (midtoken, "citation(s) in the decision logs whose quotation stops inside a "
+                                   "token of the cited row -- the text is at the row and the quote "
+                                   "carries part of one of its words, which #495 refuses instead of "
+                                   "accepting as checked")):
         if not group:
             continue
         problems.append("%d %s:" % (len(group), head))
@@ -1754,15 +1822,15 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                             "lists all of them" % (len(group) - MAX_LISTED))
     measured = len(unanchored)
     unopenable = (len(unresolvable) + len(broken) + len(wrapped) + len(nowstate)
-                  + len(indeterminate))
+                  + len(indeterminate) + len(midtoken))
     if not judge_debt:
         return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
-                               nowstate, indeterminate, False,
+                               nowstate, indeterminate, midtoken, False,
                                "--log narrows the corpus the number is a count of")
     if debt is None:
         problems.append("the citation-debt number could not be read, so the rule did not run")
         return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
-                               nowstate, indeterminate, False, "the recorded debt could not be read")
+                               nowstate, indeterminate, midtoken, False, "the recorded debt could not be read")
     if unopenable:
         # The ratchet is a statement about the logs, and this number is not one: every pointer in the two
         # lists above left `unanchored` without the logs changing, and a stray directory can do it to a
@@ -1771,8 +1839,10 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
         # issued to a reader under a green-gate deadline (#367 review #1). The must-be-zero refusals above
         # still stand on their own; only the comparison with the constant waits.
         problems.append("%d citation(s) above are not in the %d the ratchet guards: a pointer a reader "
-                        "cannot open, one #374 refuses as a current-state claim, or one #440 refuses "
-                        "because its anchor answers more rows than the citation promised, is a defect, "
+                        "cannot open, one #374 refuses as a current-state claim, one #440 refuses "
+                        "because its anchor answers more rows than the citation promised, or one #495 "
+                        "refuses because the quotation stops inside a token of the row it quotes, is a "
+                        "defect, "
                         "not a "
                         "grandfathered promise -- and while rows sit in those lists this number is not "
                         "the number the constant is a statement about. The number is therefore "
@@ -1783,7 +1853,7 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "anything the logs did not write, and the comparison comes back on the next run."
                         % (unopenable, measured))
         return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
-                               nowstate, indeterminate, False,
+                               nowstate, indeterminate, midtoken, False,
                                "%d citation(s) in a must-be-zero bucket" % unopenable)
     if measured > debt:
         problems.append("the decision logs hold %d `path:line` citations that owe an anchor, and the "
@@ -1803,7 +1873,7 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "An unlowered number is a ratchet with the pawl filed off: the next unanchored "
                         "citation hides in the slack." % (measured, debt, measured))
     return CitationVerdict(problems, measured, unanchored, unresolvable, broken, wrapped,
-                           nowstate, indeterminate, True, None)
+                           nowstate, indeterminate, midtoken, True, None)
 
 
 TallyVerdict = collections.namedtuple(
@@ -1916,7 +1986,10 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
     anchor does the most damage, because it is the shape every unit copies -- #440 itself traced the
     boilerplate `Effect:` anchors that matched dozens of rows to pointers re-aimed by script under a
     gate that graded them as good, and the sharpest specimen was a guide line quoting the very row the
-    rule uses as its example. `docs/factory.md` is NOT in
+    rule uses as its example. And since #495, `midtoken`, for the same reason in its opposite shape: a
+    guide that demonstrates the anchor with a quotation stopped inside a word teaches the cut, and a
+    unit copying it writes a pointer that cannot fail -- #495's five rows are what a corpus looks like
+    when nobody grades that. `docs/factory.md` is NOT in
     `TEACHES_RULE` and that is a measured choice, not an oversight: it is the reference, and it carries
     the shapes the rule refuses on purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line
     EOF) inside the table that explains them, so pointing this pass at it refuses the guide's own
@@ -1930,9 +2003,9 @@ def teaches_problems(read, index, paths=TEACHES_RULE):
         for c in scan_citations(text, [], index):
             c["label"], c["entry"] = path, "the guide"
             found.append(c)
-    _, unresolvable, broken, wrapped, _nowstate, indeterminate = classify(found, read)
+    _, unresolvable, broken, wrapped, _nowstate, indeterminate, midtoken = classify(found, read)
     return ["the file that teaches this rule has a pointer a reader cannot follow: " + r
-            for r in unresolvable + broken + wrapped + indeterminate]
+            for r in unresolvable + broken + wrapped + indeterminate + midtoken]
 
 
 def citation_report(found, read, only=None, verdict=None):
@@ -1959,7 +2032,8 @@ def citation_report(found, read, only=None, verdict=None):
                             % (c.get("label", "?"), c["line"], c["entry"], c["written"],
                                c["low"] if c["high"] == c["low"] else "%d-%d" % (c["low"], c["high"]),
                                c["path"] or "(unresolved)",
-                               "anchored" if c["anchor"] else
+                               "anchored, QUOTE STOPS INSIDE A TOKEN (#495)" if c.get("cut") else "anchored"
+                               if c["anchor"] else
                                ("ANCHOR CUT BY NEWLINE" if c.get("wrapped") else
                                  ("CURRENT-STATE (#374)" if c.get("now") else "UNANCHORED"))))
         # Returned, not printed: the census branch below returns its lines and `main` prints both, and a
@@ -1977,13 +2051,15 @@ def citation_report(found, read, only=None, verdict=None):
     if verdict is None:
         # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
         # rule, not a second implementation of it.
-        unanchored, unresolvable, broken, wrapped, nowstate, indeterminate = classify(found, read)
+        unanchored, unresolvable, broken, wrapped, nowstate, indeterminate, midtoken = \
+            classify(found, read)
         note = ""
     else:
         unanchored, unresolvable, broken = verdict.unanchored, verdict.unresolvable, verdict.broken
         wrapped = verdict.wrapped
         nowstate = verdict.nowstate
         indeterminate = verdict.indeterminate
+        midtoken = verdict.midtoken
         note = "" if verdict.judged else " (NOT judged this run: %s)" % verdict.unjudged_because
     counts = {}
     for c in found:
@@ -2005,6 +2081,9 @@ def citation_report(found, read, only=None, verdict=None):
     out.append("citations whose anchor answers more rows than the citation promised (#440) (%d):"
                % len(indeterminate))
     out.extend("  " + i for i in indeterminate)
+    out.append("citations whose quotation stops inside a token of the cited row (#495) (%d):"
+               % len(midtoken))
+    out.extend("  " + m for m in midtoken)
     out.append("citations that name their own revision, exempt from both (%d):"
                % len([c for c in found if c["kind"] == "revision-qualified"]))
     out.append("debt this gate ratchets on: %d%s" % (len(unanchored), note))
@@ -2429,6 +2508,30 @@ def self_test():
                            'see `selfcite-dup.md:1` "lockout is re-asserted on every open window" '
                            "but a third row repeats it\n"
                            "lockout is re-asserted on every open window shows up here too\n",
+        # #495: the boundary, in both directions. Rows 1 and 2 are one quote's two fates -- the
+        # fragment is a whole word on the first and the head of a longer word on the second, so the
+        # leg pair proves the fixture has both preconditions and not only the one a refusal needs.
+        # Row 3 is the class #495 was filed on, verbatim. Rows 4 and 6 are the two marks the token
+        # alphabet leaves out on purpose, and their legs are what the cost of putting them back is
+        # measured against. Row 5 is the cut at the quotation's beginning. The two files after this
+        # one are the conservative arm and its control: a fragment that matches a row twice, once
+        # whole and once cut, against the same fragment matching nothing but cuts.
+        "tokens.md": "read the escalation label from common.sh and print it\n"
+                     "read the escalation labels from common.sh and print them\n"
+                     "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}\n"
+                     "the boundary of the add/delete rename is where a move is not a copy\n"
+                     "cleanup runs find . -name 'triage-stderr.*' -delete at the tick's foot\n"
+                     "the gate script is check-decisions.py at the row's end\n",
+        # The conservative arm needs a fragment that matches twice WITHOUT the other row of the same
+        # file carrying it, or #440 answers first and the arm is never reached -- so each arm gets its
+        # own file, and the pair is the arm and its control.
+        "tokens-mixed.md": "count the word tokens here, then count the word token there\n",
+        "tokens-cut-twice.md": "count the word tokens here, and count the word tokens there too\n",
+        # #495's own corpus leg: the log cites the one line that writes a default, and quotes the head
+        # of the substitution on it. The file is named as the logs name it, so the leg scans the same
+        # shape the five rows are.
+        "factory/common.sh": "# the shipped default, and the one line that writes it\n"
+                             "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}\n",
     }
     CITES_INDEX = tree_index(sorted(CITES_TREE))
     read_fixture = CITES_TREE.get
@@ -2514,6 +2617,98 @@ def self_test():
         fails.append("indeterminate-is-not-debt: an ambiguous anchor entered the debt (%d) instead "
                      "of the refusal list -- ratcheting it would teach lowering the constant to "
                      "hide ambiguity" % held.measured)
+    # #495: the quotation must cover a WHOLE token of the row, not merely sit inside it. The fixture
+    # carries both fates of one fragment and the legs read that BEFORE they trust any refusal: a corpus
+    # of nothing but cuts would pass every `cite_case` below with a predicate that fires on everything,
+    # so the precondition is taken off `anchor_cut` on the two rows directly, and every refusal is
+    # answered by a clean leg on the row it is aimed at.
+    tok = read_fixture("tokens.md").splitlines()
+    counts[1] += 2
+    if anchor_cut("read the escalation label", tok[0]) is not None:
+        fails.append("anchor-cut-fixture-not-whole: `tokens.md:1` is the leg's control and the "
+                     "predicate already calls the fragment a cut there -- the row does not carry it as "
+                     "a whole word, so no leg below can tell the rule from a stub")
+    if anchor_cut("read the escalation label", tok[1]) is None:
+        fails.append("anchor-cut-fixture-not-cut: `tokens.md:2` is meant to carry the fragment as the "
+                     "head of a longer word and the predicate calls it whole -- every cut leg below "
+                     "would then be asserting nothing")
+    cite_case('`tokens.md:2` "read the escalation label".\n', "anchor-cut-end-refused",
+              "carries 's' more of the same word immediately after the quote")
+    cite_ok('`tokens.md:2` "read the escalation labels from common.sh".\n', "anchor-cut-end-repaired")
+    # The class #495 was filed on, verbatim, and the repair it needs: the whole token, no further.
+    cite_case('`tokens.md:3` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-".\n',
+              "anchor-cut-substitution", "carries 'question}' more of the same word")
+    cite_ok('`tokens.md:3` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}".\n',
+            "anchor-cut-substitution-repaired")
+    # The cut at the other end of the quotation: the row carries `-name`, the quote opens on `name`.
+    cite_case('`tokens.md:5` "name \'triage-stderr.*\' ".\n', "anchor-cut-start-refused",
+              "carries '-' more of the same word immediately before the quote")
+    cite_ok('`tokens.md:5` "-name \'triage-stderr.*\'".\n', "anchor-cut-start-repaired")
+    # The two marks the token alphabet leaves out, priced by the legs that pass because of it: a quote
+    # that stops at a dotted name's dot, and one that stops at a slash between two words.
+    cite_ok('`tokens.md:6` "the gate script is check-decisions".\n', "anchor-cut-dot-not-a-token")
+    cite_ok('`tokens.md:4` "the boundary of the add".\n', "anchor-cut-slash-not-a-token")
+    # A quotation that ends where the row ends is whole: the row's own edge is a boundary, which is
+    # what keeps the rule off every sentence-ending anchor in the logs.
+    cite_ok('`tokens.md:2` "from common.sh and print them".\n', "anchor-cut-row-edge-is-boundary")
+    # And a range's joined seam is a boundary too, so the rule cannot manufacture a cut at the place
+    # `classify` itself put a space.
+    cite_ok('Lines `tokens.md:1-2` "and print it read the escalation labels".\n',
+            "anchor-cut-join-seam-is-boundary")
+    # The conservative arm, with its control: one whole match anywhere on the cited text is enough to
+    # pass, because the lengthening that would fix the other match is advice this check cannot give;
+    # the same fragment with nothing but matches cut is refused.
+    cite_ok('`tokens-mixed.md:1` "count the word token".\n', "anchor-cut-one-whole-match-passes")
+    cite_case('`tokens-cut-twice.md:1` "count the word token".\n', "anchor-cut-all-matches-cut",
+              "carries 's' more of the same word immediately after the quote")
+    # and the bucket refuses rather than ratchets, the #367-review-#1 discipline again: the cut row
+    # enters no number, and the ratchet stays shut while one exists.
+    counts[0] += 1
+    cut_held = citation_problems(cites('`tokens.md:3` '
+                                       '"FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-".\n'),
+                                 read_fixture, debt=0)
+    if cut_held.judged or not any("NOT judged this run" in p for p in cut_held.problems):
+        fails.append("midtoken-holds-ratchet: with one cut quotation the run still compared the debt "
+                     "-- %s" % cut_held.problems)
+    if cut_held.measured:
+        fails.append("midtoken-is-not-debt: a quotation stopped inside a token entered the debt (%d) "
+                     "instead of the refusal list -- ratcheting it would teach lowering the constant "
+                     "to hide a cut" % cut_held.measured)
+    # The report has to name the class in the one listing a person reads before editing the cited
+    # file, and a cut row carries an anchor, so the row cannot be allowed to read `anchored`.
+    counts[0] += 1
+    # `main` classifies before it reports, and the listing reads the marks `classify` leaves on the
+    # rows; the leg follows that order rather than handing the report unclassified rows, which is what
+    # it would do if anything ever called it first.
+    cut_body = ('`tokens.md:3` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-" is the row.\n')
+    cut_found = cites(cut_body)
+    citation_problems(cut_found, read_fixture, debt=0)
+    cut_rows = [l for l in citation_report(cut_found, read_fixture, only="tokens.md")
+                if "-> tokens.md" in l]
+    if len(cut_rows) != 1 or "#495" not in cut_rows[0]:
+        fails.append("report-names-cut: `--citations tokens.md` read %s over a quotation the gate "
+                     "just refused as cut -- the screen a person consults before re-aiming a pointer "
+                     "cannot be the one place it looks clean" % cut_rows)
+    # The filed class itself, as the logs write it: three rows citing the one line that names the
+    # shipped default, each quoting the head of the substitution, beside the one row that carries the
+    # whole of it. Reverting the predicate empties the first list, and this is the leg that notices --
+    # `factory/DECISIONS.md` cannot be the only test of the rule that reads it.
+    counts[0] += 1
+    filed = cites('one line at `factory/common.sh:2` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-"'
+                  ' names a label this repository has, and the one home at `factory/common.sh:2` '
+                  '"FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-" is that same line, while the '
+                  'wrong word `factory/common.sh:2` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-"'
+                  ' used to read needs-human; the fourth row, `factory/common.sh:2` '
+                  '"FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-question}", carries all of it;\n')
+    filed_v = citation_problems(filed, read_fixture, debt=0)
+    if len(filed_v.midtoken) != 3:
+        fails.append("filed-class-is-refused: the shape #495 was filed on answered %d cut quotation(s) "
+                     "where the logs carry three -- either the predicate is off or this leg has drifted "
+                     "away from the rows it reproduces: %s" % (len(filed_v.midtoken), filed_v.midtoken))
+    if filed_v.measured or len(filed) != 4:
+        fails.append("filed-class-is-not-debt: the four rows of the filed class did not scan as four "
+                     "anchored citations (%d scanned, %d in the debt) -- the leg would pass a rule that "
+                     "counts cuts as debt" % (len(filed), filed_v.measured))
     cite_case('`notes.md:9` "the third line is long enough to anchor a citation to".\n',
               "anchor-past-eof", "which has 3 lines")
     cite_case('`notes.md:1-0` is not a range a reader can open.\n', "range-backwards", "cites no lines")
@@ -2852,7 +3047,12 @@ def self_test():
             # the very exit the rule now refuses, and every unit copying it writes silent debt.
             ('read `docs/factory.md:3` and quote it on the line below instead:\n'
              '"the escalation label is printed by exactly one script".\n',
-             "guide-wrapped-anchor", "NEXT physical line")):
+             "guide-wrapped-anchor", "NEXT physical line"),
+            # #495: and the guide is where a quotation stopped inside a word does its damage -- the
+            # boilerplate #495 found was copied from a guide that quoted a substitution's head, and a
+            # unit copying it writes a pointer that cannot fail. Inherited, not filtered.
+            ('read `tokens.md:3` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-" for it.\n',
+             "guide-cut-anchor", "stops inside a token")):
         probs = teach(body)
         if not any(needle in q for q in probs):
             fails.append("%s: expected a refusal containing %r, got %s" % (name, needle, probs))
@@ -3255,7 +3455,13 @@ def self_test():
           "else's object, and `<sha> missing`)), the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
           "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
           "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
-          "pointer cannot be opened, and the refusal that names which anchor floor it applied), the "
+          "pointer cannot be opened, the refusal that names which anchor floor it applied, and the "
+          "anchor that stops inside a token of the cited row (#495: the cut at each end with the "
+          "whole-word repair beside it, the fixture's two preconditions read off the predicate "
+          "itself, the dotted-name and slash controls the token alphabet buys, the row edge and the "
+          "joined range seam as boundaries, the conservative many-match arm beside its control, the "
+          "report naming a cut row instead of calling it anchored, and the ratchet held while one "
+          "exists)), the "
           "one-file-per-entry layout (filename and heading agreeing or disagreeing, two decisions in one "
           "file, a file named by nothing, the monolith answering none of it, the cross-layout duplicate "
           "naming both places, and a tree with no entry directory at all), and the `Effect:` diff-tally "
@@ -3425,10 +3631,11 @@ def main(argv):
     elif judge_debt:
         print("check-decisions: %d `path:line` citations read out of the two logs, %d of them owing "
               "an anchor and %d refused outright -- a reader cannot open them, the newline cut their "
-              "anchor, or #440's rule says an anchor answering several rows verifies nothing -- %s"
+              "anchor, #440's rule says an anchor answering several rows verifies nothing, or #495's "
+              "says a quotation stopped inside a word -- %s"
               % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
                  len(verdict.unresolvable) + len(verdict.broken) + len(verdict.wrapped)
-                 + len(verdict.nowstate) + len(verdict.indeterminate),
+                 + len(verdict.nowstate) + len(verdict.indeterminate) + len(verdict.midtoken),
                  "the first number is the recorded debt, which may only fall" if verdict.judged
                  else "the ratchet was NOT judged this run: %s" % verdict.unjudged_because))
     else:
@@ -3576,6 +3783,78 @@ def dangling_line(mentions):
             "#393 asks for the class as a report first, because these rows predate the rule and a gate "
             "that refuses every branch on the day it ships cannot be the branch that fixes them"
             % (len(mentions), len(ids), shown))
+
+
+# The alphabet of a token, for the mid-quotation test in `anchor_cut` below. Word characters, and the
+# four marks that live INSIDE the shell words and `${VAR:-default}` substitutions these logs quote --
+# the class #495 was filed on is exactly a substitution whose value was deleted, leaving the quote
+# standing inside the word it used to name.
+#
+# `.` and `/` are deliberately absent, and both absences are measured rather than inherited. A `.`
+# rule is refused on this tree's own corpus: 575 anchors are accepted today and 19 of them stop
+# immediately before a period -- the row ends `%s:%s` "…both of them the one file"` and the next row
+# opens `. Measured on that same fi` -- faithful quotations of a whole sentence that simply do not
+# want the sentence's own period inside the quotation marks. A rule for them is a different rule,
+# about sentence boundaries, and it has to cost those 19 before it lands. A `/` rule costs nothing
+# today (0 of the 575 anchors stop before a slash) and would refuse, the day one is written, a
+# quotation like the `add/delete` boundary `H-0114` quotes -- a `-` between two words is a word
+# character here and a path separator there, and no rule reads the difference. So the class is token
+# runs, not arbitrary text runs, and a cut inside a dotted name or a path stays outside it. Widening
+# this set is a decision with a measured price, `--self-test`'s `anchor-cut-*` legs are the seam the
+# price gets paid at, and the price is re-measurable with the tool that priced it: run `classify()`
+# over the union and count the accepted anchors whose match is followed by a candidate character.
+ANCHOR_TOKEN_RUN = frozenset("abcdefghijklmnopqrstuvwxyz"
+                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                             "0123456789_-$@{}")
+
+
+def anchor_cut(want, region):
+    """How a quotation the containment test accepts stops inside a token of the cited text.
+
+    Returns `(where, dropped)`, or None when the quote is a whole token: `where` is `end` or `start`,
+    and `dropped` is the run of token characters the quotation left on the row -- the text a reader
+    has to add to make the quote the whole word the row carries. None means every place the fragment
+    matches the cited text begins and ends on a boundary the row agrees with, and that is what makes
+    the quote a coordinate: change the word the quote stops in front of and the citation goes red
+    instead of staying green over a line that no longer says it (#495, where `431b24b` did exactly
+    that to five rows of the log this gate reads).
+
+    `region` is the same `norm()`ed text the accept test matched against -- one line, or a range joined
+    with `" ".join` -- so the two rules read one string and cannot disagree about where the fragment
+    sits. A row's own edges count as boundaries: `norm()` leaves a match at either end facing a space
+    or nothing, never a token character.
+
+    Conservative on the same ground #440 states it: a fragment that matches the cited text more than
+    once is refused only when EVERY match is cut. One whole match means the row does carry the quote
+    as a complete word, and the lengthening that would fix the remaining match is advice this check
+    cannot give -- so the row passes, and the sharper rule about what a fragment answers stays #440's.
+
+    The leftover run is walked to its end rather than reported one character deep because the return
+    value becomes the message: `dropped` names what the writer has to add, and a five-character
+    leftover quoted as one character is a repair that leaves the pointer cut in a new place.
+    """
+    if not want:
+        return None
+    head, tail = want[0] in ANCHOR_TOKEN_RUN, want[-1] in ANCHOR_TOKEN_RUN
+    if not head and not tail:
+        return None
+    cuts, i = [], region.find(want)
+    while i != -1:
+        after, before = region[i + len(want):i + len(want) + 1], region[i - 1:i]
+        if tail and after in ANCHOR_TOKEN_RUN:
+            run, j = after, i + len(want) + 1
+            while j < len(region) and region[j] in ANCHOR_TOKEN_RUN:
+                run, j = run + region[j], j + 1
+            cuts.append(("end", run))
+        elif head and before in ANCHOR_TOKEN_RUN:
+            run, j = before, i - 2
+            while j >= 0 and region[j] in ANCHOR_TOKEN_RUN:
+                run, j = region[j] + run, j - 1
+            cuts.append(("start", run))
+        else:
+            return None                     # one whole match: the conservative rule, above
+        i = region.find(want, i + 1)
+    return cuts[0] if cuts else None
 
 
 if __name__ == "__main__":

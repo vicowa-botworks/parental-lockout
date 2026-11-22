@@ -4385,9 +4385,13 @@ factory_units_dir() {
 # Arm 3 agrees with arm 2 for every checkout this repository has had. When it does not, the line that
 # results prints the path it looked at, which is what makes a wrong guess checkable rather than fatal.
 factory_service_unit() {
-	if [ -n "$FACTORY_SERVICE_UNIT" ]; then
+	# `:-`, not the bare name: the suite preamble (#489) unsets `FACTORY_SERVICE_UNIT` AFTER
+	# sourcing this file -- the source-time default above cannot survive an unset -- and the reap
+	# legs call this function under `set -u`, where a bare dereference dies in its command
+	# substitution and the leg reads the rc-1 arm of a function that never ran.
+	if [ -n "${FACTORY_SERVICE_UNIT:-}" ]; then
 		printf '%s\n' "$FACTORY_SERVICE_UNIT"
-	elif [ -n "$FACTORY_NAME" ]; then
+	elif [ -n "${FACTORY_NAME:-}" ]; then
 		printf '%s-factory.service\n' "$FACTORY_NAME"
 	else
 		printf '%s-factory.service\n' "$(basename -- "${FACTORY_ROOT%/}")"
@@ -4651,6 +4655,33 @@ factory_supervisor_repair() {
 		# `SUPERVISOR-NOBASE` are that tree's sentences and the streak stays untouched.
 		return 0
 	fi
+	# The ownership gate (#489). Everything below is a true reading of whatever tree the unit
+	# file points at, and the merge acts on that reading -- so the pair
+	# `FACTORY_SERVICE_UNIT`/`FACTORY_UNITS_DIR` decides WHICH TREE ON THIS MACHINE a pass may
+	# rewrite. Measured 16-20 Nov: a tick's `make verify` inherited the unit's own export, the
+	# fixture supervisors resolved the OPERATOR's checkout, and the arm fast-forwarded it 22
+	# unjournalled times -- every position condition was right about the tree it read, and the
+	# question that was missing came before position: is this tree the one this pass supervises?
+	# It sits where position is already known -- a tree git cannot count stays silent and
+	# unstreaked, because #342's blind-activation contract says an unknown count is not a
+	# refusal, and the position read is the one that knows which trees those are.
+	# A pass knows its own checkout only as `$FACTORY_ROOT`; an installed tree that is not it
+	# belongs to another process, and no position it holds licenses a merge into it. Counted
+	# into the streak deliberately: passes aimed at a foreign tree are the outage #489 filed,
+	# and `--status` should say STALE about one after the same threshold it says it about any
+	# unrepaired staleness. A tree the gate refuses is only ever a tree it can prove foreign:
+	# unresolvable or uncountable trees are the arms above, unstreaked. An unreadable
+	# `$FACTORY_ROOT` still refuses a positionable tree -- this pass cannot prove ownership of
+	# what it cannot see, and the merge it would reach is a write.
+	root_canon=$(cd -- "${FACTORY_ROOT:-}" 2>/dev/null && pwd -P) || root_canon=''
+	inst_canon=$(cd -- "$installed" 2>/dev/null && pwd -P) || inst_canon=''
+	if [ -n "$inst_canon" ] && { [ -z "$root_canon" ] || [ "$inst_canon" != "$root_canon" ]; }; then
+		factory_stale_tally "not-this-pass installed=$installed"
+		printf 'SUPERVISOR-FF-REFUSED not-this-pass tree=%s root=%s -- %s is not the checkout this pass supervises (%s); the unit file names a tree another process runs, and this pass will not merge into it\n' \
+			"$installed" "${root_canon:-FACTORY_ROOT-unreadable}" "$installed" "${root_canon:-unset}"
+		return 0
+	fi
+
 	# The trunk sha is the AT line's field, not the repair's: the merge targets the remote-tracking
 	# ref itself, so the sixth tab field is read away rather than held unused.
 	IFS=$'\t' read -r sha branch behind ahead dirty _ <<EOF

@@ -1166,6 +1166,15 @@ and `ahead = 0`. Every refusal is a named condition, printed and never acted on:
   is not its last line: measured against a locked index the last line is `Updating 568f92b..2fc8ebd`,
   and that distinction between *not safe* and *refused anyway* is the whole reason refusal is a token
   rather than a boolean).
+- `SUPERVISOR-FF-REFUSED not-this-pass tree=<installed> root=<FACTORY_ROOT>` -- the unit file names
+  a tree that is not the checkout this pass supervises (#489: a tick's exported
+  `FACTORY_SERVICE_UNIT` made fixture supervisors resolve the operator's checkout, and the
+  position arms read it honestly while the merge wrote a tree no reader of this log was
+  watching). The refusal sits after the position read -- a tree git cannot count stays the
+  unstreaked `SUPERVISOR-UNKNOWN` it was, because #342's contract says an unknown count is not
+  a refusal -- and an uncountable tree reaches no merge either way. It counts into the streak
+  like any unrepaired staleness, because passes aimed at a
+  foreign tree are an outage in the same shape.
 - The streak and the escalation: an activation that reported staleness and did not repair it appends
   its condition to a ledger line (`supervisor.stale-streak`); a current tree or a completed repair
   clears it. `factory.sh --status` then prints a fifth verdict word, `STALE`, once the streak reaches
@@ -2602,6 +2611,47 @@ pinning makes a row revision-qualified, and a revision-qualified row did not han
 `not-a-path`, checked by nothing, when the row before theirs was pinned. `scan_citations` now fills the
 continuation store from a pinned row when its path half resolves uniquely, and the self-test asserts
 both polarities so the exemption cannot silently orphan a continuation again.
+
+**An anchor that stops in the middle of a word on the cited row verifies nothing (#495).** The accept
+branch asked *is the fragment on the promised row, and only on that row* — and containment is true of a
+fragment cut anywhere inside a token, so a quotation could end mid-word and stay green while the rest of
+that word was renamed. `factory/common.sh:297` is the case the issue was filed on: five rows of
+`factory/DECISIONS.md` quote the head of one shell substitution out of its assignment — 53 characters of
+a 62-character row, stopping nine characters short of the word `question`, which each of those five rows
+then goes on to name in its own prose. `628e403` wrote the default inside the substitution as
+`needs-human`; `431b24b` changed it to `question` and moved all five citations onto the assignment's new
+line in the same commit, and the gate was green on both sides because the prefix is the same for every
+value the substitution has ever carried. `factory/factory.sh:342` carries the same shape at the
+quotation's other end, where the row says `-name` and the quote opens on `name`.
+
+A quotation now has to cover a **whole token** of the row at each end: a character outside
+`A-Za-z0-9_`, or the row's own edge, on both sides of the fragment (a range's joined seam counts as an
+edge, so the rule cannot manufacture a cut where `classify` put the space itself). A quotation that stops
+short is a sixth must-be-zero bucket, `midtoken`: refused on sight, reported with the characters it left
+off, and never entered into `POINTER_DEBT` — the row already carries a quotation and finishing it is the
+whole repair, so counting it would teach lowering the constant to hide a cut. When a fragment ends at a
+`:` or a `/` in the middle of an expression, the repair is to quote the whole expression rather than a
+prefix of it.
+
+Those two marks are left out of the token alphabet on purpose, and the price of putting them back was
+measured on the shipped bytes (a throwaway probe over the 585 anchored and resolvable citations the logs
+and the two teaching files carry today, 1,671 citations scanned, run with the shipped predicate and each
+candidate character added to the alphabet in turn). Adding `:` makes 29 further quotations read as cut,
+and every one of them ends at a completed word the cited line merely follows with that punctuation:
+`` `.opencode/skills/factory/SKILL.md:264` "The comment IS the ask" `` is one, against a row that goes on
+`ask: \`Question:\``, and `` `AGENTS.md:84` "ask the supervisor's journal" `` is another, against a row
+going on `journal: run \`factory_worktree_busy\``. The probe counts a row as cut on ANY cut match, so
+each figure is that widening's upper bound and the conservative arm below can only lower it, never raise
+it. Adding `.` costs 22 of the same and `/` and `-` one row each, and the union of `:` and `.` is 50 rows.
+None of it buys a boundary #495 needs: the substitution the issue was filed on is refused already,
+because the character after the quote is a `q`. So the alphabet stays word characters, the cut is
+decided by the character touching the quotation, and the 29 `:`-rows and 22 `.`-rows stay green because a
+colon and a full stop end a quotation the way a space does.
+
+The conservative arm is the other measured choice: a fragment matching a row more than once passes
+if ANY match is whole, because the lengthening that would fix the cut copy is advice this check cannot
+give — it cannot know which copy the author meant — while a fragment matching nothing but cuts gives that
+advice and is refused, which is the same advice #440 already gives for its own reason.
 
 **The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
 decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
