@@ -114,7 +114,9 @@ sp503_world() {
 # so the sentence each leg owes the reader is the comment above it, never a third argument -- passing
 # the description as an argument makes the reporter try to EXECUTE it, which is how these three legs
 # first shipped: `line 9406: the colon-free prepend finds the stub...: command not found`, three FAILs
-# and not one assertion of mine run.
+# and not one assertion of mine run. The repair of that slipped once: two of the three registrations
+# were corrected and the next suite run printed the same sentence for the third, which is the reason
+# this comment names all three call sites instead of trusting the fix.
 claim_leg 'fixture: a colon in a PATH entry splits it' sp503_world
 
 # ---- (b) the shipped dispatch: the minted name is PATH text.
@@ -184,5 +186,4 @@ sp503_control() {
 	[ -n "$bad" ] && sp503_say "$bad"
 	[ -z "$bad" ]
 }
-claim_leg 'control: the filed mint splits PATH and hides the stub' \
-	'the mutant name carries the colon and the prepended stub is not found' sp503_control
+claim_leg 'control: the filed mint splits PATH and hides the stub' sp503_control
