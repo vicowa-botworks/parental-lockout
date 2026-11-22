@@ -19,6 +19,13 @@
 #       file's `ExecStart`, which is what `factory_installed_tree` reads) keeps its HEAD and no
 #       canary path appears in journal or stdout. Run against the pre-pin shipped list this leg is
 #       RED: the poison wins, the arm merges, the canary moves -- that is the incident;
+#   (b) the ownership gate: the same launcher with the poison RESOLVING -- a planted unit file the
+#       pinned knobs reach -- must come back as `SUPERVISOR-FF-REFUSED not-this-pass`, not a merge:
+#       the installed tree != the tree this pass supervises, so no write happens even though every
+#       position condition for the FF holds. Run against an ungated arm this leg is RED: the arm
+#       FFs the canary, which is the incident's write; and if the pair stops being honoured at all
+#       the arm says nothing either, which the leg also refuses -- (a)'s silence must stay
+#       containment, not an arm that never ran;
 #   (c) the shipped shape: `proc_run`'s env list carries both names pinned, legs move them only
 #       through the knobs, and no `proc_extra_env` entry carries the unit name -- that array lands
 #       AFTER the shipped list, so it is the override channel the incident needs.
@@ -28,7 +35,8 @@
 # `proc_run` puts a value there -- pin (c) forbids the one array that could. So this file assembles
 # the shipped list literally, poison first, and `env`'s last-wins ordering does the rest. `git` is
 # the real binary inside these passes (the proc family stubs `gh` only), so the repair arm's
-# `git merge --ff-only` would really move the canary -- which is what (a) forbids.
+# `git merge --ff-only` would really move the canary -- which is what (a) forbids and (b)
+# demonstrates about the pair being honoured.
 it489_work=$work/inst489
 it489_bin=$it489_work/bin
 it489_repo=$it489_work/repo
@@ -193,6 +201,47 @@ it489_containment() {
 	return 0
 }
 claim_leg 'the shipped pin beats a tick-exported unit pair' it489_containment
+
+# ---- (b) the ownership gate: a pass must never fast-forward a tree it does not supervise. Plant
+# the unit file BEFORE the pass (a file planted after the pass it claims to condition is a fixture
+# that never conditioned anything). Pre-gate this leg is RED -- the arm FFs the canary, which is
+# #489's write against a tree the pass does not run; post-gate it must answer the refusal.
+it489_pinned() {
+	local dir=$it489_work/canary-real
+	it489_canary "$dir" || {
+		it489_say 'precondition: the pinned canary is not behind-and-clean.'; return 1
+	}
+	mkdir -p "$dir/units"
+	it489_unit "$dir/units/probe-poison.service" "$it489_canary_dir"
+	local canary=$it489_canary_dir behind=$it489_canary_behind
+	it489_pass pinned-fixture \
+		FACTORY_SERVICE_UNIT=probe-poison.service FACTORY_UNITS_DIR="$dir/units"
+	grep -q 'SUPERVISOR-AT' "$it489_work/pinned-fixture.journal" || {
+		it489_say 'the pinned pass never journaled SUPERVISOR-AT:'
+		sed 's/^/              /' "$it489_work/pinned-fixture.journal" >&2
+		return 1
+	}
+	if grep -qF "SUPERVISOR-FF-REFUSED not-this-pass tree=$canary" "$it489_work/pinned-fixture.journal"; then
+		[ "$(git -C "$canary" rev-parse HEAD)" = "$behind" ] || {
+			it489_say 'the ownership gate named the canary and merged it anyway.'
+			return 1
+		}
+		it489_say 'shape: SUPERVISOR-FF-REFUSED not-this-pass: named, refused, unmoved.'
+		return 0
+	fi
+	grep -q "SUPERVISOR-FF .* tree=$canary " "$it489_work/pinned-fixture.journal" && {
+		it489_say 'the repair arm fast-forwarded a tree this pass does not supervise: the'
+		it489_say 'ownership gate is gone and #489 writes again -- installed != FACTORY_ROOT'
+		it489_say 'must come back as SUPERVISOR-FF-REFUSED not-this-pass before any merge.'
+		return 1
+	}
+	it489_say 'the pass pinned to the canary neither FF-d it nor refused it as not-this-pass --'
+	it489_say 'the installed-unit pair is NOT honoured by the fixtures, so the ok on the pin leg'
+	it489_say 'above would be the silence of an arm that never ran:'
+	sed 's/^/              /' "$it489_work/pinned-fixture.journal" >&2
+	return 1
+}
+claim_leg 'the repair arm refuses to merge a tree it does not supervise' it489_pinned
 
 # ---- (c) the shipped shape, as a prohibition on the seam itself.
 it489_shape() {
