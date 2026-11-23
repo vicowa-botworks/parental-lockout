@@ -3054,8 +3054,20 @@ and the entry that decided this is `H-0312`.
 
 What the fence is not: a sandbox, and not a statement about any other kind of child. A grandchild a
 tick *does* start -- a compiler, a test runner -- is still in the unit's cgroup and still systemd's
-to kill at the end of the activation; #390's other half, confining what lands there, is a
-tamper-resistance question and has never been decided here.
+to kill at the end of the activation. The other half of #390, confining what lands there, was a
+tamper-resistance question with no owner, and a maintainer answered it on 21 Nov: **constrain the
+cgroup** (issue #476, comment of 2026-11-21T01:29:43Z, Option 1). The generated `[Service]` section
+now carries `TasksMax=` and a `MemoryHigh=`/`MemoryMax=` pair -- margins set from this unit's own
+cgroup, values and refusals decided in `H-0403` -- and the leg `factory/selftest.d/476-cgroup-constraints.sh`
+refuses a render that dropped one, sized it outside the measured margin, or spelled it in a form
+systemd would ignore at exit 0. The fence changes no teardown: `KillMode=control-group` and
+`TimeoutStopSec=` above are still what ends an activation and what caps the cost of one process that
+will not die, and the refused sub-options are part of the record -- `PrivateTmp=` would blind every
+host-`/tmp` rendezvous the harness documents, and `Delegate=` would hand teardown from systemd's
+code to harness code that can crash. A cap that trips reads as a failed pass in the journal: the
+fence fails visible, never open. Like every change to the unit file, it reaches the live unit at the
+next `factory/install-timer.sh --install` a person runs -- the same reinstall the `TimeoutStopSec=60`
+correction above needed.
 
 ## The `.cortexkit/` marker is tool state, deliberately untracked (#416, H-0325)
 
