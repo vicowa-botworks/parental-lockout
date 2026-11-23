@@ -1,4 +1,26 @@
-# NEXT — the #476 cgroup-fence round (branch `issue-476`, PR open against `main`; this round implements the maintainer's answer to the #476 escalation — "The decisions is to chose option 1", `virtualcodewarrior` 2026-11-21T01:29:43Z, read back from the API before any byte changed — by rendering `TasksMax=512` and a `MemoryHigh=25%`/`MemoryMax=50%` pair onto the factory `[Service]` unit, sized from this unit's OWN cgroup read 23 Nov with a tick in flight (`pids.peak=113` against an inherited `pids.max=212828`, `memory.peak=571 MiB` on a 186 GiB machine, systemd 259.9). Decision `H-0403` (`factory/DECISIONS/H-0403.md`), checkpoint `da0bd4e`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+# NEXT — conflict tick for PR #524 (branch `issue-476`, unit `conflict:524`; this round ships `factory/DECISIONS/H-0405.md` over checkpoint `472594f`: `origin/main` `0bc63bd` merged in and the one-file conflict adjudicated by the junction rule — both live heads demoted in place with their API read-backs, the doubly-demoted `#520` record row kept ONCE on trunk's bytes with this branch's spelling dropped as its duplicate, and the shared 5,712-row tail byte-identical across all three git stages (asserted in the assembly, not retyped). The junction's cause, read back before any byte changed: PR #522 merged 2026-11-23T16:00:23Z landing trunk's re-heading of this board while this branch carried the `#476`-round re-heading of the same base head, and PR #524 read back `OPEN`, `CONFLICTING`/`DIRTY` at head `a7864c1ec049538043b4faff3d5cf723e9c09bc9` with `reviewDecision` empty — no approval existed, so this conflict push spends nothing. Gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this round shipped
+
+- The sync, counted before anything was touched: `git merge-tree --write-tree --name-only HEAD origin/main` answered one path — `NEXT.md` — and `git merge origin/main` met exactly that. Trunk moved from this branch's merge base `41b2a67` (the PR #520 merge this branch already carries) to `0bc63bd` (the PR #522 merge, read back `MERGED` 2026-11-23T16:00:23Z).
+- The junction assembled from the three git stage blobs under equality assertions: this round the single `#`; the `#476` round's head demoted in place to the stamped `## Record — the #476 cgroup-fence round`, and trunk's head demoted in place to the stamped `## Record — conflict tick for PR #522`, both section bodies byte-kept; trunk's `## Record — issue-393 execution tick` kept whole; the `#520` record row — demoted independently by BOTH sides' rounds from the same base head — kept once on trunk's bytes (its `## Record —` row plus its `Recorded heading:` line), this branch's one-line spelling dropped as the duplicate, disclosed because a byte census cannot tell an adjudication from a loss, the exact move `H-0399` made for the `issue-503` row; the shared tail (`#520`'s body and the whole stack beneath) byte-identical across all three stages and kept untouched.
+- Zero-absence census over both parents' added rows against the merged file, `H-0399`'s method (distinct rows each parent added since the merge base, EXCLUDING rows the merge base already carries): ours 10 of 12 distinct rows present, trunk 24 of 25. Every absence is named in `factory/DECISIONS/H-0405.md`: two head lines the adjudication re-titles into `## Record —` rows (one per side) plus the single duplicate `#520` row above.
+- `factory/DECISIONS/H-0405.md`, whose trailer `Decision: H-0405` rides the merge commit itself, as `H-0393`, `H-0399` and `H-0400` each did for a conflict tick. No production byte moved by this tick: what it wrote is this file, the entry, and the merge.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor disposes of #524; a conflict resolution is not a disposition — this round changes whether the pull can merge, not whether it should.
+- The review ask: `reviewDecision` read back empty at `a7864c1` before this push, so the push spent no approval; the poke owns the ask and this unit asked nobody. The post-push read rides the pull-request body.
+- Carried from the demoted `#476` round, unchanged and undone by this tick: the live timer keeps the pre-fence rendering until a person next runs `factory/install-timer.sh --install` (the same reinstall the `TimeoutStopSec=60` correction waited on); Option 1's sandbox literal and the CPU bound stay refused on `H-0403`'s measured price-list. The full owed list is byte-kept under the `## Record — the #476 cgroup-fence round` below.
+
+## Constraints a stranger would break here
+
+- Do not make the fence values environment overrides, and do not trust `systemd-analyze verify` silence as proof the parser read a fence line — the `#476` round's constraint list is byte-kept below and stays in force while PR #524 stands. (carried from the `#476` round demoted below)
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode, and this junction's stage-assertion assembly is the alternative. (carried from the `#522` head demoted below)
+- Do not take `--theirs` or `--ours` for `NEXT.md` from habit on a later sync: this junction held real content in BOTH spellings of the `#520` demotion and in two live heads at once; run the census, then choose, per `H-0400`'s constraint.
+- Do not re-wrap the citation lines inside `factory/DECISIONS/H-0403.md` or `factory/DECISIONS/H-0405.md`: #369 cuts an anchor that crosses a newline, measured 23 Nov. (carried from the `#476` round demoted below)
+
+## Record — the #476 cgroup-fence round, demoted in place by the #524 conflict tick on 2026-11-23 (branch `issue-476`, PR open against `main`; this round implements the maintainer's answer to the #476 escalation — "The decisions is to chose option 1", `virtualcodewarrior` 2026-11-21T01:29:43Z, read back from the API before any byte changed — by rendering `TasksMax=512` and a `MemoryHigh=25%`/`MemoryMax=50%` pair onto the factory `[Service]` unit, sized from this unit's OWN cgroup read 23 Nov with a tick in flight (`pids.peak=113` against an inherited `pids.max=212828`, `memory.peak=571 MiB` on a 186 GiB machine, systemd 259.9). Decision `H-0403` (`factory/DECISIONS/H-0403.md`), checkpoint `da0bd4e`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.; PR #524 read back `OPEN`, `CONFLICTING`/`DIRTY` at head `a7864c1ec049538043b4faff3d5cf723e9c09bc9` with `reviewDecision` empty, from the API at this re-heading; the conflict is what this round clears, and no approval existed for it to spend; its section bodies are byte-kept beneath)
 
 ## What this round shipped
 
@@ -19,7 +41,52 @@
 - The parser arms grep lowercase `ignoring`; this machine's `/etc` noise is capital-`Ignoring.` — case-folding that grep blinds the control.
 - Do not re-wrap the citation lines inside `factory/DECISIONS/H-0403.md`: #369 cuts an anchor that crosses a newline, measured this round (three citations refused until each quote sat wholly on its coordinate's own physical line).
 
-## Record — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`; PR #520 read back `MERGED` 2026-11-22T15:33:20Z commit `41b2a67dd1c23691ed4f4e0ef676bdaaed2ac901` from the API at this re-heading — its own heading said "open against `main`" when written; that verdict is superseded by the merge, its sections below are byte-kept; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+## Record — conflict tick for PR #522, demoted in place by the #524 conflict tick on 2026-11-23 (branch `wip/issue-211-dropped-1df729a`, unit `conflict:522`; this round ships `DECISIONS/D-0096.md` over checkpoint `51f7d2a`: `origin/main` merged in and the six-file conflict adjudicated — trunk's capture lineage from `D-0021` onward is kept whole in `testing/capture/` and `docs/screenshots/360/manifest.json`, and the stranded `D-0019` record this pull request exists to deliver is spliced verbatim into `DECISIONS.md` between `D-0018` and `D-0021`. Gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.; #522 read back `MERGED` 2026-11-23T16:00:23Z commit `0bc63bde9f082f81af1ba9a443fa543d0548a1ce` from the API at this re-heading, 60 s before this tick first read #524, which is what made this junction; its section bodies are byte-kept beneath)
+
+## What this unit shipped
+
+- The base sync: `git merge origin/main`, conflicted in six files, adjudicated `D-0096` — five implementation files (`testing/capture/README.md`, `testing/capture/cdp.py`, `testing/capture/fixture.sh`, `testing/capture/manifest.py`, `docs/screenshots/360/manifest.json`) taken whole from trunk because trunk's lineage superseded this branch's early stage of the same feature, and `DECISIONS.md` spliced to trunk's bytes plus the 78-line `D-0019` entry — one additive hunk against `origin/main`, zero deletions, zero surviving markers.
+- `DECISIONS/D-0096.md`: options, losses, and the one sentence of `D-0019` that trunk's `D-0025`/`D-0026` lineage superseded, so the stranded record ships readable without being mistaken for the current implementation.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor disposes of #522; a conflict resolution is not a disposition. This pull request remains what `H-0401` made it — the record of a dropped design — and merging, closing and ref-deletion all stay withheld from this unit.
+- Re-review of #522 after this push — the poke owns the ask; this unit asked nobody and merged nothing.
+
+## Constraints a stranger would break
+
+- Do not mine this branch's implementation side for anything "lost": `D-0096` names what each file lost to trunk's lineage, and the branch's nine manifest rows record digests of frames that no longer exist — `manifest.py check` on them refuses the committed set.
+- Do not mark #521 or #522 ready merely because CI or review requests arrive. Their purpose is visibility, not delivery. (carried from the `issue-393` head demoted below)
+- Do not delete `wip/issue-204-dropped-6bfd528`, `wip/issue-211-dropped-1df729a`, or their draft pull requests as cleanup. Deletion is a maintainer escalation. (carried from the `issue-393` head demoted below)
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode. (carried from the `issue-393` head demoted below)
+
+## Record — issue-393 execution tick, demoted in place by the #522 conflict tick on 2026-11-23 (branch `issue-393`; it shipped `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z, opened the two stranded record branches as draft pull requests #521 and #522, posted their live readbacks on #393, and left every merge, close, review, and ref-deletion decision to the supervisor; its own state is not re-read at this re-heading; its section bodies are byte-kept beneath)
+
+## What this unit shipped
+
+- Confirmed that `H-0316` and `H-0318` already resolved the original trunk pointer and landed the report-only id-citation census on trunk. Re-ran `python3 scripts/check-decisions.py`; its id census is reported rather than refused, exactly as #393 reserves the ratchet question for a maintainer.
+- Re-read the maintainer answer before writing: #393 comment 2 at 2026-11-21T01:33:11Z says "The decision is to open the records as pull requests."
+- Opened draft #521 on `wip/issue-204-dropped-6bfd528` unchanged at `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`, and draft #522 on `wip/issue-211-dropped-1df729a` unchanged at `1df729a52ea5754ffa1a542a4090f68c7c6e6397`. Each pull request was read back from the API as `OPEN` and `isDraft: true`.
+- Posted the pull-request readbacks on #393 and read the comment URL, count, and full latest body back after the write.
+- Added `factory/DECISIONS/H-0401.md` as the executable disposition for `H-0319`.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor must dispose of #521 and #522. They are records, not merge candidates; merging them would publish designs the maintainer chose to keep as drops.
+- This branch's pull request carries the gate output and names #393 as finished only on that merge. If this branch does not merge, #393 remains open.
+- If #521 or #522 is ever closed, land a prose row on trunk naming the disposition first, or the two refs become load-bearing again and `H-0319`'s marker is the only thing standing between them and stale-ref cleanup.
+- The id census is intentionally report-only. A maintainer still owes the refusal threshold or accepted floor for that class.
+
+## Constraints a stranger would break here
+
+- Do not delete `wip/issue-204-dropped-6bfd528`, `wip/issue-211-dropped-1df729a`, or their draft pull requests as cleanup. Deletion is a maintainer escalation.
+- Do not mark #521 or #522 ready merely because CI or review requests arrive. Their purpose is visibility, not delivery.
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode.
+- Do not infer any write from a command's success. The two pull-request states and issue comment quoted here were read back separately, and all gate verdicts in the pull body come from fresh output.
+
+## Record — rescue-pre-h0234-reword conflict tick for PR #520, demoted by issue-393; PR #520 MERGED 2026-11-22T15:33:20Z at 41b2a67dd1c23691ed4f4e0ef676bdaaed2ac901, read back from the API at this re-heading; its original heading was written before that merge
+
+Recorded heading: NEXT — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`, PR #520 open against `main`; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
 
 ## What this round shipped
 

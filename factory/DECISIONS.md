@@ -8562,7 +8562,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   basename sat outside the rule by construction, exactly as the code comment next to that arm claimed and as
   the code did not do. Measuring the whole blind spot rather than the reported symptom found a second shape
   in the same class, and the worse one: a continuation inherits `last`, which is already a *resolved* path,
-  and the code re-resolved it by NAME. `./DECISIONS.md:2706` "is a single named file and" is continued by
+  and the code re-resolved it by NAME. `./DECISIONS.md:2785` "is a single named file and" is continued by
   `35cd0ea9:DECISIONS.md:2986` "which is a different question about a", and both looked
   `DECISIONS.md` -- the bare basename -- up in the index, got two candidates back (`./DECISIONS.md` and
   `factory/DECISIONS.md`), hit
@@ -14198,7 +14198,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   the reason 124 pointers were adjudicated by content identity against the base revision and not by the
   gate's own anchor set); #442 (the allocator's union cannot see a reservation: the contest this entry
   lost and paid for with a renumber); #374 (the unanchored class, which is where two pointers on this
-  branch live: `./DECISIONS.md:3342` "Renumber the later entry in its own log" names row 471 of the
+  branch live: `./DECISIONS.md:3421` "Renumber the later entry in its own log" names row 471 of the
   classifier, and `89f8c4e0:factory/DECISIONS.md:4395` "asserts the one-option refusal," names row 566. Trunk's row
   at each is a bare docstring quote and a bare comment hash, so "the row with the same text" matches
   thousands of rows — both were refused by hand rather than moved on a guess, and the gate's `0 refused`
@@ -15836,7 +15836,7 @@ ours one fresh leg, additive like the log. `python3 scripts/check-decisions.py`:
   defect in the work rather than a note about it: an earlier re-aim pass on this branch keyed on a
   path-qualified token and shifted two coordinates that no check can see --
   `8f7cd14d:factory/DECISIONS.md:4395` "asserts the one-option refusal," and
-  `./DECISIONS.md:3342` "Renumber the later entry in its own log", the pair row 14202 already names as
+  `./DECISIONS.md:3421` "Renumber the later entry in its own log", the pair row 14202 already names as
   living in the unanchored class -- by the same blanket
   offset as their neighbours, which is a guess about text nobody read, and it silently falsified row
   14202's own sentence that the first of them "names row 566". Both were taken back to the
