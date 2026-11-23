@@ -1,4 +1,23 @@
-# NEXT — issue-393 execution tick (branch `issue-393`; this round ships `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z. It opens the two stranded record branches as draft pull requests #521 and #522, posts their live readbacks on #393, and leaves every merge, close, review, and ref-deletion decision to the supervisor. Gate verdicts ride this branch's pull-request body, never this file (#1180).)
+# NEXT — conflict tick for PR #522 (branch `wip/issue-211-dropped-1df729a`, unit `conflict:522`; this round ships `DECISIONS/D-0096.md` over checkpoint `51f7d2a`: `origin/main` merged in and the six-file conflict adjudicated — trunk's capture lineage from `D-0021` onward is kept whole in `testing/capture/` and `docs/screenshots/360/manifest.json`, and the stranded `D-0019` record this pull request exists to deliver is spliced verbatim into `DECISIONS.md` between `D-0018` and `D-0021`. Gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this unit shipped
+
+- The base sync: `git merge origin/main`, conflicted in six files, adjudicated `D-0096` — five implementation files (`testing/capture/README.md`, `testing/capture/cdp.py`, `testing/capture/fixture.sh`, `testing/capture/manifest.py`, `docs/screenshots/360/manifest.json`) taken whole from trunk because trunk's lineage superseded this branch's early stage of the same feature, and `DECISIONS.md` spliced to trunk's bytes plus the 78-line `D-0019` entry — one additive hunk against `origin/main`, zero deletions, zero surviving markers.
+- `DECISIONS/D-0096.md`: options, losses, and the one sentence of `D-0019` that trunk's `D-0025`/`D-0026` lineage superseded, so the stranded record ships readable without being mistaken for the current implementation.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor disposes of #522; a conflict resolution is not a disposition. This pull request remains what `H-0401` made it — the record of a dropped design — and merging, closing and ref-deletion all stay withheld from this unit.
+- Re-review of #522 after this push — the poke owns the ask; this unit asked nobody and merged nothing.
+
+## Constraints a stranger would break
+
+- Do not mine this branch's implementation side for anything "lost": `D-0096` names what each file lost to trunk's lineage, and the branch's nine manifest rows record digests of frames that no longer exist — `manifest.py check` on them refuses the committed set.
+- Do not mark #521 or #522 ready merely because CI or review requests arrive. Their purpose is visibility, not delivery. (carried from the `issue-393` head demoted below)
+- Do not delete `wip/issue-204-dropped-6bfd528`, `wip/issue-211-dropped-1df729a`, or their draft pull requests as cleanup. Deletion is a maintainer escalation. (carried from the `issue-393` head demoted below)
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode. (carried from the `issue-393` head demoted below)
+
+## Record — issue-393 execution tick, demoted in place by the #522 conflict tick on 2026-11-23 (branch `issue-393`; it shipped `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z, opened the two stranded record branches as draft pull requests #521 and #522, posted their live readbacks on #393, and left every merge, close, review, and ref-deletion decision to the supervisor; its own state is not re-read at this re-heading; its section bodies are byte-kept beneath)
 
 ## What this unit shipped
 
