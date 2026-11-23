@@ -1,4 +1,25 @@
-# NEXT — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`, PR #520 open against `main`; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+# NEXT — the #476 cgroup-fence round (branch `issue-476`, PR open against `main`; this round implements the maintainer's answer to the #476 escalation — "The decisions is to chose option 1", `virtualcodewarrior` 2026-11-21T01:29:43Z, read back from the API before any byte changed — by rendering `TasksMax=512` and a `MemoryHigh=25%`/`MemoryMax=50%` pair onto the factory `[Service]` unit, sized from this unit's OWN cgroup read 23 Nov with a tick in flight (`pids.peak=113` against an inherited `pids.max=212828`, `memory.peak=571 MiB` on a 186 GiB machine, systemd 259.9). Decision `H-0403` (`factory/DECISIONS/H-0403.md`), checkpoint `da0bd4e`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+
+## What this round shipped
+
+- The fence itself: `factory/install-timer.sh` renders three new `[Service]` lines from generator constants deliberately NOT environment overrides (a knob on a fence is one setting away from removing it), and `factory/selftest.d/476-cgroup-constraints.sh` pins the rendered lines with two absence controls (delete each line from the generator, the leg must go red), a shrink control (512→64 breaches the pinned 256..4096 margin), and a parser arm with its own control — measured 23 Nov: systemd 259.9 parses `TasksMax=not-a-number` SILENTLY at rc 0 (14-value probe; only the out-of-range `-5` drew the `Invalid maximum tasks value '-5', ignoring:` complaint), so the plant is `-5`, the grep is the lowercase `ignoring` family both messages share, and "systemd is happy" without that control would certify nothing — the false lead this round's first plant walked, recorded in `H-0403`.
+- The docs: the fence section of `docs/factory.md` no longer says the confinement half "has never been decided here"; it records the decision, the refused sub-options (`PrivateTmp=`/namespaces — the harness rendezvouses on host `/tmp` by documented convention; `Delegate=` — teardown moves from systemd's unconditional cgroup kill to harness code that can itself be the grandchild that does not die; `CPUQuota=` — a throttle is a ceiling, not a fence) and the fail-open walk Option 1's own text demanded.
+
+## What is still owed (all of it, none silent)
+
+- The live unit does not change until a person next runs `factory/install-timer.sh --install` — the same reinstall the `TimeoutStopSec=60` correction waited on. Until then the running timer keeps the pre-fence rendering.
+- The supervisor merges; the reviewer ask is the timer's poke, not this unit's (`AGENTS.md`).
+- Option 1's sandbox literal stayed unimplemented by choice: if a maintainer later wants `PrivateTmp=`/namespace options or `Delegate=`, `H-0403`'s refusals are the measured price-list the re-open conversation should start from — they are refusals with numbers, not oversights.
+- No CPU bound ships: a busy-loop grandchild still survives to the `TimeoutStopSec=60` kill, unchanged from before this entry.
+
+## Constraints a stranger would break here
+
+- Do not make the fence values environment overrides. To change a number, write the decision entry first, then the number; the leg's margin exists so a bare value edit without a decision cannot pass green.
+- Do not trust `systemd-analyze verify` silence as proof the parser read a fence line — measured 23 Nov, a words-shaped `TasksMax=` typo is swallowed quietly. The leg's numeric margin is the strong arm; the parser control must keep the `-5` plant shape.
+- The parser arms grep lowercase `ignoring`; this machine's `/etc` noise is capital-`Ignoring.` — case-folding that grep blinds the control.
+- Do not re-wrap the citation lines inside `factory/DECISIONS/H-0403.md`: #369 cuts an anchor that crosses a newline, measured this round (three citations refused until each quote sat wholly on its coordinate's own physical line).
+
+## Record — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`; PR #520 read back `MERGED` 2026-11-22T15:33:20Z commit `41b2a67dd1c23691ed4f4e0ef676bdaaed2ac901` from the API at this re-heading — its own heading said "open against `main`" when written; that verdict is superseded by the merge, its sections below are byte-kept; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
 
 ## What this round shipped
 
