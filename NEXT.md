@@ -1,4 +1,30 @@
-# NEXT — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`, PR #520 open against `main`; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
+# NEXT — issue-393 execution tick (branch `issue-393`; this round ships `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z. It opens the two stranded record branches as draft pull requests #521 and #522, posts their live readbacks on #393, and leaves every merge, close, review, and ref-deletion decision to the supervisor. Gate verdicts ride this branch's pull-request body, never this file (#1180).)
+
+## What this unit shipped
+
+- Confirmed that `H-0316` and `H-0318` already resolved the original trunk pointer and landed the report-only id-citation census on trunk. Re-ran `python3 scripts/check-decisions.py`; its id census is reported rather than refused, exactly as #393 reserves the ratchet question for a maintainer.
+- Re-read the maintainer answer before writing: #393 comment 2 at 2026-11-21T01:33:11Z says "The decision is to open the records as pull requests."
+- Opened draft #521 on `wip/issue-204-dropped-6bfd528` unchanged at `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`, and draft #522 on `wip/issue-211-dropped-1df729a` unchanged at `1df729a52ea5754ffa1a542a4090f68c7c6e6397`. Each pull request was read back from the API as `OPEN` and `isDraft: true`.
+- Posted the pull-request readbacks on #393 and read the comment URL, count, and full latest body back after the write.
+- Added `factory/DECISIONS/H-0401.md` as the executable disposition for `H-0319`.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor must dispose of #521 and #522. They are records, not merge candidates; merging them would publish designs the maintainer chose to keep as drops.
+- This branch's pull request carries the gate output and names #393 as finished only on that merge. If this branch does not merge, #393 remains open.
+- If #521 or #522 is ever closed, land a prose row on trunk naming the disposition first, or the two refs become load-bearing again and `H-0319`'s marker is the only thing standing between them and stale-ref cleanup.
+- The id census is intentionally report-only. A maintainer still owes the refusal threshold or accepted floor for that class.
+
+## Constraints a stranger would break here
+
+- Do not delete `wip/issue-204-dropped-6bfd528`, `wip/issue-211-dropped-1df729a`, or their draft pull requests as cleanup. Deletion is a maintainer escalation.
+- Do not mark #521 or #522 ready merely because CI or review requests arrive. Their purpose is visibility, not delivery.
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode.
+- Do not infer any write from a command's success. The two pull-request states and issue comment quoted here were read back separately, and all gate verdicts in the pull body come from fresh output.
+
+## Record — rescue-pre-h0234-reword conflict tick for PR #520, demoted by issue-393; PR #520 MERGED 2026-11-22T15:33:20Z at 41b2a67dd1c23691ed4f4e0ef676bdaaed2ac901, read back from the API at this re-heading; its original heading was written before that merge
+
+Recorded heading: NEXT — rescue-pre-h0234-reword conflict tick for PR #520 (branch `rescue/pre-h0234-reword`, PR #520 open against `main`; this round ships no code either — it syncs this branch onto `origin/main` `55600cf` so the pull stops reading `CONFLICTING`/`DIRTY`, adjudicates the three conflicted paths per `H-0393` as `H-0399` remeasured it, and corrects one sentence of the round it demotes. Decision `H-0400`, checkpoint `6e07738`. Gate verdicts ride the pull-request body, never this file (#1180). Merging belongs to the supervisor and this unit merged nothing.)
 
 ## What this round shipped
 
