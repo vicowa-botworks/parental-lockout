@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-scripts check-shell check-mutations mutate package package-verify clean install uninstall run-dev
+.PHONY: build fmt vet test selftest verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -65,51 +65,94 @@ fmt:
 # clause below makes the self-test refuse, because a gate whose invocation can be deleted silently
 # is a suggestion, and the cheapest way to pass a check is to stop calling it.
 #
-# The two empty-filter steps below keep the child's output and require the sentence, rather than
-# discarding the output and asserting only "non-zero" (#159). "Non-zero" is what a crash returns
-# too, so the old shape passed the moment the script died on the empty-argument path: the step is
-# a claim about WHY the run failed -- that it refused because it matched nothing -- and a guard
-# that cannot tell a refusal from a death is not asserting that claim. Nothing in the battery can
-# pin either step either: no mutant in any set under `scripts/mutations/` names a file under
-# `scripts/` (all 773 rows checked), and the attack suite's whole surface is `mutate.py
-# --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
-# both steps rather than fixed in one of them -- two invocations of the same script must not be
-# asserted in two different strengths.
+# The empty-filter loop below runs all three attack suites through the same shape, and keeps the child's
+# output and requires the sentence, rather than discarding the output and asserting only "non-zero"
+# (#159). "Non-zero" is what a crash returns too, so the old shape passed the moment the script died
+# on the empty-argument path: the step is a claim about WHY the run failed -- that it refused
+# because it matched nothing -- and a guard that cannot tell a refusal from a death is not asserting
+# that claim. Nothing in the battery can pin either step either: no mutant in any set under
+# `scripts/mutations/` names a file under `scripts/` (all 773 rows checked), and the mutation
+# attack suite's whole surface is `mutate.py --self-test`, so deleting a step here leaves `verify`
+# green. That is why the shape is shared by both runners rather than fixed in one of them -- two
+# invocations of the same script must not be asserted in two different strengths, and the capture
+# suite (#297) is the second of them.
+#
+# The capture attack suite pins its own invocation, because a gate whose step can be deleted
+# silently is a suggestion. Two of the steps below call it, and each one witnesses the other: the
+# gate step runs it with no argument, and the empty-filter loop names it in the `for runner` list.
+# The suite asserts both spellings are present in this file, so deleting either one makes the other
+# step go red. `manifest.py` has used this trick on itself since #144 for the same reason, with the
+# same two-step shape; the mutation attack suite above does not have it, and that is a separate gap.
+# The factory step (#228) is the first gate `factory/*.sh` has ever had. Measured on this branch:
+# `grep -rn factory Makefile .github/workflows/` returns nothing, so the four scripts that decide
+# which issue is worked next, when the queue halts, and what gets merged were linted and tested by
+# no job at all -- including the dirt verdict that halts the whole pass, which is the one command in
+# the loop that refuses to do work. It goes in this target rather than in a job of its own for the
+# reason given twenty lines above, where the attack suite is placed: a guard that runs only when
+# somebody remembers it is a guard whose evidence nobody can reproduce. It starts no repository of
+# its own -- the fixture is a throwaway under $TMPDIR -- writes nothing outside it, and costs 0.4 s
+# measured, against the 3m9s this target already costs.
+#
+# The decision-log gate (#216) is here for the same reason the two above it are: the delivery
+# supervisor runs sessions with nobody in the loop, and the whole licence for that is that every
+# judgement call it makes is written down with its alternatives and a checkpoint to roll back to.
+# A log that is not checked is a list of conclusions, and a list of conclusions is what is useless
+# six weeks later. It costs milliseconds -- it parses one markdown file -- and it pins its own
+# invocation, so the two lines below cannot be deleted without this target refusing.
+# The harness's own suite, on its own. `factory/selftest.sh` is pure bash and git, and every other way
+# to run it goes through `verify`, which begins with gofmt and the Go guards -- so on a machine with no
+# Go toolchain (a CI runner before the setup step, a fresh box, anyone debugging the delivery loop) the
+# suite that checks the delivery loop cannot be invoked at all. Measured 9 Nov on the #238 runner: the
+# diagnosis needed the harness suite and the only documented entry point was `make verify`.
+selftest:
+	@bash factory/selftest.sh
+
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
+	echo "==> shell command-shape guard"; python3 scripts/check-scripts.py --self-test; \
 	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> closing-keyword contract"; python3 scripts/check-close-verb.py --self-test; \
+	echo "==> commit-message claims"; ./scripts/check-commit-verbs.sh; \
+	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
+	echo "==> decision log"; python3 scripts/check-decisions.py; \
+	echo "==> hand-off contract"; bash scripts/check-next-md.sh --self-test; \
+	echo "==> hand-off file"; bash scripts/check-next-md.sh; \
+	echo "==> documented label names contract"; python3 scripts/check-doc-labels.py --self-test; \
+	echo "==> documented label names"; python3 scripts/check-doc-labels.py; \
+	echo "==> journal retention census"; bash factory/retention-census.sh --self-test; \
+	echo "==> factory dirt verdict"; bash factory/selftest.sh; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
+	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test; python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
+	echo "==> capture refusal attack suite"; python3 scripts/attack-capture-self-test.py; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
 	echo "==> screenshot manifest"; python3 testing/capture/manifest.py check; \
-	echo "==> empty selection refuses"; \
-	if nomatch_out=$$(python3 scripts/attack-self-test.py zzzznomatch 2>&1); then \
-		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
-		exit 1; \
-	elif ! printf '%s' "$$nomatch_out" | grep -q "no row matched"; then \
-		echo "the empty-selection step failed, but not as a refusal: a refusal says \"no row matched\","; \
-		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
-		echo "status alone cannot tell the two apart. Its output was:"; \
-		printf '%s\n' "$$nomatch_out"; \
-		exit 1; \
-	fi; \
-	echo "==> empty argument refuses"; \
-	if empty_out=$$(python3 scripts/attack-self-test.py "" 2>&1); then \
-		echo "an empty argument ran the suite: \"\" must mean a filter that matches nothing, not \"no filter\" -- otherwise passing \"\$$FILTER\" with FILTER unset turns this step into the whole gate, reported green, proving something else"; \
-		exit 1; \
-	elif ! printf '%s' "$$empty_out" | grep -q "no row matched"; then \
-		echo "the empty-argument step failed, but not as a refusal: a refusal says \"no row matched\","; \
-		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
-		echo "status alone cannot tell the two apart. Its output was:"; \
-		printf '%s\n' "$$empty_out"; \
-		exit 1; \
-	fi; \
+	echo "==> capture manifest attack suite"; python3 scripts/attack-manifest-self-test.py; \
+	echo "==> empty selection refuses, all three attack suites"; \
+	for runner in scripts/attack-self-test.py scripts/attack-capture-self-test.py scripts/attack-manifest-self-test.py; do \
+		for filter in zzzznomatch ''; do \
+			if selection_out=$$(python3 "$$runner" "$$filter" 2>&1); then \
+				echo "$$runner (filter '$$filter'): a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
+				exit 1; \
+			elif ! printf '%s' "$$selection_out" | grep -q "no row matched"; then \
+				echo "$$runner (filter '$$filter'): the step failed, but not as a refusal: a refusal says \"no row matched\","; \
+				echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
+				echo "status alone cannot tell the two apart. An empty argument has to mean a filter"; \
+				echo "that matches nothing, never \"no filter\": an unset FILTER passed through as the"; \
+				echo "argument would otherwise run the whole gate and report it green, proving"; \
+				echo "something else. Its output was:"; \
+				printf '%s\n' "$$selection_out"; \
+				exit 1; \
+			fi; \
+		done; \
+	done; \
+	echo "==> fixture window guard"; ./scripts/check-fixture-window.sh; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
@@ -130,6 +173,7 @@ verify:
 	fi; \
 	echo "==> dependencies"; ./scripts/check-deps.sh; \
 	echo "==> cross-builds"; ./scripts/check-builds.sh; \
+	echo "==> decision-log union contract"; python3 scripts/merge-decisions.py --self-test; \
 	echo "verify: OK"
 
 # check-mutations is the fast half of `mutate`: it never runs a test, it only asks whether
@@ -157,6 +201,13 @@ check-scripts:
 
 check-shell:
 	@SHELLCHECK="$${SHELLCHECK:-shellcheck}" ./scripts/check-shell.sh
+
+# The same skip-when-absent contract as check-shell, and the same reason: CI has no opencode, and a
+# gate that fails on a fresh clone is a gate people route around. `CHECK_DENIES_REQUIRED=1` is how a
+# box that does have it says the skip is not acceptable there.
+check-denies:
+	@python3 scripts/check-denies.py --self-test
+	@FACTORY_OPENCODE="$${FACTORY_OPENCODE:-opencode}" python3 scripts/check-denies.py
 
 # mutate puts each known bug back into the source one at a time and insists the suite
 # notices. A green `go test` says the code passes the tests; it does not say the tests

@@ -68,6 +68,17 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
+	// A serve daemon whose stop was never proven must not leave this package quietly.
+	// The guard that keeps the suite safe is the same guard that makes the leak silent:
+	// the restore is withheld, so nothing fails and the stub simply stays. Reported here
+	// because exit is the only moment the fact is visible -- the test that installed it
+	// has already passed.
+	if n := liveServeDaemons.Load(); n != 0 {
+		fmt.Fprintf(os.Stderr, "TestMain: %d serve daemon(s) still unproven at package exit; their test seams were left installed instead of restored\n", n)
+		if code == 0 {
+			code = 1
+		}
+	}
 	os.RemoveAll(dir)
 	os.Exit(code)
 }

@@ -105,6 +105,107 @@ func TestTheResultPagesNameThemselvesInTheHeading(t *testing.T) {
 	}
 }
 
+// navAnchor is one entry in the shell's navigation: its href and the words between the tags.
+var navAnchor = regexp.MustCompile(`(?s)<a\b[^>]*?\bhref="([^"]*)"[^>]*>(.*?)</a>`)
+
+// Each entry in the navigation names the page it links to, in that page's own words (#388).
+//
+// The shell, the tab strip and the heading had three vocabularies for one section. The root page
+// was the loud case -- the row called it "Status" while the code, the capture harness and every
+// page of docs called it the dashboard -- but the pair that made this a rule rather than a
+// one-word fix is `/audit` and `/profiles`: their headings read "Audit trail" and "Lockout
+// profiles" while their entries read "Audit" and "Profiles". A reader who is already inside the
+// page, which is every moment after the page has loaded, has to decide for themselves whether the
+// row's "Audit" and the heading's "Audit trail" are one place or two. D-0016 already decided the
+// direction of the copy for the heading: the entry and the tab strip follow the page name, and so
+// here the navigation is what moved.
+//
+// This is a second relationship, not a second copy of the first. TestEveryPageNamesItselfInTheHeading
+// compares the <h1> with <title> and is deaf to the navigation, because both of its halves come
+// from one definition ("title") and can therefore never disagree; the entry is written by hand in
+// page.tmpl, so the disagreement lives exactly there and nothing else in the suite reads an entry
+// against a heading. `main`'s suite pinned the five entry labels as a list (see
+// TestTheMastheadLinksAreSeparatedInTheRenderedBytes), and a list of labels agrees with a shell
+// that has drifted from the pages just as happily as it agrees with one that has not.
+//
+// Exact equality, not EqualFold: #219's tab-strip comparison folds case because a browser can
+// normalise a title, and there is no such excuse between two strings this repository writes into
+// one document. "Audit Trail" over a page headed "Audit trail" is a different name, and the entry
+// has to say the words a reader meets at the heading -- including the space, which is the whole
+// reason "Audit" was not already the same name as "Audit trail".
+func TestEachNavEntryNamesThePageItLinksTo(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+
+	// /audit needs the trail seam (the same reason TestEveryPageNamesItselfInTheHeading fetches it
+	// from a second server): without one the handler answers 503 and there is no heading to read.
+	trail, _, _ := pageWithTrail(t, audit.Tail{Records: trailFixture(), FilesRead: 1}, nil)
+
+	// The five sections the shell offers. /login is not among them -- it is the one document that
+	// is not the shell and renders no navigation -- and the two result pages are answers to a POST,
+	// so no entry links to them; nav_test.go is the file that walks their marks. The ceiling is
+	// stated in TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP's terms: this loop can only
+	// see what a signed-in GET renders, so a section added to the row without being added here is
+	// a section nothing compares, which is why the count below is refused rather than ignored.
+	pages := []struct {
+		path string
+		srv  *Server
+	}{
+		{"/", s},
+		{"/users", s},
+		{"/audit", trail},
+		{"/profiles", s},
+		{"/settings", s},
+	}
+
+	for _, page := range pages {
+		body := authGet(t, page.srv, page.path).Body.String()
+		nav, ok := between(body, "<nav>", "</nav>")
+		if !ok {
+			t.Errorf("%s renders no <nav> block, so this guard is checking nothing", page.path)
+			continue
+		}
+		h1 := h1Block.FindStringSubmatch(body)
+		if h1 == nil {
+			t.Errorf("%s renders no <h1>, so there is no page name to compare an entry with", page.path)
+			continue
+		}
+		name := strings.TrimSpace(h1[1])
+
+		// The row as the reader sees it, keyed by where each entry goes.
+		entries := map[string]string{}
+		var seen []string
+		for _, m := range navAnchor.FindAllStringSubmatch(nav, -1) {
+			href, text := m[1], strings.TrimSpace(m[2])
+			if _, dup := entries[href]; dup {
+				t.Errorf("%s: the navigation links to %s twice, so \"the entry for this page\" has "+
+					"no single answer and this guard would compare an arbitrary one", page.path, href)
+				continue
+			}
+			entries[href] = text
+			seen = append(seen, fmt.Sprintf("%s=%q", href, text))
+		}
+		if len(entries) != len(pages) {
+			t.Errorf("%s: the navigation holds %d distinct anchors (%s) and this guard expects the "+
+				"%d sections the shell offers; a row that grew or lost an entry has to be counted "+
+				"here on purpose, or the comparison below quietly stops covering a section",
+				page.path, len(entries), strings.Join(seen, " "), len(pages))
+			continue
+		}
+
+		got, ok := entries[page.path]
+		if !ok {
+			t.Errorf("%s: no navigation entry links to this page (the row links to %s), so nothing "+
+				"here names the page the reader is on", page.path, strings.Join(seen, " "))
+			continue
+		}
+		if got != name {
+			t.Errorf("%s: the navigation entry for this page reads %q and the page's own <h1> reads "+
+				"%q: #388 wants one name per section, so the row and the heading say the same words",
+				page.path, got, name)
+		}
+	}
+}
+
 var (
 	h1Block = regexp.MustCompile(`(?s)<h1[^>]*>(.*?)</h1>`)
 	// Every heading element, for the "the brand survived as a heading" case: the check below has

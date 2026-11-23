@@ -33,9 +33,10 @@ import (
 // parent reads. The sentence is also the only place the "no request text" rule can still be
 // checked: the body carries request text now, in the boxes.
 //
-// It anchors on the paragraph's id rather than on class="problem" because a profile row can carry a
-// problem sentence of its own -- the evaluator's degraded report -- and the first one in the
-// document would be that one.
+// It anchors on the paragraph's id rather than on class="refusal" because since #239 that is the class
+// BOTH of them carry: the page-top sentence from a refused write and the evaluator's degraded report on
+// a profile row are the same kind of sentence, so the first one in the document can be the row's. The id
+// is on the refused write and on nothing else.
 func refusalParagraph(body string) string {
 	const open = `id="refusal"`
 	i := strings.Index(body, open)

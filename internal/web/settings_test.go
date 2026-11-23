@@ -485,6 +485,6 @@ func TestTheSettingsPageIsReachableFromTheNavigation(t *testing.T) {
 	f := newSettingsFixture(t)
 	body := authGet(t, f.s, "/").Body.String()
 	if !strings.Contains(body, `href="/settings"`) {
-		t.Errorf("the status page never links to /settings.\n%s", body)
+		t.Errorf("the dashboard never links to /settings.\n%s", body)
 	}
 }
