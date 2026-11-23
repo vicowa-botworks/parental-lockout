@@ -1,4 +1,4 @@
-# NEXT — conflict PR #521 tick (branch `wip/issue-204-dropped-6bfd528`; this round ships `D-0094` and resolves the `CONFLICTING`/`DIRTY` verdict read back from the API at head `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`. It takes `main`’s shipped path-based navigation, preserves the dropped `.Page` record outside `main`’s published log, and defers the branch-local duplicate `D-0015` to a separately allocated id. Live reads at this re-heading: `gh pr view 521` answered `OPEN`, `CONFLICTING`, `DIRTY` and no review decision; `gh pr checks 521` answered rc 1, `no checks reported on the 'wip/issue-204-dropped-6bfd528' branch`; raw open-PR JSON counted three rows, #521, #522 and #524. The prior `issue-393` head is demoted in place beneath this hand-off, its section bodies byte-kept. Gate verdicts ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this tick merged nothing.)
+# NEXT — conflict PR #521 tick (branch `wip/issue-204-dropped-6bfd528`; this round ships `D-0094` and `D-0095`, and resolves the `CONFLICTING`/`DIRTY` verdict read back from the API at head `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`. It takes `main`’s shipped path-based navigation, preserves the dropped `.Page` record outside `main`’s published log, and re-ids the branch-local `D-0015` collision as `D-0095`. Live reads at this re-heading: `gh pr view 521` answered `OPEN`, `CONFLICTING`, `DIRTY` and no review decision; `gh pr checks 521` answered rc 1, `no checks reported on the 'wip/issue-204-dropped-6bfd528' branch`; raw open-PR JSON counted three rows, #521, #522 and #524. The prior `issue-393` head is demoted in place beneath this hand-off, its section bodies byte-kept. Gate verdicts ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this tick merged nothing.)
 
 ## What this unit shipped
 
@@ -12,16 +12,18 @@
 - Preserved the branch-only `D-0053` drop record as `DECISIONS/D-0053.md` instead of renumbering
   `main`’s published monolith, whose existing citations keep their seats.
 - Kept `DECISIONS.md` exactly on `main` and recorded the implementation-versus-record judgment
-  in `DECISIONS/D-0094.md`. The branch-local duplicate `D-0015` is not silently discarded; the
-  allocator must issue its replacement id in the follow-on record commit.
+  in `DECISIONS/D-0094.md`. The branch-local duplicate `D-0015` was then allocated `D-0095` and
+  preserved in `DECISIONS/D-0095.md`, with the branch-local entry quoted as historical material
+  rather than parsed as a second, unreadable log entry.
 
 ## What is still owed (all of it, none silent)
 
 - Re-run every gate after the final push and put its fresh output, not a prediction, in the pull
   body. `gh pr checks` on the pre-push branch reported no checks and exited 1; absence of failures
   is not evidence of passing checks.
-- Allocate the replacement id for the branch-local `D-0015` and file its preserved text in the
-  second commit. Do not hand-number it or reuse `D-0015`.
+- Both record decisions shipped: `D-0094` for the implementation-versus-record adjudication and
+  `D-0095` for the preserved branch-local `D-0015`. Re-run the allocator after this push before
+  any further decision on this branch; do not hand-number either id.
 - The supervisor still owns review, ready-or-draft state, and merge for #521. This tick only
   removes the conflict; it does not overturn the maintainer’s disposition of the dropped design.
 - Re-read #521 after push. Until the API read-back names the new head, every conflict verdict and
