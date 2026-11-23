@@ -91,7 +91,10 @@ SCRIPTS_SET_CALL = "found, bad_bytes = gate.encoding_problems(label, path)"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 95
+# Four more since #228: the sweep has to leave no timestamp difference either, which is two
+# exits, the control that proves those two can fail, and the case where that mechanism would have
+# been the bug -- an edit hidden by the timestamp written over it.
+EXPECTED_RULES = 99
 
 # What `--help` prints. A string rather than a docstring because the docstring is this file's
 # own explanation of the gate and would run to two screens here.
@@ -282,9 +285,125 @@ def journal_restore(journal):
     for rel, text in sorted(journal.get("files", {}).items()):
         with open(os.path.join(ROOT, rel), "w", encoding="utf-8") as fh:
             fh.write(text)
+        note = settle_stat_cache(rel)
+        if note:
+            print(f"  note: {rel}: {note}")
         done.append(rel)
     journal_clear()
     return done
+
+
+def settle_stat_cache(rel):
+    """Move a restored file's timestamp back to the value git's index entry already holds.
+
+    Why a timestamp belongs in "put the file back" (#228). The sweep restores by writing the
+    original bytes over the mutant, which leaves the CONTENT where it started and the FILESYSTEM
+    somewhere else: the index entry keeps the mtime it recorded before the run, the file now has
+    the mtime of the restore. Measured on git 2.53.0 on 7 Nov, a box committed at `aaa`, mutated
+    to `bbb`, restored with the same bytes:
+
+        index entry  mtime: 1794103571:46218175
+        the file            (1794103571, 51538821)
+
+    That divergence is the fingerprint of a sweep that ran, and it survives a SIGKILL precisely
+    because writing bytes back is the last thing that happens. It is what the supervisor's dirt
+    test was reading when it halted a pass on a tree with no work in it.
+
+    Measured on the same git, and said plainly because it shapes what this fix is worth: on this
+    machine the fingerprint is inert for every reader tried -- `git status --porcelain`,
+    `git diff --stat`, `git diff-files --raw` and `git describe --always --dirty` all answered as
+    though the tree were clean, because those commands re-read the bytes when the stat data
+    disagrees rather than reporting the disagreement. So this is not the bug that halted the pass;
+    #228's halt is fixed by reading content instead of stat data (`factory_tree_dirt` in
+    factory/common.sh). What this does is stop the sweep from leaving a tree whose timestamps lie,
+    which is a class the issue measured happening on a linked worktree on 6 Nov and which the next
+    git, the next filesystem with coarser timestamps, or the next reader that trusts the cache will
+    hit -- and the fix costs one `utime` per restored file.
+
+    The value written is whatever git's own entry holds, not a timestamp captured before the run.
+    Two reasons, both measured rather than argued:
+
+      * it adds no state, so `--restore` still works on a journal written by an older version. The
+        journal is the crash path, and a format change there is a journal the next version cannot
+        replay -- which is worse than a stale timestamp;
+      * it lands the entry in git's racy window, where git reads the bytes instead of the cache.
+        An entry whose mtime is from the PAST is the value a stat cache is designed to trust.
+        Measured the other way round on purpose: cached mtime and size restored exactly, ONE BYTE
+        of content different -- `git status --porcelain` still said ` M x.go`, `diff-files --raw`
+        said `M`, and `git describe --dirty` said `-dirty`. A settle therefore cannot bury an edit
+        that is really in the file, and self_test drives that case as a rule rather than trusting
+        this sentence.
+
+    The guard below is not that argument, because the argument is about a heuristic inside someone
+    else's tool and heuristics move. The settle runs only when git reports no content difference
+    for the path in either direction; where the bytes differ, the difference is real dirt that
+    every reader already sees and a timestamp must not be adjusted over it. Same reason the
+    obvious alternative is not used: `git update-index -- <path>` measured as a no-op here for a
+    content-identical restore (the entry is unchanged after `--refresh`, `--really-refresh`, and
+    the plain form alike), and the plain form STAGES a file whose content did change -- a deeper
+    intrusion into someone else's index than a timestamp, and one the guard could not undo.
+
+    Returns None when there is nothing to say, and one sentence when the operator should know the
+    fingerprint is still there. It never raises and never fails a restore: the bytes are already
+    back by the time this runs, and the sweep's verdict is sound either way.
+    """
+
+    def git(*args):
+        try:
+            return subprocess.run(["git", "-C", ROOT, *args], capture_output=True,
+                                  text=True, encoding="utf-8", timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    path = os.path.join(ROOT, rel)
+    try:
+        if not os.path.isfile(path):
+            return None
+    except OSError:
+        return None
+
+    tracked = git("ls-files", "--stage", "--", rel)
+    if tracked is None:
+        return ("git could not be asked whether %s is tracked, so its cached mtime was left "
+                "alone; `git -C %s update-index --refresh` will settle it" % (rel, ROOT))
+    if not tracked.stdout.strip():
+        return None  # no repository, or nobody tracks this path: there is no stat cache to settle
+
+    for arm in ("diff", "diff --cached"):
+        verdict = git(*(arm.split() + ["--quiet", "--", rel]))
+        if verdict is None or verdict.returncode > 1:
+            return None  # git could not answer; leave a filesystem it cannot describe alone
+        if verdict.returncode != 0:
+            return None  # real content difference: every reader sees it, so do not touch the file
+
+    debug = git("ls-files", "--debug", "--", rel)
+    if debug is None:
+        return None
+    cached = None
+    for line in debug.stdout.splitlines():
+        if line.strip().startswith("mtime:"):
+            try:
+                sec, nsec = line.split(":", 1)[1].strip().split(":")
+                cached = (int(sec), int(nsec))
+            except ValueError:
+                return None
+            break
+    if cached is None:
+        return None
+
+    try:
+        now = os.stat(path)
+        if (int(now.st_mtime), now.st_mtime_ns % 10**9) == cached:
+            return None  # already settled; do not touch a file that does not need it
+        # follow_symlinks=False: a tracked path can be a symlink on a tree somebody is editing, and
+        # `utime` following it would change the timestamp of a file outside this repository -- the
+        # same shape as the chmod-through-a-symlink hazard this repository already refuses.
+        os.utime(path, ns=(now.st_atime_ns, cached[0] * 10**9 + cached[1]), follow_symlinks=False)
+    except OSError as exc:
+        return ("its mtime could not be settled (%s), so the tree carries the timestamp of the "
+                "restore rather than the timestamp of the last real edit" % exc)
+    return None
+
 
 
 def install_undo_signals():
@@ -421,6 +540,13 @@ def check(doc):
         for rel in touched:
             with open(os.path.join(ROOT, rel), "w", encoding="utf-8") as fh:
                 fh.write(original[rel])
+            # The bytes are back; the timestamp has to follow them or the tree keeps the
+            # fingerprint of this run (#228). Once per touched file rather than once per mutant:
+            # the state anything reads is the one left at the end, and a run that dies between the
+            # two leaves a journal, whose `--restore` settles on the way out too.
+            note = settle_stat_cache(rel)
+            if note:
+                print(f"  note: {rel}: {note}")
     return problems
 
 
@@ -1413,6 +1539,165 @@ def self_test():
          killed_mid_sweep(signal.SIGTERM))
     rule("a sweep stopped by SIGKILL leaves a journal, and the next sweep refuses",
          killed_mid_sweep(signal.SIGKILL))
+
+    def repo_box():
+        """A throwaway git repository holding one committed `x.go` and one mutant set.
+
+        The rules below need a real index behind the box: they are about what git believes about a
+        file after the sweep touches it, and a box without a repository cannot answer that.
+        """
+        box = tempfile.mkdtemp(prefix="plock-fp-")
+        os.makedirs(os.path.join(box, "scripts", "mutations"))
+        with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+            fh.write("aaa\n")
+        with open(os.path.join(box, "scripts", "mutations", "s.json"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(GOOD_SET)
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+            subprocess.run(["git", "-C", box, "-c", "user.email=t@t.invalid",
+                            "-c", "user.name=t"] + args, capture_output=True, check=True)
+        return box
+
+    def git_in(box, *args):
+        return subprocess.run(["git", "-C", box, *args], capture_output=True,
+                              text=True, encoding="utf-8")
+
+    def cached_mtime(box, rel):
+        """What git's index entry says a file's mtime is, to the nanosecond."""
+        dbg = git_in(box, "ls-files", "--debug", "--", rel)
+        if dbg.returncode != 0:
+            return None
+        for line in dbg.stdout.splitlines():
+            if line.strip().startswith("mtime:"):
+                try:
+                    sec, nsec = line.split(":", 1)[1].strip().split(":")
+                    return (int(sec), int(nsec))
+                except ValueError:
+                    return None
+        return None
+
+    def fingerprint_drive(how):
+        """Let the sweep touch a real repository, then ask git what it now believes about a file.
+
+        The promise under test is not that the bytes are back -- the rules above hold that. It is
+        that a sweep leaves no TIMESTAMP difference behind, because a restored file whose mtime is
+        the restore's while the index still holds the run's is the fingerprint #228 was written
+        about: a difference in git's stat cache and not in the tree, which a reader that trusts the
+        cache reports as uncommitted work. So this compares git's own answer, `ls-files --debug`,
+        against `os.stat`, to the nanosecond.
+
+        `how` picks the way out of the sweep:
+
+          sweep      a sweep that finishes normally -- the `finally` is the restore under test
+          restore    a journal and a mutated file planted first, then `--restore` -- the state a
+                     SIGKILL leaves, which is the state the next pass or an operator actually meets
+          no-settle  the pre-fix restore: the same bytes back through a plain `open()` and nothing
+                     else. This one is the detector's control, and it is a control rather than a
+                     rule because what it has to prove is that the two comparisons above can fail.
+                     A fingerprint observed there is the control passing; none observed makes
+                     `rule_fires` report that the check cannot fail, which is the honest outcome --
+                     a detector that cannot see the thing would otherwise certify a hollow fix.
+        """
+        global ROOT, compiles, dirty_paths
+        saved = (ROOT, compiles, dirty_paths)
+        box = repo_box()
+        try:
+            ROOT = box
+            compiles = lambda pkg: _RC(0)          # noqa: E731
+            dirty_paths = lambda: []               # noqa: E731
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    if how == "sweep":
+                        rc = main(["check-mutations.py"])
+                        if rc != 0:
+                            return "the sweep did not finish cleanly in the box, so nothing was proven"
+                    elif how == "restore":
+                        with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                            fh.write("bbb\n")
+                        with open(os.path.join(box, JOURNAL_NAME), "w", encoding="utf-8") as fh:
+                            json.dump({"pid": 1, "undo": "--restore",
+                                       "files": {"x.go": "aaa\n"}}, fh)
+                        rc = main(["check-mutations.py", "--restore"])
+                        if rc != 0:
+                            return "--restore did not succeed in the box, so nothing was proven"
+                    else:
+                        for text in ("bbb\n", "aaa\n"):
+                            with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                                fh.write(text)
+            finally:
+                ROOT, compiles, dirty_paths = saved
+
+            with open(os.path.join(box, "x.go"), encoding="utf-8") as fh:
+                if fh.read() != "aaa\n":
+                    return "x.go was left mutated, so a timestamp comparison here means nothing"
+            cached = cached_mtime(box, "x.go")
+            if cached is None:
+                return "git reports no cached mtime for x.go, so the fingerprint cannot be measured"
+            st = os.stat(os.path.join(box, "x.go"))
+            live = (int(st.st_mtime), st.st_mtime_ns % 10**9)
+            if live == cached:
+                return None
+            return ("git still believes x.go's mtime is %s while the file says %s -- that "
+                    "difference is what a stat-reading dirt test reports as uncommitted work"
+                    % (cached, live))
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    def settle_cannot_bury_an_edit():
+        """The destructive case for the mechanism the fix adds, driven through the real function.
+
+        Writing a timestamp onto a file this tool does not own is only dangerous one way: some
+        reader trusts the cache and calls a changed file clean. So the edit has to be the length of
+        what it replaces -- a size difference is caught by every reader whatever the mtime says, so
+        a same-length edit is the only thing that can slip past a stat cache. Commit `aaa`, settle
+        (nothing to do), change one byte to `aab`, settle again: the guard has to refuse the second
+        settle, and git has to keep reporting the file dirty. Measured by hand on 7 Nov before this
+        rule existed -- cached mtime and size exactly restored, content `aab` -- `status`,
+        `diff-files --raw` and `git describe --dirty` all still saw it, which is what makes the
+        mechanism safe; this drives the same case through the code rather than trusting the sentence.
+        The refusal itself is asserted on the timestamp and not only on git's verdict, because a git
+        whose cache is suspicious enough to re-read the bytes would report the same verdict with the
+        guard deleted -- and a check that cannot see a deleted guard lets it stay deleted.
+        """
+        global ROOT, compiles, dirty_paths
+        saved = (ROOT, compiles, dirty_paths)
+        box = repo_box()
+        try:
+            ROOT = box
+            settle_stat_cache("x.go")
+            with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                fh.write("aab\n")
+            edited = os.stat(os.path.join(box, "x.go")).st_mtime_ns
+            settle_stat_cache("x.go")
+            after = os.stat(os.path.join(box, "x.go")).st_mtime_ns
+            ROOT, compiles, dirty_paths = saved
+            if after != edited:
+                return ("the settle moved a file that differs from the index (%d -> %d): the guard"
+                        " that leaves real dirt alone is gone, and the tree's timestamps would be"
+                        " rewritten over somebody's uncommitted work" % (edited, after))
+            status = git_in(box, "status", "--porcelain").stdout.strip()
+            raw = git_in(box, "diff-files", "--raw").stdout.strip()
+            stamped = git_in(box, "describe", "--always", "--dirty").stdout.strip()
+            if "x.go" not in status or not raw:
+                return ("a same-length edit is invisible after a settle (status=%r diff-files=%r):"
+                        " writing timestamps would then destroy information, so it must not happen"
+                        " in a restore path" % (status, raw))
+            if not stamped.endswith("-dirty"):
+                return ("the edit is in `git status` but not in `git describe --dirty` (%s) -- the"
+                        " version stamp reads the same cache and the two would disagree" % stamped)
+            return None
+        finally:
+            ROOT, compiles, dirty_paths = saved
+            shutil.rmtree(box, ignore_errors=True)
+
+    rule("a sweep that ends leaves no timestamp difference in git's index",
+         fingerprint_drive("sweep"))
+    rule("--restore after a killed sweep leaves no timestamp difference either",
+         fingerprint_drive("restore"))
+    rule_fires("control: the same bytes put back by hand DO leave one, so the two rules above can fail",
+               fingerprint_drive("no-settle"))
+    rule("settling a timestamp cannot bury an edit that is really in the file",
+         settle_cannot_bury_an_edit())
 
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a

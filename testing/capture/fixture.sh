@@ -62,6 +62,42 @@ capture_begin() {
     exit 1
   }
 
+  # The binary is a photograph of the tree it was built from, and the templates and stylesheet are
+  # compiled into it (`internal/web/sources.go:21`, `go:embed`), so a binary that predates a markup
+  # edit serves the page that binary was built from. The browser then measures what the daemon
+  # actually said, `scrollWidth` agrees, the needles agree because the needles are about other cells,
+  # and `manifest.py record` certifies the result against the sources on disk — which name the NEW
+  # template. Every check downstream of the browser is downstream of the wrong page.
+  #
+  # Measured 5 Nov on #219: a binary built nineteen minutes before the commit that changed the
+  # masthead re-took the committed set and left five of the seven page-fixture frames byte-identical
+  # to the pre-change files, moving only the two whose fixture CONTENT had changed. That is a set
+  # which reads as "the two this branch moved" and would have been committed as evidence about a page
+  # nobody photographed. Existence was the check here; it is not the check that matters.
+  #
+  # `*_test.go` is excluded because it is not compiled into plock — a guard that fires on a test
+  # edit demands a rebuild that changes nothing, and a check that cries wolf gets edited out inside a
+  # week. `go.mod` is asked for because a dependency change moves a byte of the binary.
+  local -a built_from=("$CAPTURE_REPO/cmd" "$CAPTURE_REPO/internal")
+  # Both halves of that condition are load-bearing. This repository has no third-party dependency, so
+  # there is no `go.sum` to ask about, and `find` exits 1 on a path that does not exist: under the
+  # setup scripts' `set -euo pipefail` that ends the run AT THE ASSIGNMENT, one line before the
+  # message that would have explained it. Measured on the first version of this guard, which exited 1
+  # with nothing on stderr and looked, from the outside, like a fixture that had simply stopped.
+  if [ -f "$CAPTURE_REPO/go.mod" ]; then built_from+=("$CAPTURE_REPO/go.mod"); fi
+  if [ -f "$CAPTURE_REPO/go.sum" ]; then built_from+=("$CAPTURE_REPO/go.sum"); fi
+  local stale
+  stale="$(find "${built_from[@]}" -type f ! -name '*_test.go' -newer "$PLOCK_BIN" \
+              -printf '  %p\n')"
+  if [ -n "$stale" ]; then
+    echo "REFUSED: the binary at $PLOCK_BIN predates the sources compiled into it:" >&2
+    printf '%s\n' "$stale" | sed -n '1,4p' >&2
+    echo "and the pages are embedded in it, so a capture taken against it photographs a page this" >&2
+    echo "tree does not contain -- and manifest.py record would then certify the new sources for it." >&2
+    echo "run: go build -o plock ./cmd/plock   (in $CAPTURE_REPO)" >&2
+    exit 1
+  fi
+
   # Tight before creating anything. The daemon refuses to work in a state directory whose own
   # directory or parent is group-writable — a directory somebody else can reach is a directory
   # somebody else can swap out from under a root daemon — and this machine's default umask creates
@@ -114,21 +150,171 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-}"
 # why one account holds a session and the other holds none.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 
-# The zone the *reader* is in, which the audit page's When column depends on (#207's seventh cause,
-# measured here rather than assumed). internal/web/templates/audit.tmpl:86 formats each row with
-# `MST`, and Go's `time.Parse` adopts the process's local Location when a row's offset matches it --
-# so one and the same trail rendered `2026-03-18 21:33:05 EDT` on a machine in America/New_York and
-# `2026-03-18 21:33:05 -0400` on one in UTC or Asia/Kolkata. Three runs of a nine-line program under
-# `TZ=` each, output verbatim in the issue. The instant and the offset survive all three; it is the
-# label that belongs to whoever is reading.
+# How many lockable sessions the photographed page has to show (#213).
 #
-# Declaring it here is what makes the frame the same bytes on every host. It does not make the label
-# correct: a trail row's zone abbreviation is the reader's, not the row's, and that is filed as its
-# own finding rather than fixed by a fixture, because the fix belongs in the template and the
-# decision about what a parent should see (an offset, or a name the writer chose) is not this
-# folder's to make. An unparseable TZ is not diagnosed here -- Go falls back to UTC, which prints
-# `-0400`, which the audit page's declared state then refuses. That is the right place to notice.
+# Up to D-0052 the number was written down in README.md, for the `pages` fixture only. The two POST
+# fixtures — the ones that click, and the only two pages that render a live census — declared
+# nothing, so nothing could notice the machine's census moving underneath them: the committed
+# `docs/screenshots/360/lock.png` is a 2-session page while the README that is the artifact's only
+# description of its own state still quotes `rows=1 cells=3 height=1142` from the 1-session box of
+# 27 Oct. So the count is declared here, checked by the driver against the census the page actually
+# rendered (`cdp.require_declared_sessions`), and published in the manifest beside `stamp`, `zone`
+# and `scripts`.
+#
+# Like every other condition in this file, it belongs to the setup script and reaches the driver
+# through `fixture.env` — `cdp.declared_sessions` reads the file, never the environment, so the
+# declaration that governs a frame is the one that was in force when the fixture was built and
+# anybody who reads the run directory can see it. Empty means "not declared", which is what the
+# `pages` fixture leaves it at: its census comes from the stub above and needs no second statement.
+# The two POST fixtures fill it in by asking the machine (`capture_declare_census` below) unless the
+# operator declared a number themselves — that override is how the negative control in README.md
+# makes a driver refuse, and how a fixture is pinned to a census this machine cannot produce.
+CAPTURE_SESSIONS="${PLOCK_CAPTURE_SESSIONS-}"
+# How the census was taken, when the fixture took it from the machine rather than being told. These
+# three decide the answer; `capture_declare_census` says why they are not the two you might expect.
+CAPTURE_CENSUS_LOGINCTL=""
+CAPTURE_CENSUS_UID=""
+CAPTURE_CENSUS_SYSTEM_BUS=""
+
+# capture_declare_census <binary> <config> [state-dir] [admin-file]
+#
+# Ask the product how many lockable sessions the target account holds right now, and declare that as
+# a condition of the frame.
+#
+# The answer comes from `plock status --json`, not from a second counting program. Its per-session
+# `lockable` field IS the daemon's predicate — `internal/platform/platform.go`'s `isLockable`, the
+# same five clauses that decide whether a row appears on the page being photographed — so a census
+# counted any other way would be a second copy of a rule that already has one load-bearing copy.
+# That is #211's shape one layer down: a count that disagrees with the page is the bug, and a
+# re-implementation is how you arrive at one without noticing.
+#
+# What the census actually rides, measured 10 Nov on the box these frames were last taken:
+#
+#   env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR loginctl list-sessions --json=short
+#     -> exit 0, the census intact
+#   env DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent/bus loginctl list-sessions --json=short
+#     -> exit 1, "Failed to connect to system scope bus via local transport"
+#   the same broken bus through `plock status --json`
+#     -> "sessions": [] plus a warning quoting loginctl's own sentence
+#
+# So the census comes off the SYSTEM bus: unset `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`
+# together and the count is unchanged, which is what #213 asked to be settled. Recording that pair
+# as a condition would repeat the defect this issue is about — `PLOCK_CAPTURE_SCRIPTS` was a
+# condition of exactly that kind until `cdp.scripts_disabled` started reading it. What is recorded
+# instead is what the measurements above show decides the answer: which `loginctl` was resolved (the
+# `pages` fixture is the proof this one matters — its stub is what makes its frames reproducible
+# elsewhere), the uid the census was taken as (an unprivileged caller sees only its own sessions),
+# and the system-bus address when the operator set one.
+#
+# A census of zero is refused rather than declared: a page with no session rows is a different page,
+# and both drivers already refuse it on their own ("no session rows", "an empty diagnostic").
+# Refusing here says so before the browser starts, and names the cause in loginctl's words. An
+# *unreadable* census is refused the same way, and the two are told apart by `status`' own
+# `warnings` — an empty list plus a warning is "could not read", an empty list with no warning is
+# genuinely nobody logged in.
+capture_declare_census() {
+  local bin="$1" conf="$2"
+  local out rc=0
+  out="$("$bin" status --json --config "$conf" 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "REFUSED: the session census could not be taken — \`$bin status\` exited $rc:" >&2
+    printf '%s\n' "$out" >&2
+    echo "  A condition that could not be read is not a condition of any value, and this frame is" \
+         "about a real census on a real machine. Fix the read, or declare the count yourself with" \
+         "PLOCK_CAPTURE_SESSIONS=<n> if this machine's logind is not what the frame is about." >&2
+    exit 1
+  fi
+
+  local counted
+  counted="$(printf '%s' "$out" | python3 -c '
+import json, sys
+target, report = sys.argv[1], json.load(sys.stdin)
+warnings = report.get("warnings") or []
+if warnings:
+    sys.exit("the census could not be read: " + "; ".join(warnings))
+print(sum(1 for s in report.get("sessions", [])
+          if s.get("username") == target and s.get("lockable")))' "$CAPTURE_TARGET" 2>&1)" || {
+    echo "REFUSED: $counted" >&2
+    echo "  The two POST fixtures photograph the live session table, so they refuse rather than" \
+         "photograph whatever a broken logind leaves on the page." >&2
+    exit 1
+  }
+  if [ "$counted" = "0" ]; then
+    echo "REFUSED: $CAPTURE_TARGET holds no lockable session on this machine right now." >&2
+    echo "  The lock-result page renders one row per lockable session, so with none the capture" \
+         "would photograph the empty case — the case both drivers refuse on purpose. Sign the" \
+         "target account in at a seat, or aim the fixture at an account that is logged in." >&2
+    exit 1
+  fi
+
+  CAPTURE_SESSIONS="$counted"
+  CAPTURE_CENSUS_LOGINCTL="$(command -v loginctl 2>/dev/null || echo "not on PATH")"
+  CAPTURE_CENSUS_UID="$(id -u)"
+  CAPTURE_CENSUS_SYSTEM_BUS="${DBUS_SYSTEM_BUS_ADDRESS-}"
+}
+
+# The zone the *reader* is in (#207's seventh cause, measured here rather than assumed).
+# internal/web/templates/audit.tmpl used to format each row with `MST`, and Go's `time.Parse` adopts
+# the process's local Location when a row's offset matches it -- so one and the same trail rendered
+# `2026-03-18 21:33:05 EDT` on a machine in America/New_York and `2026-03-18 21:33:05 -0400` on one
+# in UTC or Asia/Kolkata. Three runs of a nine-line program under `TZ=` each, output verbatim in the
+# issue. The instant and the offset survived all three; only the label moved, and #210 replaced the
+# label with the offset the row itself carries. This variable therefore decides no text on the page
+# any more -- the two paragraphs below are what survives of the reason it was introduced, and both
+# were rewritten on #210 for claiming more than that.
+#
+# It stays declared, as a canary, and the reason is narrower than the one this block gave until #210.
+# Nothing in the render path asks the host anything now: the audit page's When cell prints the
+# value's own offset, every clock on the dashboard comes from the profile's own zone -- which both
+# fixture profiles name in `pages-setup.sh` -- and `wallClock` in `internal/dashboard/banner.go`
+# renders the instant in the location it was computed in. The one place that still falls back to
+# `time.Local` is `schedule.Location`, for a profile whose zone is absent or unloadable, and that is
+# a property of the rule data rather than of the machine running the driver. What a declared zone
+# buys is therefore one thing: if a host-dependent clock ever comes back, this is the knob that makes
+# the frame disagree with the manifest's declared state instead of quietly agreeing with whatever
+# host happened to run it.
+#
+# It is still not validated, and now nothing downstream would notice either. Go falls back to UTC for
+# a zone it cannot load, and a column that prints the value's own offset renders `-04:00` under that
+# fallback exactly as it does under a zone that loaded -- that equality is what the UTC case of
+# `TestTheAuditRowIsStampedTheSameWhoeverReadsIt` holds. So a misspelt `PLOCK_CAPTURE_TZ` is silent
+# here, and no longer something the audit page's declared state can catch. What still refuses is the
+# *instant*: `cdp.pin_appended_rows` re-stamps the sign-in's row to the fixture's declared time and
+# refuses any other count or kind.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
+
+# Whether the PAGE's own scripts ran while the frame was taken (#211).
+#
+# Recorded here rather than read off the driver, because it is a property of the frame and not of the
+# code: what the driver does today is not evidence about pixels somebody took earlier, and a fixture
+# that stayed silent about it would let a reader fill the gap in from `cdp.py` -- which is the defect
+# #211 closes, one layer down.
+#
+# The first version of this note claimed the two POST artifacts predated #207 and had to be declared
+# `on` until #213 re-took them. The second version claimed the opposite from nine reproduced digests.
+# Both outran their evidence, in opposite directions: the pixels in question cannot distinguish the two
+# values, because neither POST result page renders a `time[data-unix]` element and rewriting those is
+# the only load-time write in `static/app.js`. Measured 6 Nov with the declaration wired through to the
+# browser (`cdp.scripts_disabled`, D-0025 — it was `value=True` before that, whatever a fixture
+# declared): `on` and `off` give one PNG apiece for both frames. What decides which condition a frame
+# was taken under is the run that took it, so the fix was to take the frames again rather than to pick
+# a value — and the lesson that governs the whole field is the narrower one: a digest can show a frame
+# is *consistent with* a condition, which is not the same as its witnessing it.
+#
+# Three of the six optional keys `capture_env` writes carry a non-empty default — `STAMP`, `ZONE` and
+# this one — so every fixture that sources this file states all three, and all nine committed rows
+# read `scripts: "off"`, `users-no-profiles.png` included. Absence is where #211's rule lives, and it
+# operates on the other three keys (`AUDIT_ROWS`, `PATH_PREPEND`, `TZ`), which are written only when a
+# setup script declares them: `pages-noprof` is the example for `rows` and `tz`, and there is no
+# shipped example for this key.
+#
+# Say what the default does hide, because it is the half a reader can get wrong in the dangerous
+# direction: `PLOCK_CAPTURE_SCRIPTS=` set empty is the only way to make an entry that states nothing,
+# and such a fixture would still be *photographed* with the scripts off, because
+# `cdp.scripts_disabled` reads an absent declaration as the criterion's own condition. So an absent
+# `scripts` is never evidence that the page's scripts ran, and a present one is only ever what the run
+# that wrote it said — which is why D-0026 took the two POST frames again instead of choosing a value.
+CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
 
 # capture_env
 #
@@ -153,6 +339,15 @@ capture_env() {
     if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
     if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
+    if [ -n "$CAPTURE_SCRIPTS" ]; then echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"; fi
+    if [ -n "$CAPTURE_SESSIONS" ]; then echo "PLOCK_CAPTURE_SESSIONS=$CAPTURE_SESSIONS"; fi
+    if [ -n "$CAPTURE_CENSUS_LOGINCTL" ]; then
+      echo "PLOCK_CAPTURE_CENSUS_LOGINCTL=$CAPTURE_CENSUS_LOGINCTL"
+    fi
+    if [ -n "$CAPTURE_CENSUS_UID" ]; then echo "PLOCK_CAPTURE_CENSUS_UID=$CAPTURE_CENSUS_UID"; fi
+    if [ -n "$CAPTURE_CENSUS_SYSTEM_BUS" ]; then
+      echo "PLOCK_CAPTURE_CENSUS_SYSTEM_BUS=$CAPTURE_CENSUS_SYSTEM_BUS"
+    fi
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
@@ -177,5 +372,18 @@ capture_done() {
   echo "wrote $CONFIG and $AUDIT ($events events); fixture.env names port $RUN_PORT"
   if [ -n "$CAPTURE_PATH_PREPEND" ]; then
     echo "census: $CAPTURE_PATH_PREPEND on the daemon's PATH, not this machine's loginctl"
+  fi
+  # Said out loud because it is a condition of the frame and the operator cannot recover it from the
+  # pixels afterwards (#213). The loginctl and the uid are named with it: those two, plus
+  # DBUS_SYSTEM_BUS_ADDRESS when the operator set one, are what decided the number — measured, not
+  # assumed, and the note on `capture_declare_census` carries the measurements.
+  if [ -n "$CAPTURE_SESSIONS" ]; then
+    echo "census: $CAPTURE_SESSIONS lockable session(s) for $CAPTURE_TARGET"
+    if [ -n "$CAPTURE_CENSUS_LOGINCTL" ]; then
+      echo "        taken as uid $CAPTURE_CENSUS_UID through $CAPTURE_CENSUS_LOGINCTL"
+      if [ -n "$CAPTURE_CENSUS_SYSTEM_BUS" ]; then
+        echo "        DBUS_SYSTEM_BUS_ADDRESS=$CAPTURE_CENSUS_SYSTEM_BUS"
+      fi
+    fi
   fi
 }

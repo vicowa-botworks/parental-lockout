@@ -9,6 +9,7 @@
 	--line: #d8dbe2;
 	--held: #b3261e;
 	--free: #1c6b34;
+	--warn: #845600;
 	--bg: #ffffff;
 }
 
@@ -19,6 +20,7 @@
 		--line: #33373f;
 		--held: #ff6b61;
 		--free: #57c785;
+		--warn: #cf901c;
 		--bg: #16181c;
 	}
 }
@@ -39,6 +41,18 @@ main {
 h1 {
 	font-size: 1.35rem;
 	margin: 0 0 1rem;
+}
+
+/* The product's name, in the header, above the heading that names the page (#219). Quieter
+   than the h1 on purpose: the whole point of moving it out of the heading is that the loudest
+   words at the top of a page answer "which page am I", and a demoted brand line that renders
+   bigger than the h1 would undo the change with pixels while the markup said the right thing.
+   `margin-bottom` is small because the h1's own 1rem below it already separates the header
+   from the navigation. */
+.masthead__name {
+	margin: 0 0 .1rem;
+	color: var(--muted);
+	font-size: .8rem;
 }
 
 table {
@@ -114,6 +128,179 @@ body {
 	color: var(--free);
 }
 
+/* The rest of the state vocabulary (#199).
+
+   The two rules above are the only ones this file ever wrote for the classes the templates use to
+   report what the daemon found. `state-held` got red and bold; every other state word on the page
+   was left as prose. Measured in Chrome at both viewports on the nine photographed pages before
+   this block existed: "no desktop session", "session list unavailable" and "cannot be decided"
+   (`.state-unknown`), "scheduled, not enforced" and the `no` in both verdict columns of the probe
+   page (`.state-gap`), the failure detail (`.problem`), "open override" (`.override`), "override
+   expired", "account switched off", the status notices (`.flag`) and the verdict paragraph at the
+   top of every result page (`.banner`) each computed the same colour, weight, style, decoration,
+   left border and background as the text they sit in. That is the report -- "the web UI is very
+   basic" -- with its cause located: the vocabulary is in the markup, one rule was ever written for
+   it, and a reader scanning the Lockout column could not tell a verdict from a read that failed to
+   produce one. `cdp.require_state_legible` is the guard, because a grep of this file can see a
+   class name and cannot see a difference.
+
+   Four colours is the palette's whole vocabulary and one of them is free: `--held` is the lock
+   being on, `--free` is the lock being off, and `--warn` is the case that is neither --
+   "unconfirmed", "scheduled, not enforced", a switched-off account. Reusing `--held` for those
+   would round a gap to a failure, which `lock.tmpl` refuses out loud ("That is not the same as
+   locked, and it is not the same as failed"); reusing `--muted` would bury the one state where the
+   schedule is quietly not holding. So the palette grows a token, in both colour schemes, at the
+   contrast its existing tokens already hold: `#845600` on `#ffffff` is 6.34:1 and `#cf901c` on
+   `#16181c` is 6.48:1, where `--held` is 6.54 and 6.37 and `--muted` 6.13 and 6.92. Its hue is 39
+   degrees, 36 from `--held`'s 3 and 99 from `--free`'s 138, so the three are not three names for
+   two colours; and no state below relies on hue alone, because each also moves weight or style.
+
+   Two classes are deliberately NOT given a colour of their own. `.problem` carries the daemon's own
+   words about a row, and on the probe page those words are `/bin/true (configured command; not a
+   production backend)` -- a detail, visible in the committed `testlock.png`, not a fault. `.override`
+   carries the operator's deliberate release on the dashboard, and it sits ADJACENT to the daemon's
+   detail in the same cell (that pair is #108's seam), so giving them the same voice would fuse them
+   into one run. Italic is the machine being quoted; muted is the note beside it.
+
+   What these two names used to cover, and what covers it now (#239). Each of them carried two
+   meanings: `.problem` was the refusal, the mode notice, the help sentence and the missing value as
+   well as the quoted detail, and `.override` was the open hold and the sentence whose whole content
+   is that nothing is held. A reader who learned that one tint meant "a hold is open" therefore read
+   the daemon's own exemption as one. The templates now put one class on one job: two names were
+   added for the two jobs the vocabulary had no word for (`.refusal`, `.exempt`) and three jobs went
+   to names the vocabulary already had (`disabled` for the machine's own switch, `muted` for the help
+   sentence, `state-gap` for the missing value). The paragraphs below say what each mark is allowed to
+   mean, because the name is the only place that record lives. */
+.state-unknown {
+	color: var(--muted);
+	font-style: italic;
+}
+
+.state-gap {
+	color: var(--warn);
+}
+
+.banner {
+	/* The verdict sentence, on the three pages whose whole job is one verdict. It is the first
+	   thing on the page and the line an operator reads out over the phone, and until now it was
+	   the same weight as the help text under it. */
+	font-weight: 600;
+}
+
+.flag {
+	/* A notice, drawn as one: the rule is the warning colour and the words keep the page's own
+	   ink, so a three-sentence status block does not become a wall of amber. */
+	border-left: 3px solid var(--warn);
+	padding-left: .8rem;
+}
+
+/* The daemon's own words about one row -- `/bin/true (configured command; not a production backend)`,
+   "no account entry", the detail beside a verdict. #239 narrowed it to that one job: it used to be
+   the refusal, the mode notice, the help sentence and the missing value as well, six jobs on one
+   name. It is now none of those, and `TestEveryStateClassCarriesOneMeaning` refuses it back into a
+   table cell if anyone puts it on a paragraph again -- the cell is what the name means. */
+.problem {
+	color: var(--ink);
+	font-style: italic;
+}
+
+/* A write the daemon refused, and the evaluator's sentence about a rule that can never fire (#239).
+   Amber, not red: the fact a refusal states is "what you asked for is not in effect", which is the
+   fact `--warn` already carries in this file -- the schedule is not holding -- rather than `--held`'s
+   fact, which is that the lock is on. A refusal is not a second meaning for the red. Italic because
+   the sentence is still the machine's own. Two channels, both already meaningful here, so the split
+   invents no third voice.
+
+   Measured with the same arithmetic #199's block cites: `--warn` is 2.69:1 against the ink it sits in
+   in the light scheme and 2.24:1 in the dark one, and on the page's own ground `#845600` on `#ffffff`
+   is 6.34:1 with `#cf901c` on `#16181c` at 6.48:1. D-0045's refusal of a loud paragraph voice -- "a
+   bold red paragraph on /users would turn a table into weather" -- was about words inside the table,
+   and it still holds for them; every `.refusal` is a block above or beside the form it came from, so
+   it is a paragraph on a page that holds at most two of them. */
+.refusal {
+	color: var(--warn);
+	font-style: italic;
+}
+
+/* The hold the operator granted on the dashboard: "open override: <reason>", and nothing else.
+   #239 moved the other thing this class marked -- the self-session note, a sentence whose whole
+   content is that nothing is held and nothing can be -- to `.exempt` below, which is the case the
+   issue names: a reader who had learned that this voice means "a hold is open" read the daemon's own
+   exemption as one. */
+.override {
+	color: var(--muted);
+}
+
+/* The session the daemon runs inside, which no schedule will ever lock (#239). It keeps the exact
+   voice it had as `.override`, because D-0045 measured this adjacency rather than inventing it: the
+   note sits beside the quoted detail in the Detail cell (#108's seam), italic is the machine being
+   quoted and muted is the note beside it. Only the name moved, so no pixel in that cell moves with
+   it -- what changed is that the note no longer claims to be a hold. */
+.exempt {
+	color: var(--muted);
+}
+
+.override-expired {
+	color: var(--warn);
+}
+
+.disabled {
+	/* Same colour as `.state-gap` on purpose: "account switched off" and "scheduled, not enforced"
+	   are two reasons for one fact -- the schedule is not holding this child right now. The words
+	   say which reason; the colour says which fact.
+
+	   #239 gave this name a third row of the same table: the standing sentence at the top of
+	   /profiles and /settings, "Enforcement is switched off, so …". It is the same reason one scope
+	   up -- somebody switched it off, so nothing is being locked -- and it takes the existing name
+	   rather than a new one for a colour that already says it. The alternative was a synonym: two
+	   names, one voice, one meaning, which is the mirror image of the defect the issue is about. */
+	color: var(--warn);
+}
+
+/* The row, when the state belongs to the account rather than to one of its cells (#199).
+
+   `held` and `unreadable` are composed between actions at dashboard.tmpl:33 and `stale` and
+   `unmanaged` at users.tmpl:43 -- `class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged
+   {{end}}"` -- so the names appear in the markup only as the text between two actions, and before
+   this block the stylesheet had no rule for any of them: `grep -n "tr\.\|tbody tr" app.css` on the
+   head this branch started from answers nothing at all. The row is what an eye travels down when it
+   is not reading, so unmarked rows say "every row here is the same kind of row" -- and `unmanaged`
+   is exactly the row a parent must not read as managed.
+
+   A background on the row rather than a rule down its left edge, and that is a rendering fact and not
+   a preference: a border declared on a <tr> is not what paints an edge in the collapsing table model,
+   so a guard that read the row's own `border-left-width` would be reading a number Chrome never drew.
+   The row's OWN background is painted, is what `cdp.require_state_legible` asks the browser about, and
+   is the reason the four alphas are written out instead of reusing the colour tokens: a tint has to
+   stay readable beside a cell that is already red. The hues are the same four as the four words, so a
+   row and its cells agree by construction, and nothing here asks anyone to tell four tints apart --
+   every one of these rows also carries a drawn word. */
+tr.held {
+	background: rgba(179, 38, 30, .10);
+}
+
+tr.unreadable, tr.stale {
+	background: rgba(132, 86, 0, .12);
+}
+
+tr.unmanaged {
+	background: rgba(91, 98, 112, .14);
+}
+
+@media (prefers-color-scheme: dark) {
+	tr.held {
+		background: rgba(255, 107, 97, .14);
+	}
+
+	tr.unreadable, tr.stale {
+		background: rgba(207, 144, 28, .16);
+	}
+
+	tr.unmanaged {
+		background: rgba(143, 151, 166, .16);
+	}
+}
+
 .muted {
 	color: var(--muted);
 	font-variant-numeric: tabular-nums;
@@ -123,13 +310,199 @@ form.inline {
 	display: inline;
 }
 
-/* The override reason field lives inside a table cell. Left at the browser default it
-   is about 185 px wide on its own, which is more than a phone has to spare, and a cell
-   cannot shrink below the preferred width of its controls. */
-input[type="text"] {
+/* Every control on the page in the page's own typeface (#202).
+
+   `font: inherit` was on `button` and on no `input`, so four of the five input types the
+   templates render took the user-agent stylesheet whole. Measured through Chrome at a 360 px
+   viewport on every photographed page: `input[type=text]`, `[type=password]` and `[type=number]`
+   all computed `Arial 13.3333px`, while the button beside each of them computed
+   `system-ui 16px`. A form's labels, its boxes and its buttons were therefore set in two faces
+   at two sizes on the same line, and the boxes were the smaller ones.
+
+   One rule for all of them rather than one per `type`, because the defect *was* a list of types
+   -- this file had exactly one selector matching an input and it named one type, `text`.
+   `select` is here for the same reason (its font is the user-agent's too, which the rule below
+   cannot fix by sizing it), and `textarea` although no template renders one today, so that the
+   first one to appear does not appear in Arial.
+
+   The typeface and the width model under it are one change and not two, and #202 names the
+   reason: `ch` resolves against the element's own font, so `max-width: 22ch` is a different
+   number of pixels on either side of `font: inherit` -- measured 163 px in Arial 13.33 px,
+   196 px in the page's 16 px. Landing the font on its own would have resized every field on
+   every page without one edit to the rule that sizes it, and the two effects could not have
+   been told apart afterwards. Both are measured together in testing/capture. */
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+/* One width model for every control you type into (#202).
+
+   The rule this replaces matched `input[type="text"]` and nothing else, so /settings rendered
+   three field widths on one page -- measured at 360 px: 65 px for `Seconds between checks`,
+   163 px for the two certificate path boxes, 185 px for the three password boxes, the last two
+   both being nothing but the user-agent's default of about twenty characters. #199 reported
+   that as fields being misaligned "in some places". It is every control, and one selector
+   explains it, so the fix is a shared model rather than a per-page nudge.
+
+   The model is the one this file already used for `text`, because the reason it exists still
+   holds -- the override reason box lives inside a table cell, and a cell cannot shrink below
+   the preferred width of the controls in it. It now covers password and number boxes as well,
+   and `22ch` now measures twenty-two characters of the page's own typeface for the reason given
+   above.
+
+   Two controls are outside it deliberately, and both exclusions are measured rather than tidy.
+   A `select` takes its intrinsic width from its longest option, so capping one at 22ch would
+   cut a profile called "Long weekend during the school holidays" in half; the phone block below
+   already clamps it to the width of the page, which protects the axis that actually needs
+   protecting. A radio or a checkbox at `width: 100%` is a 312 px tick box, so those keep their
+   own size and the grouping rule that follows gives them their spacing.
+
+   The list is the types that are *typed into*, not the complement of the ones that are not. A
+   type added to a template that is missing from this list then fails the capture, which is a
+   loud failure; the complement list fails the other way -- a future `[type=range]` would
+   silently inherit `width: 100%` and nobody would be told. */
+input:where(:not([type]),
+             [type="text"],
+             [type="password"],
+             [type="number"],
+             [type="search"],
+             [type="email"],
+             [type="tel"],
+             [type="url"],
+             [type="date"],
+             [type="time"],
+             [type="datetime-local"],
+             [type="month"],
+             [type="week"],
+             [type="file"]),
+textarea {
 	width: 100%;
 	max-width: 22ch;
 	box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------------------
+   The navigation, and the one entry in it that is the page you are on (#204).
+
+   Before this block the file said nothing about `nav`, `nav a` or `a` -- its
+   only anchor rule was `a:focus-visible` -- so the whole row was user-agent:
+   link blue #0000EE, always underlined, in a size and face this stylesheet
+   never chose, beside buttons it does style. #204 measured that on all five
+   photographed pages, and measured the same thing on the entry for the page the
+   reader is standing on: no color, weight, decoration, border or background
+   differed from any sibling, on any page. This block is that half of #199.
+
+   The row is flex rather than an inline run of links because an inline run breaks between WORDS
+   and a flex row breaks between ENTRIES. Measured on the dashboard at 360 px on #388's tree: the
+   five entries want 457 px of box -- Dashboard 96, Accounts 78, Audit trail 83, Lockout profiles
+   130, Settings 70 -- and inside the 312 px this page has, in document order, the row puts
+   Dashboard, Accounts and Audit trail on its first line (the last ending at x=310), Lockout
+   profiles and Settings on its second (ending at x=238), and the sign-out form alone on a third:
+   joining the second line would need 238+14+90 = 342 px against the 312 there are, so the third
+   line is forced by the order and the widths rather than by a packer that missed a tighter fit
+   (nav 312x123, header 192 tall). The numbers this comment carried before -- 323 px of entries,
+   nav 312x82, header 131 -- measured the short words on a masthead that had no <h1>, and the 21 px
+   between 131 and 152 is D-0016's heading: #468 is the issue that files the fact that nothing here
+   re-measures a number like that. At 1024 px the pre-rename measurement recorded all five plus the
+   form on one line (nav 976x40); the words measured now sum to 617 px with the form, which fits
+   976 by arithmetic, but no frame can show it on this branch: the capture harness refuses a session
+   wider than 360 px (`scrollWidth 1024 != 360`). The other shape was a word broken across lines,
+   the failure this file has refused before.
+
+   Flex also makes the sign-out form a member of the row instead of a block under it, which is
+   what the shell's `class="inline-form"` has claimed all along -- a class no rule in this file
+   ever read, the same kind of unwired hook D-0012 refused.
+
+   `nav a:hover` is above the current-page rule and that rule names `text-decoration` itself.
+   That order is the whole reason the page you are on stops answering the mouse: at equal
+   specificity the later rule wins, so hovering it does not underline it while hovering a page
+   you are not on still says it is a link. Written as `nav a[aria-current="page"]:not(:hover)`
+   it behaves identically today and goes wrong the day someone moves the hover rule below it. */
+nav {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: .15rem .9rem;
+}
+
+nav a {
+	color: var(--muted);
+	font-weight: 500;
+	text-decoration: none;
+	/* The target, not the glyph. Measured on the same link at both viewports: with this line out
+	   the box is 26 px tall, with it 40 -- the box a parent holding a phone can actually hit --
+	   and `:focus-visible` draws its ring OUTSIDE the box, so the focus state grew with it rather
+	   than being clipped by it. #199 asked for a layout that does not break "in some places"; the
+	   place it broke for a thumb was here, at 26 px. Every entry gets the same padding, which is
+	   also why marking the current one by color and weight is the cheap option: a mark that added
+	   height would move the whole row. */
+	padding: .45rem .3rem;
+	/* Reserved now so the current page can be marked by color and weight alone. A `border-bottom`
+	   introduced only by the current-page rule would grow that link's box by its own width and
+	   move the whole baseline down on every page the shell renders -- which is every page. */
+	border-bottom: 2px solid transparent;
+}
+
+nav a:hover {
+	color: var(--ink);
+	text-decoration: underline;
+}
+
+nav a:active {
+	color: var(--ink);
+}
+
+/* Three properties, on purpose. #204's criterion is that the current entry differ from every
+   sibling in at least one of `color`, `font-weight`, `text-decoration-line` and
+   `border-bottom-width`, and the cheapest compliant answer -- `text-decoration: underline` on
+   the current page -- is the one that would have made the page you are on look like the link it
+   just stopped being. Weight and ink carry the mark; the rule underneath carries the fact that
+   this entry is where you are rather than somewhere to go. The capture driver measures every one
+   of these -- color, weight, decoration, border width and border color -- on all nine pages at
+   both viewports and refuses if none of them differ from a sibling's
+   (`cdp.require_nav_distinguishable`), so deleting two of the three still has to leave one the
+   browser agrees is visible. */
+nav a[aria-current="page"] {
+	color: var(--ink);
+	font-weight: 600;
+	text-decoration: none;
+	border-bottom-color: var(--line);
+}
+
+/* A tick box travels with its own words (#202).
+
+   Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`
+   -- the control inside the label that names it, so the whole phrase is clickable. An inline-level
+   label breaks at any space, so at the artifact viewport the enforcement pair could wrap with the
+   box stranded at the end of a line and its sentence beginning the next, and nothing separated one
+   option from the next: `On — enforce the schedule` / `Off — stop locking everyone out` ran to the
+   right edge as one undifferentiated run of text. Making each label a single atomic inline-level
+   box means the box and the words belonging to it wrap together, in every group at once -- the
+   enforcement pair, the three transport positions, the seven day boxes on a rule form, the all-day
+   box, the enabled box on an account row.
+
+   `display: inline-flex` swallows the whitespace between the control and its text -- a
+   whitespace-only run generates no flex item -- so the gutter between them is `gap`, declared
+   rather than left to a space character that the next edit might not leave behind. The right margin
+   is what separates one option from the next, and the block-axis padding is what gives a wrapped
+   group any vertical rhythm: a block-axis *margin* on an inline-level box does not move the line it
+   sits on, while padding makes the box taller and the line box taller with it.
+
+   `:has()` is load-bearing here -- a label is only a choice group because of what is inside it, and
+   the templates carry no class that says so -- and it is measured rather than trusted. A selector a
+   browser has never heard of is dropped without a word and leaves the page exactly as it was, so
+   `require_choice_groups` in testing/capture/cdp.py asks the browser, on every photographed page,
+   what the computed `display` of every wrapping label actually is. A browser that drops the rule
+   gets the layout this file had before it, which is the same fallback the two-value `overflow-wrap`
+   pair near the top of this file relies on. */
+label:has(> input:is([type="radio"], [type="checkbox"])) {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .4rem;
+	margin-right: 1.1rem;
+	padding-block: .15rem;
 }
 
 button {
@@ -147,6 +520,41 @@ a:focus-visible,
 input:focus-visible {
 	outline: 2px solid var(--ink);
 	outline-offset: 2px;
+}
+
+/* The shell's skip link (#387, delivering #204's last undelivered bullet): it is the first
+   element in the document, so it is the first Tab stop on every page, and it stays invisible
+   until it has focus. Collapsed with the idiom `table.rows thead` already uses below — out of
+   the layout, out of the paint, still in the accessibility tree and still focusable. It is NOT
+   `display: none`, which removes the subtree from the sequential focus navigation order
+   altogether: a keyboard reader could never reach the link that exists for keyboard readers
+   (D-0087). The revealed state does NOT return the box to the flow either: a revealed skip
+   link that pushed the masthead down would reflow every page on every Tab press — the same
+   repaint the enforcement loop is made to tolerate for being cheap (#1748's reasoning), but
+   here for no reason. It floats over the page instead: width, height and clip release,
+   position stays absolute. Colours ride the same tokens the dark block swaps, so the revealed
+   link reads in either scheme. */
+.skip {
+	position: absolute;
+	left: .5rem;
+	top: .5rem;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
+.skip:focus {
+	width: auto;
+	height: auto;
+	overflow: visible;
+	clip-path: none;
+	padding: .4rem .8rem;
+	background: var(--bg);
+	border: 1px solid var(--ink);
+	border-radius: 4px;
+	z-index: 10;
 }
 
 /* The request id is printed on every error so it can be read out over the phone.

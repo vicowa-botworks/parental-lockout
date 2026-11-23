@@ -345,7 +345,7 @@ func settingsConfirmation(changes []string, flipped *bool) string {
 		return b.String()
 	}
 	b.WriteString(" Enforcement is switched off, so nothing is being locked out and nothing will " +
-		"be, whatever the schedule says, until it is switched back on. The status page says so too, " +
+		"be, whatever the schedule says, until it is switched back on. The dashboard says so too, " +
 		"and the daemon stops re-asserting locks from its next tick.")
 	return b.String()
 }

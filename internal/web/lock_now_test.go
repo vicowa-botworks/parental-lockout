@@ -713,9 +713,14 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 	t.Helper()
 	// Both halves have to be present or the assertion below is vacuous: a row with no
 	// detail has nothing to run into anything.
-	i := strings.Index(raw, `<span class="override">`)
+	//
+	// The note's class is `exempt`, the name #239 gave the self-session sentence when
+	// `.override` turned out to mean both an open hold and a sentence saying nothing is
+	// held. The name is part of this seam's identity now, so a rename has to arrive here
+	// too rather than leave this helper measuring nothing.
+	i := strings.Index(raw, `<span class="exempt">`)
 	if i < 0 {
-		t.Fatalf("the row rendered no self-session note, so nothing was tested: %s", raw)
+		t.Fatalf("the row rendered no `class=\"exempt\"` self-session note, so nothing was tested: %s", raw)
 	}
 	// Both spans are found by searching back from the note, not forward from the top of the
 	// page. The probe page puts a class="problem" span in its banner, so the first one on

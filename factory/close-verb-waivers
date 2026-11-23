@@ -1,0 +1,18 @@
+# Adjudicated closing claims in published commit messages.
+#
+# Read scripts/check-commit-verbs.sh before adding a line. The rules it enforces and the rules it
+# trusts are different, and both are stated here so a reviewer can tell them apart:
+#
+#   mechanical   a waiver must name a full commit sha and the EXACT number set the report prints. A
+#                line naming fewer numbers leaves the report failing; one naming more is stale and
+#                also leaves it failing.
+#   mechanical   every waiver is reprinted on every run. Nothing here is silently skipped.
+#   by review    a claim is waivable only once its message is PUBLISHED. History on this repository
+#                is never rewritten (AGENTS.md: `git revert`, never a force-push; every merge is a
+#                merge commit), so before publication the remedy is to rewrite the message, not to
+#                write a line here. Only the reviewer sees whether that order was respected.
+#   by review    the reason must say what was read back. A waiver without a read-back is a guess.
+#
+# Format: <full-sha> <comma-separated numbers, ascending> <one-line reason>. Blank and `#` lines are
+# comments. One entry per commit, on one line, because the reprint prints that line verbatim.
+8c9999b0807900eeed5d27bc249a64599271a857 77,78 published in 8c9999b (PR #357 review round 1) before any check read a commit message; the two numbers are the quoted specimens inside the sentence that warns about this exact hazard, and both artifacts were already closed when the message was written -- #77 MERGED 2026-10-17T00:00:04Z, #78 CLOSED 2026-10-16T15:00:51Z, both read back 14 Nov with `gh issue view N --state all --json number,state,closedAt`; whether GitHub acts on an `-ing` form is unmeasured, and the message is permanent history, so nothing is recallable. This line is the decision that the claim stands, not a way to skip the check.

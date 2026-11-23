@@ -210,16 +210,29 @@ func authGetPW(t *testing.T, f *pwFixture, path string) *httptest.ResponseRecord
 // checked by the same helper rather than one of them being untested.
 func refusalSentence(t *testing.T, body string) string {
 	t.Helper()
-	i := strings.Index(body, `class="problem"`)
-	if i < 0 {
-		return body
+	// Two transports carry a refusal out of the rotation handler: the page's own paragraph on a 401/400
+	// re-render of /settings, and a `text/plain` body on the 503 arms (`http.Error`, handlers.go:112 and
+	// :123). Both ARE the sentence, so both are returned here.
+	//
+	// What may not happen is the whole document being passed off as the sentence. The first version of
+	// this helper searched for `class="problem"` and returned the entire page when it found none, and the
+	// assertions on top of it are of the kind that break on that -- "the refusal must not name a
+	// rotation" failed on words from a help paragraph three screens below the refusal. #239 is the pass
+	// that found it, because the paragraph it searched for changed name to `refusal`: a search that can
+	// silently miss is a guard that reads nothing, so a page with no refusal paragraph is a Fatalf now
+	// and only a non-HTML body is accepted as the sentence itself.
+	if i := strings.Index(body, `class="refusal"`); i >= 0 {
+		rest := body[i:]
+		end := strings.Index(rest, "</p>")
+		if end < 0 {
+			t.Fatalf("the refusal sentence is unclosed:\n%s", body)
+		}
+		return rest[:end]
 	}
-	rest := body[i:]
-	end := strings.Index(rest, "</p>")
-	if end < 0 {
-		t.Fatalf("the problem sentence is unclosed:\n%s", body)
+	if i := strings.Index(strings.ToLower(body), "<!doctype"); i >= 0 {
+		t.Fatalf("an HTML page rendered no refusal sentence, so nothing was tested:\n%s", body[i:])
 	}
-	return rest[:end]
+	return strings.TrimSpace(body)
 }
 
 func TestTheSettingsPageOffersTheRotationForm(t *testing.T) {

@@ -372,3 +372,48 @@ func TestTheStylesheetPrintsTheNarrowLabels(t *testing.T) {
 		}
 	}
 }
+
+// The rules #202 adds are pinned here for the box with no browser in it.
+//
+// The bargain is the one TestTheStylesheetPrintsTheNarrowLabels records: a grep pins presence, not
+// effect. The effect IS measured, just not here -- testing/capture/cdp.py's require_control_font,
+// require_control_width and require_choice_groups ask Chrome what every control on every photographed
+// page actually computes, and pages.py --self-test pins each of those three refusing the one defect
+// it names. What this grep adds is the gap between those two runs: a capture is a live run, so on a
+// machine with no Chrome -- a runner, a fresh clone -- the only thing standing between a deleted rule
+// and a green build is this file.
+func TestTheStylesheetOwnsEveryFormControl(t *testing.T) {
+	css, err := fs.ReadFile(Assets(), "app.css")
+	if err != nil {
+		t.Fatalf("app.css is not embedded: %v", err)
+	}
+	text := string(css)
+	for _, pin := range []struct{ want, why string }{
+		// The typeface rule is one selector over all three element types, and it is pinned as a
+		// block rather than as `font: inherit` alone: that string already appears on `button`, so a
+		// grep for it would keep passing the day somebody narrows the list back to one type -- the
+		// exact shape that caused #202.
+		{"input,\nselect,\ntextarea {\n\tfont: inherit;\n}",
+			"every input, select and textarea goes back to the browser's own typeface, so the page " +
+				"renders its prose in one face and its fields in another"},
+		// The width model lists the types that are typed into, positively, so the list is itself
+		// under test. `:not([type])` is the entry that matters most: most fields here are written
+		// with no type attribute at all, and a model that forgot it sizes half of /settings by the
+		// browser's default.
+		{"input:where(:not([type]),",
+			"an input written without a type attribute is outside the width model again"},
+		{"max-width: 22ch;",
+			"a field inside a table cell can no longer be shrunk to the cell, so the page's width " +
+				"goes back to whatever control happens to be widest"},
+		// `:has()` reaches a choice group by what is inside it, because no template carries a class
+		// that says "choice group". The capture measures whether a browser applied it; this pins
+		// that the stylesheet still asks.
+		{`label:has(> input:is([type="radio"], [type="checkbox"]))`,
+			"a tick box is no longer held with the words that name it, so it wraps onto a line of " +
+				"its own in the middle of a choice group"},
+	} {
+		if !strings.Contains(text, pin.want) {
+			t.Errorf("app.css no longer contains %q -- %s", pin.want, pin.why)
+		}
+	}
+}

@@ -25,7 +25,12 @@ func installServeSelfLocation(t *testing.T, uid uint32, inside bool) {
 	serveSelfLocation = func() platform.SelfLocation {
 		return platform.SelfLocation{UID: uid, InUserSlice: inside}
 	}
-	t.Cleanup(func() { serveSelfLocation = previous })
+	t.Cleanup(func() {
+		if liveServeDaemons.Load() > 0 {
+			return // see liveServeDaemons in serve_test.go: the stub stays, /proc stays out of reach
+		}
+		serveSelfLocation = previous
+	})
 }
 
 // A daemon that has decided not to lock an account has to say so where the operator
@@ -37,7 +42,7 @@ func installServeSelfLocation(t *testing.T, uid uint32, inside bool) {
 func TestServeSaysWhenItWillNotLockItsOwnSession(t *testing.T) {
 	installServeSelfLocation(t, 1001, true)
 
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	waitFor(t, errOut, "will NOT be locked", 10*time.Second)
 
 	got := errOut.String()
@@ -57,7 +62,7 @@ func TestServeStaysQuietAboutItsOwnSessionWhenItHasNone(t *testing.T) {
 	// What a systemd system unit resolves to: no user slice, so no session to skip.
 	installServeSelfLocation(t, 0, false)
 
-	_, errOut, _, _ := startServe(t)
+	_, errOut, _, _, _ := startServe(t)
 	// Prove stderr is live before asserting absence, or this passes on a daemon that
 	// wrote nothing anywhere.
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)

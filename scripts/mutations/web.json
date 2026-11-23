@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 287,
+  "expected_mutants": 298,
   "mutants": [
     {
       "id": "W1",
@@ -1339,9 +1339,9 @@
     {
       "id": "W199",
       "file": "internal/web/templates/lock.tmpl",
-      "old": "<span class=\"override\">This is the session the daemon runs",
+      "old": "<span class=\"exempt\">This is the session the daemon runs",
       "new": "<span class=\"state-held\">This is the session the daemon runs",
-      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt`: the old text stopped existing, which is how check-mutations reports a mutant that tests nothing. What it kills is unchanged -- the note wearing the colour of a proved lock."
     },
     {
       "id": "W200",
@@ -1465,16 +1465,16 @@
     {
       "id": "W204",
       "file": "internal/web/templates/lock.tmpl",
-      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
-      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
-      "note": "#103's separator deleted, so the two spans land against each other and the cell renders '...confirmed.This is the session...'. The terminator is still correct, which is exactly why the terminator assertion alone cannot see it -- the killer is the separation half of assertTheDetailCellEndsWhereTheNoteBegins, restored after the first review round found this hole. TestTheSelfSessionNoteDoesNotRunIntoTheDetail."
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"exempt\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"exempt\">",
+      "note": "#103's separator deleted, so the two spans land against each other and the cell renders '...confirmed.This is the session...'. The terminator is still correct, which is exactly why the terminator assertion alone cannot see it -- the killer is the separation half of assertTheDetailCellEndsWhereTheNoteBegins, restored after the first review round found this hole. TestTheSelfSessionNoteDoesNotRunIntoTheDetail. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt` for the same reason: the separator it deletes is the same byte behind a different name."
     },
     {
       "id": "W205",
       "file": "internal/web/templates/testlock.tmpl",
-      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
-      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
-      "note": "the same separator deleted on the probe page, the copy of this cell. The lock page is untouched and stays green, so only this page's own guard can see it. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"exempt\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"exempt\">",
+      "note": "the same separator deleted on the probe page, the copy of this cell. The lock page is untouched and stays green, so only this page's own guard can see it. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt` for the same reason: the separator it deletes is the same byte behind a different name."
     },
     {
       "id": "W206",
@@ -1521,9 +1521,9 @@
     {
       "id": "W212",
       "file": "internal/web/settings.go",
-      "old": "\tb.WriteString(\" Enforcement is switched off, so nothing is being locked out and nothing will \" +\n\t\t\"be, whatever the schedule says, until it is switched back on. The status page says so too, \" +\n\t\t\"and the daemon stops re-asserting locks from its next tick.\")",
+      "old": "\tb.WriteString(\" Enforcement is switched off, so nothing is being locked out and nothing will \" +\n\t\t\"be, whatever the schedule says, until it is switched back on. The dashboard says so too, \" +\n\t\t\"and the daemon stops re-asserting locks from its next tick.\")",
       "new": "\tb.WriteString(\" Settings saved.\")",
-      "note": "the confirmation for the fail-open control becomes generic, which is the wording that lets a parent read 'saved' and believe the daemon is still locking. Scoped to the status paragraph by the killer, because the page's own banner says the off-state sentence whether or not the submit was accepted. TestTheConfirmationNamesWhatStopsHappening."
+      "note": "the confirmation for the fail-open control becomes generic, which is the wording that lets a parent read 'saved' and believe the daemon is still locking. Scoped to the off-state paragraph by the killer, because the page's own banner says the off-state sentence whether or not the submit was accepted. TestTheConfirmationNamesWhatStopsHappening. #388 re-pointed this row's `old` when the root page's reader-facing word became `dashboard`: same sentence, same three lines, one word moved with the page it names. (#388)"
     },
     {
       "id": "W213",
@@ -1535,9 +1535,9 @@
     {
       "id": "W214",
       "file": "internal/web/templates/page.tmpl",
-      "old": "    <a href=\"/settings\">Settings</a>",
+      "old": "    <a {{if .IsCurrent \"/settings\"}}aria-current=\"page\" {{end}}href=\"/settings\">Settings</a>",
       "new": "",
-      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation."
+      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation. Re-pointed in the #204 merge (D-0033), which put an `aria-current` action on every entry in the shell: the bare anchor then matched 0 places, and a mutant whose pattern matches nothing tests nothing while the tests beside it keep passing -- `check-mutations.py` names it in seconds, twelve minutes before a battery would print it as NOT APPLIED. The whole anchor is still what goes away, so the behaviour under test is the one this row was written for."
     },
     {
       "id": "W215",
@@ -1912,9 +1912,9 @@
       "id": "W264",
       "package": "./internal/web/",
       "file": "internal/web/templates/settings.tmpl",
-      "old": "    <p class=\"problem\">\n      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are\n      reading this page over the transport the daemon chose when it came up, so switching to\n      \"no TLS\" does not make this connection plain, and switching to a certificate does not make\n      it secure. Restart the daemon to apply it.\n    </p>\n    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>\n    <p class=\"muted\">\n      If a certificate you later move, or that expires, stops the daemon from starting, the daemon\n      says so in its log and <code>plock doctor</code> names the file. Getting this page back means\n      editing <code>settings.tls</code> in the config file as root.\n    </p>",
+      "old": "    <p class=\"muted\">\n      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are\n      reading this page over the transport the daemon chose when it came up, so switching to\n      \"no TLS\" does not make this connection plain, and switching to a certificate does not make\n      it secure. Restart the daemon to apply it.\n    </p>\n    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>\n    <p class=\"muted\">\n      If a certificate you later move, or that expires, stops the daemon from starting, the daemon\n      says so in its log and <code>plock doctor</code> names the file. Getting this page back means\n      editing <code>settings.tls</code> in the config file as root.\n    </p>",
       "new": "",
-      "note": "the form stops saying the change waits for a restart. This is the sentence that keeps an operator from believing the wire changed the moment they pressed Save, and it is the one most likely to be tidied away as repetition of the confirmation. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
+      "note": "the form stops saying the change waits for a restart. This is the sentence that keeps an operator from believing the wire changed the moment they pressed Save, and it is the one most likely to be tidied away as repetition of the confirmation. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies. Re-pointed when #239 moved the help paragraph to `muted`, the voice the three paragraphs around it already had: the paragraph is the same bytes under the new name, and the restart sentence it deletes is still the one most likely to be tidied away as repetition of the confirmation."
     },
     {
       "id": "W265",
@@ -2054,9 +2054,9 @@
       "id": "W282",
       "package": "./internal/web/",
       "file": "internal/web/templates/profiles.tmpl",
-      "old": "{{if .Notice}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
-      "new": "{{if false}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
-      "note": "the handler sets the sentence and the template drops it: the Go-side assertions on page.Notice would all still pass, which is why the sentence is also pinned from the markup side. postRefusal refuses a page with no sentence."
+      "old": "{{if .Notice}}\n<p id=\"refusal\" class=\"refusal\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "new": "{{if false}}\n<p id=\"refusal\" class=\"refusal\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "note": "the handler sets the sentence and the template drops it: the Go-side assertions on page.Notice would all still pass, which is why the sentence is also pinned from the markup side. postRefusal refuses a page with no sentence. Re-pointed when #239 renamed the refused-write paragraph's class from `problem` to `refusal`: the paragraph this mutant drops is the same one, and postRefusal still refuses a page with no sentence."
     },
     {
       "id": "W283",
@@ -2176,6 +2176,84 @@
       "old": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\"{{if and $row.Configured $row.Configured.Enabled}} checked{{end}}>",
       "new": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\" checked>",
       "note": "the enabled box ticks itself on for EVERY row, including an entry that is switched off. The operator sees enabled, saves anything else on that row, and the write sets enabled=on -- an account left free on purpose comes back locked out from an edit that never touched the checkbox. This is W145's outcome reached from the render side, where W145 cannot see it. The inverse mutant (delete the conditional, so the box never ticks) is not declared separately: the `new` here already covers the dangerous direction, and both are killed by the same attribute-scoped read. TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled. (#200) Killed once, by that test alone -- the whole package fails exactly one test under this mutant. If TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled is ever edited, W297 has no second killer."
+    },
+    {
+      "id": "W298",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <h1>{{template \"title\" .}}</h1>",
+      "new": "  <h1>parental lockout</h1>",
+      "note": "the product's name back in the one heading every page shares -- #219's defect itself rather than a paraphrase of it. Every page in the site opens with the same two words again, while <title> goes on telling the truth, so the document now disagrees with itself about which page it is and only the tab strip knows. Killed by the product-name clause of headingComplaints: TestEveryPageNamesItselfInTheHeading on the four GET pages, /audit on its own fixture, /login unauthenticated, and TestTheResultPagesNameThemselvesInTheHeading on the two pages a POST alone renders -- which is the half a loop over GET-able paths cannot reach."
+    },
+    {
+      "id": "W299",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <p class=\"masthead__name\">parental lockout</p>\n",
+      "new": "",
+      "note": "the brand line deleted instead of demoted. This is how #219 gets undone by somebody tidying the header: the visible document stops saying what software it is, and every whole-body assertion in the package still passes, because <title> carries the words and `body` still contains them. It is why headingComplaints looks for the product's name with <title> and every heading element taken out of the document rather than searching the body. Same killers as W298, on the visible-brand clause."
+    },
+    {
+      "id": "W300",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <h1>{{template \"title\" .}}</h1>",
+      "new": "  <h1>Dashboard</h1>",
+      "note": "the shell's heading becomes a literal page name. This is the drift the relationship is there to catch, and the reason the guard compares the heading with the page's own <title> instead of holding a list of acceptable strings: 'Dashboard' is a legitimate page name of this product, so any check that only asks whether the heading names the PRODUCT passes, on all five pages -- four of which now claim to be the dashboard while their tab strips say Accounts, Audit trail, Lockout profiles and Settings. Only 'same words, two places' calls it. Killed on the mismatch clause by the same two tests."
+    },
+    {
+      "id": "W301",
+      "file": "internal/web/templates/audit.tmpl",
+      "old": "{{.At.Format \"2006-01-02 15:04:05 -07:00\"}}",
+      "new": "{{.At.Format \"2006-01-02 15:04:05 MST\"}}",
+      "note": "the audit row goes back to printing a zone ABBREVIATION, which is #210's defect exactly: `time.Parse` hands the parsed instant the process's local zone when the stored offset matches that zone's abbreviation at that moment and a zone named after the bare offset otherwise, so the one column a parent quotes on the phone reads `2026-03-18 21:33:05 EDT` on a host in America/New_York and `... -0400` on one in UTC, and a systemd-started daemon inherits no TZ at all (`deploy/plock.service` sets none). Declared because the decision's only other pin is one test file: this set already has three mutants on this template (W157, W158, W159) and none of them touches the When cell, so deleting `internal/web/audit_row_zone_test.go` would retire #210 with `make verify` and this file both green -- the loss `scripts/check-mutations.py` cannot reach, because it proves existing patterns still apply and cannot notice a decision whose sole pin is gone. Measured twice: `mutate.py --only W301` catches it, and the same layout edit applied by hand fails `TestTheAuditRowIsStampedTheSameWhoeverReadsIt` and all four zone subtests. W302 is the other half of the cell. (#210)"
+    },
+    {
+      "id": "W302",
+      "file": "internal/web/templates/audit.tmpl",
+      "old": "{{.At.Format \"2006-01-02T15:04:05Z07:00\"}}",
+      "new": "{{.At.Format \"2006-01-02T15:04:05 MST\"}}",
+      "note": "the `datetime` attribute starts carrying a zone NAME, so the machine-readable half of the row disagrees with the text beside it: the attribute has printed the numeric offset since it existed and #210 made the human text agree with it, which is the whole claim the cell makes. Killed by the attribute assertion in the same test, not by the text assertion -- a distinct killer, which is why this is its own row rather than an inference from W301: W301 leaves the attribute untouched and this leaves the text untouched, and each has exactly one killer. Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#210)"
+    },
+    {
+      "id": "W303",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "<a class=\"skip\" href=\"#main\">Skip to content</a>\n",
+      "new": "",
+      "note": "the shell stops emitting the skip link -- #387's defect itself, and #204's undelivered bullet restated: the keyboard reader is back to walking the whole masthead to reach the page they are already on, and every whole-body assertion in the package still passes because nothing else in the document changes. Killed by the targeting count in TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage (zero links aim at the content region). Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387)"
+    },
+    {
+      "id": "W304",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "<main id=\"main\">",
+      "new": "<main>",
+      "note": "the target loses the id while the link keeps its href -- the exact false pass #387 names: `href=\"#main\"` now resolves to nothing, the link is decoration, and every grep that asks 'does the skip link exist' still says yes. Killed by the empty-id arm of TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage, which reads the id off the element and the fragment off the link instead of matching either literal. Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387)"
+    },
+    {
+      "id": "W305",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "<main id=\"main\">",
+      "new": "<div id=\"main\"></div>\n<main id=\"main\">",
+      "note": "a duplicate id stands ahead of the content region -- getElementById answers with the FIRST element bearing the id, so the skip link lands on the shadow, a box that still contains the masthead: #387's false pass wearing a second element. Every single-element fact stays true -- the link exists, the id exists, the count of <main> is one. Killed by the uniqueness arm of TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage (two elements carry the target id), and in the browser by require_skip_link's ttag != MAIN arm (the census reports the landing tag). Measured with `mutate.py --only` on a one-row set before it was declared: CAUGHT. (#387 round-2 review)"
+    }
+,
+    {
+      "id": "W306",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    <a {{if .IsCurrent \"/\"}}aria-current=\"page\" {{end}}href=\"/\">Dashboard</a>\n",
+      "new": "    <a {{if .IsCurrent \"/\"}}aria-current=\"page\" {{end}}href=\"/\">Status</a>\n",
+      "note": "the root page goes back to carrying two names: the navigation entry reads `Status` while the tab strip and the `<h1>` read `Dashboard` -- the state #388 was filed about. It is the state #219's guards cannot see: the heading and `<title>` are two renderings of the same `title` block, so they cannot disagree, and the entry is a literal written by hand in this file, so no existing comparison spans the two. Killed by `TestEachNavEntryNamesThePageItLinksTo` and by the label list in `TestTheMastheadLinksAreSeparatedInTheRenderedBytes`, which #388 re-aimed at the new five words with a sentence saying the relationship is pinned elsewhere: the list pins the words, this row pins the words to the pages, and a list of words passes just as happily on a shell whose row has drifted from four of the five names. Declared with the decision it protects (D-0088), which is also the entry that renamed the page. Measured on this branch by applying the swap by hand and reading every failing test name, then again with `mutate.py --only W306`: CAUGHT, by both. (#388)"
+    },
+    {
+      "id": "W307",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "{{define \"title\"}}Dashboard{{end}}",
+      "new": "{{define \"title\"}}Status{{end}}",
+      "note": "the other half of #388's pair, and the half W306 cannot reach: here the PAGE renames itself, so the tab strip and the `<h1>` read `Status` while the navigation entry, the harness's frame `dashboard.png`, the package `internal/dashboard` and the 17 mentions in `docs/` and `README.md` say `dashboard` -- the split #388 names, running the other way and invisibly to everything #219 left behind, because `TestEveryPageNamesItselfInTheHeading` compares two renderings of THIS block and so agrees with whatever this line says, and the masthead label list reads the anchors, which are untouched. Measured on this branch: the swap by hand fails exactly one test, `TestEachNavEntryNamesThePageItLinksTo`, the only place in the suite that reads an entry against the page it routes to. That measurement is why this is its own row rather than an inference from W306: W306 has two killers and this has one, so deleting the new guard retires this check and nothing else notices. `mutate.py --only W307`: CAUGHT, by that one. (#388)"
+    },
+    {
+      "id": "W308",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    <a {{if .IsCurrent \"/audit\"}}aria-current=\"page\" {{end}}href=\"/audit\">Audit trail</a>\n",
+      "new": "    <a {{if .IsCurrent \"/audit\"}}aria-current=\"page\" {{end}}href=\"/audit\">Audit</a>\n",
+      "note": "the pair #388 found beside the root page, and the shape that recurs: `/audit` is headed `Audit trail` and its entry goes back to `Audit`, so the row makes the reader decide whether those are one place. This row is why the guard is a comparison over all five sections rather than an assertion about the root's word -- the drift is one template edit on either side of either pair, and `/profiles` carries the same shape (`Lockout profiles` under an entry that read `Profiles` at the checkpoint). Killed by `TestEachNavEntryNamesThePageItLinksTo`, whose refusal names the path and quotes both spellings, and by #388's re-aimed label list in `TestTheMastheadLinksAreSeparatedInTheRenderedBytes`, which notices only that a word it expects is gone -- the two killers differ in what they can say about the defect, which is the reason both are recorded. Measured the same way as W306 and with `mutate.py --only W308`: CAUGHT, by both. (#388)"
     }
   ]
 }

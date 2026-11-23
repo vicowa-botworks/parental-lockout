@@ -15,6 +15,11 @@ rather than {{.Data.Banner}}. Note that these are `template` invocations, not
 `block`: `block` defines and invokes in one form, so a default in the shell would
 collide with every page's own definition and the set would not parse.
 
+"title" is rendered twice, into <title> and into the masthead's one <h1>, and that single
+definition is the point (#219): a page cannot then carry a tab strip that says one thing and a
+heading that says another. "pagename" is the body's class and nothing more -- the slug is not
+the name anybody reads.
+
 The one thing in the head that looks dynamic is the asset URL, and it is not: it is a
 content hash computed at startup from the embedded bytes, so the response can be
 cached as immutable for a year.
@@ -32,33 +37,64 @@ cached as immutable for a year.
 {{with .CSS}}<link rel="stylesheet" href="{{.}}">{{end}}
 </head>
 <body class="page-{{template "pagename" .}}">
+<a class="skip" href="#main">Skip to content</a>
+    {{/* #387 delivers the skip link #204 listed as its one undelivered bullet, and it is the
+        FIRST element of every page the shell renders -- before the masthead, so it is first in
+        the tab order. Collapsed by class, never by `display: none`: an element in a display:none
+        subtree is not focusable at all, and a link a keyboard can never reach is not a skip
+        link (D-0087). The collapse and the reveal both live in app.css (.skip, .skip:focus);
+        TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage is the byte-level guard. No trim
+        dashes on this element either -- it is one line with nothing beside it, and #261 is
+        above every edit to this block. */}}
 <header class="masthead">
-  <h1><a href="/">parental lockout</a></h1>
+  {{/* Two findings, one pair of elements.
+
+      #219: the site's one heading names the PAGE, and it takes the words from this page's own
+      "title" block -- the same block <title> is built from, so the tab strip and the heading
+      cannot disagree. It used to hold the product's name, so the first heading of every page in
+      the site said the same two words and a reader moving heading to heading never learned which
+      page they were on. The heading list was long the only such navigation -- the shell's
+      comment apologised for the missing skip link (#204) until #387 delivered it, and the
+      apology went with the defect. TestEveryPageNamesItselfInTheHeading is this guard, and
+      TestTheShellCarriesASkipLinkFirstAndLandingOnThisPage guards the other.
+
+      #204 measured two anchors in this header with the same `href="/"` on the page the root
+      renders, differing only in weight -- "One of them is not a navigation target, and nothing
+      says which." The product's name is therefore a label: not a heading, because it is not what
+      this page is, and not a link, because the nav below already holds the only anchor to "/"
+      worth having -- and the entry for the page the reader is on now says so, in the row
+      underneath. TestTheHeaderRoutesToTheRootExactlyOnce keeps the anchor from coming back as a
+      well-meaning wordmark.
+
+      No trimming dashes anywhere in this block: the whitespace between the label, the heading and
+      `<nav>` is the only thing separating inline elements, and this file has already shipped two
+      of them welded together that way. */}}
+  <p class="masthead__name">parental lockout</p>
+  <h1>{{template "title" .}}</h1>
   <nav>
-    {{- /* Every link here carries the page it points at twice: in its href, and as the
-           string compared below. `.Page` is the name render() looked this template up by
-           (internal/web/sources.go, pageData.Page), and the shell -- not the page -- owns
-           the navigation, so the shell is where the comparison has to live.
+    {{/* Every entry asks the shell whether it is the reader's own section, and says so in the
+        markup rather than in a style: `aria-current="page"` is what a screen reader announces as
+        "current item", and it is the attribute the stylesheet in app.css marks the same link
+        with. #204 measured the two halves of the same absence -- no attribute for a rule to hook
+        onto, so no link differed from any other on any property, on any page.
 
-           `aria-current="page"` is the mark rather than a class, because the two are not
-           the same claim and only one of them is the claim #204 is short of. A class says
-           "style this one differently"; aria-current says "this link IS the page you are
-           reading", which is what a screen reader announces, what a reader who cannot see
-           the styling gets, and what the stylesheet can hang a rule off anyway --
-           `a[aria-current="page"]` in static/app.css. #204's own measurement of the
-           symptom is that the only element on any page that differed from a link was the
-           h1 title, and it differed because h1 makes text 700 weight: an unmarked row of
-           identical anchors is not a navigation with a current page, it is five guesses.
+        The test lives in Go (pageData.IsCurrent) and not in five conditionals here, because the
+        answer is one rule about the URL. Every action in this block is dash-free on purpose: a
+        trimming action deletes the whitespace it points at, and this file has already shipped
+        "ProfilesSettings" that way. The guard is
+        TestTheMastheadLinksAreSeparatedInTheRenderedBytes.
 
-           Pages the navigation does not contain -- the two POST result pages, whose paths
-           are /users/<name>/lock-now and /users/<name>/test-lock -- mark nothing, which is
-           correct: marking "Accounts" from a lock result page would claim the reader is on
-           /users, and they are not. That is why the comparison is against the render name
-           rather than a prefix match on the path. */ -}}
-    <a href="/"{{if eq .Page "dashboard"}} aria-current="page"{{end}}>Status</a>
-    <a href="/users"{{if eq .Page "users"}} aria-current="page"{{end}}>Accounts</a>
-    <a href="/audit"{{if eq .Page "audit"}} aria-current="page"{{end}}>Audit</a>
-    <a href="/profiles"{{if eq .Page "profiles"}} aria-current="page"{{end}}>Profiles</a>
+        Each entry's words ARE the name of the page it links to -- the same words that page's
+        "title" block puts in <title> and in the <h1> -- so a reader scanning the row and a reader
+        at the heading are reading one name per section (#388). Two of them are therefore longer
+        than one word, which costs the phone row one wrapped line and buys the row back its
+        meaning: an entry called "Audit" over a page headed "Audit trail" asks the reader to
+        decide whether those are two places. TestEachNavEntryNamesThePageItLinksTo compares every
+        entry with the <h1> it routes to, on all five pages. */}}
+    <a {{if .IsCurrent "/"}}aria-current="page" {{end}}href="/">Dashboard</a>
+    <a {{if .IsCurrent "/users"}}aria-current="page" {{end}}href="/users">Accounts</a>
+    <a {{if .IsCurrent "/audit"}}aria-current="page" {{end}}href="/audit">Audit trail</a>
+    <a {{if .IsCurrent "/profiles"}}aria-current="page" {{end}}href="/profiles">Lockout profiles</a>
     {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
         navigation itself changes nothing, and a GET that mutates is the thing this repo's
         POST-only rule exists to stop.
@@ -68,7 +104,7 @@ cached as immutable for a year.
         elements with {{- -}} removes the space that separated them: this line shipped as
         "ProfilesSettings" in the masthead and the 360 px photograph is what showed it.
         TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}
-    <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}>Settings</a>
+    <a {{if .IsCurrent "/settings"}}aria-current="page" {{end}}href="/settings">Settings</a>
     {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
          reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">
@@ -77,7 +113,7 @@ cached as immutable for a year.
     </form>
   </nav>
 </header>
-<main>
+<main id="main">
 {{template "body" .Data}}
 </main>
 {{with .JS}}<script src="{{.}}" defer></script>{{end}}

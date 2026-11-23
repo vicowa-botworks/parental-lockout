@@ -57,3 +57,12 @@ __pycache__/
 
 # packaging artifacts (scripts/package.sh); never commit a built package
 /dist
+
+# The delivery supervisor's own state (#216): journal, ledger, lock, and the halt file. All four are
+# machine state. Every other entry in this file is here because `git add -A` swept it into a commit,
+# and hoping is not a control. HALT is ignored for a second reason: a halt one machine wrote should
+# not be shipped to another by a commit.
+/factory/log/
+/factory/ledger/
+/factory/run/
+/factory/HALT

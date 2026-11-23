@@ -21,6 +21,7 @@ photographs that page, next to the sentence it is checking.
 import argparse
 import base64
 import datetime
+import hashlib
 import json
 import os
 import os.path as op
@@ -68,6 +69,532 @@ def discard_stage():
         os.rmdir(stage)
 
 
+# The directory a refused run leaves its frames in, and the note beside them. See `keep_refused`
+# for why the bytes are kept and `refused_dir` for why they can only ever land here.
+REFUSED_NOTE = "REFUSED.txt"
+_REFUSED = None
+
+
+def refused_dir(mode):
+    """`testing/capture/runs/<mode>-refused` -- the only directory a refusal may write into.
+
+    Named from the fixture and from `RUNS`, never from `--out`, because `--out` is where the
+    evidence lives and a refusal's whole contract is that nothing lands there (#222 is what a
+    half-replaced evidence set costs). `--out runs/pages-refused` is the one way an operator
+    could point the two at the same directory, so `keep_refused` asks about the run's own target
+    as well and declines the keep when they overlap.
+    """
+    return op.join(RUNS, f"{mode}-refused")
+
+
+# What a publish leaves beside the fixture's own conditions file: the frames THIS run photographed,
+# with the bytes it wrote for each of them.
+RECEIPT = "capture.json"
+
+
+def receipt_path(fixture):
+    """`testing/capture/runs/<fixture>/capture.json` -- one run's word about its own frames.
+
+    Named from the fixture and from `RUNS`, exactly as `refused_dir` is, and for the same reason:
+    the file belongs to the fixture that ran, and `--out` says only where the bytes ended up. It
+    lives in `runs/`, which is gitignored, because it is a transcript of one run on one machine,
+    and what it is for is being read by `manifest.py record` in the minutes after that run -- the
+    committed half of the claim is the `photographed` block `record` writes from it (#302).
+    """
+    return op.join(RUNS, fixture, RECEIPT)
+
+
+def git_head():
+    """Where this checkout stands, as the capture itself sees it. Empty when git will not answer.
+
+    Asked at capture time and not at record time, which is the whole point (#302): the commit a
+    frame is dated at has to be the commit the photograph was rendered FROM, and by the time
+    anyone runs `record` the tree may have moved. An empty answer is kept empty rather than
+    invented -- a receipt naming no commit cannot vouch for a frame, and `record` says so.
+    """
+    try:
+        out = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True,
+                             text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def write_receipt(fixture, frames, head=None, at=None):
+    """Write what this run photographed, over whatever an earlier run claimed. Returns the path.
+
+    #302 is the reason this exists. `manifest.py record` dates a frame at `newest_commit(sources)`
+    -- the page's newest commit -- and for a frame the run *claims* (`--shot`) that is the driver's
+    word, not a measurement: `D-0055` conceded it in the sentence "the ordering obligation now
+    lives in the notes instead of in a check", and `7e65d3b` is what that costs (nine `--shot` names
+    typed eighteen seconds after a page commit, no PNG in the commit, seven rows moved onto a date
+    their pixels predate). A second reading of history cannot repair it, measured twice on #302 and
+    on #301: a re-take whose pixels do not change never produces a commit touching the PNG, so
+    `newest_commit(png)` can never catch a page commit that moved no pixels. So the answer has to
+    come from the run, and this is the one thing only the run can say.
+
+    Three properties, each load-bearing:
+
+      * **Digest-bound.** The frame is named with the sha256 of the bytes this run wrote, so the
+        claim attaches to *these* pixels and not to the filename.
+      * **Rewritten whole, never merged.** Yesterday's receipt for a frame today's run did not
+        photograph is a claim about a frame nobody photographed, which is the exact thing being
+        bought here. One run, one list.
+      * **Written only where a fixture ran.** `fixture_envs` returns a path only when the setup
+        script wrote its env, and the same rule applies: no `runs/<fixture>/fixture.env`, no
+        receipt, no conditions, no claim -- a weaker statement rather than a false one (#211).
+
+    A frame named and not on disk is refused here, at the source, rather than reaching the
+    recorder as a claim about a file that is not there -- the shape `record` already refuses
+    ("a driver that reports photographing a frame it did not write").
+    """
+    if not op.exists(op.join(RUNS, fixture, "fixture.env")):
+        return None
+    missing = [f for f in frames if not op.exists(f)]
+    if missing:
+        raise SystemExit(
+            f"{fixture}: this run reports photographing {op.basename(missing[0])}, and the file is "
+            f"not there, so no receipt is written. A run's word about a frame it did not publish is "
+            f"worth nothing, which is why `record` refuses one too (#302).")
+    entry = {"fixture": fixture,
+             "head": head if head is not None else git_head(),
+             "at": at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "frames": {}}
+    for path in frames:
+        stem = op.basename(path)
+        if not stem.endswith(".png"):
+            raise SystemExit(f"{fixture}: {path} is not a PNG, so it is not a frame this run "
+                             f"photographed.")
+        entry["frames"][stem[:-len(".png")]] = {"sha256": sha256_file(path),
+                                                "at": entry["at"], "head": entry["head"]}
+    path = receipt_path(fixture)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(entry, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def keep_refused(keep, note=None, out=None):
+    """Move what this run has staged into `keep`; write `note` beside it; touch nothing at `--out`.
+
+    Deleting the frames a refusal had already measured used to be the contract, and it made a
+    refusal an argument nobody could check. Measured 6 Nov on `main` with the condition the capture
+    notes already document as refusing this fixture
+    (`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh && ./pages.py`): one page refused, five measured
+    `FITS` and printed their artifact paths, and the run then deleted all five --
+
+        REFUSED: /: the 'casey' row says ['locked out until 18h 16m', ...]
+          no file was written
+          /users     @360   ... FITS  .../runs/pages/users.png
+          ... four more like it
+        Nothing was written to .../runs/pages.
+
+    Six sentences about files, and the directory held none of them. The operator had the refusal's
+    prose and nothing else, including no picture of the page that refused -- every guard runs
+    before `write_png`, which is correct for a publish and was silently correct for a look.
+
+    So the frames come here instead. Two properties are enforced below rather than trusted:
+
+      * **Moved, not copied from a live stage.** `_PENDING` is emptied, so `publish()` has no
+        entry left to copy even if a future caller reaches it with a broken refusal count. The
+        bytes are no longer addressed by a staged path at all.
+      * **Staleness cleared once, on opening, never again.** A frame from yesterday's refusal
+        sitting beside today's is the same lie in a new costume, so whatever is in the directory
+        when this run first opens it is deleted; what this run writes after that is left alone.
+
+    Safe to call more than once: it opens the directory on the first call and moves whatever has
+    been staged since the last. Returns the frames it moved this time, or None when it declined
+    to write there -- and declining destroys them, the old behaviour, because a keep directory
+    outside `runs/` or overlapping `--out` is a frame about to be read as evidence, which is worth
+    less than the bytes.
+    """
+    global _REFUSED
+    real_runs = op.realpath(RUNS)
+    real_keep = op.realpath(keep)
+    inside = real_keep != real_runs and (real_keep + op.sep).startswith(real_runs + op.sep)
+    real_out = op.realpath(out) if out else None
+    overlaps = real_out is not None and (real_keep == real_out
+                                         or real_keep.startswith(real_out + op.sep)
+                                         or real_out.startswith(real_keep + op.sep))
+    if not inside or overlaps:
+        why = (f"{keep} is not inside {real_runs}" if not inside else
+               f"{keep} is the directory this run publishes to (--out {out})")
+        operator_print(f"REFUSED-KEEP: {why}, so a frame left here could be read as the evidence "
+                       "this run refused to write. The frames it measured are destroyed instead.")
+        discard_stage()
+        return None
+    if _REFUSED != real_keep:
+        os.makedirs(real_keep, exist_ok=True)
+        stale = sorted(f for f in os.listdir(real_keep)
+                       if f.endswith(".png") or f == REFUSED_NOTE)
+        for name in stale:
+            os.remove(op.join(real_keep, name))
+        _REFUSED = real_keep
+        if stale:
+            operator_print(f"  {op.basename(real_keep)}/ cleared {len(stale)} file(s) from an "
+                           "earlier refusal; everything in it now came from this run")
+    stage = _stage_dir()
+    moved = []
+    for name in sorted(os.listdir(stage)) if op.isdir(stage) else []:
+        dest = op.join(real_keep, name)
+        os.replace(op.join(stage, name), dest)
+        moved.append(dest)
+    _PENDING.clear()
+    if op.isdir(stage):
+        # An empty stage is what `publish` would walk; leave nothing behind to walk.
+        try:
+            os.rmdir(stage)
+        except OSError:
+            pass
+    if note:
+        with open(op.join(real_keep, REFUSED_NOTE), "a") as fh:
+            fh.write(note)
+    return moved
+
+
+def operator_print(text):
+    """One sentence to the operator, spoken from inside a refusal handler, that cannot raise.
+
+    Every disposal in this package tells the operator what happened with `print`, and every one of
+    those sentences is spoken while the run is already standing inside somebody else's failure. A
+    `print` can die -- a closed stderr, an `EPIPE` from `| head`, a device that stopped taking writes
+    -- and when it dies the ordinary way the exception lands in the handler that was catching the
+    REFUSAL. #317 measures what that costs on `origin/main` at `5be86e5`: both single-frame drivers'
+    fixture arms end in `raised:OSError: [Errno 9]` with an empty stderr, and one dying `REFUSED:`
+    print in the sweep escapes `main()` at the first refused page, taking every page after it, the
+    count sentence, and `REFUSED.txt`. All three exit 1, because an uncaught exception exits 1 --
+    the same code a refusal was supposed to produce, which is what launders it.
+
+    So the rule `refuse_single_shot`'s docstring has always stated -- "`report_refusal` and
+    `capture_refused` both report and never raise" -- is enforced here rather than by intent. That
+    docstring called it "a wish about a `print`", and it was.
+
+    One refused write is not a dead stream: measured for #317, the run whose `REFUSED:` headline died
+    still printed the sentence after it, and the run whose pointer sentence died had already landed
+    two lines above it. So this does not conclude "stderr is gone" and give up -- the NEXT sentence
+    gets its own attempt at stderr, which is what keeps a single failed write from costing the whole
+    report. Only the line that died is moved, and it is repeated on stdout WHOLE rather than
+    summarised or dropped: an operator reading a transcript should not have to notice which sentence
+    is missing, and a refusal that arrives on the wrong stream is still a refusal. If stdout is gone
+    as well the line is lost and nothing is raised, because a diagnostic never outranks the refusal it
+    is reporting -- the same reason `capture_refused` returns None instead of propagating.
+
+    Returns True when the line reached stderr, False when it had to be moved or was lost. That is all
+    a caller can usefully do with the answer; the point of this function is that the caller is never
+    interrupted by it.
+    """
+    try:
+        print(text, file=sys.stderr, flush=True)
+        return True
+    except (Exception, SystemExit) as died:  # SystemExit is not under Exception, and it is a real one
+        why = f"{type(died).__name__}: {died}"
+    try:
+        print(f"  stderr refused the line below ({why}); it is repeated here, whole, because a run "
+              "that cannot say out loud what it refused is the failure this package exists to end",
+              file=sys.stdout, flush=True)
+        print(text, file=sys.stdout, flush=True)
+    except (Exception, SystemExit):
+        pass  # both streams are gone: the refusal still stands, and it still exits 1
+    return False
+
+
+def capture_refused(cap, path):
+    """Photograph the page a refusal just rejected, straight to a path nothing publishes from.
+
+    Every guard in a driver runs BEFORE the write, and that is right -- a photograph of a page in
+    a state nothing declares must not be published -- but it also meant the refusing page was
+    never photographed at all. The refusal is the only thing a driver says about a page, so that
+    sentence should travel with the picture it is a sentence about. Measured 6 Nov: `/` was
+    refused for reading `locked out until 18h 16m` where the fixture declares `locked out until
+    00:00`, and no amount of rerunning the recipe would have shown anyone the page.
+
+    This is deliberately NOT `session.write_png`: that stages into `_PENDING`, which is the queue
+    `publish()` copies into the artifact directory. These bytes go to the path named, full stop,
+    and the path comes from `refused_dir`.
+
+    It reports and does not raise, for the reason `report_refusal` gives for its own shape. This
+    runs from inside a refusal handler, and a diagnostic that dies replaces the real cause with
+    the diagnostic's own -- the browser is exactly as likely to be gone as still up at this
+    moment, since `require_running` raising is one of the refusals that gets here.
+    """
+    try:
+        cap.require_running()
+        data = cap.session.screenshot()
+        with open(path, "wb") as fh:
+            fh.write(data)
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a diagnostic never outranks the refusal
+        # `SystemExit` is spelled out because it is not under `Exception`, and it is the arm this
+        # call is most likely to take: `require_running` raises it, and a dead browser is one of the
+        # refusals that reaches here. The rule that found this (`a dead browser still leaves the
+        # refusal standing`) is the reason it is not left as a bare `except Exception`.
+        operator_print(f"  no frame of the refused page: {type(exc).__name__}: {exc}")
+        return None
+    operator_print(f"  what the page actually renders is at {path} -- this run refused to publish "
+                   "it, so it is not evidence; read it with REFUSED.txt beside it")
+    return path
+
+
+def refusal_note(mode, out, envs, notes):
+    """REFUSED.txt: what the run refused, under what conditions, and what it left next to this file.
+
+    The frames in the refused directory are worthless on their own. A PNG with no sentence next to it
+    is the exact thing #211 was filed about -- a frame that looks current and states nothing about
+    the state it was taken in -- and these frames state less than most, because the whole reason
+    they exist is that the state was NOT the declared one. So the sentences and the conditions come
+    here, in the directory, where they travel with the bytes.
+
+    The conditions are named by their files rather than copied out. `fixture.env` is still on disk
+    beside the run directory and is the only thing that can change; a copy made here would be a
+    second answer to the same question, and #213 is what those two do when they drift.
+
+    This used to be `pages.py`'s `_refusal_note`. It moved here when #296 wired the two single-frame
+    drivers into the same keeping, because the text is the thing that makes a kept frame mean
+    something and three drivers writing three versions of it is how one of them ends up saying less
+    than the others.
+    """
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        "# What this run refused, and what it left here.\n",
+        "#\n",
+        "# These are the frames a run measured and then declined to publish, and they are\n",
+        "# not evidence: nothing records them, --out was left untouched, and any artifact\n",
+        "# path this run printed names a file that is not there. Read them to see what the\n",
+        "# page actually rendered; never quote them as current.\n",
+        f"\nfixture: {mode}\nrefused at: {when}\n--out (untouched): {out}\n",
+        "conditions stated in:\n"
+        + ("".join(f"  {p}\n" for p in envs) if envs
+           else "  (none: no setup script has run, so no fixture.env declares anything here)\n"),
+        f"\nrefusals ({len(notes)}):\n" + ("".join(notes) if notes else "  (none recorded)\n"),
+    ]
+    return "".join(lines)
+
+
+def refused_frame(cap, keep, out, note=None, frame=None):
+    """Move what this run staged into `keep` with `note` beside it, then photograph the refused page.
+
+    The order is the whole function: `keep_refused` opening the directory is what clears a previous
+    refusal's frames, so a frame written before that open would be deleted by the run that wrote it.
+    Then the page is photographed, because the refusal is the only sentence a driver says about a
+    page and it should travel with the picture it is a sentence about.
+
+    One call per refusal is the property its name keeps: this is the disposal of the stage on the
+    refusal path, and `pages.py --self-test` counts it at exactly one for every refusal arm. Before
+    #220 the disposal was `discard_stage()` and the count was pinned the same way, which is how
+    `lock.py` and `testlock.py` were found to have been running theirs as dead code -- an exit code
+    laundered the fact that the statement after a raising helper never ran. A keep that never runs
+    leaves nothing on disk, so the count and the directory together are what make the statement live.
+
+    Returns what `keep_refused` returned: the frames it moved, or None when it declined to write
+    there and destroyed them instead -- in which case there is no directory to photograph into.
+    """
+    kept = keep_refused(keep, note=note, out=out)
+    if kept is None or cap is None or not frame:
+        return kept
+    capture_refused(cap, op.join(keep, frame))
+    return kept
+
+
+def refuse_single_shot(cap, mode, out, name, frame, why):
+    """The whole refusal arm of a single-frame driver: the sentence, the kept frames, the page.
+
+    `lock.py` and `testlock.py` photograph one page each, so a refusal is one sentence about one
+    file -- and it used to be a sentence about a file that had just been deleted, with the only other
+    picture it named being the previous run's `lock.png` sitting at `--out`, which the same sentence
+    declares stale (#296). Both halves of what #251 ended for `pages.py` are therefore this one call:
+
+      * the staged bytes and `REFUSED.txt` go to `runs/<mode>-refused/`. On the ordinary path nothing
+        is staged -- every guard runs before `write_png` -- so what lands is the frame of the page
+        that refused, named `lock@360.png` rather than `lock.png` so it cannot be opened as the
+        artifact;
+      * `--out` is left exactly as it was, and `report_refusal` names the file standing there with
+        its mtime instead of deleting it (#222: with `--out` pointing at the docs tree, that file is
+        the committed evidence).
+
+    Reported, then kept, then photographed, in the order the transcript is read: the refusal, the
+    stale file it did not write, the frame it did take, the count of what is in the directory.
+    `report_refusal` and `capture_refused` both report and never raise, because this runs from inside
+    a refusal handler and a diagnostic that dies replaces the real cause with the diagnostic's own.
+
+    That rule used to be a wish about a `print`, and a `print` can die: a closed stderr, an `EPIPE`
+    from `| head`, and the sentence after the note is on disk raises `OSError`. Two things now hold it
+    up instead of intent. `cdp.operator_print` is how every sentence below is spoken, so a stream that
+    refuses a write moves that line to stdout rather than raising into the caller's own `except`
+    handler; and `SingleRefusal` below wraps the whole disposal, so a step that can raise for a
+    non-print reason -- `keep_refused` moving bytes with `os.replace`, `refused_dir` creating the
+    drawer -- cannot escape `main()` either. #317 measures the version with neither: the fixture arm
+    of both drivers ending `raised:OSError: [Errno 9]` with nothing on stderr at all.
+
+    `SingleRefusal` also keeps #304's symptom out: a disposal that raises inside a nested handler used
+    to be caught by the outer one and read as a second refusal, appending a second `refusals (1):`
+    block whose sentence quoted the diagnostic instead of the page.
+    """
+    keep = refused_dir(mode)
+    report_refusal(name, why)
+    env = op.join(RUNS, mode, "fixture.env")
+    kept = refused_frame(cap, keep, out,
+                         note=refusal_note(mode, out, [env] if op.exists(env) else [],
+                                            [f"  refused: {why}\n"]),
+                         frame=frame)
+    if kept is None:
+        # The keep was declined (nowhere safe to write), so the frames are gone and there is no
+        # directory to count. `keep_refused` has already said why this one was destroyed.
+        return None
+    left = sorted(f for f in os.listdir(keep) if f.endswith(".png")) if op.isdir(keep) else []
+    if left:
+        operator_print(f"  {len(left)} frame(s) this run kept are in {keep}, with {REFUSED_NOTE} "
+                       f"beside them; nothing was written to {out}, and none of these frames is "
+                       "evidence")
+    else:
+        # The refusal came from the fixture, before there was a page to photograph. "0 frame(s)" would
+        # be a true sentence that answers the wrong question -- the operator is looking for a picture
+        # and is owed the reason there is none, not a zero. The reason has TWO cases though, and the
+        # sentence used to name only one of them: `capture_refused` reports a failed photograph and
+        # returns None instead of raising, so an empty drawer also means the page WAS up and the
+        # browser is what failed. Measured 11 Nov with the fake session refusing one screenshot: the
+        # transcript told an operator whose browser had just answered a page that it "was refused
+        # before it had a page in a browser to photograph", which sends them to `lock-setup.sh` for a
+        # websocket problem. `cap is None` is the fixture, and nothing else -- which is true of these
+        # two drivers only because `SingleRefusal` suppresses the retry: the outer arm also disposes
+        # with `cap=None`, and before #304 that second call reached this same sentence for a run that
+        # had a live browser in its first attempt.
+        why_none = ("this run was refused before it had a page in a browser to photograph"
+                    if cap is None else
+                    "the page was up and the photograph of it is what failed -- the line above this "
+                    "one is what the browser answered")
+        operator_print(f"  no frame could be taken, so {keep} holds none: {why_none}. "
+                       f"{REFUSED_NOTE} is there with the refusal and the conditions; nothing was "
+                       f"written to {out}")
+    return kept
+
+
+def refusal_reason(exc):
+    """The one sentence a refusal is stated in, from either exception shape a driver catches.
+
+    `SystemExit` already carries the operator's sentence, so it is printed as written; anything else
+    has to name its type, because a bare `the connection was reset` in `REFUSED.txt` is a `RuntimeError`
+    or an `OSError` and the difference is the diagnosis. Both single-frame drivers catch the two shapes
+    in two nested handlers and now a third time in the outer one, so six call sites used to spell this
+    expression out -- and a note whose sentence depends on which handler happened to catch the page is
+    the same drift `refusal_note` was moved here to stop.
+    """
+    return str(exc) if isinstance(exc, SystemExit) else f"{type(exc).__name__}: {exc}"
+
+
+class SingleRefusal:
+    """One disposal per refusal for a driver that photographs one page, decided in one place.
+
+    `lock.py` and `testlock.py` catch their refusal twice, and they have to: the inner arms sit
+    inside the `with` because `capture_refused` needs the browser this run opened, and the outer arm
+    catches `Exception` as well because a fixture that refuses before a browser exists still owes the
+    operator the note and the stale-file sentence. Nested handlers mean one more thing, though --
+    anything that raises *inside* the first disposal is caught by the outer arm and read as a second
+    refusal. Measured 11 Nov on `origin/main` at `1e31cac`, driving the real `lock.py` `main()` with a
+    faked browser and a stderr that dies once (the pointer sentence `capture_refused` prints after the
+    note has already landed): `REFUSED.txt` came back with two `# What this run refused` headers and
+    two `refusals (1):` blocks, the second block's sentence was `OSError: [Errno 9] Bad file
+    descriptor` rather than the page's, `keep_refused` had run twice against a drawer holding one
+    frame, and the last thing the operator read was a refusal of the diagnostic. #304.
+
+    So this object holds the flag the outer arm checks, and it lives here rather than in each driver
+    for the reason #296 moved the note into `refusal_note`: the two drivers are one shape, and a rule
+    written twice is a rule one of them can stop meaning.
+
+    The flag is set BEFORE the call, never after. A disposal that died is still a disposal -- it
+    wrote the note and moved the stage, and what killed it was its last sentence -- so the retry is
+    the thing being refused, not something to be earned by a clean exit. A driver that wants to know
+    whether it was refused reads `disposed`; nothing else in the package does.
+    """
+
+    def __init__(self, mode, out, name, frame):
+        self.mode = mode
+        self.out = out
+        self.name = name
+        self.frame = frame
+        self.disposed = False
+
+    def refuse(self, cap, why):
+        """Dispose of this run once, and never let the disposal leave the driver.
+
+        Two properties, one flag and one `try`.
+
+        **Once.** Returns what `refuse_single_shot` returned on the one call this makes, and None on
+        every call after it. On those, `why` is no longer the page refusing -- it is whatever else
+        raised between the two handlers, and since #317 a dying report is not one of those, because
+        the report cannot raise. The sentence is still chosen from what is actually on disk rather
+        than from the flag: a disposal that died before the note never wrote it, and telling the
+        operator that a note exists which does not is the same invention in the opposite direction.
+        (`pages.py --self-test` keeps both branches honest: one where the note is there and one where
+        the disposal wrote nothing, both reached by a second event after the first disposal.)
+
+        The failed disposal is not retried when it wrote nothing either. Whatever stopped it -- a
+        drawer that cannot be created, a directory that will not open -- stops the retry in the same
+        place, and a second block in a note that does not exist buys nothing. Saying what is missing
+        costs nothing and cannot fail twice.
+
+        **Never leaves the driver.** The call is wrapped, so an `OSError` from the file machinery
+        below becomes a sentence and a `None`, not a traceback out of `main()`. That is the half
+        #304's once-flag could not do: the flag decides whether a disposal runs twice, and it says
+        nothing about a disposal that escapes. #317 measured both drivers' fixture arms -- the arm
+        with a single handler, so nothing was left downstream to catch it -- ending
+        `raised:OSError: [Errno 9] Bad file descriptor`, and the sweep losing every page after the
+        first refused one. `pages.py --self-test`'s rules "a refusal whose report cannot be written
+        still finishes its disposal" and "a refusal in a fixture still disposes of itself once" grade
+        it, one per arm.
+        """
+        if self.disposed:
+            note = op.join(refused_dir(self.mode), REFUSED_NOTE)
+            if op.isfile(note):
+                operator_print(f"  this refusal was already disposed of: something raised after it "
+                               f"({why}), and a second disposal would append a second block to "
+                               f"{note} for one refusal. {note} holds the one note this run wrote, "
+                               f"and nothing was appended to it.")
+            else:
+                operator_print(f"  this run's refusal was disposed of once already, and that "
+                               f"disposal wrote nothing: the second refusal-shaped failure reached "
+                               f"the outer handler ({why}) with no {REFUSED_NOTE} on disk. There is "
+                               f"no {REFUSED_NOTE} for this refusal and it will not be retried, "
+                               f"because whatever stopped the first disposal stops the second; "
+                               f"anything this run staged is still in the stage, and nothing was "
+                               f"written to {self.out}.")
+            return None
+        self.disposed = True
+        # The disposal is the last thing a refusal does, and it is allowed to die. `keep_refused`
+        # moves bytes with `os.replace`, `refused_dir` creates a directory, and the drawer is counted
+        # with `os.listdir` -- three ways an `OSError` reaches the handler that caught the REFUSAL,
+        # none of them a print. Before #317 every one of them escaped `main()`: an uncaught exception
+        # exits 1, the code a refusal was supposed to produce, and the driver's own `return 1` -- the
+        # one statement proving it finished deciding -- never ran.
+        try:
+            return refuse_single_shot(cap, self.mode, self.out, self.name, self.frame, why)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a dying disposal is not a second refusal
+            died = refusal_reason(exc)
+            note = op.join(refused_dir(self.mode), REFUSED_NOTE)
+            # Read off the disk, never off the attempt: a disposal can die before the note or after
+            # it, and D-0065's lesson is that the sentence has to say which. `op.exists` rather than
+            # `op.isfile` here is not a spelling preference -- the check above is an attack anchor and
+            # a second identical line would make it match twice, which this repository's attack suite
+            # refuses rather than resolving.
+            told = (f"{note} was written before it died, and the refusal is in it"
+                    if op.exists(note) else
+                    f"no {REFUSED_NOTE} was written, so this refusal has no note beside its frames")
+            operator_print(f"  this run's refusal was disposed of ONCE and that disposal died "
+                           f"({died}) part way through: {told}, {self.out} was not written, and "
+                           f"nothing this run staged was published. The refusal stands, the driver "
+                           f"returns 1, and a report that dies is neither a second refusal nor a "
+                           f"traceback.")
+            return None
+
+
 def fixture(name):
     """The run directory for one capture, and the fixture's own answers."""
     d = op.join(RUNS, name)
@@ -89,6 +616,43 @@ def fixture(name):
         if key not in env:
             raise SystemExit(f"{envfile} does not set {key}; the fixture is incomplete")
     return d, env
+
+
+# The conditions a frame can be taken under, as a fixture declares one. One table, here, because
+# this is the file that acts on it: `manifest.py` reads it out of here the same way it reads the
+# page list out of `pages.py`, so a renamed or added spelling cannot survive in the recorder as a
+# condition no driver is able to produce.
+SCRIPT_VALUES = ("on", "off")
+
+
+def scripts_disabled(env, where):
+    """Does this fixture ask for the PAGE's own scripts to be switched off while it is photographed?
+
+    The answer used to be a constant — `Emulation.setScriptExecutionDisabled` was called with
+    `value=True` whatever the fixture declared — which made `PLOCK_CAPTURE_SCRIPTS` a declaration
+    nothing read. The manifest then recorded a fact about this file rather than about the frame, and
+    the knob `post-fixture.sh` advertised (`PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken with
+    scripts running) took exactly the same pixels as the default. That is how #213's finding survived
+    four gates: an assertion resting on a control with no power cannot be checked by anyone told to
+    go and check it.
+
+    Absent means `off`, and that is the strict direction: this folder's criterion is "usable at 360 px
+    with JavaScript off", so a fixture that names nothing gets the frame the criterion names. The
+    recorder still writes no `scripts` key for a fixture that declared none (#211's
+    absent-is-not-a-default rule is the recorder's business, not the driver's).
+
+    Anything outside the two values is refused rather than guessed, for the reason the Chrome flag
+    below is refused: a capture that looks configured is worse than one that fails.
+    """
+    raw = env.get("PLOCK_CAPTURE_SCRIPTS")
+    value = (raw or "off").strip().lower()
+    if value not in SCRIPT_VALUES:
+        raise SystemExit(
+            f"{where} declares PLOCK_CAPTURE_SCRIPTS={raw!r}, which is not one of "
+            f"{' or '.join(repr(v) for v in SCRIPT_VALUES)}. Refusing rather than defaulting: the "
+            "manifest would record the typo as written and the browser would photograph the default, "
+            "so one run would produce a file and a frame that disagree.")
+    return value != "on"
 
 
 def binary():
@@ -279,9 +843,20 @@ class Session:
             fh.write(self.screenshot())
         _PENDING.append((stage, dest))
 
-    def publish(self):
+    def publish(self, fixture=None):
         """Copy every staged capture to its final path. Only ever called once the last check on
-        the last page has passed."""
+        the last page has passed.
+
+        `fixture` is named by the caller -- `pages.py` passes the mode it selected, the two
+        single-frame drivers pass their own `FIXTURE` -- and it is what lets this one moment write
+        the run's own receipt beside that fixture's conditions file (#302). Named here and not by
+        the caller because this is the only place that holds both halves of the claim: the bytes
+        this run photographed, and the paths they were published to. A driver that publishes and
+        names no fixture publishes frames nobody can later date honestly: `manifest.py record`
+        refuses to mint a rev for a claimed frame whose pixels are older than its page once there
+        is no receipt to stand behind it.
+        """
+        published = [dest for _, dest in _PENDING]
         for stage, dest in _PENDING:
             os.makedirs(op.dirname(dest), exist_ok=True)
             with open(stage, "rb") as src:
@@ -289,6 +864,8 @@ class Session:
             with open(dest, "wb") as out:
                 out.write(data)
             os.remove(stage)
+        if fixture:
+            write_receipt(fixture, published)
         _PENDING.clear()
         if op.isdir(_stage_dir()):
             os.rmdir(_stage_dir())
@@ -351,6 +928,890 @@ def require_form(got, what):
                          "there is nothing to submit here, so a fit would prove nothing")
 
 
+# The control census, spliced into the same measurement as the cell and form censuses so a page is
+# read once and the readings cannot come from different renders (#202).
+#
+# It reports the page's own font beside every control's, because the claim being checked is
+# agreement, and agreement needs both sides: `#202` measured every typed control at
+# `Arial 13.3333px` while the prose around it was `system-ui 16px`, and a rule that compared each
+# control against a font this file hardcoded would keep passing the day the page's font changed.
+#
+# `typed` is decided by *excluding* the controls that draw no value (`radio`, `range`, a
+# `select-one`...), which is the opposite of how `app.css` lists them -- the stylesheet lists the
+# types you type into, positively, so that a type added to a template and missing from the rule
+# fails loudly instead of silently inheriting `width: 100%`. The two lists are deliberately
+# asymmetric: the place they agree is measured, and the place they drift apart is a refusal.
+#
+# `label` carries the computed `display` of the label wrapping a toggle, or "" when there is none.
+# It is how `:has()` gets measured rather than trusted: a selector the engine has never heard of is
+# dropped without a word and leaves the page exactly as it was, and `display` is the only thing in
+# the browser that says whether the rule applied.
+#
+# Hidden controls are skipped, and so is anything the page did not lay out at all (zero by zero):
+# the census is about what the photograph shows.
+CONTROLS_JS = (
+    "'controls':(function(){"
+    "var NOVALUE=['hidden','radio','checkbox','submit','button','reset','image','range','color',"
+    "'select-one','select-multiple'];"
+    "var page=getComputedStyle(document.body);"
+    "var items=[];"
+    "Array.prototype.forEach.call(document.querySelectorAll('input,select,textarea,button'),"
+    "function(el){"
+    "var t=(el.type||'').toLowerCase();"
+    "if(t==='hidden'){return;}"
+    "var r=el.getBoundingClientRect();"
+    "if(r.width===0&&r.height===0){return;}"
+    "var s=getComputedStyle(el);"
+    "var lab=el.closest('label');"
+    "items.push({tag:el.tagName.toLowerCase(),type:t,name:el.name||'',"
+    "family:s.fontFamily,size:s.fontSize,max:s.maxWidth,"
+    "typed:(el.tagName==='TEXTAREA'||NOVALUE.indexOf(t)<0),"
+    "toggle:(t==='radio'||t==='checkbox'),"
+    "label:lab?getComputedStyle(lab).display:''});});"
+    "return {family:page.fontFamily,size:page.fontSize,count:items.length,items:items};})()"
+)
+
+
+def control_name(item):
+    """One control, named the way a refusal has to name it: type, then the field it belongs to."""
+    label = item["tag"] + (f"[type={item['type']}]" if item["type"] else "")
+    return f"{label} {item['name']!r}" if item["name"] else label
+
+
+def _listed(items, limit=4):
+    """Up to `limit` names, then a count, because a refusal that scrolls is a refusal nobody reads."""
+    head = ", ".join(control_name(i) for i in items[:limit])
+    return head if len(items) <= limit else f"{head}, and {len(items) - limit} more"
+
+
+def _count(n, singular):
+    """`1 control` / `2 controls`. A refusal that says `1 control(s)` reads like a template."""
+    return f"{n} {singular}" if n == 1 else f"{n} {singular}s"
+
+
+def census_line(got):
+    """What the #202 guards were shown, in the form every driver prints on its measurement line.
+
+    This folder's house rule is that a rule which examined nothing must not report success silently,
+    and a passing `require_control_width` on a page with nothing typed into it is exactly that: true,
+    and about nothing. Printing `controls=15 typed=7 groups=2` is what tells the next reader which
+    kind of pass they were looking at -- the same reason the #108 check prints how many Detail cells
+    carried the note rather than only saying that it terminated cleanly. It lives here rather than in
+    pages.py because the two single-page drivers print the same census on their own line, zeros and
+    all: the verdict page and the probe page each carry one control today, the chrome's Sign out
+    button, and a reader has to be able to see that the guards were shown nothing.
+    """
+    page = (got or {}).get("controls") or {}
+    items = page.get("items") or []
+    return (f"controls={len(items)} typed={sum(1 for i in items if i['typed'])} "
+            f"groups={sum(1 for i in items if i['toggle'])}")
+
+
+def require_control_font(got, what):
+    """Every control that draws text is set in the page's own typeface (#202).
+
+    The user-agent stylesheets give a form control the browser's own font, not the document's, so a
+    stylesheet that never says otherwise renders an input in Arial 13.33 px in the middle of a page
+    written in system-ui 16 px. That is what #202 measured on every photographed page: `text`,
+    `password` and `number` boxes at `Arial 13.3333px` beside buttons at `system-ui 16px`.
+
+    The check compares each control with the *page*, not with a constant, so it says nothing about
+    which typeface the page chose -- only that a control did not choose one for itself.
+
+    The second half of the harm is why this is a refusal and not a note: `ch` resolves against the
+    element's own font, so `max-width: 22ch` is 163 px in Arial 13.33 px and 196 px in the page's
+    16 px. A control in the wrong font is also measuring its own declared width in the wrong unit,
+    which is how a stylesheet can say one width and render another.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked whether the controls match the page when no control census "
+                         "was taken for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS), and a check that reads a key nobody measured is a "
+                         "check that always passes (#202).")
+    bad = [i for i in page["items"] if i["family"] != page["family"] or i["size"] != page["size"]]
+    if bad:
+        raise SystemExit(
+            f"{what} sets {len(bad)} of its {page['count']} visible controls in a font of the "
+            f"browser's choosing -- {_listed(bad)} -- while the page's own prose is "
+            f"{page['family']} at {page['size']}. `font: inherit` is on the control, or it is not "
+            "(#202).")
+
+
+def require_control_width(got, what):
+    """Every control you type into is sized by one rule, not by whichever one matches its type.
+
+    The observable that says *which rule* made a width is the computed `max-width`, and it is the
+    one available without reading the stylesheet: no user-agent sheet puts a `max-width` on an
+    input, so a control reporting `none` is sitting at the browser's default width of about twenty
+    characters with nothing in `app.css` deciding it. Two controls reporting two different values
+    means two rules are sizing fields on the same page.
+
+    #202 measured both shapes at once on /settings: the number box at 65 px, the two path boxes at
+    163 px from the file's only input rule, and three password boxes at 185 px from the browser --
+    three widths on one page, which is the misalignment #199 had reported as happening "in some
+    places".
+
+    A page with nothing typed into it is not a pass, it is a page with nothing to say; the count is
+    printed on every page's line (`controls=15 typed=0 groups=0`) so a transcript shows whether
+    this ran on anything rather than leaving a reader to guess which kind of pass it was.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked how the fields are sized when no control census was taken "
+                         "for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS) (#202).")
+    typed = [i for i in page["items"] if i["typed"]]
+    if not typed:
+        return
+    by_max = {}
+    for item in typed:
+        by_max.setdefault(item["max"], []).append(item)
+    if len(by_max) == 1 and "none" not in by_max:
+        return
+    loose = by_max.get("none") or []
+    strict = {m: v for m, v in by_max.items() if m != "none"}
+    if loose and not strict:
+        problem = (f"no `max-width` on {_listed(typed)}, so each sits at the user-agent's own "
+                   "default of about twenty characters -- this stylesheet deciding nothing")
+    elif loose:
+        sized = next(iter(strict.values()))
+        problem = (f"{_count(len(loose), 'control')} carry no `max-width` and sit at the "
+                   f"user-agent's default of about twenty characters ({_listed(loose)}) while "
+                   f"{_count(len(sized), 'control')} are sized by a rule ({_listed(sized)})")
+    else:
+        detail = "; ".join(f"`{m}` on {_listed(v)}" for m, v in sorted(by_max.items()))
+        problem = f"their `max-width` resolves to {len(by_max)} different values -- {detail}"
+    raise SystemExit(
+        f"{what} sizes the {_count(len(typed), 'control')} you can type into from "
+        f"{len(by_max)} {'source' if len(by_max) == 1 else 'sources'}: {problem}. One width model "
+        "is what #202 asks for; three field widths on one page are the defect.")
+
+
+def require_choice_groups(got, what):
+    """A tick box and the words that name it are one box (#202).
+
+    Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`
+    and `app.css` makes such a label an atomic inline-level box, because an inline label breaks at
+    any space and a box can therefore be photographed at the end of one line with its sentence on
+    the next.
+
+    This is the effect of a `:has()` selector, measured rather than grepped. The stylesheet reaches
+    these labels by what is inside them -- the templates carry no class that says "choice group" --
+    and a `:has()` rule a browser does not implement is discarded without a word, leaving the page
+    exactly as it was before it and every grep in the repository still satisfied. Computed
+    `display` is what the browser actually applied, so that is what is compared.
+
+    A toggle with no wrapping label at all is refused with the others rather than skipped: there is
+    nothing holding that box to its words, which is the defect, not an exemption from the check.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked whether the choice groups are grouped when no control "
+                         "census was taken for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS) (#202).")
+    toggles = [i for i in page["items"] if i["toggle"]]
+    loose = [i for i in toggles if i["label"] != "inline-flex"]
+    if loose:
+        naked = [i for i in loose if not i["label"]]
+        wrapped = [i for i in loose if i["label"]]
+        parts = []
+        if naked:
+            parts.append(f"{_listed(naked)}: no wrapping label at all")
+        if wrapped:
+            parts.append(f"{_listed(wrapped)}: its label is left as `display: "
+                         f"{wrapped[0]['label']}`")
+        raise SystemExit(
+            f"{what} has {_count(len(toggles), 'radio/checkbox control')}, and these are not one "
+            f"box with the words that name them ({' | '.join(parts)}). A choice group that is still "
+            "an inline run of text lets the box wrap away from the words it belongs to (#202).")
+
+
+# The navigation census, spliced into the same measurement as the control census (#204).
+#
+# One row per `<nav>` element, and every anchor inside it with the four properties #204's
+# criterion names -- `color`, `font-weight`, `text-decoration-line`, `border-bottom-width` -- plus
+# the background it names as acceptable instead, the `aria-current` value the shell writes, and the
+# box. The box is here because criterion 4 is a position claim ("the marked entry is inside the
+# header on all five pages"), and a property comparison cannot answer a position claim; the
+# header's own rect comes back with it so "inside" is a comparison rather than an opinion.
+#
+# `vis` is `checkVisibility`, not `offsetParent`: an anchor can be legitimately hidden by the page
+# (a template that renders a link only when there is something to link to) and #204 counted what a
+# reader sees. Chrome's own answer, with the `visibility` property included so a link hidden by
+# the stylesheet is not counted as a link the palette has to explain.
+NAV_JS = (
+    "'nav':(function(){"
+    "var rows=[];"
+    "Array.prototype.forEach.call(document.querySelectorAll('nav'),function(n){"
+    "var ncs=getComputedStyle(n);"
+    "var items=[];"
+    "Array.prototype.forEach.call(n.querySelectorAll('a'),function(a){"
+    "var s=getComputedStyle(a);var r=a.getBoundingClientRect();"
+    "items.push({text:(a.textContent||'').replace(/\\s+/g,' ').trim(),"
+    "href:a.getAttribute('href'),cur:a.getAttribute('aria-current'),"
+    "color:s.color,weight:s.fontWeight,dec:s.textDecorationLine,"
+    "bw:s.borderBottomWidth,bc:s.borderBottomColor,bg:s.backgroundColor,"
+    "x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),"
+    "vis:a.checkVisibility===undefined?true:a.checkVisibility({visibilityProperty:true})});});"
+    "rows.push({display:ncs.display,overflow:n.scrollWidth>n.clientWidth+1,items:items});});"
+    "return rows;})(),"
+    "'header':(function(){var h=document.querySelector('header');"
+    "if(!h){return null;}var r=h.getBoundingClientRect();"
+    "return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),"
+    "h:Math.round(r.height)};})()"
+)
+
+# The two values a link has when no stylesheet has touched it. Chrome's UA sheet puts
+# `color: -webkit-link` and `text-decoration: underline` on every anchor, and `-webkit-link`
+# resolves to this. #204 measured exactly these two on all five photographed pages: every link
+# `rgb(0, 0, 238)`, weight 400, underlined.
+UA_LINK_BLUE = "rgb(0, 0, 238)"
+UA_UNDERLINE = "underline"
+
+# The smallest box that is a target rather than a glyph, in pixels.
+#
+# #199 is a complaint about a hand as much as about a colour: "when accessing from a phone ... the
+# text is so small ... it is difficult to navigate". Measured on this stylesheet, a navigation entry
+# is 26 px tall with `nav a`'s padding gone and 40 px with it -- 23.6 px of line box, 14.4 px of
+# `.45rem` padding, 2 px of reserved border. `pages.py` transcribes the same 40 as its fixture's
+# `NAV_HEIGHT`; this is the floor the guard refuses under, and the two agree on the number while
+# doing different jobs, one a measurement of what the page renders and one a claim about what a thumb
+# can hit. #229's review is why it is a number at all: deleting the padding line was green in every
+# Go guard, every other capture guard, and a full nine-page capture run.
+NAV_MIN_TARGET = 40
+
+
+def _border_px(value):
+    """The pixel width a computed `border-bottom-width` reports, or None when it is not a length.
+
+    Chrome answers `2px`. A census from anything else could answer `2 px`, or a keyword like
+    `medium`, and a parser that read those as 0 would turn "the browser is not drawing this border"
+    into "it is drawing it at zero width" -- two different refusals collapsed into one wrong number.
+    So a value this cannot read comes back as None and the caller says it could not read it.
+    """
+    text = str(value or "").strip().lower()
+    if not text.endswith("px"):
+        return None
+    try:
+        return float(text[:-2])
+    except ValueError:
+        return None
+
+
+def _nav_rows(got, what):
+    """The navigation rows, or a refusal naming the census that was never taken.
+
+    The same shape as the three #202 guards, for the same reason: a check that reads a key nobody
+    measured does not pass because the page is fine, it passes because nothing was ever compared,
+    and the transcript cannot tell the two apart.
+    """
+    rows = (got or {}).get("nav")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the navigation marks the current page when no "
+                         "navigation census was taken for it. The census has to be spliced into "
+                         "the measurement (cdp.NAV_JS), and a check that reads a key nobody "
+                         "measured is a check that always passes (#204).")
+    return rows
+
+
+def nav_census_line(got):
+    """What the #204 guards were shown, on the same line as the #202 census.
+
+    `nav=5 links marked=Dashboard overflow=0` -- the marked entry named by its own text rather than by
+    an index, because the text is the only thing a reader of the transcript can check against the
+    photograph below it.
+
+    Where there is not exactly one mark the field is a COUNT, not a name: an empty navigation prints
+    `nav=0 links marked=0` and a doubly-marked one prints `marked=2`. It said `marked=none` for the
+    first of those until #229's review read the line the code actually writes, and the difference is
+    not cosmetic -- `none` is a word this file uses for a state it did not measure, and a transcript
+    reading `marked=none` on a page that measured zero marks would be the one place in the run where
+    a reader could not tell an absence from a gap. Zero is the case this folder refuses to let pass
+    silently (see `census_line`), and the refusal is the guard's job; this line's job is to report
+    what the census saw, in the units it counted in.
+    """
+    rows = (got or {}).get("nav") or []
+    items = [i for row in rows for i in row["items"]]
+    marked = [i for i in items if i["cur"] == "page"]
+    return (f"nav={len(items)} links marked={marked[0]['text'] if len(marked) == 1 else len(marked)}"
+            f" overflow={sum(1 for row in rows if row['overflow'])}")
+
+
+def nav_names(items, limit=4):
+    """Navigation entries by their own text, the way a refusal has to name them.
+
+    Not `_listed`, which names a *control* by its tag and `name` attribute: an anchor has neither
+    in the way a reader of the transcript could check, and the artifact below the refusal line
+    shows these links by their words. Falls back to the href for an anchor with no text, because
+    the refusal still has to point at something.
+    """
+    def one(item):
+        return repr(item["text"]) if item["text"] else f"href={item['href']!r} (no text)"
+    head = ", ".join(one(i) for i in items[:limit])
+    return head if len(items) <= limit else f"{head}, and {len(items) - limit} more"
+
+
+def require_nav_marked(got, what, nav):
+    """Exactly one entry per navigation row says "this is the page you are on" (#204), and it is the
+    entry this page belongs to.
+
+    `nav` is the href the fixture declares for this page's section, and it is what turns a count
+    into criterion 1. Without it the strongest thing this function could say is "one of these five
+    is marked", which a stylesheet gets right on every page by marking the first -- and nine
+    photographs of a wrong mark are nine photographs of the wrong page. The alternative source for
+    that string, deriving the section from the URL here, would be a second copy of the segment rule
+    `internal/web/sources.go` already owns; D-0025 refused that duplication for the browser, and
+    the same reason applies a layer out.
+
+    The count is the whole of #199's first sentence -- "indicate clearly which page is currently
+    selected" -- and #204 measured it as zero everywhere: five links per page, none carrying
+    `aria-current`, on all five photographed pages.
+
+    Zero and two are different failures and both are refused by name. Zero is the reported defect.
+    Two is what happens when the site's name stays an anchor to the root while the row also carries
+    an entry for the root: two elements marked current on one page turns the mark into decoration,
+    which is the belief the issue was filed against.
+
+    Then the position, because criterion 4 is a position claim and property comparisons cannot
+    answer it: the marked box has to be inside the header's box. A navigation moved out of the
+    header -- into a footer, or into a `<div>` after `</header>` -- would keep marking the right
+    entry and would satisfy every property check in this file while photographing something the
+    report did not ask for.
+
+    Then the box's own height, because #199's first sentence is about a thumb and not only about an
+    eye. `NAV_JS` has always recorded `h` per entry and the header check has always read `y`, and
+    until #229's review nothing in the repository read `h`: deleting `nav a`'s padding left every Go
+    guard green, left `require_nav_in_palette` and `require_nav_distinguishable` green (padding moves
+    no colour, weight, decoration or border), and let a full nine-page capture exit 0 while the
+    profiles frame genuinely moved 17 px. A census that measures a box and refuses nothing about it
+    is a census that was never asked the question. The floor is the marked entry's own -- the one a
+    reader is aiming at -- and `NAV_MIN_TARGET` says why 40.
+
+    What this does NOT ask is whether the marked entry's *name* is the page's name. A census of
+    computed style cannot settle that: it reads colour, weight, decoration, border and box, and a
+    section's name is in none of them. When this note was first written the root's entry and its
+    `<title>` both read `Status` while no heading on the page said either word (#219); D-0016 put the
+    page's own name in the `<h1>`, #388 moved the entry and the name to `Dashboard` together, and the
+    question is now asked in Go by `TestEachNavEntryNamesThePageItLinksTo`, which reads an entry
+    against the `<h1>` of the page it routes to. What this file refuses stays a property of the row.
+    """
+    rows = _nav_rows(got, what)
+    header = (got or {}).get("header")
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        marks = [i for i in items if i["cur"] == "page"]
+        if len(items) < 2:
+            raise SystemExit(
+                f"{what} has a <nav> holding {len(items)} visible links, so nothing in it can be "
+                "marked out of a set. #204 asks which entry is the current page *of the row*; a row "
+                "of one has no other entry, and a page that lost its links fits at any width "
+                "(#140's lesson, applied to the header).")
+        if not marks:
+            raise SystemExit(
+                f"{what} has {len(items)} links in its navigation and marks none of them current. "
+                "No entry carries `aria-current=\"page\"`, so the row cannot be told which page it "
+                "is on by anything except reading the URL -- which is the defect #204 was filed "
+                "about, measured as zero marks on all five photographed pages.")
+        if len(marks) > 1:
+            raise SystemExit(
+                f"{what} marks {len(marks)} navigation entries current "
+                f"({', '.join(repr(i['text']) for i in marks)}). `aria-current=\"page\"` is one "
+                "fact about one location; two of them is the header containing a second route to "
+                "the root, and the reader cannot tell which one the page is.")
+        marked = marks[0]
+        if not marked["text"]:
+            raise SystemExit(
+                f"{what} marks a navigation entry with no text as the current page. A screen reader "
+                "announces the mark and nothing to announce with it, and the parent looking at the "
+                "photograph sees a mark on blank space.")
+        if not any(i["href"] == nav for i in items):
+            raise SystemExit(
+                f"{what} declares its section as {nav!r} and the rendered row offers no such href "
+                f"({nav_names(items, limit=8)}). Either the shell lost an entry or this page's "
+                "declaration is stale -- and with no entry for this page, there is nothing the mark "
+                "could correctly be on, so criterion 1 cannot be answered at all.")
+        if marked["href"] != nav:
+            raise SystemExit(
+                f"{what} is photographed in the {nav!r} section and marks {marked['href']!r} "
+                f"({marked['text']!r}) current. Criterion 1 is about the link whose href resolves to "
+                "the page being photographed; this is what a stylesheet that marks the first entry "
+                "on every page looks like, and it would have been photographed, plausibly, nine times "
+                "over.")
+        if header is None:
+            raise SystemExit(
+                f"{what} marks an entry current and renders no <header> for the mark to be inside. "
+                "#204's criterion 4 is that the mark is the header's current-page mark; measured "
+                "against no header, that claim is about nothing.")
+        if not (header["x"] <= marked["x"] and header["y"] <= marked["y"]
+                and marked["y"] <= header["y"] + header["h"]):
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current at ({marked['x']},{marked['y']}) while "
+                f"the header spans y={header['y']}..{header['y'] + header['h']}, so the mark is not "
+                "the header's. A navigation moved out of the header keeps marking the right entry "
+                "and photographs a different page than the one #204 asked about.")
+        # The target, measured on the one entry the reader is aiming at. The comparison is on the
+        # rounded number NAV_JS records -- the same one the census prints -- because a floor is a
+        # claim about a thumb, and a thumb does not care about the tenth of a pixel the browser
+        # rounded away.
+        if marked["h"] < NAV_MIN_TARGET:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current in a box {marked['h']} px tall, under the "
+                f"{NAV_MIN_TARGET} px this row is required to offer. #199 is a complaint about "
+                "navigating a phone with a thumb: the mark being on the right link, in the right "
+                "colour, at the right weight, says nothing about the link being hittable. That is "
+                "`nav a`'s padding -- 26 px without it, 40 with it, measured on this stylesheet -- "
+                "and no other guard in this repository reads a box's height, which is how deleting "
+                "it stayed green through nine photographs (#229).")
+
+
+def require_nav_in_palette(got, what):
+    """No link in the navigation is still the browser's own link (#204's first sentence).
+
+    The scope is the navigation, and it is worth saying because the sentence above it does not carry
+    it: #204's table is the five links in `<nav>` on five pages, so the loop below walks the rows
+    `NAV_JS` censused and nothing else. A link in the page's own body that still computes to the
+    user-agent's blue is outside this census -- `NAV_JS` selects `nav`, and a guard can only refuse
+    what it was shown. Widening it would mean widening the census to every anchor on nine pages,
+    which is a different claim about a different set of links than the one the report measured.
+
+    #199 opens with "it doesn't match the color palette of the system" and #204 measured why: the
+    stylesheet's only rule for `a` was `:focus-visible`, so every anchor kept Chrome's user-agent
+    `color: -webkit-link` -- `rgb(0, 0, 238)` -- and its underline, next to a page that says
+    `--ink: #1a1c20` in its first lines. The first committed artifact even shows the visited half:
+    the site's name rendered `rgb(100, 0, 100)` because the capture browser had already been to the
+    root and the UA's visited rule was the only rule about that anchor's color.
+
+    Two properties, both the UA's signature, checked on every link in every navigation row. This
+    refuses on the value, not on the presence of a rule: a stylesheet that reaches these links by
+    any selector at all passes, and one that greps beautifully while a typo keeps the UA value on
+    the page fails.
+
+    The visited state is NOT observable here and this says so rather than pretending: a fresh
+    profile has no history, so `a:visited` never matches in the capture browser. What protects it
+    is the same author declaration -- an author `color` on the anchor outranks the UA's visited rule
+    for the same reason it outranks the UA's unvisited one -- and the artifact above is why the
+    check is worth having even so.
+    """
+    rows = _nav_rows(got, what)
+    blue = []
+    underlined = []
+    for row in rows:
+        for item in row["items"]:
+            if not item["vis"]:
+                continue
+            if item["color"] == UA_LINK_BLUE:
+                blue.append(item)
+            elif item["dec"] == UA_UNDERLINE:
+                underlined.append(item)
+    if blue or underlined:
+        parts = []
+        if blue:
+            parts.append(f"{nav_names(blue)} still user-agent blue {UA_LINK_BLUE}")
+        if underlined:
+            parts.append(f"{nav_names(underlined)} still carries the user-agent's underline")
+        raise SystemExit(
+            f"{what} has {len(blue) + len(underlined)} navigation link(s) the stylesheet never "
+            f"claimed ({' | '.join(parts)}). The palette in `app.css` says `--ink: #1a1c20` and "
+            "`--muted: #5b6270`; a link reading neither is not in the palette (#204, #199).")
+
+
+def require_nav_distinguishable(got, what, nav):
+    """The entry for this page differs from every sibling on something a browser agrees is visible.
+
+    The first four properties are the issue's own list -- `color`, `font-weight`,
+    `text-decoration-line`, `border-bottom-width` -- and the reason all of them are read is the
+    failure this rule exists for: a stylesheet can mark the current page with a rule the engine
+    throws away, or with a rule whose effect is invisible, and every grep in the repository stays
+    green while the reader sees the same row. #204's wording is that the current link "does not
+    differ from its siblings in any property a reader can see", so that is exactly the comparison.
+
+    `border-bottom-color` is the fifth and it is here because the four as written cannot see the
+    design this stylesheet chose: every link reserves a 2px border so marking the current one does
+    not move the row, so `border-bottom-width` is `2px` everywhere and only its COLOR changes. A
+    comparison limited to the width would call this page unmarked. Adding a property makes the
+    guard more accepting, never less: it still refuses the case where nothing at all differs, which
+    is the regression that actually ships.
+
+    The obvious cheap compliance -- `text-decoration: underline` on the current page alone --
+    satisfies "at least one of them" and is the worst answer available, because the row's links
+    just stopped being underlined when they stopped being plain anchors. That is not written as a
+    rule here: a rule saying "the mark must not be an underline" is a rule about one design, and
+    the next designer argues with it and wins. It is written as the comment on the stylesheet rule
+    instead, where the person editing that rule reads it.
+
+    The reservation itself is the exception to that paragraph, and it is measured here rather than
+    left to the comment, because #229's review showed what leaving it costs: deleting
+    `border-bottom: 2px solid transparent` from `nav a` was green in the whole `internal/web`
+    package AND green through a full capture run. With the reservation gone every link computes
+    `0px`, the current-page rule's `border-bottom-color` is a colour on a border the browser never
+    draws, and the comparison above still passes on colour and weight alone -- so the third visible
+    part of the mark silently stops existing while every property named in the issue's own list
+    still differs. That is not a sixth property added to the comparison, it is the fifth one made
+    honest: `bc` only means anything on a border that is drawn.
+
+    So two things are asserted about the width, on the whole row rather than on the marked entry
+    alone. It is non-zero -- otherwise nothing is drawn -- and every entry computes the same value,
+    because "marking the current entry cannot move the row's baseline" is a claim about the row: a
+    width that differs between siblings is the design D-0035 refused, and it would have put 2 px of
+    vertical jump on every page the shell renders.
+    """
+    rows = _nav_rows(got, what)
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        # The entry this page belongs to, by href -- not "the marked one", which is the same row
+        # only after require_nav_marked has run. Criterion 1 names the link "whose href resolves to
+        # that page", so this guard asks about that link; in `shoot()` the marked guard runs first
+        # and has already refused the case where the two disagree, and a caller that runs this one
+        # alone gets no comparison rather than a second, weaker opinion about the wrong element.
+        marks = [i for i in items if i["href"] == nav]
+        if len(marks) != 1:
+            continue  # require_nav_marked owns the count and the identity, and says more about both
+        marked = marks[0]
+        same = [i for i in items if i is not marked and all(
+            marked[k] == i[k] for k in ("color", "weight", "dec", "bw", "bc"))]
+        if same:
+            raise SystemExit(
+                f"{what} is in the {nav!r} section and that entry ({marked['text']!r}) looks exactly "
+                f"like {len(same)} of its siblings ({nav_names(same)}) -- "
+                f"color {marked['color']}, weight {marked['weight']}, decoration "
+                f"{marked['dec']}, border-bottom {marked['bw']} {marked['bc']}. The attribute is in "
+                "the DOM and nothing in the stylesheet turns it into something a parent can see, "
+                "which is the half of #204 a grep of `app.css` cannot tell apart from a rule that "
+                "works.")
+        # The reservation the mark is drawn on, asserted on every entry rather than on the marked one.
+        # `reserved` is None when the census reports a width this parser cannot read at all, and that
+        # is said as itself -- a comparison that read `medium` as 0 would refuse with a sentence about
+        # a border nobody drew.
+        reserved = _border_px(marked["bw"])
+        others = sorted({i["bw"] for i in items if i is not marked and i["bw"] != marked["bw"]})
+        if reserved is None:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current with a border-bottom-width the capture "
+                f"driver cannot read ({marked['bw']!r}). The mark in this repository is drawn as the "
+                "COLOUR of a reserved border, so an unreadable width is not a harmless extra digit: "
+                "it means the census stopped reporting the number this guard compares.")
+        if reserved <= 0 or others:
+            why = (f"its border-bottom-width computes {marked['bw']!r}, so the browser draws no "
+                   "border at all and the current page's `border-bottom-color` is a colour on "
+                   "nothing" if reserved <= 0 else
+                   f"the entries do not compute it the same: {marked['bw']!r} on "
+                   f"{marked['text']!r} against "
+                   f"{', '.join(repr(w) for w in others)} on its siblings")
+            raise SystemExit(
+                f"{what} marks the current entry on a border that is not the row's reservation: "
+                f"{why}. `nav a` reserves one border on every link precisely so that marking "
+                "the current entry cannot move the row's baseline, and this is the only place that "
+                "reservation is measured: deleting `border-bottom: 2px solid transparent` was green "
+                "package-wide and green through nine photographs, and a future rule that marks by "
+                "width would put a vertical jump in the header of every page the shell renders "
+                "(#229, D-0035).")
+
+
+def require_nav_transcribed(got, what, transcribed, header):
+    """The transcribed row, compared against the row the frame actually rendered (#468).
+
+    Every other guard in this family asks the page a question it can answer afresh. This one asks
+    whether the page still matches a NUMBER COPY-PASTED INTO `pages.py`: `_NAV_ROWS` and
+    `NAV_HEADER` are transcriptions of what Chrome reported, and a transcription is a claim about
+    the page until the page is measured against it. #468 is the finding that no such measurement
+    existed -- #388 renamed the root's entry and the masthead grew a line, and the committed
+    transcription described a one-line row at `h=131` on a page that had been rendering a two-line
+    row at `h=152` for a month, in a comment that began "measured". The word "measured" was the
+    promise with no witness, and every guard stayed green because the numbers were only ever fed
+    to fakes: the fake row IS the transcription, so a self-test can only ever compare a
+    transcription with itself.
+
+    That is why this refusal names both sides of every mismatched fact -- "the transcription
+    boxes '/' at y=72 and the page renders y=93" -- and why its home is the capture run: a run
+    with a real Chrome is the only place the two sides of the comparison are independent. Under
+    the fake browser the transcription passes by construction, and that tautology is exactly why
+    the leg matters.
+
+    What is compared, per #468: each entry's TEXT and BOX against the transcription of THE PAGE
+    BEING SHOT, and the HEADER box. Per-page because the widths are per-page: the marked entry
+    computes `font-weight: 600` against a link's `500`, so `Dashboard` measures 96 px on `/` and
+    92 px on `/users` (measured 21 Nov: 96/92, and the entry's own width moves Audit trail by a
+    pixel downstream of it). A comparison against one canonical row would therefore refuse four
+    of the five pages for arithmetic that is true of the page they render.
+
+    What is NOT compared, each exclusion a decision #468 names rather than a silence:
+
+      * the sign-out `form`. `NAV_JS` censuses `<a>` elements, and at 360 px the form sits on a
+        third line of its own (`x=24 y=179 w=90 h=37`, measured) that no `<a>` occupies. The
+        form's line IS part of the row a reader sees, and it enters this comparison through the
+        header box, which spans it: if the form leaves the row, `h` shrinks and the header clause
+        says so. A leg that pretended the census saw the form would be a transcription with a
+        second unmeasured promise on it.
+      * the mark's COLOURS, WEIGHT and BORDER. `require_nav_in_palette` and
+        `require_nav_distinguishable` already refuse those against the page, and the styling in
+        the fake row is derived from which entry is marked, not transcribed per page -- sweeping
+        it in here would make this file a second place that gets to choose the mark's design.
+      * `NAV_MIN_TARGET`. It is a floor a thumb imposes on the page, not a fact copied off one
+        (its own comment: "the two agree on the number while doing different jobs"), and every
+        per-rule fake box that exists to be wrong in exactly one way for one guard is likewise
+        not a transcription. This leg compares `_NAV_ROWS` and nothing else, and the fakes that
+        are wrong on purpose pass it because their refusal comes from the guard they target,
+        which runs first.
+
+    Like the rest of the family, it refuses per fact with both sides quoted, because the useful
+    sentence after a refusal is "which of the two moved".
+    """
+    rows = _nav_rows(got, what)
+    items = [i for row in rows for i in row["items"]]
+    by_href = {}
+    for item in items:
+        by_href.setdefault(item["href"], []).append(item)
+    drift = []
+    for t in transcribed:
+        rendered = by_href.get(t["href"]) or []
+        if not rendered:
+            drift.append(f"the transcription records {t['text']!r} at href={t['href']!r} and the "
+                         "rendered row offers no such link")
+            continue
+        live = rendered[0]
+        if live["text"] != t["text"]:
+            drift.append(f"the transcription names href={t['href']!r} {t['text']!r} and the page "
+                         f"renders {live['text']!r}")
+        for key in ("x", "y", "w", "h"):
+            if live[key] != t[key]:
+                drift.append(f"the transcription boxes the {t['href']!r} entry at {key}={t[key]} "
+                             f"and the page renders it at {key}={live[key]}")
+    for item in items:
+        if not any(t["href"] == item["href"] for t in transcribed):
+            drift.append(f"the rendered row carries {item['text']!r} at href={item['href']!r} and "
+                         "the transcription records no entry for it")
+    live_header = (got or {}).get("header")
+    if live_header != header:
+        drift.append(f"the transcription boxes the header at "
+                     f"x={header['x']} y={header['y']} w={header['w']} h={header['h']} and the "
+                     f"page renders "
+                     + ("no <header> at all" if live_header is None else
+                        f"it at x={live_header['x']} y={live_header['y']} "
+                        f"w={live_header['w']} h={live_header['h']}"))
+    if drift:
+        raise SystemExit(
+            f"{what}'s navigation row no longer matches its transcription: "
+            + "; ".join(drift)
+            + ". A transcription is a claim about the page until the page is measured against it, "
+              "and this is the one place in the repository where the two meet (#468). One of the "
+              "two is stale: if the page moved, re-measure it and update `_NAV_ROWS`/`NAV_HEADER` "
+              "in testing/capture/pages.py with the date and the tree the numbers came from; if "
+              "it did not, this frame is the finding.")
+
+
+# The words the pages use to report a state the daemon reached (#199).
+#
+# This is a census of the templates, not a wish list: every name here is one a `.tmpl` file puts on
+# an element, and `every_state_class_the_pages_render_is_in_the_census` below refuses the day one of
+# them stops being rendered -- a guard that measures a class nobody emits passes on nothing. The
+# matching seam on the Go side is `TestEveryStateClassTheTemplatesNameIsDrawn` in internal/web, which
+# refuses the other direction: a word the pages say and app.css never mentions. Since #239 that seam
+# reads the whole vocabulary named here, not only the `state-` prefixed half of it.
+#
+# `state-free` is deliberately absent. app.css has drawn it since before this folder existed and no
+# template has ever rendered it, so it is the one entry in the stylesheet's state block a browser
+# could not be asked about; the Go test asserts both halves of that sentence stay true.
+#
+# #239 moved two names in and moved no pixels out. `.problem` was carrying six jobs at once -- a
+# refused write, a per-account fact, a backend's detail, the standing "enforcement is switched off"
+# sentence, one paragraph of help prose and a missing value -- and `.override` carried both the open
+# hold and the self-session sentence whose whole content is that nothing is held. Two of those jobs had
+# no name, so they are in this census: `refusal` (the write that did not happen, the evaluator's
+# complaint) and `exempt` (the session the daemon runs inside, which no schedule will lock). The other
+# three went to names already listed here or to no state at all -- the mode notice to `disabled`, the
+# missing value to `state-gap`, the help prose to `muted`, which is not a state and stays out. A name
+# this list gains is a name Chrome is now asked about on every photographed page, which is the half of
+# the guard a rename cannot quietly opt out of.
+# The four row-level state names, named separately because nothing outside this file can find them.
+#
+# They are the finding the coverage rule in `pages.py --self-test` produced the first time it was run,
+# and the reason that rule's first version was wrong. `dashboard.tmpl:33` writes
+# `class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}"` and `users.tmpl:43`
+# writes `class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged{{end}}"`, so the four names
+# exist only as the text BETWEEN template actions and carry none of the `state-` prefix. A reader that
+# scans class attributes for literal words finds them; a reader that requires the prefix does not; and
+# `app.css` on the head this branch started from had no rule for any of the four -- measured with
+# `grep -n "tr\.\|tbody tr" internal/web/static/app.css`, which answered nothing at all. So a row whose
+# account is switched off, unreadable, stale or unmanaged was marked only by whichever word one of its
+# cells happened to hold, and the row -- the thing a parent's eye travels down when it is not reading --
+# said nothing. That is #199's report one level above the sentence. The list is here by name because the
+# browser is the only reader that can see a composed class on a page, and a census that silently omits
+# four names is a census that passes on them.
+ROW_STATE_CLASSES = ("held", "unreadable", "stale", "unmanaged")
+
+STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "refusal", "override",
+                 "override-expired", "exempt", "disabled", "flag", "banner") + ROW_STATE_CLASSES
+
+
+# The state census (#199): every element on the page carrying one of those classes, with the four
+# properties that travel to it from the sentence it sits in -- computed for the element AND for its
+# own parent -- plus the two that belong to its box.
+#
+# The parent is the whole point. #199's report is that the UI "is very basic", and the located cause
+# on the pages a parent actually reads is that the stylesheet wrote a rule for one of these classes
+# and left the rest. Measured in Chrome on the pre-fix tree, `/users` at both viewports: six state
+# words on the page, ZERO drawn differently from the prose around them -- "in the configuration, not
+# on the machine" (`state-unknown`), "not managed" (`state-gap`), "the account no longer exists"
+# (`problem`) and the page's own banner paragraph. `/` drew one of its four, the red bold "locked
+# out", beside a "no desktop session" in the same ink and weight as the sentence next to it.
+#
+# A class can be in the DOM, and named in the stylesheet's prose, and do nothing at all -- so the
+# question is not "does app.css mention `.state-gap`", it is "does the browser draw this word
+# differently from the sentence it is sitting in".
+STATE_JS = (
+    "'states':(function(){var out=[];"
+    "[" + ",".join(f"'{c}'" for c in STATE_CLASSES) + "].forEach(function(c){"
+    "Array.prototype.forEach.call(document.querySelectorAll('.'+c),function(e){"
+    "var s=getComputedStyle(e),p=e.parentElement,ps=p?getComputedStyle(p):s;"
+    "out.push({cls:c,text:(e.textContent||'').replace(/\\s+/g,' ').trim().slice(0,48),"
+    "color:s.color,weight:s.fontWeight,style:s.fontStyle,dec:s.textDecorationLine,"
+    "bw:s.borderLeftWidth,bg:s.backgroundColor,"
+    "pcolor:ps.color,pweight:ps.fontWeight,pstyle:ps.fontStyle,pdec:ps.textDecorationLine,"
+    "vis:e.checkVisibility===undefined?true:e.checkVisibility({visibilityProperty:true})});});});"
+    "return out;})()"
+)
+
+# The four properties that travel from the text an element sits in, as
+# (the name a refusal prints, the element's own key, its parent's key), and the two that are the
+# element's own paint.
+#
+# The split is the whole rule. Colour, weight, style and decoration are INHERITED: an element that
+# does not change them is being drawn in the voice of the sentence around it, and the parent's value
+# is the right thing to compare against. A border and a background are not inherited -- they belong
+# to the box -- so the honest question about them is what THIS element has, never what its parent
+# has. Comparing them against the parent was the first version of this guard and it was wrong in the
+# direction that matters: the `.problem` paragraph in `/settings` sits inside a `fieldset`, whose own
+# border makes the child's `border-left-width` differ from it, so the guard called a rule-less
+# `<p class="problem">` "drawn as a state" on a stylesheet that never mentioned the class. Measured
+# on the pre-fix tree, 360 px and 1024 px alike.
+STATE_PROPS = (("color", "color", "pcolor"), ("font-weight", "weight", "pweight"),
+               ("font-style", "style", "pstyle"),
+               ("text-decoration-line", "dec", "pdec"))
+
+# What a box reports when nothing paints it: Chrome's answer for `background-color` at its initial
+# value, and a border whose width is zero is not drawn whatever colour it is given.
+STATE_NO_PAINT = ("rgba(0, 0, 0, 0)", "transparent")
+
+
+# What a page that has its states drawn answers, transcribed from the measured `/` frame at 360 px
+# after #199's block went into app.css (the values are Chrome's `getComputedStyle` output for the
+# stylesheet as shipped, not a design sketch). `_fake_browser` in pages.py defaults this key the way
+# it defaults `CLEAN_CENSUS` and `clean_nav`, so a rule about something else is not defeated by a
+# guard it was never about -- and a rule that wants a defect passes its own `states` and wins.
+CLEAN_STATES = [{"cls": "state-held", "text": "locked out", "color": "rgb(179, 38, 30)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "state-unknown", "text": "no desktop session", "color": "rgb(91, 98, 112)",
+                 "weight": "400", "style": "italic", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "disabled", "text": "account switched off", "color": "rgb(132, 86, 0)",
+                 "weight": "400", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "banner", "text": "casey is locked out now", "color": "rgb(26, 28, 32)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True}]
+
+
+def _state_painted(r):
+    """True when the element carries a mark of its own -- a border drawn, or a background painted."""
+    return (_border_px(r["bw"]) or 0) > 0 or r["bg"].strip().lower() not in STATE_NO_PAINT
+
+
+def _state_rows(got, what):
+    """The state census, or a refusal naming the census that was never taken.
+
+    The same shape as `_nav_rows` and the #202 guards: a check that reads a key nobody measured does
+    not pass because the page is fine, it passes because nothing was compared.
+    """
+    rows = (got or {}).get("states")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the page's states are drawn as states when no "
+                         "state census was taken for it. The census has to be spliced into the "
+                         "measurement (cdp.STATE_JS), and a check that reads a key nobody measured "
+                         "is a check that always passes (#199).")
+    return rows
+
+
+def state_census_line(got):
+    """`states=4 drawn=1` on the driver's measurement line, zeros included.
+
+    `states=0` is a legitimate reading of a page that renders no state word -- `/audit` with rows in
+    it is one -- and this folder's house rule is that a guard which examined nothing says so on the
+    line instead of reporting a silence as a pass (see `census_line`). `drawn` is the number the
+    guard was willing to accept, so `states=6 drawn=0` reads as what it is: six words reporting six
+    states, none of them drawn differently from the prose around them.
+    """
+    rows = (got or {}).get("states") or []
+    seen = [r for r in rows if r.get("vis")]
+    return f"states={len(seen)} drawn={len(seen) - len(_state_lookalikes(seen))}"
+
+
+def _state_lookalikes(rows):
+    """The state elements the browser draws in exactly the voice of the text they sit in.
+
+    An element passes when one inherited property differs from its parent's, or when it carries a
+    border or a background of its own. Any one of those is something a parent can see, and the point
+    of the rule is that a reader can tell the word apart from the sentence -- so this refuses the
+    case where the stylesheet said nothing about the class, and prescribes nothing about which of
+    the four channels a design should move.
+    """
+    bad = []
+    for r in rows:
+        inherited = [name for name, mine, parent in STATE_PROPS if r[mine] != r[parent]]
+        if not inherited and not _state_painted(r):
+            bad.append(r)
+    return bad
+
+
+def require_state_legible(got, what):
+    """Every word the page uses to report a state has to look like a state.
+
+    The refusal is the defect #199 reported, measured rather than read out of the stylesheet. On the
+    pre-fix tree, at both viewports: `/users` reported six state words and drew none of them --
+    "in the configuration, not on the machine" (`state-unknown`), "not managed" (`state-gap`), "the
+    account no longer exists" (`problem`) and the page's own banner paragraph each computed the same
+    colour, weight, style and decoration as the prose they sat in, with no border or background of
+    their own. `/` drew one of its four: the red bold `state-held` "locked out", beside an italic-less
+    muted-less "no desktop session" that a parent reads as the same kind of sentence.
+
+    Nothing here says WHICH treatment a state gets. Colour-blindness, dark mode, and the difference
+    between "cannot be decided" and "locked out" are all arguments about specific properties, and the
+    last time this repository put one designer's answer into a guard -- `nav a:hover` above the
+    current-page rule, #229 -- the guard had to grow three more properties to stay honest. The choice
+    lives in app.css, where the person editing it reads it; the guard only refuses the case where the
+    browser was told nothing.
+
+    An element the browser does not draw is skipped, for the same reason #204 counted only visible
+    links: a state the page is not showing cannot be looked at, and refusing it would mean the next
+    template that renders a row conditionally has to style the case nobody sees.
+    """
+    rows = _state_rows(got, what)
+    visible = [r for r in rows if r.get("vis")]
+    bad = _state_lookalikes(visible)
+    if not bad:
+        return
+    shown = ", ".join(f"{r['cls']!r} {r['text']!r}" for r in bad[:4])
+    more = "" if len(bad) <= 4 else f", and {len(bad) - 4} more"
+    one = bad[0]
+    raise SystemExit(
+        f"{what} reports {len(bad)} of {len(visible)} state(s) the stylesheet never drew "
+        f"({shown}{more}). {one['cls']!r} computes color {one['color']}, weight {one['weight']}, "
+        f"style {one['style']} and decoration {one['dec']} -- every one of them the same as the text "
+        f"it is sitting in, and it carries no border or background of its own (border-left "
+        f"{one['bw']}, background {one['bg']}). The class is in the markup and nothing in app.css "
+        "turns it into something a parent can see, which is what #199 measured: `.state-held` was "
+        "red and bold and every other state word on the page was ordinary prose, so \"no desktop "
+        "session\" and \"locked out\" read as the same kind of sentence. "
+        f"{len(rows) - len(visible)} element(s) carried a state class the browser was not showing "
+        "and were skipped."
+    )
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 
@@ -364,10 +1825,207 @@ def session_rows(session):
         "  return {result: c.map(x => x.getAttribute('data-label')),"
         "          vals: c.map(x => x.innerText.trim())};}))")
 
+# --------------------------------------------------------------------------- #
+# #387, delivering #204's last undelivered bullet: the skip link.
+#
+# The census below is the capture-side join of that bullet: the shell now opens with a
+# fragment anchor, and a fragment anchor is the one link shape whose failure is invisible
+# to every other guard in this file -- the anchor can sit in the markup, compute a colour,
+# precede the masthead in the bytes, and still skip to nothing, because the element its
+# href names is not on the page. That named false pass is why resolution, not existence,
+# is what this reads from the browser.
+# --------------------------------------------------------------------------- #
+
+# The id every shell page aims its skip link at, and every shell page's content region
+# carries. The Go-side copy of this contract reads the same id off the element in the
+# rendered bytes (`internal/web/nav_test.go`); this is the browser's copy, and the two
+# refuse independently of each other on purpose -- a shared fixture would fail open
+# together the day the template drifts.
+SKIP_TARGET = "main"
+
+SKIP_JS = (
+    "'skip':(function(){"
+    "var links=[];var nav=document.querySelector('nav');"
+    "Array.prototype.forEach.call(document.querySelectorAll('a'),function(a){"
+    "var href=a.getAttribute('href')||'';"
+    "if(href.charAt(0)!=='#'){return;}"
+    "var s=getComputedStyle(a);var r=a.getBoundingClientRect();"
+    "var t=document.getElementById(href.slice(1));"
+    "links.push({text:(a.textContent||'').replace(/\\s+/g,' ').trim(),href:href,"
+    "targetId:href.slice(1),ttag:t?t.tagName:null,"
+    "before:nav?!!(nav.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING):false,"
+    "x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),"
+    "disp:s.display,vis:s.visibility});});"
+    "return {links:links};})()"
+)
+
+
+def require_skip_link(got, what):
+    """The page carries exactly one fragment link, it RESOLVES, it has text, it precedes
+    the navigation, and nothing about it removes it from the keyboard's path (#387).
+
+    Why this is a browser census and not another grep: every byte-level fact about the
+    skip link can be true while the link skips to nothing. #387 named the false pass
+    itself -- an `href="#main"` with no element bearing that id -- and a link that greps
+    beautifully into a hole is exactly the defect the shell's own comment apologised for
+    while claiming the shape was fine. Resolution is only answerable where the document
+    exists, so it is asked here, of Chrome, next to the navigation census it belongs to.
+
+    Every refusal names the shape it refuses:
+
+    No census at all is the splice deleted or the script broken -- this file's standing
+    refusal for "the guard is asking a key nobody measured" (`the_navigation_census_is_
+    asked_for` pins that the real `shoot()` asks).
+
+    Zero fragment links is #387's headline: a shell that paints five masthead links and
+    a sign-out form before its content with nothing skipping past them. More than one
+    CLAIMING THE CONTENT REGION is the same class of defect as two `aria-current` marks:
+    the site now has two opinions about where "skip to content" goes, and a reader with a
+    keyboard has to tab through both to find out. The contract counts links by what they
+    claim, not by their leading hash -- the shell's byte-level leg in nav_test.go refuses
+    exactly the duplicate claim and deliberately tolerates other in-page fragments, and a
+    future `Back to top` pointing at its own `#faq` is a legal anchor, not a second skip
+    link. Two gates, one contract: whichever page grows that anchor, neither gate may
+    call it the defect the other one says it is not.
+
+    `ttag: null` is the named false pass -- the fragment resolves to no element.
+    `text` empty is a link a screen reader announces as nothing and a screenshot cannot
+    see, collapsed at rest as it is. `before: false` puts the link after the very thing
+    it exists to skip: a Tab order that reaches it behind the masthead is the bullet
+    undelivered with the markup present.
+
+    And the trap the design entry records (D-0087), in both of the clothes it wears: a
+    rest state of `display: none` or `visibility: hidden` on the link itself, and an
+    ANCESTOR removed from layout. Both take the element out of the sequential focus
+    navigation order, so the "hidden" link is the link the one input it exists for can
+    never reach. The link's own values catch the first by computed value -- the only
+    place that fact is true, since the bytes of such a link are identical to a correct
+    one's -- and the second is caught by the one browser fact that survives the ancestor:
+    a removed subtree has no box, so a link reporting its own values as fine yet
+    measuring 0x0 is a link nobody can Tab to. The honest rest state is the clip idiom's
+    1x1 at (8,8), measured off Chrome on every frame; no refusal lives between 1 and 0.
+
+    One pin, said rather than left to inference: this leg names the content region by
+    the literal `main` (SKIP_TARGET), independently of the byte leg. A rename on both
+    ends at once -- `<main id="MAIN">` with `href="#MAIN"` -- is a working skip link the
+    byte leg passes by its documented intent, and THIS leg will refuse it with a message
+    that does not use the word "rename". That is deliberate: a shared symbol between the
+    two gates is one edit away from silence, and a future renamer's job is to update
+    both legs knowingly, not to have the capture run discovered three days later.
+
+    What this does NOT ask, said rather than left to inference: what the link LOOKS like
+    once focused, and whether its reveal moves the page. A static census cannot press
+    Tab, and the reveal is measured where it can be -- the executed keyboard probe
+    disclosed on #387 -- while `capture` keeps its own claim: the artifact's rest-state
+    pixels, which the nine frames are the evidence of.
+    """
+    skip = (got or {}).get("skip")
+    if skip is None:
+        raise SystemExit(
+            f"{what}: no skip-link census was taken, so the guard comparing fragments is "
+            "reading a key nobody measured -- is cdp.SKIP_JS still spliced in pages.shoot? (#387)")
+    links = skip.get("links") or []
+    claiming = [l for l in links if l["targetId"] == SKIP_TARGET]
+    if not claiming:
+        others = ", ".join(f"{l['href']!r}" for l in links)
+        raise SystemExit(
+            f"{what}: the shell renders {len(links)} fragment link(s)"
+            + (f" [{others}], none claiming the content region" if others else "")
+            + f", so nothing on the page skips past the masthead's five entries and its "
+            "sign-out form -- #204's skip-link bullet is undelivered on this page (#387)")
+    if len(claiming) > 1:
+        joined = ", ".join(f"{l['href']!r} ({l['text'][:32]!r})" for l in claiming)
+        raise SystemExit(
+            f"{what}: the page carries {len(claiming)} fragment links claiming #{SKIP_TARGET} "
+            f"[{joined}]; exactly one is the skip link and a second is a second opinion about "
+            "where the content is (#387)")
+    link = claiming[0]
+    if link["ttag"] is None:
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} resolves to "
+            + "no element on the page"
+            + f", and the contract is that it resolves to the content region `#{SKIP_TARGET}` "
+            "-- a fragment into a hole is the false pass #387 names: the bytes are there and "
+            "the keyboard lands nowhere")
+    if link["ttag"] != "MAIN":
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} resolves to a <{link['ttag'].lower()}>,"
+            " not the <main> content region -- getElementById answers with the FIRST element"
+            " bearing the id, so a duplicate id standing ahead of the content region shadows"
+            " it: Tab-and-Enter lands on a box that still contains the masthead, which is"
+            " the defect D-0087 rejected, with every byte of the link correct (#387)")
+    if not link["text"]:
+        raise SystemExit(
+            f"{what}: the skip link {link['href']!r} has empty text -- collapsed at rest, a "
+            "screen reader announces nothing and no frame can show anything; the link is "
+            "present for greps and for nobody else (#387)")
+    if not link["before"]:
+        raise SystemExit(
+            f"{what}: the skip link sits at or after the navigation in document order, so the "
+            "first Tab reaches the masthead it is supposed to skip before it reaches the link "
+            "-- first in the document is the whole of the feature (#387)")
+    if link["disp"] == "none" or link["vis"] == "hidden":
+        raise SystemExit(
+            f"{what}: the skip link computes display:{link['disp']}, visibility:{link['vis']} "
+            "-- either removes it from the sequential focus navigation order, so the link the "
+            "keyboard exists for is the link the keyboard can never reach; collapse it out of "
+            "the layout and paint instead, not out of the tree (D-0087)")
+    if link["w"] == 0 and link["h"] == 0:
+        raise SystemExit(
+            f"{what}: the skip link's own box measures 0x0 while its own computed values "
+            "read fine, so the thing removing it from the page is an ANCESTOR -- a removed "
+            "subtree has no box and no place in the sequential focus navigation order, and "
+            "every arm that reads only the link's own values calls this a correct link. The "
+            "honest rest state is the clip idiom's 1x1, measured off Chrome; nothing lies "
+            "between 1 and 0 (D-0087's trap in its parent's clothes, #387)")
+
 
 # The first words of the self-session note, as one string in one place. Both result pages render
 # the same Detail cell, and the check below is about the seam between that cell's two sentences.
 SELF_SESSION_NOTE = "This is the session the daemon runs"
+
+
+def session_census(rows):
+    """How many of `rows` are the account's own session rows.
+
+    Both POST pages draw the census as a `table.rows` table whose rows carry a `Where` cell, and
+    `testlock` draws a second `table.rows` table above it — one row per configured backend, labelled
+    `Can lock` and `Detail`. Counting `tbody tr` over the whole page therefore counts two different
+    things on the two pages, which is the mistake this function exists to make impossible: the census
+    is the rows with a `Where`, on both pages, whatever else the page has grown beside them.
+    """
+    return sum(1 for r in rows if "Where" in [str(x) for x in (r.get("result") or [])])
+
+
+def require_declared_sessions(rows, declared, what):
+    """The page shows exactly the number of lockable sessions the fixture declared (#213).
+
+    The sibling of `pages.py`'s `require_declared_rows`, one layer down: that one pins a row count to
+    a seeded file, this one pins a row count to a census the machine was asked for before the browser
+    started. Both exist because the alternative is a frame whose shape belongs to whatever the
+    capturing machine happened to be, and both are checks of the *page* rather than of the source
+    they were declared from — the reader of the artifact is counting rows on paper.
+
+    What this catches that `scrollWidth` never could: the census is what decides how tall these two
+    pages are. `lock.png` was re-taken on 8 Nov on a machine holding two lockable sessions for the
+    target — `tty` plus `x11`, both of them `isLockable` at `internal/platform/platform.go:241-258` —
+    and the artifact changed shape by 394 px while every guard in this file stayed green, because
+    nothing anywhere said how many rows the frame was supposed to have. The README that describes
+    these two frames still quotes the 1-session transcript from 27 Oct.
+
+    A refusal here is not a broken page. It is a different page: the same template over another
+    machine's logins. Re-take it deliberately, on a machine whose census is the one the artifact is
+    meant to show, and let the manifest say which that was.
+    """
+    shown = session_census(rows)
+    if shown != declared:
+        raise SystemExit(
+            f"{what}: the page renders {shown} lockable session row(s) and the fixture declared "
+            f"{declared}. The census decides this artifact's height, so a frame taken over a "
+            f"different census is a different page — re-run the setup script on a machine whose "
+            f"census is the one you mean to publish, or declare PLOCK_CAPTURE_SESSIONS={shown} if "
+            f"this one is right and the fixture is out of date (#213).")
+    return shown
 
 
 def require_detail_terminated(rows, what):
@@ -498,14 +2156,21 @@ class Capture:
             daemon_env["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
             print(f"census: the daemon's PATH starts at {prepend}", flush=True)
         if zone:
-            # The reader's zone, because the audit page labels each row with `MST` and Go hands a
-            # parsed instant the local zone's abbreviation when its offset matches (measured: one
-            # trail, three TZ values, `EDT` / `-0400` / `-0400`). Set it on the daemon rather than on
-            # the browser because the daemon is the reader -- it renders the row.
+            # The reader's zone. It was load-bearing for the When column: the template asked for
+            # `MST`, and Go hands a parsed instant the local zone's abbreviation when its offset
+            # matches (measured: one trail, three TZ values, `EDT` / `-0400` / `-0400`). #210 changed
+            # the column to the stored offset, so nothing on a page reads the host's zone any more:
+            # every dashboard clock comes from the profile's own declared zone and `wallClock`
+            # (`internal/dashboard/banner.go`) renders the instant in the location it was computed
+            # in. It stays set so a frame cannot inherit a zone by accident -- the canary for a
+            # host-dependent clock coming back, not the cause of one. Set on the daemon, not the
+            # browser, because the daemon is what renders the page.
             #
-            # Not validated here. Go falls back to UTC for a zone it cannot load, which prints
-            # `-0400`, which the audit page's declared state then refuses with the row it saw: the
-            # right place to notice is where the label would have been photographed.
+            # Not validated here, and now nothing downstream would notice either: Go falls back to
+            # UTC for a zone it cannot load, and a column printing the value's own offset renders the
+            # same `-04:00` under the fallback as under a zone that loaded. The declared state used to
+            # be where a bad zone surfaced -- the `MST` layout printed `-0400` against an `EDT` needle
+            # -- and that trip wire left with #210.
             daemon_env["TZ"] = zone
             print(f"reader zone: TZ={zone} for the daemon, not {os.environ.get('TZ') or 'the host default'}",
                   flush=True)
@@ -646,29 +2311,61 @@ class Capture:
                                   self.declared_stamp(), int(self.declared_rows()),
                                   f"{op.basename(self.dir)} fixture")
 
-            # Page scripts off, from here to the last photograph, and the login happened above so
-            # the session cookie is already in the jar.
+            # The page's own scripts, off or on, from here to the last photograph. The login happened
+            # above, so the session cookie is already in the jar whatever this decides.
             #
-            # Two reasons, and the second is the one that decides it. The first: static/app.js:76-104
-            # selects every `time[data-unix]` and rewrites its textContent from Date.now(), on load
-            # and then every second, so the "until" in a frame taken with scripts running is a live
-            # countdown reading `58m 12s` rather than the `EndsAtClock` the server put there —
-            # unrepeatable pixels, #207's cause 4, and the reason pinning the Go clock alone would
-            # not have pinned the image. The second: this folder's own criterion is "usable at 360 px
-            # with JavaScript off", and a photograph taken with the scripts on has never tested that
-            # sentence. The committed frames are therefore re-taken under the condition the criterion
-            # actually names, which is the honest direction to move in even though it changes pixels
-            # that are currently in the docs tree.
+            # Two reasons the default is `off`, and the second is the one that decides it. The first:
+            # static/app.js:76-104 selects every `time[data-unix]` and rewrites its textContent from
+            # Date.now(), on load and then every second, so the "until" in a frame taken with scripts
+            # running is a live countdown reading `58m 12s` rather than the `EndsAtClock` the server
+            # put there — unrepeatable pixels, #207's cause 4, and the reason pinning the Go clock
+            # alone would not have pinned the image. The second: this folder's own criterion is
+            # "usable at 360 px with JavaScript off", and a photograph taken with the scripts on has
+            # never tested that sentence. `manifest.py check` refuses to commit a frame recorded
+            # `scripts: "on"` for that reason.
+            #
+            # Off is the default and not the rule, because `on` is the only way to measure what this
+            # switch is worth: the page's scripts have to be switchable to show which pages they can
+            # move. `dashboard.png` proves the switch has power, and a page with no `time[data-unix]`
+            # in it proves the pixels are insensitive there — see the `scripts` section of README.md
+            # for both measurements.
             #
             # Emulation.setScriptExecutionDisabled rather than a Chrome launch flag, and that choice
             # is measured, not stylistic. `--disable-javascript` is still *accepted* by this machine's
             # Chrome (156.0.8078.79 starts it without a word of complaint) and does nothing: a page
             # whose script sets document.title to "JS RAN" came back with that title at the flag and
             # with `orig` under the CDP call. A flag that is accepted and ignored is the worst shape
-            # of refusal to build a criterion on, because the capture looks configured. The driver's
-            # own Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
+            # of refusal to build a criterion on, because the capture looks configured — and it is
+            # also what the declaration in `fixture.env` was until this line read it. The driver's own
+            # Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
             # page's scripts disabled — because this switches off the page's world, not this client's.
-            self.session.call("Emulation.setScriptExecutionDisabled", value=True)
+            scripts_off = scripts_disabled(self.env, f"{op.basename(self.dir)} fixture")
+            self.session.call("Emulation.setScriptExecutionDisabled", value=scripts_off)
+            # Said out loud, in the transcript next to the census line, because a frame's conditions
+            # are the thing a reader of the artifact cannot recover from the pixels afterwards.
+            print(f"page scripts: {'off' if scripts_off else 'ON'} for this frame "
+                  f"(PLOCK_CAPTURE_SCRIPTS in {op.basename(self.dir)}/fixture.env)", flush=True)
+            # #213, in the same breath: the census is the condition these two frames' height comes
+            # from, and the three things that decided it are named with it. Not the session bus and
+            # not the timezone — `fixture.sh`'s note on `capture_declare_census` carries the
+            # measurements that show why it is the system bus and the loginctl that matter here.
+            if self.env.get("PLOCK_CAPTURE_SESSIONS"):
+                uid = self.env.get("PLOCK_CAPTURE_CENSUS_UID")
+                through = self.env.get("PLOCK_CAPTURE_CENSUS_LOGINCTL")
+                if uid and through:
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            f"session(s), as uid {uid} through {through}")
+                    if self.env.get("PLOCK_CAPTURE_CENSUS_SYSTEM_BUS"):
+                        line += (f" on DBUS_SYSTEM_BUS_ADDRESS="
+                                 f"{self.env['PLOCK_CAPTURE_CENSUS_SYSTEM_BUS']}")
+                else:
+                    # No loginctl and no uid with it: nobody asked the machine, so the number came
+                    # from a person. Said as plainly as the measured case, because the two support
+                    # different sentences about the frame (#213).
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            "session(s), declared by the operator rather than taken from the machine")
+                print(f"{line} (PLOCK_CAPTURE_SESSIONS in "
+                      f"{op.basename(self.dir)}/fixture.env)", flush=True)
         except BaseException:
             self.close()
             raise
@@ -709,6 +2406,32 @@ class Capture:
                 "count. The fixture's declared number is what the audit page's row count is compared "
                 "against, so it has to be a plain integer.")
         return raw
+
+    def declared_sessions(self):
+        """The session census this fixture declares, or a refusal that says where the number comes from.
+
+        #213, and the reason it is a refusal rather than a default: these two pages render one row per
+        lockable session of the target account, so the count is the shape of the artifact — its height
+        with it. `0` read out of an absent key would be a fixture confidently photographing the empty
+        case, and a default of "whatever the page shows" is the check not happening, which is the state
+        the two frames were in until now: the committed `lock.png` is a 2-session page and the README
+        that describes it still quotes the 1-session transcript.
+
+        There is one way for this to be missing legitimately: a `runs/<fixture>/fixture.env` written by
+        a setup script older than the census. The message says so, because the alternative reading —
+        that this file is where the number belongs — would put a second copy of a machine's logins in
+        the driver.
+        """
+        raw = self.env.get("PLOCK_CAPTURE_SESSIONS", "")
+        if not raw.isdigit():
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_SESSIONS={raw!r}, which is not a "
+                "count. The census decides how many rows this page has and therefore how tall the "
+                "artifact is, so it is declared before the browser starts and checked against the "
+                "page. `capture_declare_census` in fixture.sh writes it into fixture.env from the "
+                "machine's own census: re-run the setup script, or name the count yourself with "
+                "PLOCK_CAPTURE_SESSIONS=<n> in front of it.")
+        return int(raw)
 
     def require_running(self):
         """The daemon and the browser this fixture started must still be the ones in use.
@@ -1017,14 +2740,20 @@ def report_refusal(path, exc):
     the caller, which is the only place that knows whether one more page can be measured. There
     is deliberately no raising variant sitting next to it: one verb, so the next statement after
     a refusal cannot be a silent casualty.
+
+    The same argument runs the other way about its own output. All three sentences are spoken with
+    `operator_print`, because every call site is inside a `except` handler in one of the three
+    drivers, and a headline that raises on the way out is a refusal the operator never hears AND a
+    traceback that exits 1: #317 measures the sweep losing 11 of its 12 measurements to one dead
+    `print`, and both single-frame drivers' fixture arms printing nothing at all.
     """
-    print(f"REFUSED: {exc}", file=sys.stderr)
+    operator_print(f"REFUSED: {exc}")
     if path and op.exists(path):
         st = os.stat(path)
         when = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
-        print(f"  a previous {op.basename(path)} is still at {path} -- mtime "
-              f"{when.strftime('%Y-%m-%dT%H:%M:%SZ')}, {st.st_size} bytes -- and it is NOT from "
-              "this run. Do not quote it as current.", file=sys.stderr)
+        operator_print(f"  a previous {op.basename(path)} is still at {path} -- mtime "
+                       f"{when.strftime('%Y-%m-%dT%H:%M:%SZ')}, {st.st_size} bytes -- and it is NOT "
+                       "from this run. Do not quote it as current.")
     else:
-        print("  no file was written", file=sys.stderr)
+        operator_print("  no file was written")
 
