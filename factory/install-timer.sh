@@ -130,6 +130,35 @@ STOP=$((FACTORY_BUDGET + 60))
 # it is one setting away from re-merging the two numbers, and the merge is the defect.
 STOP_TIMEOUT=60
 
+# What may stand in the unit's cgroup AT ALL is bounded here, not merely bounded in cost.
+# `H-0312`'s MCP fence removed one class of grandchild -- the servers nobody asked for --
+# but a fence on a configuration is not a containment: whatever a tick starts still stands
+# in this cgroup, and #390's other half, confining it, was left as a tamper-resistance
+# question a maintainer owns (#476). The answer came on 21 Nov, Option 1: constrain the
+# cgroup. These three values are that choice; `factory/DECISIONS/H-0403.md` carries the
+# measurements, the refused sub-options (`PrivateTmp=`/namespaces, `Delegate=`) and what
+# each lost.
+#
+# Read from this unit's OWN cgroup on 23 Nov with a tick in flight: `pids.peak=113` against
+# an inherited user-slice `pids.max=212828`, `memory.peak=571 MiB` on a 186 GiB machine.
+# `TasksMax=512` is 4.5x that peak: a process leak now fails INSIDE the unit, where the
+# journal sees it, before it spends the login session's task slots. The memory pair is
+# percentages because this unit file is rendered per machine and a percent means the same
+# thing on every one: `MemoryHigh=` pushes reclaim pressure into the unit long before the
+# workstation notices a runaway child, and `MemoryMax=` lets the kernel OOM-kill the
+# biggest process inside the fence -- which lands as a failed tick, a visible failure,
+# which is the direction a fence must fail in. `factory/selftest.d/476-cgroup-constraints.sh`
+# refuses a render that dropped a line, chose a value outside the measured margin, or
+# spelled one in a shape systemd would ignore at exit 0 (the `SuccessExitStatus=` comma
+# measured that failure mode on this very template).
+#
+# Deliberately not environment overrides, like `STOP_TIMEOUT` above: a knob on a fence is
+# one setting away from removing it, and removing it is a maintainer's call, not a deploy
+# detail. To change these, change the decision first.
+TASKS_MAX=512
+MEM_HIGH=25%
+MEM_MAX=50%
+
 systemctl_user() {
 	if [ "$DRY_RUN" = "1" ]; then
 		printf 'DRY-RUN  systemctl --user %s\n' "$*"
@@ -364,7 +393,10 @@ render() {
 		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g" \
-		-e "s#@RERUN_EXIT@#$(sed_replacement "$FACTORY_EXIT_RERUN")#g"
+		-e "s#@RERUN_EXIT@#$(sed_replacement "$FACTORY_EXIT_RERUN")#g" \
+		-e "s#@TASKS_MAX@#$(sed_replacement "$TASKS_MAX")#g" \
+		-e "s#@MEM_HIGH@#$(sed_replacement "$MEM_HIGH")#g" \
+		-e "s#@MEM_MAX@#$(sed_replacement "$MEM_MAX")#g"
 }
 
 service_unit=$(cat <<'UNIT' | render
@@ -484,6 +516,17 @@ SuccessExitStatus=@HALT_EXIT@ @RERUN_EXIT@
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
+# The cgroup fence: #476's Option 1, a maintainer's call of 21 Nov, decided in `H-0403`.
+# What may stand in this cgroup at all now has a bound -- process count and memory --
+# measured against this unit's own cgroup (`pids.peak=113`, `memory.peak=571 MiB`, 23 Nov,
+# with a tick in flight) and spelled so systemd PARSES it: an ignored value here is the
+# silent no-fence, the failure mode the leg plants against. It replaces nothing: the two
+# deadlines above still bound the pass and the reaping, `KillMode=control-group` (the
+# default) is still what tears the cgroup down, and every cap that trips reads as a failed
+# pass in the journal -- constrained loudly, never unconstrained quietly.
+TasksMax=@TASKS_MAX@
+MemoryHigh=@MEM_HIGH@
+MemoryMax=@MEM_MAX@
 UNIT
 )
 
