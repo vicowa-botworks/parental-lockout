@@ -1,4 +1,75 @@
-# NEXT — conflict PR #521 tick (branch `wip/issue-204-dropped-6bfd528`; this round ships `D-0094` and `D-0095`, and resolves the `CONFLICTING`/`DIRTY` verdict read back from the API at head `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`. It takes `main`’s shipped path-based navigation, preserves the dropped `.Page` record outside `main`’s published log, and re-ids the branch-local `D-0015` collision as `D-0095`. Live reads at this re-heading: `gh pr view 521` answered `OPEN`, `CONFLICTING`, `DIRTY` and no review decision; `gh pr checks 521` answered rc 1, `no checks reported on the 'wip/issue-204-dropped-6bfd528' branch`; raw open-PR JSON counted three rows, #521, #522 and #524. The prior `issue-393` head is demoted in place beneath this hand-off, its section bodies byte-kept. Gate verdicts ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this tick merged nothing.)
+# NEXT — conflict PR #521 tick, round 2 (branch `wip/issue-204-dropped-6bfd528`, unit `conflict:521`; this round ships `DECISIONS/D-0097.md` over checkpoint `c923e62`, merges `origin/main` `0bc63bde`, adjudicates the one-file junction that merge produced — `git merge-tree --write-tree --name-only origin/main HEAD` (run before any write) named `NEXT.md` alone — and answers #521's review of head `0ca411fa`, three blocking findings taken where they live in `D-0053` and `H-0401`. Junction per `D-0097`, the successor of `D-0094`'s rule as `H-0399`/`H-0400` re-derived it: this round on top as the single `#`, because raw open-PR JSON counted in python answers two rows at this re-heading, #524 and #521, and only #521 feeds this merge (`H-0393`'s live-parent rule, re-measured not quoted); trunk's #522 head demoted in place beneath as a stamped `## Record —` carrying `gh pr view 522` read back `MERGED 2026-11-23T16:00:23Z` at merge commit `0bc63bde9f082f81af1ba9a443fa543d0548a1ce`; the doubly-demoted `issue-393` record row kept once on trunk's bytes, this branch's variant dropped, disclosed in `D-0097` because a byte census cannot tell an adjudication from a loss. Live reads at this re-heading, each raw JSON read alone after the write it follows: `gh pr view 521` answered `OPEN`, `CONFLICTING`, `DIRTY`, `CHANGES_REQUESTED`, head `0ca411fad6e3b114a6b95448d60977c4de654676`, `isDraft:false` — the flag's history and its correction live in `H-0401`. Gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this unit shipped
+
+- The base sync, counted before anything was touched: `git merge origin/main` (main at `0bc63bde`)
+  met exactly the one conflicted path the merge-tree probe named, `NEXT.md`; `DECISIONS.md` and
+  `factory/DECISIONS.md` auto-merged because this round's log edits are in `DECISIONS/D-0053.md`
+  and `factory/DECISIONS/H-0401.md`, files trunk's #522 round did not open.
+- The junction, adjudicated `DECISIONS/D-0097.md` (trailer `Decision: D-0097`, checkpoint
+  `c923e62`): this head the single `#`; the two prior heads carried whole as stamped `## Record —`
+  rows with `Recorded heading:` verbatim copies of their originals and their section bodies
+  byte-kept; the shared `issue-393` row kept once on trunk's bytes.
+- The review of `0ca411fa` answered in the entries it aims at: `DECISIONS/D-0053.md` takes its
+  mergeability sentence back to the head it measured, the dated `cb598cc4` merge-base reading in
+  past tense, and retracts the `410f132` half-line that corrected a sentence round-1's review
+  never wrote; `factory/DECISIONS/H-0401.md` takes the dated timeline close from the reviewer's
+  attributed read — `ready_for_review` at `2026-11-23T13:59:29Z`, twenty-three minutes after the
+  opening and thirty-two before this entry published, actor named by the event — and the
+  lines-versus-occurrences shape of its `draft` count (eighty-six `grep -rn` lines, ninety-seven
+  `grep -o` occurrences, re-counted 2026-11-23).
+
+## What is still owed (all of it, none silent)
+
+- Re-run every gate after the final push and put fresh output, not a prediction, in the pull body;
+  `gh pr checks` rc is not a verdict (#1180).
+- Re-review of #521 after this push — the poke owns the ask; this unit asked nobody.
+- The supervisor still owns review, ready-or-draft state, and merge for #521; this unit opened no
+  merge and cleared no flag.
+- Re-read #521 after push; until the API read-back names the new head, every verdict in this
+  hand-off describes the pre-push state it measured.
+
+## Constraints a stranger would break here
+
+- Do not restore the branch's `.Page` navigation implementation under the banner of preserving
+  work; `D-0016` and `D-0054` rejected and removed the implementation and `main`'s tests encode
+  the shipped design. (carried from the round-1 record demoted below)
+- Do not mark #521 or #522 ready merely because CI or review requests arrive, and do not delete
+  either ref as cleanup: publishing and deletion are maintainer escalations, and `H-0401`'s
+  correction now dates exactly how fast a cleared flag outruns a written claim about it.
+  (carried from the `issue-393` and round-1 records demoted below)
+- Carry this whole stack when re-heading it; a compressed overwrite can align two heads and lose
+  a body without a conflict marker (`H-0339` measured a 36-line body lost that way at rc 0).
+  (carried from every record demoted below)
+- Do not renumber `main`'s published log to resolve a collision; file under an allocator-issued
+  id. (carried from the round-1 record demoted below)
+
+## Record — #522 conflict tick (branch `wip/issue-211-dropped-1df729a`), demoted in place by this round; PR #522 read back `MERGED 2026-11-23T16:00:23Z` at merge commit `0bc63bde9f082f81af1ba9a443fa543d0548a1ce` from the API at this re-heading; its original heading is recorded verbatim below and its section bodies are byte-kept beneath
+
+Recorded heading: # NEXT — conflict tick for PR #522 (branch `wip/issue-211-dropped-1df729a`, unit `conflict:522`; this round ships `DECISIONS/D-0096.md` over checkpoint `51f7d2a`: `origin/main` merged in and the six-file conflict adjudicated — trunk's capture lineage from `D-0021` onward is kept whole in `testing/capture/` and `docs/screenshots/360/manifest.json`, and the stranded `D-0019` record this pull request exists to deliver is spliced verbatim into `DECISIONS.md` between `D-0018` and `D-0021`. Gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+
+## What this unit shipped
+
+- The base sync: `git merge origin/main`, conflicted in six files, adjudicated `D-0096` — five implementation files (`testing/capture/README.md`, `testing/capture/cdp.py`, `testing/capture/fixture.sh`, `testing/capture/manifest.py`, `docs/screenshots/360/manifest.json`) taken whole from trunk because trunk's lineage superseded this branch's early stage of the same feature, and `DECISIONS.md` spliced to trunk's bytes plus the 78-line `D-0019` entry — one additive hunk against `origin/main`, zero deletions, zero surviving markers.
+- `DECISIONS/D-0096.md`: options, losses, and the one sentence of `D-0019` that trunk's `D-0025`/`D-0026` lineage superseded, so the stranded record ships readable without being mistaken for the current implementation.
+
+## What is still owed (all of it, none silent)
+
+- The supervisor disposes of #522; a conflict resolution is not a disposition. This pull request remains what `H-0401` made it — the record of a dropped design — and merging, closing and ref-deletion all stay withheld from this unit.
+- Re-review of #522 after this push — the poke owns the ask; this unit asked nobody and merged nothing.
+
+## Constraints a stranger would break
+
+- Do not mine this branch's implementation side for anything "lost": `D-0096` names what each file lost to trunk's lineage, and the branch's nine manifest rows record digests of frames that no longer exist — `manifest.py check` on them refuses the committed set.
+- Do not mark #521 or #522 ready merely because CI or review requests arrive. Their purpose is visibility, not delivery. (carried from the `issue-393` head demoted below)
+- Do not delete `wip/issue-204-dropped-6bfd528`, `wip/issue-211-dropped-1df729a`, or their draft pull requests as cleanup. Deletion is a maintainer escalation. (carried from the `issue-393` head demoted below)
+- Carry the whole `NEXT.md` stack when re-heading it. A compressed overwrite can align two heads and lose a body without a conflict marker; `H-0339` measured that failure mode. (carried from the `issue-393` head demoted below)
+
+## Record — conflict PR #521 tick, round 1 (branch `wip/issue-204-dropped-6bfd528`), demoted in place by the round answering #521's review of `0ca411fa`; #521 read back at this re-heading `OPEN`, `CHANGES_REQUESTED`, `CONFLICTING`/`DIRTY` at head `0ca411fad6e3b114a6b95448d60977c4de654676` — the `CONFLICTING` verdict its own heading resolves describes head `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`, the pre-push state it measured, and the branch moved under the review rounds since; its original heading is recorded verbatim below and its section bodies are byte-kept beneath
+
+Recorded heading: # NEXT — conflict PR #521 tick (branch `wip/issue-204-dropped-6bfd528`; this round ships `D-0094` and `D-0095`, and resolves the `CONFLICTING`/`DIRTY` verdict read back from the API at head `6bfd5280bc7af9feedc6f7a7167f007acf7544b2`. It takes `main`’s shipped path-based navigation, preserves the dropped `.Page` record outside `main`’s published log, and re-ids the branch-local `D-0015` collision as `D-0095`. Live reads at this re-heading: `gh pr view 521` answered `OPEN`, `CONFLICTING`, `DIRTY` and no review decision; `gh pr checks 521` answered rc 1, `no checks reported on the 'wip/issue-204-dropped-6bfd528' branch`; raw open-PR JSON counted three rows, #521, #522 and #524. The prior `issue-393` head is demoted in place beneath this hand-off, its section bodies byte-kept. Gate verdicts ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this tick merged nothing.)
+
 
 ## What this unit shipped
 
@@ -42,7 +113,7 @@
 - Carry this whole stack when re-heading it. The previous `issue-393` board and its records below
   are byte-kept; compressing them can silently lose a body without a conflict marker (#337).
 
-## Record — issue-393 execution tick (branch `issue-393`; this round ships `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z. It opens the two stranded record branches as draft pull requests #521 and #522, posts their live readbacks on #393, and leaves every merge, close, review, and ref-deletion decision to the supervisor. Gate verdicts ride this branch's pull-request body, never this file (#1180).)
+## Record — issue-393 execution tick, demoted in place by the #522 conflict tick on 2026-11-23 (branch `issue-393`; it shipped `H-0401` after the maintainer answered #393 on 2026-11-21T01:33:11Z, opened the two stranded record branches as draft pull requests #521 and #522, posted their live readbacks on #393, and left every merge, close, review, and ref-deletion decision to the supervisor; its own state is not re-read at this re-heading; its section bodies are byte-kept beneath)
 
 ## What this unit shipped
 
