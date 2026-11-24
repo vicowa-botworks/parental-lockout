@@ -18,8 +18,9 @@ make install
 That builds the binary and drops it, with the unit and the directories, as the table shows.
 The repo's gate is deliberately not part of `install` (#525) — it costs minutes and most of
 that cost is the delivery harness auditing itself — so when you want the gate to run before
-the install, ask for both targets in one command: `make verify install`. make builds targets
-left to right and stops at the first refusal, so the install happens only on a green gate.
+the install, ask for the named target: `make install-verified`. Its `verify` prerequisite is
+what orders the two, and a prerequisite edge holds under parallel make while a goal ordering
+on one command line does not.
 
 | path | mode | what it is |
 |---|---|---|

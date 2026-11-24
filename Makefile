@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test selftest verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
+.PHONY: build fmt vet test selftest verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install install-verified uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -299,15 +299,27 @@ clean:
 # and "==> factory dirt verdict" before it copies a file. This file already refuses that
 # shape for its other slow step above: "a gate that slow gets skipped." Here it was worse
 # than skipped; it was resented, which is what #525 is. The guarantee is not deleted, it
-# moved one ordered command: `make verify install` runs the gate first and installs only
-# if the gate passes, because make builds targets left to right and stops at the first
-# failure. What lost: a bare `sudo make install` no longer refuses a build the gate would
+# rides install-verified below: its `verify` prerequisite is an ordering make must keep
+# under `-j`, `-k` and `MAKEFLAGS` -- a prerequisite edge survives parallelism, a goal
+# ordering on the command line does not (measured 24 Nov, GNU Make 4.4.1, on this head's
+# shape: `-j8`, `-k` and `MAKEFLAGS=-j4` ran the installer with the gate refusing; `-j2`
+# installed on 1 of 5 runs; serial was the only safe reading). What lost: a bare `sudo make install` no longer refuses a build the gate would
 # reject -- D-0100 carries that loss, and `git revert` of the commit carrying its trailer
 # restores the prerequisite whole. The automated paths that need a verified artifact are
 # untouched because none of them ever went through this target: CI runs `make verify` as
 # its own job, and packaging stages `deploy/install.sh` directly under DESTDIR.
 install: build
 	@deploy/install.sh
+
+# install-verified runs the gate first and installs only if the gate passed. The ordering
+# is a prerequisite edge, so it survives `make -j`, `-k` and a job count in MAKEFLAGS --
+# goal order on one command line does not (see the measurement above install). The recipe
+# is a recursive make rather than a second copy of the install line, so this target can
+# never drift from what plain install does. Do not "tidy" this into `install: build |
+# verify`: an order-only prerequisite puts the minutes-long gate back on the everyday
+# `make install` path, which is the exact shape #525 refused.
+install-verified: verify
+	@$(MAKE) --no-print-directory install
 
 uninstall:
 	@deploy/install.sh --uninstall$(if $(PURGE), --purge,)
@@ -323,7 +335,7 @@ uninstall:
 # execs, so the loop, the config, the audit writer and the fallback chain under test are
 # the real ones, and only the thing that would touch a screen is a shell script.
 #
-# verify is a prerequisite for the same reason it is one for install: a loop started
+# verify is a prerequisite here for the reason it is one for install-verified: a loop started
 # against an unverified build teaches you things about a binary the gate would have
 # rejected.
 run-dev: verify
