@@ -15,8 +15,11 @@ network to act as the parent's browser — a phone is fine.
 make install
 ```
 
-That runs the repo's gate first (`make verify`) and refuses to install a build that fails it,
-then drops:
+That builds the binary and drops it, with the unit and the directories, as the table shows.
+The repo's gate is deliberately not part of `install` (#525) — it costs minutes and most of
+that cost is the delivery harness auditing itself — so when you want the gate to run before
+the install, ask for both targets in one command: `make verify install`. make builds targets
+left to right and stops at the first refusal, so the install happens only on a green gate.
 
 | path | mode | what it is |
 |---|---|---|

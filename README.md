@@ -78,10 +78,7 @@ cd parental-lockout
 sudo make install
 ```
 
-`make install` runs the repo's gate (`make verify`) first and refuses to install a build that
-fails it — installing an unverified build means the machine that is about to enforce tonight
-runs a binary the repo would have rejected, and the failure it produces, a screen that stays
-unlocked, is silent until morning. It then hands off to
+`make install` builds and installs: one `go build`, then a hand-off to
 [`deploy/install.sh`](deploy/install.sh), which drops:
 
 | path | mode | what it is |
@@ -92,6 +89,16 @@ unlocked, is silent until morning. It then hands off to
 | `/var/lib/plock/` | 0700 | the TLS certificate and its key |
 | `/var/log/plock/` | 0750 | the audit trail |
 | `/usr/share/doc/plock/docs/` | 0644 | these docs, for `systemctl status` |
+
+The repo's gate (`make verify`) is deliberately not part of `install` (#525): it costs minutes
+and its steps are largely the delivery harness auditing itself, so making every install pay
+it charged the everyday path for the release path's work. Ask for the gate in the same command
+when you want a build the gate would accept — make runs targets left to right and stops at the
+first refusal, so the install happens only on a green gate:
+
+```sh
+sudo make verify install   # gate first; install runs only if the gate passed
+```
 
 It **starts and enables nothing**, and it **never writes the config file**. Both are yours to
 decide in the first run below: a root daemon that locks other people's sessions should begin on

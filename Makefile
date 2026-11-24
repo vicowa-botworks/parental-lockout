@@ -290,11 +290,23 @@ clean:
 # somebody typed `make install`. See the header of deploy/install.sh for why it also never
 # writes the config file.
 #
-# verify runs first on purpose. Installing an unverified build means the machine that is
-# about to enforce tonight is running a binary the repo's own gate would have rejected, and
-# the failure it produces -- a screen that stays unlocked -- is silent until morning.
-install: verify
-	@$(MAKE) --no-print-directory build
+# The gate is deliberately NOT a prerequisite (Refs #525; the decision is D-0100). It used
+# to be, and the
+# prerequisite's own comment is the prosecution: verify is a minutes-long battery -- 3m9s
+# on the box that wrote that comment, 7m08s on the 24 Nov box that removed the
+# prerequisite with the run aborted midway, so a floor on its full cost -- and to an
+# operator installing a program it reads as a delivery audit, printing "==> decision log"
+# and "==> factory dirt verdict" before it copies a file. This file already refuses that
+# shape for its other slow step above: "a gate that slow gets skipped." Here it was worse
+# than skipped; it was resented, which is what #525 is. The guarantee is not deleted, it
+# moved one ordered command: `make verify install` runs the gate first and installs only
+# if the gate passes, because make builds targets left to right and stops at the first
+# failure. What lost: a bare `sudo make install` no longer refuses a build the gate would
+# reject -- D-0100 carries that loss, and `git revert` of the commit carrying its trailer
+# restores the prerequisite whole. The automated paths that need a verified artifact are
+# untouched because none of them ever went through this target: CI runs `make verify` as
+# its own job, and packaging stages `deploy/install.sh` directly under DESTDIR.
+install: build
 	@deploy/install.sh
 
 uninstall:

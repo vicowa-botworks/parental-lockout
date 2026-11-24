@@ -1,4 +1,56 @@
-# NEXT — conflict PR #521 tick, round 3 (branch `wip/issue-204-dropped-6bfd528`, unit `conflict:521`; this round ships `DECISIONS/D-0098.md` over checkpoint `9e0b2cb`, merges `origin/main` `799d810ef0be6f448173d7b1d2d4023f68ce5ee6` — the #524 merge — and adjudicates the one-file junction that merge produced: `git merge-tree --write-tree --name-only origin/main HEAD` (run before any write) named `NEXT.md` alone, and `git diff HEAD origin/main -- NEXT.md` showed the parents' stacks share every byte outside the board region, the doubly-demoted `#522` row seated in two forms, and the branch-only round-1 record seated between it and the `issue-393` row. Junction per `D-0097`'s live-parent rule, re-measured 2026-11-23 rather than quoted: raw open-PR JSON counted in python answers ONE row at this re-heading — #521 — #524 having read back `MERGED 2026-11-23T17:25:21Z` at merge commit `799d810ef0be6f448173d7b1d2d4023f68ce5ee6`, so this round owns the single `#`; both parents' live heads are demoted in place beneath it as stamped `## Record —` rows, each carrying a `Recorded heading:` verbatim copy of its original and its section bodies byte-kept; the doubly-demoted `#522` row is kept once on trunk's bytes and this branch's `Recorded-heading`-form variant rows are dropped, disclosed in `D-0098` because a byte census cannot tell an adjudication from a loss; the branch-only round-1 record survives whole between the `#522` row and the `issue-393` row, and no other ref carries it. #521's review blocking 1 is taken into the board it points at: this board's live constraint sentence is re-aimed from `D-0016`/`D-0054` to `D-0033` per `D-0053`'s dated Correction, whose Correction is also the annotation the two byte-kept record copies of the old sentence now carry; `D-0053`'s board-region pointer is re-aimed off the unfilled `H-0407` hole (a mis-fired allocation `D-0097` disclosed) onto the rounds that actually re-headed, `D-0097`'s and this `D-0098`'s. Live reads at this re-heading, each raw JSON read alone after the write it follows: `gh pr view 521` answered `OPEN`, `CHANGES_REQUESTED`, `CONFLICTING`, `DIRTY`, head `dee4cbd89cbc4a8f16ae1914e62cd7fbe6842a37`, `isDraft:false` — this round's push moves that head and can spend what the review left standing, and the post-push review state is what the fresh read-back returns, never this file (#1180); gate verdicts and the post-push review state ride the pull-request body, never this file; merging belongs to the supervisor and this unit merged nothing.)
+# NEXT — issue-525 unit (branch `issue-525`; this round ships `DECISIONS/D-0100.md` over checkpoint `0629bd7` and moves the delivery gate out of the `install` target per #525; the open-PR board count at this re-heading is a fresh dated read, 24 Nov, raw JSON counted in python: ZERO open pull requests — #521 read `MERGED` and its merge commit `cfebe3c` is the head this branch was cut from — so this round owns the single `#` under the live-parent rule and the #521 round-3 head is demoted in place beneath, its `Recorded heading:` a verbatim copy and its section bodies byte-kept; the one census absence this demotion authors is the old level-1 heading row itself, spent by the demotion per the stamped-Record convention; gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this unit shipped
+
+- `Makefile`: `install` depends on `build` now, not `verify`; the internal `$(MAKE) build`
+  call is gone with its job taken by the prerequisite; the comment over the target carries
+  the measured cost (3m9s where the prerequisite was written; 7m08s on the 24 Nov box with
+  the run aborted midway) and the ordered-command form `make verify install` that keeps the
+  guarantee one word away.
+- `README.md` and `docs/setup.md`: the two sentences that claimed `make install` runs the
+  gate first now state what runs, and print `sudo make verify install` for operators who
+  want the gate before the install.
+- `DECISIONS/D-0100.md`: options, losses, the tzdata-2026f environment disclosure, and the
+  rollback sentence; trailer `Decision: D-0100`, checkpoint `0629bd7`.
+- Verified before editing, not argued: no CI job invokes the install target, packaging
+  stages `deploy/install.sh` directly under DESTDIR, and `run-dev` keeps its `verify`
+  prerequisite — the automated paths never went through this target and still verify
+  themselves.
+
+## What is still owed (all of it, none silent)
+
+- Refs #525 — unfinished on this branch until the merge lands: the ticket's only remaining
+  step is the supervisor's merge, and the pull-request body carries the closing keyword for
+  it.
+- The supervisor merges; this unit merged nothing and asked no reviewer — the ask is the
+  poke's, per AGENTS.md.
+- Gate verdicts must be quoted from the runs themselves in the pull body after the final
+  push; a pre-push prediction is a prophecy (#1180), and `gh pr checks` rc is not a verdict.
+- This box carries tzdata 2026f while CI pins 2026e, and `internal/schedule`'s
+  `TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight` refuses on `America/Havana` under
+  2026f (measured 24 Nov: rc 1 host database, rc 0 with `ZONEINFO` aimed at the digest-
+  verified pinned 2026e pair). Any future `make verify` on this host needs the same
+  `ZONEINFO` override or the pinned pair installed; following tzdata is the pin re-cut the
+  pin's own entry assigns to a maintainer, and this unit changed no pin.
+- The #521 board head demoted below keeps its owed rows; they are still that round's hand
+  to the next conflict tick, not retired by this re-heading.
+
+## Constraints a stranger would break
+
+- Do not re-add `verify` as `install`'s prerequisite to "restore the safety comment": the
+  prerequisite was a decided choice, #525 retired it, and `D-0100` carries the loss and the
+  rollback (`git revert` of the commit with the `Decision: D-0100` trailer). The ordered
+  command `make verify install` is the shipped shape of the guarantee.
+- Do not "fix" the Havana failure by narrowing the candidate-zone guard in
+  `internal/schedule`: the guard fired exactly as designed against an unpinned database;
+  the honest repairs are the pinned `ZONEINFO`/tzdata, or a maintainer's re-cut of the pin.
+- Nothing outside `issue-525`'s three files and its decision file is this branch's to
+  touch; `run-dev`'s `verify` prerequisite is deliberate.
+
+## Record — conflict PR #521 tick, round 3, demoted in place by the issue-525 unit on 2026-11-24; #521 read `MERGED` into main at the head this branch was cut from (`cfebe3c`), counted from the raw open-PR JSON (zero open rows) at this re-heading; its original heading is recorded verbatim below and its section bodies are byte-kept beneath
+
+Recorded heading: # NEXT — conflict PR #521 tick, round 3 (branch `wip/issue-204-dropped-6bfd528`, unit `conflict:521`; this round ships `DECISIONS/D-0098.md` over checkpoint `9e0b2cb`, merges `origin/main` `799d810ef0be6f448173d7b1d2d4023f68ce5ee6` — the #524 merge — and adjudicates the one-file junction that merge produced: `git merge-tree --write-tree --name-only origin/main HEAD` (run before any write) named `NEXT.md` alone, and `git diff HEAD origin/main -- NEXT.md` showed the parents' stacks share every byte outside the board region, the doubly-demoted `#522` row seated in two forms, and the branch-only round-1 record seated between it and the `issue-393` row. Junction per `D-0097`'s live-parent rule, re-measured 2026-11-23 rather than quoted: raw open-PR JSON counted in python answers ONE row at this re-heading — #521 — #524 having read back `MERGED 2026-11-23T17:25:21Z` at merge commit `799d810ef0be6f448173d7b1d2d4023f68ce5ee6`, so this round owns the single `#`; both parents' live heads are demoted in place beneath it as stamped `## Record —` rows, each carrying a `Recorded heading:` verbatim copy of its original and its section bodies byte-kept; the doubly-demoted `#522` row is kept once on trunk's bytes and this branch's `Recorded-heading`-form variant rows are dropped, disclosed in `D-0098` because a byte census cannot tell an adjudication from a loss; the branch-only round-1 record survives whole between the `#522` row and the `issue-393` row, and no other ref carries it. #521's review blocking 1 is taken into the board it points at: this board's live constraint sentence is re-aimed from `D-0016`/`D-0054` to `D-0033` per `D-0053`'s dated Correction, whose Correction is also the annotation the two byte-kept record copies of the old sentence now carry; `D-0053`'s board-region pointer is re-aimed off the unfilled `H-0407` hole (a mis-fired allocation `D-0097` disclosed) onto the rounds that actually re-headed, `D-0097`'s and this `D-0098`'s. Live reads at this re-heading, each raw JSON read alone after the write it follows: `gh pr view 521` answered `OPEN`, `CHANGES_REQUESTED`, `CONFLICTING`, `DIRTY`, head `dee4cbd89cbc4a8f16ae1914e62cd7fbe6842a37`, `isDraft:false` — this round's push moves that head and can spend what the review left standing, and the post-push review state is what the fresh read-back returns, never this file (#1180); gate verdicts and the post-push review state ride the pull-request body, never this file; merging belongs to the supervisor and this unit merged nothing.)
+
 
 ## What this unit shipped
 
