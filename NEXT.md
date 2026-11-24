@@ -1,4 +1,56 @@
-# NEXT — conflict PR #521 tick, round 3 (branch `wip/issue-204-dropped-6bfd528`, unit `conflict:521`; this round ships `DECISIONS/D-0098.md` over checkpoint `9e0b2cb`, merges `origin/main` `799d810ef0be6f448173d7b1d2d4023f68ce5ee6` — the #524 merge — and adjudicates the one-file junction that merge produced: `git merge-tree --write-tree --name-only origin/main HEAD` (run before any write) named `NEXT.md` alone, and `git diff HEAD origin/main -- NEXT.md` showed the parents' stacks share every byte outside the board region, the doubly-demoted `#522` row seated in two forms, and the branch-only round-1 record seated between it and the `issue-393` row. Junction per `D-0097`'s live-parent rule, re-measured 2026-11-23 rather than quoted: raw open-PR JSON counted in python answers ONE row at this re-heading — #521 — #524 having read back `MERGED 2026-11-23T17:25:21Z` at merge commit `799d810ef0be6f448173d7b1d2d4023f68ce5ee6`, so this round owns the single `#`; both parents' live heads are demoted in place beneath it as stamped `## Record —` rows, each carrying a `Recorded heading:` verbatim copy of its original and its section bodies byte-kept; the doubly-demoted `#522` row is kept once on trunk's bytes and this branch's `Recorded-heading`-form variant rows are dropped, disclosed in `D-0098` because a byte census cannot tell an adjudication from a loss; the branch-only round-1 record survives whole between the `#522` row and the `issue-393` row, and no other ref carries it. #521's review blocking 1 is taken into the board it points at: this board's live constraint sentence is re-aimed from `D-0016`/`D-0054` to `D-0033` per `D-0053`'s dated Correction, whose Correction is also the annotation the two byte-kept record copies of the old sentence now carry; `D-0053`'s board-region pointer is re-aimed off the unfilled `H-0407` hole (a mis-fired allocation `D-0097` disclosed) onto the rounds that actually re-headed, `D-0097`'s and this `D-0098`'s. Live reads at this re-heading, each raw JSON read alone after the write it follows: `gh pr view 521` answered `OPEN`, `CHANGES_REQUESTED`, `CONFLICTING`, `DIRTY`, head `dee4cbd89cbc4a8f16ae1914e62cd7fbe6842a37`, `isDraft:false` — this round's push moves that head and can spend what the review left standing, and the post-push review state is what the fresh read-back returns, never this file (#1180); gate verdicts and the post-push review state ride the pull-request body, never this file; merging belongs to the supervisor and this unit merged nothing.)
+# NEXT — issue-525 unit (branch `issue-525`; this round ships `DECISIONS/D-0100.md` over checkpoint `0629bd7` and moves the delivery gate out of the `install` target per #525, and its #526 review round ships `DECISIONS/D-0102.md` over checkpoint `9d9da25`, which moves the gate-then-install guarantee from a goal ordering onto the `install-verified` prerequisite edge; the open-PR board count at this re-heading is a fresh dated read, 24 Nov, raw JSON counted in python: ZERO open pull requests — #521 read `MERGED` and its merge commit `cfebe3c` is the head this branch was cut from — so this round owns the single `#` under the live-parent rule and the #521 round-3 head is demoted in place beneath, its `Recorded heading:` a verbatim copy and its section bodies byte-kept; the one census absence this demotion authors is the old level-1 heading row itself, spent by the demotion per the stamped-Record convention; gate verdicts and the post-push review state ride the pull-request body, never this file (#1180); merging belongs to the supervisor and this unit merged nothing.)
+
+## What this unit shipped
+
+- `Makefile`: `install` depends on `build` now, not `verify`; the internal `$(MAKE) build`
+  call is gone with its job taken by the prerequisite; the comment over the target carries
+  the measured cost (3m9s where the prerequisite was written; 7m08s on the 24 Nov box with
+  the run aborted midway); and the #526 review round added `install-verified`, whose
+  `verify` prerequisite edge is what orders gate-then-install under `-j`, `-k`, `MAKEFLAGS`.
+- `README.md` and `docs/setup.md`: the two sentences that claimed `make install` runs the
+  gate first now state what runs, and print `sudo make install-verified` for operators who
+  want the gate before the install — never the goal pair, see the review-round record.
+- `DECISIONS/D-0100.md` (dated Correction) and `DECISIONS/D-0102.md`: options, losses, the
+  tzdata-2026f disclosure, rollback; trailers `Decision: D-0100`/`0629bd7`, `Decision: D-0102`/`9d9da25`.
+- Verified before editing, not argued: no CI job invokes the install target, packaging
+  stages `deploy/install.sh` directly under DESTDIR, and `run-dev` keeps its `verify`
+  prerequisite — the automated paths never went through this target and still verify
+  themselves; the review round also re-pointed the `run-dev` comment's stale claim.
+
+## What is still owed (all of it, none silent)
+
+- Refs #525 — unfinished on this branch until the merge lands: the ticket's only remaining
+  step is the supervisor's merge, and the pull-request body carries the closing keyword for
+  it.
+- The supervisor merges; this unit merged nothing and asked no reviewer — the ask is the
+  poke's, per AGENTS.md; this review round's push retargets that review onto the new head.
+- Gate verdicts must be quoted from the runs themselves in the pull body after the final
+  push; a pre-push prediction is a prophecy (#1180), and `gh pr checks` rc is not a verdict.
+- This box carries tzdata 2026f while CI pins 2026e, and `internal/schedule`'s
+  `TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight` refuses on `America/Havana` under
+  2026f (measured 24 Nov: rc 1 host database, rc 0 with `ZONEINFO` aimed at the digest-
+  verified pinned 2026e pair). Any future `make verify` on this host needs the same
+  `ZONEINFO` override or the pinned pair installed; following tzdata is the pin re-cut the
+  pin's own entry assigns to a maintainer, and this unit changed no pin.
+- The #521 board head demoted below keeps its owed rows; they are still that round's hand
+  to the next conflict tick, not retired by this re-heading.
+
+## Constraints a stranger would break
+
+- Do not re-add `verify` as `install`'s prerequisite to "restore the safety comment": the
+  prerequisite was a decided choice, #525 retired it, and `D-0100` carries the loss and
+  rollback. `make install-verified` is the shipped shape of the guarantee; `D-0102` measured
+  the goal pair `make verify install` false under `-j`, so do not resurrect it in prose.
+- Do not "fix" the Havana failure by narrowing the candidate-zone guard in
+  `internal/schedule`: the guard fired exactly as designed against an unpinned database;
+  the honest repairs are the pinned `ZONEINFO`/tzdata, or a maintainer's re-cut of the pin.
+- Nothing outside `issue-525`'s three files and its decision files is this branch's to
+  touch; `run-dev`'s `verify` prerequisite is deliberate.
+
+## Record — conflict PR #521 tick, round 3, demoted in place by the issue-525 unit on 2026-11-24; #521 read `MERGED` into main at the head this branch was cut from (`cfebe3c`), counted from the raw open-PR JSON (zero open rows) at this re-heading; its original heading is recorded verbatim below and its section bodies are byte-kept beneath
+
+Recorded heading: # NEXT — conflict PR #521 tick, round 3 (branch `wip/issue-204-dropped-6bfd528`, unit `conflict:521`; this round ships `DECISIONS/D-0098.md` over checkpoint `9e0b2cb`, merges `origin/main` `799d810ef0be6f448173d7b1d2d4023f68ce5ee6` — the #524 merge — and adjudicates the one-file junction that merge produced: `git merge-tree --write-tree --name-only origin/main HEAD` (run before any write) named `NEXT.md` alone, and `git diff HEAD origin/main -- NEXT.md` showed the parents' stacks share every byte outside the board region, the doubly-demoted `#522` row seated in two forms, and the branch-only round-1 record seated between it and the `issue-393` row. Junction per `D-0097`'s live-parent rule, re-measured 2026-11-23 rather than quoted: raw open-PR JSON counted in python answers ONE row at this re-heading — #521 — #524 having read back `MERGED 2026-11-23T17:25:21Z` at merge commit `799d810ef0be6f448173d7b1d2d4023f68ce5ee6`, so this round owns the single `#`; both parents' live heads are demoted in place beneath it as stamped `## Record —` rows, each carrying a `Recorded heading:` verbatim copy of its original and its section bodies byte-kept; the doubly-demoted `#522` row is kept once on trunk's bytes and this branch's `Recorded-heading`-form variant rows are dropped, disclosed in `D-0098` because a byte census cannot tell an adjudication from a loss; the branch-only round-1 record survives whole between the `#522` row and the `issue-393` row, and no other ref carries it. #521's review blocking 1 is taken into the board it points at: this board's live constraint sentence is re-aimed from `D-0016`/`D-0054` to `D-0033` per `D-0053`'s dated Correction, whose Correction is also the annotation the two byte-kept record copies of the old sentence now carry; `D-0053`'s board-region pointer is re-aimed off the unfilled `H-0407` hole (a mis-fired allocation `D-0097` disclosed) onto the rounds that actually re-headed, `D-0097`'s and this `D-0098`'s. Live reads at this re-heading, each raw JSON read alone after the write it follows: `gh pr view 521` answered `OPEN`, `CHANGES_REQUESTED`, `CONFLICTING`, `DIRTY`, head `dee4cbd89cbc4a8f16ae1914e62cd7fbe6842a37`, `isDraft:false` — this round's push moves that head and can spend what the review left standing, and the post-push review state is what the fresh read-back returns, never this file (#1180); gate verdicts and the post-push review state ride the pull-request body, never this file; merging belongs to the supervisor and this unit merged nothing.)
+
 
 ## What this unit shipped
 
@@ -5954,3 +6006,33 @@ line anyone cites, and the two hazard rows still answer to 540 and 543.
   here, and was written after this branch was stranded.
 - Do not sync this branch with `main` to make it mergeable: that manufactures a PR whose diff would
   be indistinguishable from trunk's own content and hides the drop verdict the body carries.
+
+## Review round of 24 Nov — the guarantee moves onto a prerequisite edge (#526, `D-0102`, checkpoint `9d9da25`)
+
+- The #526 review (hermesvicowa, `CHANGES_REQUESTED` at 15:34:16Z against head `13137be`)
+  measured that `make verify install` — the shipped guarantee — orders the two goals only
+  for a serial make; with `-j`, `-k` or `MAKEFLAGS` carrying a job count the installer ran
+  while the gate refused. This round reproduced it independently before touching a byte:
+  a fixture at the head's target shape (GNU Make 4.4.1) ran the installer under `-j8`, `-k`
+  and `MAKEFLAGS=-j4` with a red gate and under `-j2` on 1 of 5 runs (a race, not a clean
+  row); serial never did. On a clone of the real Makefile at head with `deploy/install.sh`
+  replaced by a probe, `make -j8 verify install` printed the probe while the gate was still
+  at `==> factory dirt verdict`, where the serial control never reached it. Receipts,
+  including the full red-gate run (gate rc 2, installer had run), are on the pull request.
+- Shipped: `install-verified` (a `verify` prerequisite; a recursive-make recipe so it cannot
+  drift from plain `install`), `.PHONY` extended, the comment over `install` re-aimed with
+  the goal-order measurement, `README.md` and `docs/setup.md` printing `sudo make
+  install-verified`, the `run-dev` comment's stale "it is one for install" cross-reference
+  re-pointed, a dated Correction appended to `DECISIONS/D-0100.md` (its body, `Chose:` and
+  rollback untouched — rewriting them would falsify what `13137be` decided), and
+  `DECISIONS/D-0102.md`. The order-only-prerequisite alternative was measured, not waved
+  at: a bare `make install-orderonly` fixture ran the gate before the probe, so it restores
+  the minutes-long battery to the everyday path #525 was filed against. `D-0100`'s decision,
+  loss statement and rollback stand; the allocator stepped over `D-0101` (journalled 24 Nov
+  by `unclaimed:525`, the round whose entry was never filed) and answered `D-0102`.
+- Head-region edits to this file were made line-for-line (`wc -l` unmoved at this writing
+  apart from this appended section) so the un-gated `NEXT.md:NNN` pointers in
+  `factory/DECISIONS.md` land exactly where they landed before this commit; several were
+  already stale at this head and this round neither repairs nor further drifts them.
+- Still owed: the re-review of the new head, which belongs to the supervisor's poke; and
+  every row above this section stands unchanged.
